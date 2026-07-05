@@ -349,8 +349,10 @@ test_worktree_path_resolves_id() {
 }
 
 test_json_get_ignores_undocumented_terminal_id_shapes() {
-  local out status wt_id wt_path term
+  local out status wt_id wt_path term proj_dir
   orca_case parser-pruned-terminal-shapes
+  proj_dir="$CASE_DIR/project"
+  mkdir -p "$proj_dir"
 
   set +e
   out=$( printf '{"ok":true,"result":{"id":"term-root-id"}}\n' | \
@@ -363,7 +365,7 @@ test_json_get_ignores_undocumented_terminal_id_shapes() {
   printf '{"ok":true,"result":{"repo":{"id":"repo-123"}}}\n' > "$RESP/2.out"
   printf '{"ok":true,"result":{"worktree":{"id":"wt-123","path":"/tmp/orca-wt","terminal":{"handle":"term-nested"}}}}\n' > "$RESP/3.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create /repo/path fm-task' "$ROOT" )
+    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create "$1" fm-task' "$ROOT" "$proj_dir" )
   wt_id=${out%%$'\t'*}
   wt_path=${out#*$'\t'}
   term=${wt_path#*$'\t'}
@@ -375,14 +377,17 @@ test_json_get_ignores_undocumented_terminal_id_shapes() {
 }
 
 test_worktree_and_terminal_helpers_parse_json() {
-  local out wt_id wt_path term
+  local out wt_id wt_path term proj_dir proj_phys
   orca_case lifecycle-helpers
+  proj_dir="$CASE_DIR/project"
+  mkdir -p "$proj_dir"
+  proj_phys=$(cd "$proj_dir" && pwd -P)
   printf '1\n' > "$RESP/1.exit"
   printf '{"ok":true,"result":{"repo":{"id":"repo-123"}}}\n' > "$RESP/2.out"
   printf '{"ok":true,"result":{"worktree":{"id":"wt-123","path":"/tmp/orca-wt"}}}\n' > "$RESP/3.out"
   printf '{"ok":true,"result":{"terminal":{"handle":"term-123"}}}\n' > "$RESP/4.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create /repo/path fm-task' "$ROOT" )
+    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create "$1" fm-task' "$ROOT" "$proj_dir" )
   wt_id=${out%%$'\t'*}
   wt_path=${out#*$'\t'}
   [ "$wt_id" = wt-123 ] || fail "worktree helper should print worktree id, got '$wt_id'"
@@ -390,10 +395,10 @@ test_worktree_and_terminal_helpers_parse_json() {
   term=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
     bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_terminal_create wt-123 fm-task' "$ROOT" )
   [ "$term" = term-123 ] || fail "terminal helper should print terminal handle, got '$term'"
-  assert_contains "$(cat "$LOG")" $'orca\x1f''repo'$'\x1f''show'$'\x1f''--repo'$'\x1f''path:/repo/path'$'\x1f''--json' \
-    "worktree helper should first check repo registration"
-  assert_contains "$(cat "$LOG")" $'orca\x1f''repo'$'\x1f''add'$'\x1f''--path'$'\x1f''/repo/path'$'\x1f''--json' \
-    "worktree helper should register an absent repo"
+  assert_contains "$(cat "$LOG")" "path:$proj_phys" \
+    "worktree helper should pass the physical project path to orca repo show"
+  assert_contains "$(cat "$LOG")" $'orca\x1f''repo'$'\x1f''add'$'\x1f''--path'$'\x1f'"$proj_phys"$'\x1f''--json' \
+    "worktree helper should register an absent repo using the physical path"
   assert_contains "$(cat "$LOG")" $'orca\x1f''worktree'$'\x1f''create'$'\x1f''--repo'$'\x1f''id:repo-123'$'\x1f''--name'$'\x1f''fm-task'$'\x1f''--no-parent'$'\x1f''--setup'$'\x1f''skip'$'\x1f''--json' \
     "worktree helper did not create an independent no-hook worktree"
   assert_contains "$(cat "$LOG")" $'orca\x1f''terminal'$'\x1f''create'$'\x1f''--worktree'$'\x1f''id:wt-123'$'\x1f''--title'$'\x1f''fm-task'$'\x1f''--json' \
@@ -402,13 +407,15 @@ test_worktree_and_terminal_helpers_parse_json() {
 }
 
 test_worktree_create_removes_worktree_when_path_missing() {
-  local out status
+  local out status proj_dir
   orca_case lifecycle-missing-path
+  proj_dir="$CASE_DIR/project"
+  mkdir -p "$proj_dir"
   printf '1\n' > "$RESP/1.exit"
   printf '{"ok":true,"result":{"repo":{"id":"repo-no-path"}}}\n' > "$RESP/2.out"
   printf '{"ok":true,"result":{"worktree":{"id":"wt-no-path"},"terminal":{"handle":"term-no-path"}}}\n' > "$RESP/3.out"
   out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
-    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create /repo/path fm-task' "$ROOT" 2>&1 )
+    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_worktree_create "$1" fm-task' "$ROOT" "$proj_dir" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "worktree helper should fail when Orca omits the worktree path"
   assert_contains "$out" "orca worktree create did not return a path for fm-task" \
@@ -1256,6 +1263,27 @@ test_dispatcher_sources_orca_and_routes_primitives() {
   pass "fm-backend dispatcher: accepts orca and routes capture through bin/backends/orca.sh"
 }
 
+test_repo_ensure_resolves_symlinked_project_to_physical_path() {
+  local canonical phys_canonical symlink out log_text
+  orca_case repo-ensure-realpath
+  canonical=$(mktemp -d)
+  phys_canonical=$(cd "$canonical" && pwd -P)
+  symlink="$CASE_DIR/symlink-project"
+  ln -s "$canonical" "$symlink"
+  printf '1\n' > "$RESP/1.exit"
+  printf '{"ok":true,"result":{"repo":{"id":"repo-canonical"}}}\n' > "$RESP/2.out"
+  out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
+    bash -c '. "$0/bin/backends/orca.sh"; fm_backend_orca_repo_ensure "$1"' "$ROOT" "$symlink" )
+  [ "$out" = "repo-canonical" ] || fail "repo_ensure should return the repo id, got '$out'"
+  log_text=$(cat "$LOG")
+  assert_not_contains "$log_text" "path:$symlink" \
+    "repo_ensure must not pass the symlink path to orca"
+  assert_contains "$log_text" "path:$phys_canonical" \
+    "repo_ensure must pass the physical canonical path to orca"
+  rm -rf "$canonical"
+  pass "fm_backend_orca_repo_ensure: resolves symlinked project dir to its physical path before Orca calls"
+}
+
 test_capture_reads_terminal_tail_json
 test_capture_falls_back_to_text_fields
 test_capture_fails_on_orca_error_json
@@ -1277,6 +1305,7 @@ test_remove_worktree_refuses_empty_id
 test_remove_worktree_rejects_orca_error_json
 test_worktree_path_resolves_id
 test_dispatcher_sources_orca_and_routes_primitives
+test_repo_ensure_resolves_symlinked_project_to_physical_path
 test_json_get_ignores_undocumented_terminal_id_shapes
 test_worktree_and_terminal_helpers_parse_json
 test_worktree_create_removes_worktree_when_path_missing

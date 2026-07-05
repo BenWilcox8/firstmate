@@ -107,16 +107,20 @@ fm_backend_orca_run_json() {
 }
 
 fm_backend_orca_repo_ensure() {  # <project-path>
-  local project=$1 out repo_id
+  local project=$1 out repo_id phys
   fm_backend_orca_tool_check || return 1
-  out=$(orca repo show --repo "path:$project" --json 2>/dev/null || true)
+  phys=$(cd "$project" && pwd -P) || {
+    echo "error: cannot resolve physical path for $project" >&2
+    return 1
+  }
+  out=$(orca repo show --repo "path:$phys" --json 2>/dev/null || true)
   if repo_id=$(printf '%s' "$out" | fm_backend_orca_json_get repo-id 2>/dev/null); then
     printf '%s' "$repo_id"
     return 0
   fi
-  out=$(orca repo add --path "$project" --json) || return 1
+  out=$(orca repo add --path "$phys" --json) || return 1
   repo_id=$(printf '%s' "$out" | fm_backend_orca_json_get repo-id) || {
-    echo "error: orca repo add did not return a repo id for $project" >&2
+    echo "error: orca repo add did not return a repo id for $phys" >&2
     return 1
   }
   printf '%s' "$repo_id"
