@@ -22,6 +22,7 @@ When bootstrap resolves Orca from `FM_BACKEND=orca` or `config/backend=orca`, it
 First run: before spawn mutates any repo or worktree state, firstmate runs `orca status --json` and requires the app to report `reachable=true` and `state="ready"` - start the Orca app and wait for it to finish loading before spawning.
 Spawn fails closed if the runtime is not ready.
 The first spawn against a given project also auto-registers that project's repo in Orca (`orca repo add --path`) if it is not already registered - no manual registration step is needed.
+The project directory is resolved to its physical path (`cd <dir> && pwd -P`) before any Orca repo lookup or registration call, so a secondmate home that points at the primary's project clone via a symlink reuses the canonical project's existing Orca registration instead of creating a duplicate entry.
 
 Watching and attaching: Orca owns both the worktree and the terminal for its tasks, so there is nothing to attach to outside the Orca app itself - open the app and find the terminal for the task (recorded as `terminal=<handle>` in the task's meta, with `window=fm-<id>` as the shared firstmate alias).
 You do not need to open the app for routine supervision: `bin/fm-peek.sh fm-<id>` reads a task's terminal without opening Orca, and `bin/fm-send.sh fm-<id> "<text>"` steers it (Enter and Ctrl-C are supported; Escape is not).
@@ -67,7 +68,8 @@ The recorded `backend=orca` field tells shared call sites to route capture, send
 
 Spawn:
 
-1. Ensure the project repo is registered in Orca, adding it with `orca repo add --path` when needed.
+1. Resolve the project directory to its physical path via `cd <dir> && pwd -P`, then ensure that physical path is registered as a repo in Orca, adding it with `orca repo add --path` when needed.
+   This physical-path resolution prevents secondmate homes - which symlink to the primary's project clone - from registering duplicate Orca repos under the symlink path.
 2. Create an independent Orca worktree with `orca worktree create --repo id:<repo> --name fm-<id> --no-parent --setup skip`.
 3. Reuse the terminal returned by Orca worktree creation only when it appears in the verified `result.terminal.handle` shape, or create a titled terminal in that worktree when Orca returns only the worktree.
 4. Install firstmate's per-harness turn-end hooks in the Orca worktree.
@@ -112,7 +114,8 @@ Fake-Orca tests cover:
 - `fm-peek.sh`, `fm-send.sh`, and `fm-crew-state.sh` routing through recorded Orca metadata;
 - slash-command popup placeholder handling that requires a second Enter before `fm-send.sh` reports submission;
 - scout teardown releasing an Orca worktree through `orca worktree rm`;
-- ship teardown failing closed when the recorded Orca worktree id is missing, cannot resolve to a path, or resolves to a different path than `worktree=`.
+- ship teardown failing closed when the recorded Orca worktree id is missing, cannot resolve to a path, or resolves to a different path than `worktree=`;
+- `fm_backend_orca_repo_ensure` resolving a symlinked project directory to its physical path before passing it to Orca, confirming a symlink and its canonical target register under the same physical path.
 
 Run the focused suite with:
 
