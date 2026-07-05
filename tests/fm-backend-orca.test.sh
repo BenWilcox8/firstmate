@@ -1266,7 +1266,8 @@ test_dispatcher_sources_orca_and_routes_primitives() {
 test_repo_ensure_resolves_symlinked_project_to_physical_path() {
   local canonical phys_canonical symlink out log_text
   orca_case repo-ensure-realpath
-  canonical=$(mktemp -d)
+  canonical="$CASE_DIR/canonical"
+  mkdir "$canonical"
   phys_canonical=$(cd "$canonical" && pwd -P)
   symlink="$CASE_DIR/symlink-project"
   ln -s "$canonical" "$symlink"
@@ -1280,7 +1281,6 @@ test_repo_ensure_resolves_symlinked_project_to_physical_path() {
     "repo_ensure must not pass the symlink path to orca"
   assert_contains "$log_text" "path:$phys_canonical" \
     "repo_ensure must pass the physical canonical path to orca"
-  rm -rf "$canonical"
   pass "fm_backend_orca_repo_ensure: resolves symlinked project dir to its physical path before Orca calls"
 }
 
