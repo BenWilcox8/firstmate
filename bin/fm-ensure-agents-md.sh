@@ -24,6 +24,7 @@ usage() {
 
 SKILL_NAME=""
 DIR="."
+DIR_SET=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     -h|--help)
@@ -37,6 +38,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     --skill=*)
       SKILL_NAME=${1#--skill=}
+      [ -n "$SKILL_NAME" ] || { echo "error: --skill requires a name" >&2; usage; exit 1; }
       ;;
     -*)
       echo "error: unknown flag: $1" >&2
@@ -44,7 +46,9 @@ while [ "$#" -gt 0 ]; do
       exit 1
       ;;
     *)
+      [ "$DIR_SET" -eq 0 ] || { echo "error: unexpected argument: $1" >&2; usage; exit 1; }
       DIR=$1
+      DIR_SET=1
       ;;
   esac
   shift
@@ -168,7 +172,7 @@ ensure_skill() {
   if [ -L ".claude/skills" ]; then
     target=$(readlink ".claude/skills")
     case "$target" in
-      "../.agents/skills"|".agents/skills") : ;;
+      "../.agents/skills") : ;;
       *)
         echo "conflict: .claude/skills is a symlink in $DIR but does not point to ../.agents/skills" >&2
         exit 1
