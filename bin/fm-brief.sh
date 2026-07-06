@@ -27,7 +27,10 @@
 # Ship briefs begin with a worktree-isolation assertion before the branch step.
 # Scout tasks ignore mode - their deliverable is a report, not a merge.
 # Ship tasks include a project-memory section so durable project-intrinsic
-# learnings can be committed to AGENTS.md through the project's delivery path.
+# learnings can be committed through the project's delivery path: general
+# operating facts go inline in AGENTS.md, while situation-specific subsystem
+# contracts (or any growth past the size threshold) route into project skills
+# via `fm-ensure-agents-md.sh --skill` (see docs/project-skills.md).
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -254,8 +257,10 @@ $RULE1
 
 # Project memory
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
-If this task produced durable project-intrinsic knowledge, record it in \`AGENTS.md\` as part of your change.
-Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
+If this task produced durable project-intrinsic knowledge, record it as part of your change, routed by size and specificity:
+- A general, always-needed operating fact (build, test, release, a cross-cutting convention, a sharp edge) while \`AGENTS.md\` is still small (under ~300 lines / ~10k tokens): record it inline in \`AGENTS.md\`.
+- A situation-specific subsystem/script/screen contract, OR \`AGENTS.md\` already over that threshold: do NOT append to \`AGENTS.md\`. Run \`$FM_ROOT/bin/fm-ensure-agents-md.sh . --skill <subsystem>\`, write the contract into \`.agents/skills/<subsystem>/SKILL.md\` (\`user-invocable: false\`), and add or keep a one-line entry for it under a \`## Skills\` index in \`AGENTS.md\` (one line stating when to load it). See \`$FM_ROOT/docs/project-skills.md\`.
+Keep it proportionate: skip project-memory edits for trivial tasks that produced no durable project knowledge.
 
 $DOD
 EOF

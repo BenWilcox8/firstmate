@@ -355,6 +355,13 @@ These are facts that help any agent working in the repo and should travel with t
 This knowledge lives in the project's committed `AGENTS.md`.
 A project's `AGENTS.md` is the real file; `CLAUDE.md` is a symlink to it.
 
+Project-intrinsic knowledge splits by whether every agent needs it on every spawn, because the project `AGENTS.md` is auto-loaded into every crewmate's context for that project.
+Always-needed operating facts (build, test, release, cross-cutting conventions, sharp edges) stay inline in `AGENTS.md`.
+Situation-specific detail - a single subsystem, script, or screen contract that only matters when working that area - belongs in a project skill under the project's own `.agents/skills/<name>/SKILL.md` (`user-invocable: false`, with a `.claude/skills` symlink), mirroring firstmate's own `.agents/skills/` pattern, and is surfaced by a one-line entry under a `## Skills` index in `AGENTS.md`.
+The trigger is size or specificity: once `AGENTS.md` grows past ~300 lines / ~10k tokens, or the new knowledge is a self-contained subsystem contract, route it to a skill instead of appending inline.
+Crewmates create these skills through the brief's project-memory contract (section 11) via `bin/fm-ensure-agents-md.sh --skill <name>`; firstmate never hand-writes them, exactly as with `AGENTS.md` itself.
+The mechanism, threshold rationale, and precedent live in `docs/project-skills.md`.
+
 **Fleet and captain-private knowledge** belongs to firstmate.
 Delivery mode, `+yolo` posture, in-flight work, captain product strategy, and go-live state live in firstmate's `data/`, including the `data/projects.md` registry line and any planning docs.
 Do not put that knowledge in the project.
@@ -377,7 +384,8 @@ Route each piece of durable knowledge to its most specific home:
 | Kind of knowledge | Home |
 | --- | --- |
 | Captain preferences and working style | `data/captain.md` |
-| Project-intrinsic knowledge | that project's own `AGENTS.md`, via normal crewmate delivery, never hand-written by firstmate |
+| Project-intrinsic knowledge (always-needed operating facts) | that project's own `AGENTS.md`, via normal crewmate delivery, never hand-written by firstmate |
+| Project-intrinsic knowledge (situation-specific subsystem/script/screen contract, or `AGENTS.md` past ~300 lines / ~10k tokens) | that project's own `.agents/skills/<name>/SKILL.md`, indexed by one line in the project `AGENTS.md`, via normal crewmate delivery (`bin/fm-ensure-agents-md.sh --skill`); see `docs/project-skills.md` |
 | Fleet-local operational facts and gotchas | `data/learnings.md` |
 | Knowledge generalizable to every firstmate user | the shared `AGENTS.md`, shipped via PR through the pipeline |
 | Task-scoped notes | backlog item notes (`tasks-axi update <id> --append "<note>"`, or hand-edit per the active backend) |
@@ -824,7 +832,7 @@ The ship-brief Setup opens with a worktree-isolation assertion ahead of the bran
 For a ship task the definition of done is shaped by the project's delivery mode (section 6): `no-mistakes` stops after the implementation commit, then firstmate triggers the harness-appropriate no-mistakes validation pipeline; `direct-PR` has the crewmate push and open the PR itself, and `local-only` has it stop at "ready in branch" for firstmate to review and merge locally.
 The no-mistakes brief points to no-mistakes' version-matched guidance and keeps only firstmate-specific wrapper rules for `ask-user` escalation, `--yes` avoidance, and the CI-green done line.
 The scaffold reads the mode via `fm-project-mode.sh`, so you do not pass it.
-Ship briefs also include the project-memory contract: run `bin/fm-ensure-agents-md.sh` when the project already has agent-memory files or when the task produced durable project-intrinsic knowledge, then record proportionate learnings in `AGENTS.md`.
+Ship briefs also include the project-memory contract: run `bin/fm-ensure-agents-md.sh` when the project already has agent-memory files or when the task produced durable project-intrinsic knowledge, then record proportionate learnings routed by the section 6 split - always-needed operating facts inline in `AGENTS.md`, situation-specific subsystem contracts (or any growth past the size threshold) into a project skill via `bin/fm-ensure-agents-md.sh --skill <name>`.
 For scout tasks add `--scout`: the scaffold swaps the definition of done for the report contract (findings to `data/<id>/report.md`, no branch, no push, no PR) and declares the worktree scratch; scout is mode-agnostic.
 Scout briefs do not include the project-memory step, because their deliverable is a report rather than a committed project change.
 For secondmates use `bin/fm-brief.sh <id> --secondmate <project>...`.
