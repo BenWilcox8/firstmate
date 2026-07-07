@@ -73,8 +73,8 @@ LOG_FILE="$STATE_DIR/submitted.log"
 . "$DAEMON"
 
 # Private tmux server with a supervisor session.
-"$REAL_TMUX" -L "$SOCKET" new-session -d -s supervisor -x 200 -y 50
-SUPERVISOR_PANE=$("$REAL_TMUX" -L "$SOCKET" display-message -p -t supervisor '#{pane_id}')
+"$REAL_TMUX" -f /dev/null -L "$SOCKET" new-session -d -s supervisor -x 200 -y 50
+SUPERVISOR_PANE=$("$REAL_TMUX" -f /dev/null -L "$SOCKET" display-message -p -t supervisor '#{pane_id}')
 
 # Supervisor pane loop: a small deterministic composer that logs each submitted
 # line verbatim (hex + text + classification). It draws the in-progress input
@@ -145,9 +145,9 @@ if [ "\${1:-}" = "send-keys" ] && [ -f "$STATE_DIR/.swallow-enter" ]; then
     fi
     _args+=("\$_arg")
   done
-  exec "$REAL_TMUX" -L "$SOCKET" send-keys "\${_args[@]}"
+  exec "$REAL_TMUX" -f /dev/null -L "$SOCKET" send-keys "\${_args[@]}"
 fi
-exec "$REAL_TMUX" -L "$SOCKET" "\$@"
+exec "$REAL_TMUX" -f /dev/null -L "$SOCKET" "\$@"
 SHIM
 chmod +x "$TMUX_SHIM_DIR/tmux"
 
