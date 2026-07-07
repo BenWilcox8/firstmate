@@ -479,6 +479,8 @@ bin/fm-spawn.sh <id> projects/<repo> --backend zellij # experimental zellij back
 bin/fm-spawn.sh <id> projects/<repo> --backend orca   # experimental Orca backend (docs/orca-backend.md); Orca owns worktree + terminal; Escape unsupported
 bin/fm-spawn.sh <id> projects/<repo> --backend cmux   # experimental cmux backend (docs/cmux-backend.md); GUI-first macOS-only, treehouse still owns worktree; requires a one-time socket-access setup (docs/cmux-backend.md "Setup")
 # backend=codex-app is not accepted yet; see docs/codex-app-backend.md.
+bin/fm-spawn.sh <id> projects/<repo> --label "crew: fix login"   # herdr-only: human-readable tab display label (default fm-<id>); no-op on tmux and every non-herdr backend
+bin/fm-spawn.sh <id> projects/<repo> --workspace-label "2nd: myproject"   # herdr-only: human-readable workspace display label for this home (persisted at home root); no-op on non-herdr backends
 bin/fm-spawn.sh <id> projects/<repo> --scout     # scout task; records kind=scout in meta
 bin/fm-spawn.sh <id> --secondmate                 # launch a registered persistent secondmate in its home
 bin/fm-spawn.sh <id> <firstmate-home> --secondmate   # launch or recover an explicit secondmate home
@@ -841,6 +843,7 @@ Scout briefs do not include the project-memory step, because their deliverable i
 For secondmates use `bin/fm-brief.sh <id> --secondmate <project>...`.
 The scaffold writes a charter brief instead of a task brief.
 Set `FM_SECONDMATE_CHARTER='<charter>'` to fill the charter text and `FM_SECONDMATE_SCOPE='<scope>'` when the routing scope differs.
+Set `FM_SECONDMATE_NAME='<desc>'` to give the secondmate a human-readable agent name following the captain's convention ("Secondmate, <desc>"); absent means no name line is added, byte-identical to pre-knob behavior.
 If you scaffold without `FM_SECONDMATE_CHARTER`, replace the `{TASK}` placeholder before seeding.
 Keep the charter focused on persistent responsibility, available project clones, escalation back to the main firstmate status file, and the idle-by-default contract: reconcile only its own in-flight work and then wait, never self-initiating a survey or audit.
 Preserve the requests-from-main-firstmate contract in the charter: marked requests return via status or a doc pointer, while unmarked direct captain messages stay conversational.
