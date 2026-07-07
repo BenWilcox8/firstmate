@@ -39,8 +39,11 @@ A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herd
 A zellij task additionally records `zellij_session=`, `zellij_tab_id=`, and `zellij_pane_id=`.
 An Orca task additionally records `orca_worktree_id=` and `terminal=`, with `window=fm-<id>` kept as the shared firstmate alias.
 A cmux task additionally records `cmux_workspace_id=` and `cmux_surface_id=`.
-Herdr workspaces are derived from `FM_HOME`: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
-Spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Herdr workspace labels are derived from `FM_HOME`: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
+A persisted `.fm-herdr-workspace-label` at the home's root overrides that derived label with a human-readable display label (e.g. `2nd: onestopgreek`), which firstmate writes once via `bin/fm-spawn.sh`'s `--workspace-label`; find and create both resolve through the same label function, so the workspace stays locatable across respawns.
+Spawn and recovery read that workspace label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Herdr TAB labels are free-form human-readable display text supplied by `bin/fm-spawn.sh`'s `--label` (e.g. `crew: fix login`), defaulting to `fm-<id>` when omitted; both `--label` and `--workspace-label` are herdr-only and no-ops on every other backend (tmux window names stay `fm-<id>`).
+Because labels are display-only, herdr task identity - the duplicate/husk check and `list-live` recovery - keys on the meta-recorded `herdr_tab_id=`, never on the label (see [`docs/herdr-backend.md`](herdr-backend.md)).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
 For normal zellij operations, `FM_ZELLIJ_SESSION` selects the named session and defaults to `firstmate`.

@@ -75,8 +75,17 @@ done
 SECONDMATE_CHARTER=${FM_SECONDMATE_CHARTER:-"{TASK}"}
 SECONDMATE_SCOPE=${FM_SECONDMATE_SCOPE:-${FM_SECONDMATE_CHARTER:-"{TASK}"}}
 PROJECT_LIST=$(printf '%s\n' "$SECONDMATE_PROJECTS" | tr ' ' '\n' | sed 's/^/- /')
+# FM_SECONDMATE_NAME auto-names the agent per the captain's convention (every
+# secondmate is named "Secondmate, <desc>"). When unset, the identity line is
+# byte-identical to the pre-knob charter: SECONDMATE_NAME_LINE stays empty, so
+# nothing - not even a blank line - is added.
+SECONDMATE_NAME_LINE=""
+if [ -n "${FM_SECONDMATE_NAME:-}" ]; then
+  SECONDMATE_NAME_LINE="
+Your agent name is \"Secondmate, $FM_SECONDMATE_NAME\" - use it as your name (the captain's convention: every secondmate is named \"Secondmate, <desc>\")."
+fi
 cat > "$BRIEF" <<EOF
-You are a secondmate: a persistent domain supervisor managed by the main firstmate. Work on your own; do not wait for a human.
+You are a secondmate: a persistent domain supervisor managed by the main firstmate. Work on your own; do not wait for a human.$SECONDMATE_NAME_LINE
 
 # Charter
 $SECONDMATE_CHARTER

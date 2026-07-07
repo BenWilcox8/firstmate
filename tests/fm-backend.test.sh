@@ -769,6 +769,42 @@ test_spawn_conformance_old_vs_new() {
   pass "fm-spawn.sh: tmux command log and printed summary line are byte-identical old vs new for a ship-task claude spawn"
 }
 
+# The herdr-only --label / --workspace-label knobs must be complete no-ops on
+# the default tmux backend: the tmux window stays fm-<id> and the whole spawn
+# (tmux command log + summary line) is byte-identical to a spawn without them.
+test_spawn_label_flags_are_tmux_noop() {
+  local fb proj wt data id log_plain log_labeled out_plain out_labeled
+  local state_plain state_labeled config_plain config_labeled
+  proj="$TMP_ROOT/spawn-label-project"; wt="$TMP_ROOT/spawn-label-wt"; data="$TMP_ROOT/spawn-label-data"
+  id="spawnlabel1"
+  fm_git_worktree "$proj" "$wt" "fm/$id"
+  fb=$(make_spawn_fakebin "$TMP_ROOT/spawn-label-fake" "$wt")
+  mkdir -p "$data/$id"
+  printf 'test brief content\n' > "$data/$id/brief.md"
+  state_plain="$TMP_ROOT/spawn-label-state-plain"; state_labeled="$TMP_ROOT/spawn-label-state-labeled"
+  config_plain="$TMP_ROOT/spawn-label-config-plain"; config_labeled="$TMP_ROOT/spawn-label-config-labeled"
+  mkdir -p "$state_plain" "$state_labeled" "$config_plain" "$config_labeled"
+  log_plain="$TMP_ROOT/spawn-label-plain.log"; log_labeled="$TMP_ROOT/spawn-label-labeled.log"
+
+  out_plain=$(run_spawn_case "$ROOT" "$fb" "$log_plain" "$state_plain" "$data" "$config_plain" "$proj" -- "$id" "$proj" claude 2>&1)
+  local rc_plain=$?
+  out_labeled=$(run_spawn_case "$ROOT" "$fb" "$log_labeled" "$state_labeled" "$data" "$config_labeled" "$proj" -- "$id" "$proj" claude --label "crew: fix login" --workspace-label "2nd: whatever" 2>&1)
+  local rc_labeled=$?
+
+  expect_code 0 "$rc_plain" "tmux spawn without label flags should succeed"$'\n'"$out_plain"
+  expect_code 0 "$rc_labeled" "tmux spawn WITH label flags should still succeed"$'\n'"$out_labeled"
+  [ "$out_plain" = "$out_labeled" ] || fail "fm-spawn.sh summary differs with vs without label flags on tmux"$'\n'"--- plain ---"$'\n'"$out_plain"$'\n'"--- labeled ---"$'\n'"$out_labeled"
+  assert_contains "$out_labeled" "window=firstmate:fm-$id" "tmux window name must stay fm-<id> regardless of --label"
+  diff -u "$log_plain" "$log_labeled" > "$TMP_ROOT/spawn-label-diff.txt" 2>&1 \
+    || fail "fm-spawn.sh: tmux command log differs with vs without label flags (must be a no-op)"$'\n'"$(cat "$TMP_ROOT/spawn-label-diff.txt")"
+  # The tmux window= meta line is the identity; label flags must not perturb it.
+  diff <(grep -v '^tasktmp=' "$state_plain/$id.meta") <(grep -v '^tasktmp=' "$state_labeled/$id.meta") >/dev/null 2>&1 \
+    || fail "fm-spawn.sh: task meta differs with vs without label flags on tmux (excluding the per-run tasktmp path)"
+
+  rm -rf "/tmp/fm-$id"
+  pass "fm-spawn.sh: --label / --workspace-label are byte-identical no-ops on the tmux backend"
+}
+
 # --- symlinked project prefix must not false-refuse the isolation guard -----
 #
 # docs/herdr-backend.md "Known gaps": a real backend's pane_current_path read
@@ -1066,6 +1102,7 @@ test_backend_of_selector_matches_explicit_target_meta
 test_send_conformance_old_vs_new
 test_peek_conformance_old_vs_new
 test_spawn_conformance_old_vs_new
+test_spawn_label_flags_are_tmux_noop
 test_spawn_symlinked_project_prefix_avoids_false_refusal
 test_teardown_conformance_old_vs_new
 test_spawn_refuses_unknown_backend_flag

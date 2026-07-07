@@ -96,26 +96,22 @@ printf '%s' "$POST_CREATE_TABS" | jq -e --arg t "$SEEDED_TAB_ID" '.result.tabs[]
   && fail "the seeded default tab ($SEEDED_TAB_ID) should have been pruned but is still present: $POST_CREATE_TABS"
 pass "real herdr: create_task prunes the freshly-created workspace's seeded default tab, leaving exactly one clean fm-<id> task tab"
 
-# NOTE: create_task no longer refuses EVERY same-labeled duplicate
-# unconditionally - a same-labeled tab whose pane hosts no registered agent is
-# now a close-and-replace candidate (the restored-layout husk fix below), so
-# testing "$LABEL"/$PANE_ID again here would actually succeed and silently
-# replace this suite's own primary task pane, which the rest of this file
-# still depends on ($TARGET, the restart-stability check, send/capture/kill).
-# The duplicate-refusal and husk-replacement behaviors are covered next,
-# each against its own independent throwaway tab.
+# NOTE: create_task keys its duplicate/husk decision on the META-RECORDED prior
+# tab id (5th arg), not the label. A fresh create_task with no prior tab id just
+# creates a new tab regardless of any same-labeled tab already present, so the
+# scenarios below pass the previously-created tab's id as the prior tab id to
+# exercise refusal (live) and close-and-replace (husk). Both throwaway tabs are
+# independent of $TAB_ID/$PANE_ID/$TARGET (this suite's primary task, which the
+# rest of the file still depends on), so neither scenario disturbs it.
 
 # --- restored-layout husk close-and-replace, against the REAL binary --------
 # (docs/herdr-backend.md "Known gaps" / "ID stability across a server
 # restart"). herdr persists and restores its whole session layout across a
-# server restart, and a restored fm-<id> task tab comes back a HUSK: a dead
-# pane, or (verified above and empirically in "ID stability") a plain
-# agent-less shell. Both throwaway tabs below are independent of $TAB_ID/
-# $PANE_ID/$TARGET (this suite's primary task, which the rest of the file
-# still depends on) so neither scenario disturbs it.
+# server restart, and a restored task tab comes back a HUSK: a dead pane, or
+# (verified above and empirically in "ID stability") a plain agent-less shell.
 
-# 1. A genuinely LIVE duplicate (a real registered agent, via herdr's own
-#    `pane report-agent`) must still refuse exactly as before.
+# 1. A genuinely LIVE prior tab (a real registered agent, via herdr's own
+#    `pane report-agent`) must refuse the respawn.
 LIVE_DUP_LABEL="fm-smoke-livedup"
 LIVE_DUP_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$LIVE_DUP_LABEL" /tmp) || fail "could not create the live-duplicate scenario's tab"
 read -r LIVE_DUP_TAB_ID LIVE_DUP_PANE_ID <<EOF
@@ -126,12 +122,12 @@ if [ -z "$LIVE_DUP_TAB_ID" ] || [ -z "$LIVE_DUP_PANE_ID" ]; then
 fi
 herdr pane report-agent "$LIVE_DUP_PANE_ID" --source fm-smoke-test --agent fm-smoke-live-agent --state idle --session "$SESSION" >/dev/null 2>&1 \
   || fail "could not register a live agent on the live-duplicate scenario's pane"
-if fm_backend_herdr_create_task "$CONTAINER" "$LIVE_DUP_LABEL" /tmp >/dev/null 2>&1; then
-  fail "REGRESSION: create_task should refuse a duplicate label whose pane hosts a genuinely live registered agent (idle counts as live)"
+if fm_backend_herdr_create_task "$CONTAINER" "$LIVE_DUP_LABEL" /tmp "" "$LIVE_DUP_TAB_ID" >/dev/null 2>&1; then
+  fail "REGRESSION: create_task should refuse a respawn whose recorded prior tab hosts a genuinely live registered agent (idle counts as live)"
 fi
 herdr pane get "$LIVE_DUP_PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
   || fail "REGRESSION: the live-duplicate scenario's pane should have survived the refused create_task call untouched"
-pass "real herdr: create_task refuses a same-labeled tab whose pane hosts a genuinely live registered agent (unchanged behavior)"
+pass "real herdr: create_task refuses a respawn whose recorded prior tab hosts a genuinely live registered agent (unchanged behavior)"
 fm_backend_herdr_kill "$SESSION:$LIVE_DUP_PANE_ID"
 
 # 2. A husk (no registered agent at all - the restored-plain-shell shape)
@@ -146,8 +142,8 @@ if [ -z "$HUSK_TAB_ID" ] || [ -z "$HUSK_PANE_ID" ]; then
 fi
 herdr agent get "$HUSK_PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
   && fail "husk-simulation setup is wrong: this pane should have NO registered agent yet"
-REPLACED_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$HUSK_LABEL" /tmp) \
-  || fail "REGRESSION: create_task should close-and-replace a same-labeled tab whose pane hosts no registered agent, not refuse it"
+REPLACED_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$HUSK_LABEL" /tmp "" "$HUSK_TAB_ID") \
+  || fail "REGRESSION: create_task should close-and-replace a recorded prior tab whose pane hosts no registered agent, not refuse it"
 read -r NEW_HUSK_TAB_ID NEW_HUSK_PANE_ID <<EOF
 $REPLACED_IDS
 EOF
@@ -203,8 +199,22 @@ if [ -z "$SM_TAB_ID" ] || [ -z "$SM_PANE_ID" ]; then
 fi
 pass "real herdr: a task spawned into the secondmate-shaped home lands as a tab inside the secondmate's OWN workspace"
 
-# list_live for each home must never see the OTHER home's task.
-PRIMARY_LIVE=$(fm_backend_herdr_list_live "$SESSION")
+# list_live is meta-id driven now: it identifies a home's task tabs from that
+# home's own state/<id>.meta records (herdr_session=/herdr_tab_id=), not a label
+# prefix. Give each home an isolated state dir holding exactly its own task's
+# meta, then assert list_live stays scoped to that home's own workspace AND only
+# reports tabs its metas actually record.
+PRIMARY_STATE="$SM_SCRATCH/primary-state"
+mkdir -p "$PRIMARY_STATE"
+printf 'backend=herdr\nherdr_session=%s\nherdr_tab_id=%s\n' "$SESSION" "$TAB_ID" > "$PRIMARY_STATE/primarytask.meta"
+mkdir -p "$SM_HOME/state"
+printf 'backend=herdr\nherdr_session=%s\nherdr_tab_id=%s\n' "$SESSION" "$SM_TAB_ID" > "$SM_HOME/state/smtask.meta"
+
+PRIMARY_LIVE=$(FM_STATE_OVERRIDE="$PRIMARY_STATE" fm_backend_herdr_list_live "$SESSION")
+case "$PRIMARY_LIVE" in
+  *"$LABEL"*) : ;;
+  *) fail "the primary home's list_live did not report its own recorded task"$'\n'"$PRIMARY_LIVE" ;;
+esac
 case "$PRIMARY_LIVE" in
   *"$SM_TASK_LABEL"*) fail "the primary home's list_live must not see a secondmate-shaped home's task"$'\n'"$PRIMARY_LIVE" ;;
 esac
@@ -216,7 +226,7 @@ esac
 case "$SM_LIVE" in
   *"$LABEL"*) fail "the secondmate-shaped home's list_live must not see the primary's task ($LABEL)"$'\n'"$SM_LIVE" ;;
 esac
-pass "real herdr: list_live stays scoped to each home's own workspace - neither home sees the other's tasks"
+pass "real herdr: list_live stays scoped to each home's own workspace and its own recorded task metas - neither home sees the other's tasks"
 
 # --- restart stability in the MULTI-workspace shape --------------------------
 # P2 (herdr-verification-p2.md "ID stability") verified this for a single
@@ -321,7 +331,7 @@ fi
 fm_backend_herdr_kill "$TARGET" || fail "kill on an already-dead target must stay best-effort (never fail)"
 pass "real herdr: kill removes the pane and is idempotent/best-effort"
 
-# --- list_live (label-based recovery discovery) ------------------------------
+# --- list_live (meta-id driven recovery discovery) ---------------------------
 
 # Real firstmate spawns always re-run container_ensure immediately before
 # create_task (bin/fm-spawn.sh), never reusing a container reference from an
@@ -336,13 +346,18 @@ SEEDED_TAB_ID=${CONTAINER_RAW#*$'\t'}
 [ -n "$SEEDED_TAB_ID" ] || fail "the workspace was deleted when its last tab was killed, so this container_ensure must CREATE a fresh one and report its seeded default tab id"
 LABEL2="fm-smoke2"
 TASK_IDS2=$(fm_backend_herdr_create_task "$CONTAINER" "$LABEL2" /tmp "$SEEDED_TAB_ID") || fail "second create_task failed"
-read -r _TAB_ID2 PANE_ID2 <<EOF
+read -r TAB_ID2 PANE_ID2 <<EOF
 $TASK_IDS2
 EOF
-live=$(fm_backend_herdr_list_live "$SESSION")
+# list_live keys on the meta-recorded tab id, so give it an isolated state dir
+# holding this task's own meta and confirm it discovers the live tab.
+LIST_STATE="$SM_SCRATCH/list-live-state"
+mkdir -p "$LIST_STATE"
+printf 'backend=herdr\nherdr_session=%s\nherdr_tab_id=%s\n' "$SESSION" "$TAB_ID2" > "$LIST_STATE/smoke2.meta"
+live=$(FM_STATE_OVERRIDE="$LIST_STATE" fm_backend_herdr_list_live "$SESSION")
 assert_contains_local() { case "$1" in *"$2"*) : ;; *) fail "$3"$'\n'"--- got ---"$'\n'"$1" ;; esac; }
-assert_contains_local "$live" "$LABEL2" "list_live did not report the freshly created task tab by label"
-pass "real herdr: list_live discovers a live task tab by fm-<id> label"
+assert_contains_local "$live" "$SESSION:$PANE_ID2" "list_live did not report the freshly created task tab resolved from its meta-recorded id"
+pass "real herdr: list_live discovers a live task tab from its meta-recorded tab id"
 
 fm_backend_herdr_kill "$SESSION:$PANE_ID2"
 

@@ -120,7 +120,10 @@ pass "repro confirmed: after a real session restart, both task panes survive ali
 
 # --- 3. BEFORE the fix this would refuse; now it closes-and-replaces -------
 
-RESPAWN_CREW_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$CREW_LABEL" "$PROJ_CWD") \
+# On respawn firstmate supplies this task's recorded prior tab id (from meta) as
+# the 5th arg; create_task reconciles that exact tab (id-based), closing the
+# restored husk and replacing it.
+RESPAWN_CREW_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$CREW_LABEL" "$PROJ_CWD" "" "$CREW_TAB_ID") \
   || fail "REGRESSION: create_task refused to respawn into the crewmate-shaped husk instead of closing-and-replacing it - this is the exact 2026-07-03 incident (manual pane close required)"
 read -r NEW_CREW_TAB_ID NEW_CREW_PANE_ID <<EOF
 $RESPAWN_CREW_IDS
@@ -134,7 +137,7 @@ if herdr pane get "$CREW_PANE_ID" --session "$SESSION" >/dev/null 2>&1; then
 fi
 pass "fixed: create_task closes and replaces the crewmate-shaped restored husk instead of refusing - no manual pane close needed"
 
-RESPAWN_SM_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$SM_LABEL" "$PROJ_CWD") \
+RESPAWN_SM_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$SM_LABEL" "$PROJ_CWD" "" "$SM_TAB_ID") \
   || fail "REGRESSION: create_task refused to respawn into the secondmate-shaped husk instead of closing-and-replacing it"
 read -r NEW_SM_TAB_ID NEW_SM_PANE_ID <<EOF
 $RESPAWN_SM_IDS
@@ -162,8 +165,8 @@ pass "fixed: the workspace holds exactly the 2 replacement tabs after both respa
 herdr pane report-agent "$NEW_CREW_PANE_ID" --source fm-respawn-e2e --agent fm-respawn-live-agent --state idle --session "$SESSION" >/dev/null 2>&1 \
   || fail "could not register a live agent on the respawned crewmate-shaped pane"
 
-if fm_backend_herdr_create_task "$CONTAINER" "$CREW_LABEL" "$PROJ_CWD" >/dev/null 2>&1; then
-  fail "REGRESSION: create_task should refuse a same-labeled tab whose pane hosts a genuinely live registered agent"
+if fm_backend_herdr_create_task "$CONTAINER" "$CREW_LABEL" "$PROJ_CWD" "" "$NEW_CREW_TAB_ID" >/dev/null 2>&1; then
+  fail "REGRESSION: create_task should refuse a respawn whose recorded prior tab hosts a genuinely live registered agent"
 fi
 if ! herdr pane get "$NEW_CREW_PANE_ID" --session "$SESSION" >/dev/null 2>&1; then
   fail "REGRESSION: the live-agent pane should have survived the refused create_task call untouched"

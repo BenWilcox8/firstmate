@@ -93,7 +93,44 @@ test_ship_project_memory_wording() {
   pass "fm-brief.sh: ship project-memory wording carries the AGENTS.md authoring bar"
 }
 
+# FM_SECONDMATE_NAME auto-names the secondmate agent in its charter identity
+# line, per the captain's convention (every secondmate is "Secondmate, <desc>").
+test_secondmate_charter_name_sets_identity() {
+  local home id brief
+  home="$TMP_ROOT/sm-name-home"
+  mkdir -p "$home/data"
+  id="brief-sm-name-d1"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER="triage OSG issues" FM_SECONDMATE_NAME="onestopgreek" \
+    "$ROOT/bin/fm-brief.sh" "$id" --secondmate some-proj >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "secondmate charter was not scaffolded"
+  assert_grep 'Your agent name is "Secondmate, onestopgreek"' "$brief" \
+    "FM_SECONDMATE_NAME did not name the agent in the charter identity line"
+  pass "fm-brief.sh: FM_SECONDMATE_NAME names the secondmate agent in the charter"
+}
+
+# Without FM_SECONDMATE_NAME the identity line is byte-identical to the pre-knob
+# charter: no naming sentence, not even a blank line.
+test_secondmate_charter_no_name_is_default() {
+  local home id brief first
+  home="$TMP_ROOT/sm-noname-home"
+  mkdir -p "$home/data"
+  id="brief-sm-noname-d2"
+  FM_HOME="$home" FM_SECONDMATE_CHARTER="triage OSG issues" \
+    "$ROOT/bin/fm-brief.sh" "$id" --secondmate some-proj >/dev/null 2>&1
+  brief="$home/data/$id/brief.md"
+  assert_present "$brief" "secondmate charter was not scaffolded"
+  assert_no_grep "Your agent name is" "$brief" \
+    "the charter must carry no naming line when FM_SECONDMATE_NAME is unset"
+  first=$(sed -n '1p' "$brief")
+  [ "$first" = "You are a secondmate: a persistent domain supervisor managed by the main firstmate. Work on your own; do not wait for a human." ] \
+    || fail "the default charter identity line changed: '$first'"
+  pass "fm-brief.sh: an unset FM_SECONDMATE_NAME leaves the charter identity line byte-identical"
+}
+
 test_script_parses
 test_ship_modes_generate_clean_briefs
 test_no_mistakes_dod_wording
 test_ship_project_memory_wording
+test_secondmate_charter_name_sets_identity
+test_secondmate_charter_no_name_is_default

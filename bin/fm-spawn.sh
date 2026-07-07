@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--label <text>] [--scout]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--label <text>] [--workspace-label <text>] --secondmate
+#   --label <text> is a human-readable herdr TAB display label (e.g. "crew: fix
+#   login", "secondmate: onestopgreek"). --workspace-label <text> is a
+#   human-readable herdr WORKSPACE display label persisted at a secondmate home
+#   (e.g. "2nd: onestopgreek"). Both are herdr-only DISPLAY text: task identity
+#   is the meta-recorded tab/pane/workspace ids, never the label, so recovery,
+#   husk, and duplicate detection are unaffected by free-form labels. Absent,
+#   the tab label defaults to fm-<id> and the workspace label to the derived
+#   firstmate/2ndmate-<id>, byte-identical to pre-knob behavior; both are no-ops
+#   on tmux and every non-herdr backend (tmux window names stay fm-<id>).
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -101,10 +110,14 @@ HARNESS_ARG=
 MODEL=
 EFFORT=
 BACKEND_ARG=
+LABEL_ARG=
+WSLABEL_ARG=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
+LABEL_SET=0
+WSLABEL_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -117,6 +130,8 @@ for a in "$@"; do
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
+      label) LABEL_ARG=$a; LABEL_SET=1 ;;
+      wslabel) WSLABEL_ARG=$a; WSLABEL_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -133,6 +148,10 @@ for a in "$@"; do
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
+    --label) want_value=label ;;
+    --label=*) LABEL_ARG=${a#--label=}; LABEL_SET=1 ;;
+    --workspace-label) want_value=wslabel ;;
+    --workspace-label=*) WSLABEL_ARG=${a#--workspace-label=}; WSLABEL_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -141,6 +160,8 @@ done
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
+[ "$LABEL_SET" -eq 0 ] || [ -n "$LABEL_ARG" ] || { echo "error: --label requires a non-empty value" >&2; exit 1; }
+[ "$WSLABEL_SET" -eq 0 ] || [ -n "$WSLABEL_ARG" ] || { echo "error: --workspace-label requires a non-empty value" >&2; exit 1; }
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -698,6 +719,17 @@ case "$BACKEND" in
     if [ "$KIND" = secondmate ]; then
       HERDR_LABEL_HOME=$PROJ_ABS
     fi
+    # A human-readable WORKSPACE display label (--workspace-label, e.g.
+    # "2nd: onestopgreek") is persisted at the target home's root so BOTH
+    # workspace_find and workspace_create resolve the same label on every future
+    # respawn/recovery (fm_backend_herdr_workspace_label reads it first). Written
+    # before container_ensure so the workspace it may create/adopt carries the
+    # label immediately. Only written when explicitly supplied, so an omitted
+    # flag never clobbers a home's existing label and the default stays byte-
+    # identical (derived firstmate/2ndmate-<id>).
+    if [ "$WSLABEL_SET" -eq 1 ]; then
+      printf '%s\n' "$WSLABEL_ARG" > "$HERDR_LABEL_HOME/.fm-herdr-workspace-label"
+    fi
     HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS") || exit 1
     # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
     # (the second field empty when this call ADOPTED a pre-existing workspace
@@ -709,7 +741,19 @@ case "$BACKEND" in
     HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
     HERDR_SES=${CONTAINER%%:*}
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+    # Tab DISPLAY label: --label when supplied, else the byte-identical default
+    # fm-<id>. Purely cosmetic - identity is the meta-recorded tab/pane id below.
+    HERDR_LABEL=${LABEL_ARG:-$W}
+    # On a respawn/recovery, this task's existing meta records the tab id its
+    # previous spawn created. create_task keys its husk/duplicate check on that
+    # recorded id (never the label), so a restored husk is reconciled and a
+    # genuinely live task is refused, regardless of what display label either
+    # carries. Empty on a fresh spawn (no prior meta), which means "just create".
+    HERDR_PRIOR_TAB_ID=
+    if [ -f "$STATE/$ID.meta" ]; then
+      HERDR_PRIOR_TAB_ID=$(sed -n 's/^herdr_tab_id=//p' "$STATE/$ID.meta" | head -1)
+    fi
+    HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$HERDR_LABEL" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID" "$HERDR_PRIOR_TAB_ID") || exit 1
     read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
