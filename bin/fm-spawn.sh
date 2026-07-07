@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--label <text>] [--scout]
+# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--label <text>] [--workspace-label <text>] [--scout]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--label <text>] [--workspace-label <text>] --secondmate
 #   --label <text> is a human-readable herdr TAB display label (e.g. "crew: fix
 #   login", "secondmate: onestopgreek"). --workspace-label <text> is a
-#   human-readable herdr WORKSPACE display label persisted at a secondmate home
-#   (e.g. "2nd: onestopgreek"). Both are herdr-only DISPLAY text: task identity
+#   human-readable herdr WORKSPACE display label: on a crewmate spawn it relabels
+#   the current FM_HOME (primary home) workspace; on a --secondmate spawn it
+#   labels the secondmate home's workspace (e.g. "2nd: onestopgreek"). Both are
+#   herdr-only DISPLAY text: task identity
 #   is the meta-recorded tab/pane/workspace ids, never the label, so recovery,
 #   husk, and duplicate detection are unaffected by free-form labels. Absent,
 #   the tab label defaults to fm-<id> and the workspace label to the derived
