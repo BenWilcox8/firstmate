@@ -265,6 +265,7 @@ test_raw_launch_command_omits_name_flag_and_meta() {
   # A raw launch command whose first word is 'claude' derives HARNESS=claude, but
   # the command has no __NAMEFLAG__ placeholder, so no --name may be injected and
   # no session_name= may be recorded.
+  # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
   status=$?
   expect_code 0 "$status" "raw launch command spawn should succeed"
