@@ -502,7 +502,7 @@ EOF
     sp_ws=$(printf '%s' "$sp_get" | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
     if [ -n "$sp_tab" ] && [ -n "$sp_ws" ]; then
       cross_dups=$(fm_backend_herdr_tab_crew_panes "$session" "$sp_ws" "$sp_tab" "$spawner" \
-        | awk -F'\t' -v l="$label" '$1 != "" && $4 == l {print $1}')
+        | awk -F'\t' -v l="$label" '$1 != "" && $6 == l {print $1}')
       while IFS= read -r cross_pane; do
         [ -n "$cross_pane" ] || continue
         case "$(fm_backend_herdr_pane_agent_state "$session" "$cross_pane")" in
@@ -1092,15 +1092,21 @@ fm_backend_herdr_list_live() {  # <session>
 # tab per task in the home's own workspace, everything above this line. Split
 # mode instead grows crewmate/scout panes INSIDE the spawning firstmate's OWN
 # pane and tab, so a captain watches firstmate and its live crewmates side by
-# side on one screen:
-#   - first crewmate:  split the spawner pane --direction right (the spawner
-#                      keeps the LEFT half, the crewmate takes the RIGHT half).
-#   - each subsequent: split the WIDEST crewmate pane --direction right, then
-#                      rebalance every crewmate column to near-equal width
-#                      (fm_backend_herdr_split_rebalance), so crewmates form
-#                      side-by-side FULL-HEIGHT COLUMNS in the right half -
-#                      many tall near-even panes, never short wide ones and
-#                      never a geometric collapse to width-zero columns.
+# side on one screen, following the captain's deterministic 6-slot plan
+# (fm_backend_herdr_split_plan; docs/herdr-backend.md "The deterministic
+# 6-slot plan"):
+#   c1: split the spawner right   - spawner keeps the LEFT half.
+#   c2: split c1 right            - right half = two side-by-side columns.
+#   c3: split c1 down             - c3 takes the right half's BOTTOM-LEFT.
+#   c4: split c2 down             - right half = a full 2x2 grid.
+#   c5: split the spawner down    - spawner keeps the TOP-LEFT quarter.
+#   c6: split c5 right            - c5 and c6 share the bottom-left.
+#   7+: overflow to tab mode (the FM_HERDR_SPLIT_MAX cap, default 6).
+# Slot targeting is computed from LIVE geometry by crewmate count, so a torn-
+# down slot is refilled toward the canonical plan on the next spawn; when the
+# live layout no longer matches the plan's expectations for that count (gaps
+# in odd shapes), the spawn falls back to splitting the WIDEST crewmate pane
+# rather than erroring (docs/herdr-backend.md "Gap handling").
 # Split mode is crewmate/scout only; a --secondmate spawn always uses its own
 # workspace in tab mode (docs/herdr-backend.md "Task container shape"). It needs
 # the spawner's own herdr pane as the split anchor: when firstmate is NOT itself
@@ -1117,15 +1123,16 @@ fm_backend_herdr_list_live() {  # <session>
 # (success, echoes the created pane) and a hard 1 (a live duplicate label
 # refuses the spawn outright, exactly like the tab path's duplicate check).
 FM_BACKEND_HERDR_SPLIT_FALLBACK=3
-# Ratio for the split call itself. 0.5 keeps each split even between its two
-# panes; the post-spawn rebalance (fm_backend_herdr_split_rebalance) then
-# evens ALL crewmate columns out, so this only shapes the instant between the
-# split and the rebalance. See docs/herdr-backend.md "Pane geometry".
+# Ratio for every split call. The 6-slot plan is built entirely from halvings
+# (each slot bisects one existing pane), so 0.5 IS the plan's geometry; a
+# custom FM_HERDR_SPLIT_RATIO skews every bisection the same way.
 FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT=0.5
-# Max crewmate columns beside the spawner before further spawns overflow to
-# tab mode. Default 3 keeps the narrowest column readable (at the cap the
-# right half is 1/2, 1/4, 1/4 of its width). Override with FM_HERDR_SPLIT_MAX.
-FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT=3
+# Max crewmate panes in the spawner's tab before further spawns overflow to
+# tab mode. Default 6 matches the deterministic plan's last defined slot; the
+# knob stays the overflow control (FM_HERDR_SPLIT_MAX): values below 6
+# overflow earlier, values above 6 fill slots 7+ by the widest-pane fallback
+# because the plan defines positions only up to 6.
+FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT=6
 
 # fm_backend_herdr_layout: resolve the layout knob to tabs|split. FM_HERDR_LAYOUT
 # wins over the file; the file is read fresh from the effective config dir
@@ -1191,17 +1198,16 @@ fm_backend_herdr_spawner_pane() {
   printf '%s' "${HERDR_PANE_ID:-}"
 }
 
-# fm_backend_herdr_tab_crew_panes: one "<pane_id>\t<x>\t<width>\t<label>" line
-# per fm-*-labeled pane in <tab> (excluding the spawner pane), where <x> and
-# <width> are the pane's left column and width from the live layout. herdr
-# exposes pane geometry only through `pane edges`'s layout and pane LABELS
-# only through `pane list`, so this joins the two by pane_id. A pane missing
-# from the layout defaults to x=0/width=0. The `pane edges` JSON is passed as
-# a string and parsed with `try fromjson` so an unreadable/empty layout
-# degrades to "no geometry" rather than corrupting the whole result. The
-# caller counts these lines, picks the WIDEST line as the crewmate column to
-# split next (docs/herdr-backend.md "Pane geometry"), and the post-spawn
-# rebalance walks the same lines to even the columns out.
+# fm_backend_herdr_tab_crew_panes: one "<pane_id>\t<x>\t<y>\t<width>\t<height>\t<label>"
+# line per fm-*-labeled pane in <tab> (excluding the spawner pane), with the
+# pane's rect from the live layout. herdr exposes pane geometry only through
+# `pane edges`'s layout and pane LABELS only through `pane list`, so this
+# joins the two by pane_id. A pane missing from the layout defaults to zeroed
+# geometry. The `pane edges` JSON is passed as a string and parsed with `try
+# fromjson` so an unreadable/empty layout degrades to "no geometry" rather
+# than corrupting the whole result. The caller counts these lines and feeds
+# them to fm_backend_herdr_split_plan to pick the next slot's anchor and
+# direction (docs/herdr-backend.md "The deterministic 6-slot plan").
 fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane>
   local session=$1 wsid=$2 tab=$3 spawner=$4 panes layout
   panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 0
@@ -1212,80 +1218,105 @@ fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane
     | select(.tab_id == $tab and .pane_id != $spawner)
     | select(((.label // "") | startswith("fm-")))
     | . as $p
-    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect.x ] | (.[0] // 0)) as $x
-    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect.width ] | (.[0] // 0)) as $w
-    | "\($p.pane_id)\t\($x)\t\($w)\t\($p.label)"
+    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect ] | (.[0] // {})) as $r
+    | "\($p.pane_id)\t\($r.x // 0)\t\($r.y // 0)\t\($r.width // 0)\t\($r.height // 0)\t\($p.label)"
   ' 2>/dev/null
 }
 
-# fm_backend_herdr_split_rebalance: even out the crewmate columns in the
-# spawner's tab after a spawn, best-effort - a rebalance problem NEVER fails
-# the spawn (every exit path returns 0). Pure right-splitting at a fixed ratio
-# collapses geometrically at scale (a live 8-pane test reached width-ZERO
-# columns), and splitting the widest column alone still leaves factor-2 gaps,
-# so split mode explicitly rebalances after each spawn.
+# NOTE: an earlier fm_backend_herdr_split_rebalance function (measured
+# `pane resize` nudging toward even columns) was REPLACED by the deterministic
+# 6-slot plan below - the plan is built entirely from 0.5 bisections, so every
+# slot's size is exact by construction and no post-spawn resize pass is
+# needed. The `pane resize` semantics that work verified (enclosing-split-
+# relative --amount, negative-amount misbehavior, subtree rescaling) are
+# recorded in docs/herdr-backend.md "pane resize semantics" for future
+# reference.
 #
-# herdr has no native equalize primitive (verified: `tab`/`pane` subcommands
-# expose only relative `pane resize`), so this drives `pane resize` from
-# measured geometry, one boundary at a time:
-#   - Columns are read fresh from fm_backend_herdr_tab_crew_panes before EVERY
-#     resize, because moving one divider proportionally rescales the whole
-#     subtree beyond it (verified empirically - a single resize changes
-#     several columns' widths at once). Stale math would compound errors.
-#   - The first out-of-tolerance boundary (left to right) is nudged toward its
-#     even-split target. Direction encodes the sign: move the divider right by
-#     growing the LEFT column `--direction right`, or left by growing the
-#     RIGHT column `--direction left`, always with a POSITIVE --amount
-#     (verified: a negative --amount misbehaves on herdr 0.7.2, resizing the
-#     wrong way).
-#   - --amount is a fraction of the divider's ENCLOSING SPLIT rect (verified),
-#     whose extent this function cannot cheaply know for an arbitrary split
-#     tree. It normalizes by the full crew-region width instead - every
-#     enclosing split is nested inside that region, so the actual movement is
-#     always <= the intended delta (undershoot-safe, never overshoots). When a
-#     nudge rounds down to no movement at all, the amount is escalated (x2, up
-#     to x8) before giving up, and every iteration re-measures, so a bounded
-#     overshoot from escalation is corrected on the next pass.
-#   - Tolerance is +/-1 cell per boundary (integer cell rounding makes exact
-#     equality impossible); the loop stops at convergence, no-progress, or the
-#     FM_BACKEND_HERDR_SPLIT_REBALANCE_MAX iteration cap, whichever is first.
-FM_BACKEND_HERDR_SPLIT_REBALANCE_MAX=${FM_BACKEND_HERDR_SPLIT_REBALANCE_MAX:-24}
-
-fm_backend_herdr_split_rebalance() {  # <session> <workspace> <tab> <spawner_pane>
-  local session=$1 wsid=$2 tab=$3 spawner=$4
-  local iter=0 bump=1 cols after plan pane dir amount
-  while [ "$iter" -lt "$FM_BACKEND_HERDR_SPLIT_REBALANCE_MAX" ]; do
-    iter=$((iter + 1))
-    cols=$(fm_backend_herdr_tab_crew_panes "$session" "$wsid" "$tab" "$spawner") || return 0
-    plan=$(printf '%s\n' "$cols" | sort -t$'\t' -k2,2n | awk -F'\t' -v bump="$bump" '
-      $1 != "" { n++; p[n]=$1; x[n]=$2; w[n]=$3 }
-      END {
-        if (n < 2) exit
-        left = x[1]; right = x[n] + w[n]; W = right - left
-        if (W <= 0) exit
-        for (i = 1; i < n; i++) {
-          target = left + int((i * W / n) + 0.5)
-          delta = target - x[i+1]
-          if (delta > 1) { printf "%s\tright\t%.4f\n", p[i], (delta * bump) / W; exit }
-          if (delta < -1) { printf "%s\tleft\t%.4f\n", p[i+1], (-delta * bump) / W; exit }
-        }
-      }' 2>/dev/null)
-    [ -n "$plan" ] || return 0
-    IFS=$'\t' read -r pane dir amount <<EOF
-$plan
-EOF
-    [ -n "$pane" ] && [ -n "$dir" ] && [ -n "$amount" ] || return 0
-    fm_backend_herdr_cli "$session" pane resize --pane "$pane" --direction "$dir" --amount "$amount" >/dev/null 2>&1 || return 0
-    after=$(fm_backend_herdr_tab_crew_panes "$session" "$wsid" "$tab" "$spawner") || return 0
-    if [ "$after" = "$cols" ]; then
-      # The nudge rounded down to nothing; escalate up to x8, then give up.
-      bump=$((bump * 2))
-      [ "$bump" -le 8 ] || return 0
-    else
-      bump=1
-    fi
-  done
-  return 0
+# fm_backend_herdr_split_plan: resolve the next spawn's anchor pane and split
+# direction from the LIVE crew-pane geometry, following the captain's
+# deterministic 6-slot plan (see the section comment above and
+# docs/herdr-backend.md "The deterministic 6-slot plan"). Echoes
+# "<anchor_pane>\t<direction>" on stdout, or nothing when no anchor fits.
+#
+# Slot selection is by live crewmate COUNT (the plan's slot n+1 for n live
+# crew panes), with a geometric precondition per slot; that is what makes a
+# torn-down slot refill toward the canonical plan: e.g. with c1-c4 alive in
+# the 2x2 grid and c5 gone, the count is 4, so the next spawn re-runs slot 5
+# (split the spawner down) and lands exactly where c5 was. When the live
+# layout does not match the slot's precondition (panes closed in odd
+# combinations), the resolver falls back to the WIDEST crewmate pane,
+# --direction right - a deliberate, documented approximation instead of an
+# error (docs/herdr-backend.md "Gap handling"). Slots beyond 6 (a raised
+# FM_HERDR_SPLIT_MAX) use the same widest-pane fallback because the plan
+# defines positions only up to 6.
+#
+# Preconditions per slot (all measured from the live rects; sx/sy are the
+# spawner's own left/top):
+#   slot 1 (n=0): none - anchor is the spawner, right.
+#   slot 2 (n=1): the sole crew pane, right.
+#   slot 3 (n=2): the two crew panes sit in DIFFERENT columns (distinct x) -
+#                 anchor is the left one (min x), down.
+#   slot 4 (n=3): at least two distinct crew columns - anchor is the
+#                 right-most crew pane (max x; ties toward the top), down.
+#   slot 5 (n=4): the spawner's own column is free of crew panes (nothing
+#                 with x <= sx) - anchor is the spawner, down.
+#   slot 6 (n=5): a crew pane sits BELOW the spawner in its column (x <= sx,
+#                 y > sy) - anchor is that pane, right.
+fm_backend_herdr_split_plan() {  # <crew-lines> <n> <spawner_pane> <sx> <sy>
+  local crew_lines=$1 n=$2 spawner=$3 sx=$4 sy=$5 resolved
+  case "$n" in
+    0)
+      printf '%s\tright' "$spawner"
+      return 0
+      ;;
+    1)
+      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '$1 != "" { print $1 "\tright"; exit }')
+      ;;
+    2)
+      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '
+        $1 != "" { n++; p[n]=$1; x[n]=$2 }
+        END {
+          if (n != 2 || x[1] == x[2]) exit
+          a = (x[1] <= x[2]) ? 1 : 2
+          print p[a] "\tdown"
+        }')
+      ;;
+    3)
+      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '
+        $1 != "" { n++; p[n]=$1; x[n]=$2; y[n]=$3 }
+        END {
+          if (n != 3) exit
+          distinct = 0
+          for (i = 1; i <= n; i++) { seen = 0; for (j = 1; j < i; j++) if (x[j] == x[i]) seen = 1; if (!seen) distinct++ }
+          if (distinct < 2) exit
+          best = 1
+          for (i = 2; i <= n; i++) if (x[i] > x[best] || (x[i] == x[best] && y[i] < y[best])) best = i
+          print p[best] "\tdown"
+        }')
+      ;;
+    4)
+      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' -v sx="$sx" '
+        $1 != "" { n++; if ($2 <= sx) blocked = 1 }
+        END { if (n == 4 && !blocked) print "SPAWNER\tdown" }')
+      [ "$resolved" = "SPAWNER"$'\t'"down" ] && resolved="$spawner"$'\t'"down"
+      ;;
+    5)
+      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' -v sx="$sx" -v sy="$sy" '
+        $1 != "" { n++; if ($2 <= sx && $3 > sy) { if (!p || $3 < py) { p = $1; py = $3 } } }
+        END { if (n == 5 && p) print p "\tright" }')
+      ;;
+    *)
+      resolved=""
+      ;;
+  esac
+  if [ -z "$resolved" ]; then
+    # Gap fallback: the widest live crewmate pane (ties toward the right-most),
+    # split right - never an error.
+    resolved=$(printf '%s\n' "$crew_lines" | sort -t$'\t' -k4,4n -k2,2n \
+      | awk -F'\t' '$1 != "" { p = $1 } END { if (p) print p "\tright" }')
+  fi
+  [ -n "$resolved" ] || return 0
+  printf '%s' "$resolved"
 }
 
 # fm_backend_herdr_split_create_task: create the task's pane by SPLITTING the
@@ -1309,9 +1340,9 @@ EOF
 # ANOTHER task after a whole-fleet restart can push a spawn to tab mode until it
 # is itself respawned - always a safe fall-back, never a refusal.
 fm_backend_herdr_split_create_task() {  # <label> <cwd>
-  local label=$1 cwd=$2 session spawner sp_get sp_tab sp_ws
+  local label=$1 cwd=$2 session spawner sp_get sp_tab sp_ws sp_x sp_y
   local all same_label pane husk_panes="" live_dup=0
-  local crew_count=0 cap ratio anchor new_pane pane_x pane_w
+  local crew_count=0 cap ratio anchor direction plan new_pane crew_line
   session=$(fm_backend_herdr_session)
   fm_backend_herdr_version_check || return 1
   fm_backend_herdr_server_ensure "$session" || return 1
@@ -1327,9 +1358,16 @@ fm_backend_herdr_split_create_task() {  # <label> <cwd>
     echo "notice: herdr split layout requested but firstmate pane '$spawner' is not live in session '$session'; using tab layout for this spawn" >&2
     return "$FM_BACKEND_HERDR_SPLIT_FALLBACK"
   fi
+  # The spawner's own rect anchors the plan's slot-5/6 preconditions.
+  read -r sp_x sp_y <<EOF
+$(fm_backend_herdr_cli "$session" pane edges --pane "$spawner" 2>/dev/null \
+  | jq -r --arg p "$spawner" '.result.edges.layout.panes[]? | select(.pane_id == $p) | "\(.rect.x // 0) \(.rect.y // 0)"' 2>/dev/null)
+EOF
+  sp_x=${sp_x:-0}
+  sp_y=${sp_y:-0}
   all=$(fm_backend_herdr_tab_crew_panes "$session" "$sp_ws" "$sp_tab" "$spawner")
   # Classify same-label panes (husk vs live) exactly like the tab duplicate check.
-  same_label=$(printf '%s\n' "$all" | awk -F'\t' -v l="$label" '$1 != "" && $4 == l {print $1}')
+  same_label=$(printf '%s\n' "$all" | awk -F'\t' -v l="$label" '$1 != "" && $6 == l {print $1}')
   while IFS= read -r pane; do
     [ -n "$pane" ] || continue
     case "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" in
@@ -1345,13 +1383,14 @@ EOF
   fi
   # Anchor set = fm-* crew panes that are NOT a same-label husk we will replace.
   local anchor_lines=""
-  while IFS=$'\t' read -r pane pane_x pane_w; do
+  while IFS= read -r crew_line; do
+    pane=${crew_line%%$'\t'*}
     [ -n "$pane" ] || continue
     printf '%s\n' "$husk_panes" | grep -qxF "$pane" && continue
-    anchor_lines="${anchor_lines}${pane}"$'\t'"${pane_x}"$'\t'"${pane_w}"$'\n'
+    anchor_lines="${anchor_lines}${crew_line}"$'\n'
     crew_count=$((crew_count + 1))
   done <<EOF
-$(printf '%s\n' "$all" | cut -f1,2,3)
+$all
 EOF
   cap=$(fm_backend_herdr_split_max)
   # Overflow to tab mode only when there is no husk to replace in place (an
@@ -1383,18 +1422,19 @@ $tab_dups
 EOF
   fi
   ratio=$(fm_backend_herdr_split_ratio)
-  if [ "$crew_count" -eq 0 ]; then
-    # First crewmate: split the spawner pane left/right.
-    new_pane=$(fm_backend_herdr_cli "$session" pane split "$spawner" --direction right --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
-  else
-    # New column from the WIDEST existing crewmate pane (ties break toward the
-    # right-most). Splitting the widest keeps the worst pre-rebalance imbalance
-    # at factor 2, where splitting the most recent column collapsed
-    # geometrically to width-zero columns at 8 panes (docs/herdr-backend.md
-    # "Pane geometry"); the post-spawn rebalance below evens the rest out.
-    anchor=$(printf '%s' "$anchor_lines" | sort -t$'\t' -k3,3n -k2,2n | awk -F'\t' '$1 != "" {p=$1} END {print p}')
-    new_pane=$(fm_backend_herdr_cli "$session" pane split "$anchor" --direction right --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
+  # Resolve the next slot's anchor and direction from the deterministic plan
+  # (fm_backend_herdr_split_plan): slot by live crewmate count, canonical
+  # refill after teardowns, widest-pane fallback for gap shapes and slots
+  # beyond 6.
+  plan=$(fm_backend_herdr_split_plan "$anchor_lines" "$crew_count" "$spawner" "$sp_x" "$sp_y")
+  IFS=$'\t' read -r anchor direction <<EOF
+$plan
+EOF
+  if [ -z "$anchor" ] || [ -z "$direction" ]; then
+    echo "error: herdr split layout could not resolve an anchor pane for '$label' (session $session)" >&2
+    return 1
   fi
+  new_pane=$(fm_backend_herdr_cli "$session" pane split "$anchor" --direction "$direction" --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
   if [ -z "$new_pane" ]; then
     echo "error: herdr pane split did not return a new pane id for '$label' (session $session)" >&2
     return 1
@@ -1421,9 +1461,5 @@ EOF
 $husk_tabs
 EOF
   fi
-  # Even the columns out AFTER the husk close freed its space, so the new
-  # distribution accounts for every surviving column. Best-effort: a rebalance
-  # problem never fails the spawn.
-  fm_backend_herdr_split_rebalance "$session" "$sp_ws" "$sp_tab" "$spawner" || true
   printf '%s\t%s\t%s\t%s' "$session" "$sp_ws" "$sp_tab" "$new_pane"
 }

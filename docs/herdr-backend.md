@@ -135,39 +135,48 @@ Split mode is selected per home by the local, gitignored `config/herdr-layout` f
 An unrecognized non-empty value warns once to stderr and falls back to `tabs`, so a typo can never silently enable split mode.
 The knob is herdr-only and does not affect tmux, zellij, Orca, or cmux.
 
-### Layout behavior
+### The deterministic 6-slot plan
 
 The spawning firstmate runs in its own herdr pane, discovered from the env herdr injects into every pane it manages (`HERDR_ENV=1` + `HERDR_PANE_ID`, the same signals `bin/fm-supervise-daemon.sh` trusts for its own supervisor-pane discovery).
-That pane is the split anchor, and its OWN tab/workspace - NOT the home's `firstmate` tab-mode workspace - hosts the crewmate panes:
+That pane is the split anchor, and its OWN tab/workspace - NOT the home's `firstmate` tab-mode workspace - hosts the crewmate panes, following the captain's deterministic 6-slot plan:
 
-- First crewmate: `herdr pane split <spawner> --direction right` - the spawner keeps the LEFT half, the crewmate takes the RIGHT half.
-- Each subsequent crewmate: `herdr pane split <widest-crewmate> --direction right`, followed by a rebalance pass - crewmates form side-by-side FULL-HEIGHT COLUMNS of near-equal width in the right half (many tall panes, never short wide ones).
+| Slot | Split | Resulting layout |
+|---|---|---|
+| c1 | spawner `--direction right` | spawner keeps the LEFT half; c1 takes the RIGHT half |
+| c2 | c1 `--direction right` | right half = two side-by-side full-height columns |
+| c3 | c1 `--direction down` | c3 takes the right half's BOTTOM-LEFT |
+| c4 | c2 `--direction down` | right half = a full 2x2 grid |
+| c5 | spawner `--direction down` | spawner keeps the TOP-LEFT quarter; c5 below it |
+| c6 | c5 `--direction right` | c5 and c6 side by side in the bottom-left |
+| 7+ | - | overflow to ordinary tab mode (the cap) |
 
-`fm_backend_herdr_split_create_task` finds the widest existing crewmate pane (ties break toward the right-most) by joining `pane list` (which carries the pane `label` but no geometry) with `pane edges`'s layout (which carries `rect.x`/`rect.width` but no label) and taking the max-width fm-*-labelled pane in the spawner's tab.
+Every slot is a 0.5 bisection of one existing pane, so all sizes are exact halvings by construction - no post-spawn resizing is needed (this plan REPLACED an earlier widest-column-plus-`pane resize`-rebalance approach).
+The split ratio is overridable via `FM_HERDR_SPLIT_RATIO` (only a real decimal strictly between 0 and 1 is accepted, anything else falls back to 0.5), which skews every bisection identically.
 
-### Pane geometry: split the widest, then rebalance
+`fm_backend_herdr_split_plan` (`bin/backends/herdr.sh`) resolves each spawn's anchor pane and direction from LIVE geometry: `pane list` carries the pane `label` but no geometry, `pane edges`'s layout carries the rects but no label, so the resolver joins the two by pane_id and picks the slot's anchor by measured position (min-x crew pane for slot 3, max-x for slot 4, the spawner itself for slots 1 and 5, the pane below the spawner for slot 6).
 
-A live 8-pane test proved that splitting the most recent column at a fixed `--ratio 0.5` collapses geometrically: widths ran `27/14/7/3/2/1/0/0` and the last columns hit width ZERO.
-Split mode therefore does two things instead:
+### Gap handling: refill by count, widest-pane fallback
 
-- **Split the WIDEST crewmate column** (not the most recent). Even with no rebalance at all, halving the widest keeps the worst imbalance at factor 2 rather than collapsing - the structural safety net.
-- **Rebalance after every spawn** (`fm_backend_herdr_split_rebalance`, also run after a husk replacement frees space). herdr has no native equalize primitive (verified: `tab`/`pane` expose only the relative `pane resize`), so the rebalance drives `pane resize` from measured geometry, one divider at a time, until every divider sits within one cell of its even-split target.
-
-The rebalance is built on empirically verified `pane resize` semantics (herdr 0.7.2):
-
-- `--direction` names the edge to move and a POSITIVE `--amount` moves it outward in that direction; a NEGATIVE `--amount` misbehaves (observed resizing the wrong way), so the implementation encodes sign purely through direction - grow the left column `--direction right` to move a divider right, grow the right column `--direction left` to move it left.
-- `--amount` is a fraction of the divider's ENCLOSING SPLIT rect (verified `0.1` on a 27-cell split moved 2 cells, not `0.1` of the 54-cell tab), which cannot be known cheaply for an arbitrary split tree; the implementation normalizes by the full crew-region width instead, which every enclosing split is nested inside, making each nudge undershoot-safe. A nudge that rounds to no movement escalates (x2, up to x8) before giving up.
-- Moving one divider proportionally rescales the whole subtree beyond it (verified: a single resize changed several columns at once), so the rebalance re-measures the live geometry before every nudge instead of planning from a stale snapshot.
-- The loop is bounded (`FM_BACKEND_HERDR_SPLIT_REBALANCE_MAX`, default 24 iterations), best-effort, and can never fail the spawn.
-
-The split call itself still uses `--ratio 0.5` (overridable via `FM_HERDR_SPLIT_RATIO`; only a real decimal strictly between 0 and 1 is accepted, anything else falls back to 0.5) - it only shapes the instant between the split and the rebalance.
-Because the rebalance tolerates each divider sitting within one cell of its exact target (integer cells make exact equality impossible), adjacent column widths can legally differ by a couple of cells; the live 8-pane verification below landed within one cell of even.
+Slot selection is by live crewmate COUNT - n live crew panes means the next spawn runs slot n+1 - with a geometric precondition per slot (slot 3 needs two distinct crew columns; slot 5 needs the spawner's column free of crew panes; slot 6 needs a crew pane below the spawner).
+That count-based rule is what makes teardowns self-heal toward the canonical plan: with c1-c4 alive in the 2x2 grid and c5 gone, the count is 4, so the next spawn re-runs slot 5 and lands exactly where c5 was (verified live below).
+When panes have closed in combinations the plan's preconditions no longer match (e.g. the surviving crew panes are stacked in one column, or the spawner's column is already occupied when slot 5 comes up), the spawn falls back to splitting the WIDEST live crewmate pane `--direction right` - a deliberate, documented approximation chosen over erroring, per the captain's spec.
+Slots beyond 6 (a raised `FM_HERDR_SPLIT_MAX`) use the same widest-pane fallback, because the plan defines positions only up to 6.
 
 ### Cap and overflow to tab mode
 
-`FM_HERDR_SPLIT_MAX` (default 3) caps how many crewmate columns sit beside the spawner.
+`FM_HERDR_SPLIT_MAX` (default 6, matching the plan's last defined slot) caps how many crewmate panes share the spawner's tab.
 When the cap is reached, a further spawn OVERFLOWS to ordinary tab mode for that spawn (a `notice:` line to stderr, then a fresh `fm-<id>` tab in the home's own workspace) - a layout constraint never refuses a spawn.
+The knob stays the overflow control: values below 6 overflow earlier, values above 6 fill the extra slots by the widest-pane fallback.
 The cap counts every fm-*-labelled pane currently in the spawner's tab, so a transient husk from another task after a whole-fleet restart counts until it is itself respawned; the only effect is pushing a spawn to tab mode, always safe.
+
+### `pane resize` semantics (recorded for reference)
+
+The replaced rebalance approach empirically verified these `pane resize` facts on herdr 0.7.2; they are kept for future resize work:
+
+- `--direction` names the edge to move and a POSITIVE `--amount` moves it outward in that direction; a NEGATIVE `--amount` misbehaves (observed resizing the wrong way).
+- `--amount` is a fraction of the divider's ENCLOSING SPLIT rect (verified: `0.1` on a 27-cell split moved 2 cells, not `0.1` of the 54-cell tab).
+- Moving one divider proportionally rescales the whole subtree beyond it (a single resize changed several panes at once).
+- herdr has no native equalize primitive: `herdr tab` has only list/create/get/focus/rename/close, and `pane layout` is a read-only view.
 
 ### No anchor: fall back to tab mode
 
@@ -203,35 +212,32 @@ uname -sm   # Linux x86_64
 ```
 
 All commands ran in isolated `fm-lab-*` sessions provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's default session was never a target and its fleet-state tripwire held in every pass.
-The 2026-07-09 pass verified the split primitives, labelling, cap, fallback, and husk behavior; the first 2026-07-10 pass re-verified the layout geometry after the stacking axis changed from a vertical stack (down splits) to side-by-side columns (right splits); the second 2026-07-10 pass verified the widest-column anchor plus post-spawn rebalance after the captain's live 8-pane test exposed the geometric width collapse of most-recent-splitting.
+The 2026-07-09 pass verified the split primitives, labelling, cap, fallback, and husk behavior; the 2026-07-10 passes first re-verified the geometry through two superseded layouts (a vertical stack, then near-even columns via widest-split-plus-rebalance - the rebalance pass produced the `pane resize` facts recorded above) and finally verified the deterministic 6-slot plan that replaced them.
 
 - **First split (spawner right, 2026-07-09).** `pane split w1:p1 --direction right --ratio 0.5 --no-focus` -> new pane `w1:p2` in the same tab `w1:t1`; layout `edges` reported the spawner `w1:p1` at `x=26,w=27` (left) and `w1:p2` at `x=53,w=27` (right), confirming the spawner keeps the LEFT half.
-- **Full-height columns (right splits, 2026-07-10).** Repeated `--direction right` splits produced only full-height columns (`h=23` on every pane at every step) beside the spawner - the axis itself is correct; the balance needed the fixes below.
-- **`pane resize` semantics (2026-07-10).** On a 4-column chain (`27 | 14 | 7 | 6`): `pane resize --pane w1:p2 --direction right --amount 0.1` moved p2's right edge 2 cells (`0.1` of its enclosing 27-cell split, NOT of the 54-cell tab) and rescaled BOTH panes beyond the divider proportionally (`7,6 -> 6,5`); `--direction left --amount 0.1` on the neighbour moved the same divider back the other way; a NEGATIVE `--amount -0.05 --direction right` GREW the pane by 1 instead of shrinking it (misbehaves; never used). No native equalize exists: `herdr tab` has only list/create/get/focus/rename/close, and `pane layout` is a read-only view.
-- **Widest-anchor + rebalance, 8 panes (2026-07-10).** Driving the real `fm_backend_herdr_split_create_task` eight times with `FM_HERDR_SPLIT_MAX=8` on an 80-cell terminal (crew region 27 cells) kept the columns near-even at EVERY step, with no zero-width column anywhere and all panes full height:
+- **The 6-slot plan, slots 1..7 (2026-07-10).** Driving the real `fm_backend_herdr_split_create_task` seven times on an 80x24 terminal (default cap 6), every placement matched the plan exactly and the 7th overflowed:
 
-  | Spawn | Column widths (left to right) |
-  |---|---|
-  | 1 | 27 |
-  | 2 | 14, 13 |
-  | 3 | 10, 7, 10 |
-  | 4 | 6, 8, 7, 6 |
-  | 5 | 6, 5, 5, 6, 5 |
-  | 6 | 5, 4, 5, 5, 4, 4 |
-  | 7 | 5, 3, 4, 3, 3, 5, 4 |
-  | 8 | 3, 3, 4, 4, 3, 4, 3, 3 |
+  | Spawn | rc | Placement (x,y w x h) |
+  |---|---|---|
+  | c1 | 0 | right half `53,1 27x23`; spawner keeps `26,1 27x23` |
+  | c2 | 0 | c1 -> `53,1 14x23`; c2 `67,1 13x23` (two full-height columns) |
+  | c3 | 0 | c3 `53,13 14x11` - bottom-left of the right half, under c1 |
+  | c4 | 0 | c4 `67,13 13x11` - bottom-right; right half is a full 2x2 grid |
+  | c5 | 0 | spawner -> `26,1 27x12`; c5 `26,13 27x11` below it |
+  | c6 | 0 | c5 -> `26,13 14x11`; c6 `40,13 13x11` beside it |
+  | c7 | 3 | no pane created; `notice: herdr split layout cap (6 crewmate panes) reached ...` |
 
-  The pre-fix behavior on the same scenario was `27/14/7/3/2/1/0/0` - the geometric collapse this replaces.
-- **Teardown + respawn rebalance (2026-07-10).** Closing a middle column re-tiled its space to a neighbour (`3,3,4,5,4,4,4`), and the next spawn rebalanced all 8 back to near-even (`3,3,4,3,3,3,4,4`); a 9th spawn at cap 8 overflowed to tab mode with the cap notice and created no pane.
+- **Gap refill toward the plan (2026-07-10).** From the full 6-slot layout, closing c5 and respawning re-ran slot 6 against the re-tiled bottom-left pane and restored the canonical two-pane bottom-left (`26,13 14x11` + `40,13 13x11`).
+- **Widest-pane fallback (2026-07-10).** From the full layout, closing c2 and c4 (leaving the surviving right-half panes stacked in one column and the spawner's column occupied) made the next spawn fall back to splitting the widest crewmate pane `--direction right` - rc=0, no error, a 5th pane added.
 - **Labelling (2026-07-09).** `pane rename w1:p2 fm-demoA` set `.label`, visible in both `pane get` and `pane list` (unset panes report `label:null`); geometry stayed only in `pane edges`, confirming the list+edges join is needed.
-- **Cap overflow (2026-07-09).** With `FM_HERDR_SPLIT_MAX` default 3, the 4th `fm_backend_herdr_split_create_task` returned the fall-back code with `notice: herdr split layout cap (3 crewmate panes) reached ...` and created no pane; `FM_HERDR_SPLIT_MAX=4` let the 4th spawn split normally.
 - **No anchor (2026-07-09).** Unsetting `HERDR_ENV` returned the fall-back with `notice: ... not running in a herdr pane`; pointing `HERDR_PANE_ID` at a non-existent pane returned the fall-back with `notice: ... not live in session ...`.
 - **Husk close-and-replace (2026-07-09).** Respawning `fm-demoA` when its pane had no registered agent (a restored-husk shape) closed the old pane and created a new one, leaving exactly one `fm-demoA` pane; the new split was logged BEFORE the husk close (create-before-close).
 - **Live duplicate refuses (2026-07-09).** After `herdr pane report-agent w1:p2 --state working`, respawning `fm-demoA` refused with `error: a live herdr pane labeled 'fm-demoA' already exists ...` and created/closed nothing.
-- **Teardown re-tile (2026-07-10).** Closing the middle column re-tiled its neighbour to fill the gap (`w=7+6 -> 13`, all columns still full height); closing all crewmate columns left the spawner pane alone in its still-open tab.
+- **Teardown re-tile (2026-07-10).** Closing a middle pane re-tiled its neighbour to fill the gap (all remaining panes kept their axis extents); closing all crewmate panes left the spawner pane alone in its still-open tab.
+- **Superseded-layout evidence (2026-07-10).** The most-recent-split column layout collapsed geometrically in the captain's live 8-pane test (`27/14/7/3/2/1/0/0`, width-zero panes) - the failure that motivated the plan; the interim widest-split-plus-rebalance approach held 8 columns near-even (final `3/3/4/4/3/4/3/3`) before being replaced by the deterministic plan.
 
-Fake-CLI unit coverage for all of the above (layout resolution, cap overflow and override, both no-anchor paths, pane-label husk close-and-replace with create-before-close ordering, live-duplicate refusal, widest-column anchor selection, and the 8-column stays-near-even-at-every-step regression for the geometric collapse) lives in `tests/fm-backend-herdr.test.sh` (`make_herdr_splitfake` and the `test_layout_*` / `test_split_*` cases).
-The fake models widths and divider-moving resizes with the same amount normalization production uses, so the rebalance math is exact against it; the real enclosing-split `--amount` semantics are covered by the lab evidence above.
+Fake-CLI unit coverage for all of the above (layout resolution, the exact slot-1..6 placements, cap-6 overflow, the beyond-plan widest fallback under a raised cap, canonical gap refill, the blocked-precondition widest fallback, both no-anchor paths, pane-label husk close-and-replace with create-before-close ordering, live-duplicate refusal, and cross-layout detection) lives in `tests/fm-backend-herdr.test.sh` (`make_herdr_splitfake` and the `test_layout_*` / `test_split_*` cases).
+The fake models rect bisections with the verified ceil rounding but does NOT model herdr's re-tiling of freed space, so re-tile-dependent refills are covered by the lab evidence above.
 
 ## Workspace lifecycle: one persistent per-home workspace, reused
 
