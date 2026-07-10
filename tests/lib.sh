@@ -91,6 +91,32 @@ SH
   done
 }
 
+# fm_test_core_path echoes a directory containing symlinks to a curated set of
+# standard POSIX/GNU utilities, meant to be prepended to a restricted
+# BASE_PATH (e.g. /usr/bin:/bin:/usr/sbin:/sbin) so library code and scripts
+# invoked under that restriction can still find bash, cat, sed, jq, etc. on
+# hosts (e.g. NixOS) where /usr/bin and /bin are nearly empty and standard
+# tools instead live in a directory shared with the real app-level tools
+# (gh, git, tmux, node, treehouse, tasks-axi, quota-axi, ...) individual
+# tests fake out or deliberately omit. It symlinks each tool by name into its
+# own private directory rather than adding any real tool's own directory to
+# PATH, so it never leaks an app-level tool a test means to keep off PATH.
+FM_TEST_CORE_TOOLS="bash sh cat mkdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum"
+fm_test_core_path() {
+  local dir tool bin
+  dir=$(fm_test_tmproot fm-test-core-path)
+  # fm_test_tmproot's cleanup trap fires inside its own command-substitution
+  # subshell, deleting the dir it just made before this (outer) subshell can
+  # populate it; recreate it here, same as every other mkdir -p consumer of
+  # a *_tmproot path does implicitly.
+  mkdir -p "$dir"
+  for tool in $FM_TEST_CORE_TOOLS; do
+    bin=$(command -v "$tool" 2>/dev/null) || continue
+    ln -sf "$bin" "$dir/$tool"
+  done
+  printf '%s\n' "$dir"
+}
+
 # --- deterministic git identity and fixtures --------------------------------
 
 # fm_git_identity [name] [email]: export a fixed author/committer identity so

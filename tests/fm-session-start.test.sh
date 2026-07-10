@@ -26,7 +26,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
 
 SESSION_START="$ROOT/bin/fm-session-start.sh"
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 TMP_ROOT=$(fm_test_tmproot fm-session-start-tests)
 fm_git_identity fmtest fmtest@example.invalid
 
@@ -186,7 +186,11 @@ SH
 
 run_session_start() {  # <home> <root> <path>
   local home=$1 root=$2 path=$3
-  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" "$SESSION_START"
+  # Unset harness-detection env markers so the fake-ps-driven harness detection
+  # (make_fake_ps_harness) is authoritative regardless of which real harness
+  # this test suite itself happens to be running under.
+  FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
+    env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT "$SESSION_START"
 }
 
 hash_file_for_test() {
