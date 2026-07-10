@@ -235,6 +235,25 @@ test_batch_refuses_session_name() {
   pass "batch id=repo dispatch refuses --session-name"
 }
 
+test_raw_launch_command_omits_name_flag_and_meta() {
+  local rec id out status launch
+  id=session-raw-z10
+  rec=$(make_spawn_case session-raw claude "$id")
+  read_case_record "$rec"
+
+  # A raw launch command whose first word is 'claude' derives HARNESS=claude, but
+  # the command has no __NAMEFLAG__ placeholder, so no --name may be injected and
+  # no session_name= may be recorded.
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
+  status=$?
+  expect_code 0 "$status" "raw launch command spawn should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_not_contains "$launch" "--name" "raw launch command must not receive a --name flag"
+  assert_no_grep "session_name=" "$HOME_DIR/state/$id.meta" \
+    "raw launch command meta must not record session_name"
+  pass "a raw launch command gets no --name flag and records no session_name"
+}
+
 test_empty_session_name_rejected() {
   local rec id out status
   id=session-empty-z9
@@ -256,6 +275,7 @@ test_secondmate_default_name_is_secondmate_id
 test_unsupported_harness_omits_name_flag_and_meta
 test_quoting_safety_spaces_and_single_quotes
 test_batch_refuses_session_name
+test_raw_launch_command_omits_name_flag_and_meta
 test_empty_session_name_rejected
 
 echo "# all fm-spawn-session-name tests passed"

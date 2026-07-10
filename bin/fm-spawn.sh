@@ -1045,9 +1045,10 @@ fi
 # --session-name wins; otherwise crewmate/scout default to the task id (already a
 # purpose slug) and a secondmate to "Secondmate, <id>" (the captain's naming
 # convention). NAMEFLAG is non-empty only for a harness with verified support
-# (name_flag_for_harness), so session_name= lands in meta ONLY when a flag is
-# actually passed to the launch - an absent session_name= means the harness got no
-# name flag and launched unchanged.
+# (name_flag_for_harness) AND a template-based launch carrying the __NAMEFLAG__
+# placeholder (a raw launch command has neither), so session_name= lands in meta
+# ONLY when a flag is actually passed to the launch - an absent session_name=
+# means the harness got no name flag and launched unchanged.
 if [ "$SESSION_NAME_SET" -eq 0 ]; then
   if [ "$KIND" = secondmate ]; then
     SESSION_NAME="Secondmate, $ID"
@@ -1055,7 +1056,10 @@ if [ "$SESSION_NAME_SET" -eq 0 ]; then
     SESSION_NAME=$ID
   fi
 fi
-NAMEFLAG=$(name_flag_for_harness "$HARNESS" "$SESSION_NAME")
+case "$LAUNCH" in
+  *__NAMEFLAG__*) NAMEFLAG=$(name_flag_for_harness "$HARNESS" "$SESSION_NAME") ;;
+  *) NAMEFLAG= ;;
+esac
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
