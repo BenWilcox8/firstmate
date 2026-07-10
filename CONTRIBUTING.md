@@ -99,7 +99,7 @@ tests/fm-herdr-lab.test.sh                # isolated Herdr lab helper fail-close
 tests/fm-dispatch-select.test.sh          # deterministic crew-dispatch profile selection, quota-balanced tie/stale/fallback behavior, and backward-compatible first-profile selection tests
 tests/fm-spawn-batch.test.sh              # batch dispatch and FM_HOME project-path scoping tests
 tests/fm-spawn-dispatch-profile.test.sh   # concrete dispatch profile flags: active-profile backstop, harness/model/effort meta, launch templates, batch forwarding, and secondmate exemption
-tests/fm-spawn-session-name.test.sh       # --session-name flag parsing, per-kind task-id/Secondmate defaults, verified-harness gating, session_name= meta recording, shell-quoting safety, batch refusal, and empty-value rejection
+tests/fm-spawn-session-name.test.sh       # --session-name flag parsing, per-kind task-id/Secondmate defaults, verified-harness and raw-launch-template gating, session_name= meta recording, shell-quoting and patsub-replacement safety, batch refusal, and empty-value rejection
 tests/fm-update.test.sh                   # fast-forward-only self-update, reread, nudge, dedup, and skip-safety tests
 tests/fm-secondmate-sync.test.sh          # local-HEAD secondmate sync, no-fetch, bootstrap nudge gating, stable nudge selectors after respawn, and spawn hook tests
 tests/fm-secondmate-liveness.test.sh      # session-start secondmate agent-liveness probe and respawn sweep tests
