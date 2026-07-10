@@ -147,7 +147,7 @@ That pane is the split anchor, and its OWN tab/workspace - NOT the home's `first
 
 ### Pane geometry: `--ratio 0.5`, and why columns are not perfectly even
 
-Every split uses `--ratio 0.5` (overridable via `FM_HERDR_SPLIT_RATIO`), which keeps each individual split even between its two panes.
+Every split uses `--ratio 0.5` (overridable via `FM_HERDR_SPLIT_RATIO`; only a real decimal strictly between 0 and 1 is accepted, anything else falls back to 0.5), which keeps each individual split even between its two panes.
 Verified against the real binary: the resulting right-column heights cascade `1/2, 1/4, 1/4` for three crewmate panes and `1/2, 1/4, 1/8, 1/8` for four - the first (top) crewmate pane stays at half the column.
 Perfectly even N-pane columns are NOT achievable by pure bottom-splitting: herdr's layout is a binary split tree, and `herdr pane resize` grows a pane relatively rather than equalizing, so equalizing every pane would need per-pane resize arithmetic on every spawn.
 `0.5` is the flattest sensible fixed ratio, and the default cap (below) keeps the smallest pane readable.
@@ -169,13 +169,17 @@ A split-mode crewmate pane has no tab of its own, so it is labelled with `herdr 
 `fm_backend_herdr_split_create_task` classifies any existing same-labelled pane with the SAME `fm_backend_herdr_pane_agent_state` used for tab husks: a live (registered-agent) pane refuses the spawn outright, while a restart-restored husk (dead or agent-less) is closed and replaced.
 The replacement pane is split into being FIRST and the husk is closed only after, the identical create-before-close ordering `fm_backend_herdr_create_task` and `fm_backend_herdr_workspace_prune_seeded_default_tab` already established; herdr's lack of label-uniqueness lets both briefly share the label with no error.
 
+Detection is cross-layout: because cap overflow, the no-anchor fallback, and a config toggle make a task's layout per-spawn rather than fixed, each spawn path also scans the OTHER scope for the same `fm-<id>` label.
+A split spawn additionally checks TAB labels in the home's own tab-mode workspace, and a tab-mode spawn additionally checks PANE labels in the spawner's tab (when firstmate itself runs in a herdr pane; otherwise there is no split scope to scan).
+Both cross-scope paths apply the identical conservative classification (only a confirmed dead or agent-less husk may be closed; live or ambiguous refuses) and the identical create-before-close ordering, so a task id respawned in the other layout finds its earlier incarnation instead of orphaning a live duplicate or leaving a husk behind.
+
 ### Scope, supervision, and recovery
 
 Split mode applies only to crewmate/scout spawns into the spawner's own workspace; a `--secondmate` spawn always uses its own workspace in tab mode (see "Task container shape" above), so a secondmate's tabs never mix into the primary's split column.
 All supervision (`fm-send`, `fm-peek`, `fm-watch`, `fm-crew-state`) already addresses `session:pane_id` targets resolved from each task's recorded `window=` meta (`fm_backend_resolve_selector`), which is backend- and layout-independent, so a split-mode pane is supervised exactly like a tab-mode one - no supervision path assumes one tab per agent.
 Teardown closes the task's pane by id; verified that closing a middle pane in the stack re-tiles the remaining panes cleanly and that closing the last crewmate pane leaves the spawner's own pane (and therefore its tab) intact.
 Recovery is meta-driven: a task's `herdr_pane_id=` stays a valid target across an ordinary server restart (pane ids persist - see "ID stability across a server restart"), and the label-based `fm_backend_herdr_list_live` tab scan is unchanged.
-Toggling the config between spawns is safe: existing tab-based tasks keep working (all supervision is pane-id-addressed), and each new spawn simply follows the current config value.
+Toggling the config between spawns is safe: existing tasks keep working in whichever layout they landed (all supervision is pane-id-addressed), each new spawn simply follows the current config value, and the cross-layout duplicate/husk detection above means a respawned task id still finds an earlier incarnation left in the other layout's scope.
 
 ### Verification (2026-07-09, herdr 0.7.2, protocol 16, NixOS Linux x86_64)
 

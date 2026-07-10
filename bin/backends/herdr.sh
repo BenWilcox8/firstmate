@@ -487,6 +487,36 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
 $dup_tabs
 EOF
   fi
+  # Cross-layout check: this task's earlier incarnation may live in the OTHER
+  # scope, as an fm-<id>-labeled PANE split into the spawner's own tab (split
+  # layout mode; docs/herdr-backend.md "Pane-split layout mode"). Only
+  # reachable when firstmate itself runs in a herdr pane of this session, so
+  # tab-mode behavior is untouched everywhere else. Same conservative husk
+  # classification (live or unknown refuses) and the same create-before-close
+  # ordering as the tab duplicate check above.
+  local spawner sp_get sp_tab sp_ws cross_dups cross_pane cross_husk_panes=""
+  spawner=$(fm_backend_herdr_spawner_pane)
+  if [ -n "$spawner" ]; then
+    sp_get=$(fm_backend_herdr_cli "$session" pane get "$spawner" 2>/dev/null)
+    sp_tab=$(printf '%s' "$sp_get" | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
+    sp_ws=$(printf '%s' "$sp_get" | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
+    if [ -n "$sp_tab" ] && [ -n "$sp_ws" ]; then
+      cross_dups=$(fm_backend_herdr_tab_crew_panes "$session" "$sp_ws" "$sp_tab" "$spawner" \
+        | awk -F'\t' -v l="$label" '$1 != "" && $3 == l {print $1}')
+      while IFS= read -r cross_pane; do
+        [ -n "$cross_pane" ] || continue
+        case "$(fm_backend_herdr_pane_agent_state "$session" "$cross_pane")" in
+          dead|no-agent) cross_husk_panes="${cross_husk_panes}${cross_pane}"$'\n' ;;
+          *)
+            echo "error: a live herdr pane labeled '$label' already exists in firstmate's tab '$sp_tab' (session $session)" >&2
+            return 1
+            ;;
+        esac
+      done <<EOF
+$cross_dups
+EOF
+    fi
+  fi
   out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
   pane_id=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
@@ -517,6 +547,14 @@ EOF
       echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
       return 1
     fi
+  fi
+  if [ -n "$cross_husk_panes" ]; then
+    while IFS= read -r cross_pane; do
+      [ -n "$cross_pane" ] || continue
+      fm_backend_herdr_cli "$session" pane close "$cross_pane" >/dev/null 2>&1 || true
+    done <<EOF
+$cross_husk_panes
+EOF
   fi
   printf '%s %s' "$tab_id" "$pane_id"
 }
@@ -1113,10 +1151,23 @@ fm_backend_herdr_layout() {  # -> tabs|split
 }
 
 # fm_backend_herdr_split_ratio: the per-split ratio (FM_HERDR_SPLIT_RATIO or the
-# 0.5 default), sanitized to a numeric value.
+# 0.5 default), sanitized to a real decimal strictly inside (0,1) - "0.25" or
+# ".25" forms only. Anything else ("0..5", ".", "7", "1", "0.0") falls back to
+# the default, mirroring fm_backend_herdr_split_max, so a malformed knob can
+# never hard-fail the spawn's pane split.
 fm_backend_herdr_split_ratio() {
-  local v=${FM_HERDR_SPLIT_RATIO:-$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT}
-  case "$v" in ''|*[!0-9.]*) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;; esac
+  local v=${FM_HERDR_SPLIT_RATIO:-$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT} frac
+  case "$v" in
+    0.[0-9]*|.[0-9]*)
+      frac=${v#*.}
+      case "$frac" in
+        *[!0-9]*) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
+        *[1-9]*) ;;
+        *) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
+      esac
+      ;;
+    *) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
+  esac
   printf '%s' "$v"
 }
 
@@ -1236,6 +1287,28 @@ EOF
     echo "notice: herdr split layout cap ($cap crewmate panes) reached in firstmate's tab; using a separate tab for '$label'" >&2
     return "$FM_BACKEND_HERDR_SPLIT_FALLBACK"
   fi
+  # Cross-layout check: this task's earlier incarnation may live in the OTHER
+  # scope, as an fm-<id> TAB in the home's own tab-mode workspace (cap
+  # overflow, a no-anchor fallback, or a layout toggle put it there). Same
+  # conservative husk classification (live or unknown refuses) and the same
+  # create-before-close ordering as the in-scope pane check above.
+  local home_ws tab_dups dup_tab dup_tab_pane husk_tabs=""
+  home_ws=$(fm_backend_herdr_workspace_find "$session")
+  if [ -n "$home_ws" ]; then
+    tab_dups=$(fm_backend_herdr_cli "$session" tab list --workspace "$home_ws" 2>/dev/null \
+      | jq -r --arg want "$label" '.result.tabs[]? | select(.label == $want) | .tab_id' 2>/dev/null)
+    while IFS= read -r dup_tab; do
+      [ -n "$dup_tab" ] || continue
+      dup_tab_pane=$(fm_backend_herdr_pane_for_tab "$session" "$home_ws" "$dup_tab")
+      if [ -z "$dup_tab_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_tab_pane"; then
+        echo "error: a live herdr tab labeled '$label' already exists in workspace $home_ws (session $session)" >&2
+        return 1
+      fi
+      husk_tabs="${husk_tabs}${dup_tab}"$'\n'
+    done <<EOF
+$tab_dups
+EOF
+  fi
   ratio=$(fm_backend_herdr_split_ratio)
   if [ "$crew_count" -eq 0 ]; then
     # First crewmate: split the spawner pane left/right.
@@ -1261,6 +1334,14 @@ EOF
       fm_backend_herdr_cli "$session" pane close "$pane" >/dev/null 2>&1 || true
     done <<EOF
 $husk_panes
+EOF
+  fi
+  if [ -n "$husk_tabs" ]; then
+    while IFS= read -r dup_tab; do
+      [ -n "$dup_tab" ] || continue
+      fm_backend_herdr_cli "$session" tab close "$dup_tab" >/dev/null 2>&1 || true
+    done <<EOF
+$husk_tabs
 EOF
   fi
   printf '%s\t%s\t%s\t%s' "$session" "$sp_ws" "$sp_tab" "$new_pane"
