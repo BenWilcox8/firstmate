@@ -217,6 +217,27 @@ test_quoting_safety_spaces_and_single_quotes() {
   pass "a session name with spaces and single quotes is safely quoted and recorded verbatim"
 }
 
+test_quoting_safety_ampersand() {
+  local rec id out status launch name
+  id=session-amp-z11
+  # A name with '&': bash 5.2+ patsub_replacement would expand an unquoted '&'
+  # in the substitution back into the matched __NAMEFLAG__ pattern.
+  name="fix build & tests"
+  rec=$(make_spawn_case session-amp claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
+  status=$?
+  expect_code 0 "$status" "claude spawn with an ampersand session name should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  assert_contains "$launch" "--name 'fix build & tests' \"\$(cat " \
+    "claude launch did not preserve a literal ampersand in the session name"
+  assert_not_contains "$launch" "__NAMEFLAG__" \
+    "claude launch leaked the __NAMEFLAG__ placeholder into the ampersand name"
+  assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta did not record the ampersand session name"
+  pass "a session name containing an ampersand is substituted literally"
+}
+
 test_batch_refuses_session_name() {
   local rec id1 id2 out status
   id1=session-batch-a-z7
@@ -274,6 +295,7 @@ test_scout_default_name_is_task_id
 test_secondmate_default_name_is_secondmate_id
 test_unsupported_harness_omits_name_flag_and_meta
 test_quoting_safety_spaces_and_single_quotes
+test_quoting_safety_ampersand
 test_batch_refuses_session_name
 test_raw_launch_command_omits_name_flag_and_meta
 test_empty_session_name_rejected
