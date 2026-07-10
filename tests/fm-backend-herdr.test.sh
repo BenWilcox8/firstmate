@@ -207,9 +207,13 @@ test_version_check_refuses_old_protocol() {
 }
 
 test_version_check_refuses_missing_herdr() {
-  local dir out status
+  local dir out status bashdir
   dir="$TMP_ROOT/version-missing"; mkdir -p "$dir/empty-fakebin"
-  out=$( PATH="$dir/empty-fakebin:/usr/bin:/bin" \
+  # Include the real bash's own directory so the inner `bash -c` resolves on
+  # hosts (e.g. NixOS) where bash is not under /usr/bin:/bin; herdr still lives
+  # elsewhere, so this keeps the "herdr not installed" condition this asserts.
+  bashdir=$(dirname "$(command -v bash)")
+  out=$( PATH="$dir/empty-fakebin:$bashdir:/usr/bin:/bin" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_version_check' "$ROOT" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "version_check should refuse when herdr is not installed"
@@ -1596,6 +1600,342 @@ test_no_jq_reserved_keyword_arg_names() {
   pass "no bin/ jq filter names a --arg/--argjson variable after a jq reserved keyword"
 }
 
+# --- Pane-split layout mode (opt-in) -----------------------------------------
+#
+# Split mode grows crewmate panes inside the spawner's own pane/tab instead of
+# one tab per task. The layout-resolution tests are pure config reads; the
+# split_create_task tests use make_herdr_splitfake, a stateful `herdr` stub that
+# models the pane primitives split mode drives - pane get/list/edges (geometry),
+# split (right/down), rename (label), close, and agent get - the same
+# real-herdr behaviors verified in docs/herdr-backend.md "Pane-split layout
+# mode". Geometry is modeled just enough for the max-y bottom-most anchor
+# selection: a right split keeps the parent's row, a down split lands one row
+# below the current lowest pane in the tab, so the newest pane is always the
+# bottom-most.
+
+# make_herdr_splitfake: a stateful `herdr` stub for split-mode tests. State is a
+# JSON file ($FM_SPLIT_STATE) of panes ({pane_id,tab_id,workspace_id,label,y,
+# agent}); it is pre-seeded with a single unlabeled "spawner" pane w1:p1 in
+# tab w1:t1 / workspace w1, standing in for firstmate's own pane. Every call is
+# logged to $FM_HERDR_LOG in the same unit-separated form as the other fakes.
+make_herdr_splitfake() {  # <dir> -> echoes fakebin dir; seeds spawner pane w1:p1
+  local dir=$1 fb="$1/fakebin"
+  mkdir -p "$fb"
+  printf '{"next":2,"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":null,"y":0,"agent":null}]}\n' > "$dir/split-state.json"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+LOG="${FM_HERDR_LOG:?}"
+STATE="${FM_SPLIT_STATE:?}"
+{
+  printf 'HERDR_SESSION=%s' "${HERDR_SESSION:-}"
+  for a in "$@"; do printf '\x1f%s' "$a"; done
+  printf '\n'
+} >> "$LOG"
+jq_state() { jq "$@" "$STATE"; }
+save() { local tmp="$STATE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE"; }
+
+cmd=${1:-}; sub=${2:-}
+# Positional pane id: the first non-flag argument after the subcommand.
+pane=""; direction=""; wsid=""; label=""; pane_flag=""
+args=("$@")
+for ((i=2; i<${#args[@]}; i++)); do
+  case "${args[$i]}" in
+    --direction) direction=${args[$((i+1))]:-} ;;
+    --workspace) wsid=${args[$((i+1))]:-} ;;
+    --pane) pane_flag=${args[$((i+1))]:-} ;;
+    --ratio|--cwd|--env) ;;  # value-consuming flags, ignored by the fake
+    --*) ;;
+    *) [ -z "$pane" ] && pane=${args[$i]} ;;
+  esac
+done
+[ -n "$pane_flag" ] && pane=$pane_flag
+
+case "$cmd $sub" in
+  "status --json")
+    printf '{"client":{"version":"0.7.1","protocol":14},"server":{"running":true}}\n'
+    ;;
+  "pane get")
+    p=$(jq_state -c --arg p "$pane" '.panes[] | select(.pane_id == $p)')
+    if [ -n "$p" ]; then
+      printf '{"result":{"pane":%s}}\n' "$p"
+    else
+      printf '{"error":{"code":"pane_not_found","message":"pane %s not found"}}\n' "$pane"
+    fi
+    ;;
+  "pane list")
+    jq_state --arg w "$wsid" '{result:{panes:[.panes[]|select($w=="" or .workspace_id==$w)|{pane_id,tab_id,label}]}}'
+    ;;
+  "pane edges")
+    # Layout = every pane sharing the referenced pane's tab, with its row (y).
+    tab=$(jq_state -r --arg p "$pane" '.panes[]|select(.pane_id==$p)|.tab_id')
+    jq_state --arg t "$tab" '{result:{edges:{layout:{panes:[.panes[]|select(.tab_id==$t)|{pane_id,rect:{y:.y}}]}}}}'
+    ;;
+  "pane split")
+    n=$(jq_state -r '.next'); newid="w1:p$n"
+    parent=$(jq_state -c --arg p "$pane" '.panes[]|select(.pane_id==$p)')
+    if [ -z "$parent" ]; then
+      printf '{"error":{"code":"pane_not_found"}}\n'; exit 0
+    fi
+    tab=$(printf '%s' "$parent" | jq -r '.tab_id')
+    ws=$(printf '%s' "$parent" | jq -r '.workspace_id')
+    if [ "$direction" = down ]; then
+      newy=$(( $(jq_state -r --arg t "$tab" '[.panes[]|select(.tab_id==$t)|.y]|max') + 1 ))
+    else
+      newy=$(printf '%s' "$parent" | jq -r '.y')
+    fi
+    jq_state --arg id "$newid" --arg t "$tab" --arg w "$ws" --argjson y "$newy" \
+      '.panes += [{pane_id:$id,tab_id:$t,workspace_id:$w,label:null,y:$y,agent:null}] | .next=(.next+1)' | save
+    printf '{"result":{"pane":{"pane_id":"%s","tab_id":"%s","workspace_id":"%s"}}}\n' "$newid" "$tab" "$ws"
+    ;;
+  "pane rename")
+    # herdr pane rename <pane_id> <label>: $3 is the pane, $4 the new label.
+    newlabel=${4:-}
+    jq_state --arg p "$pane" --arg l "$newlabel" '(.panes[]|select(.pane_id==$p)).label=$l' | save
+    ;;
+  "pane close")
+    jq_state --arg p "$pane" '.panes|=[.[]|select(.pane_id!=$p)]' | save
+    ;;
+  "agent get")
+    status=$(jq_state -r --arg p "$pane" '(.panes[]|select(.pane_id==$p)|.agent)//empty')
+    if [ -n "$status" ] && [ "$status" != null ]; then
+      printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "$status"
+    else
+      printf '{"error":{"code":"agent_not_found"}}\n'
+    fi
+    ;;
+  *) : ;;
+esac
+exit 0
+SH
+  chmod +x "$fb/herdr"
+  printf '%s\n' "$fb"
+}
+
+# split_fake_set_agent: preset <pane_id>'s agent_status in the split fake's
+# state (mirrors an agent registering itself out-of-band), so a same-label pane
+# reads as a live duplicate rather than a husk.
+split_fake_set_agent() {  # <state-file> <pane_id> <status>
+  local state=$1 pane=$2 status=$3 tmp="$1.tmp.$$"
+  jq --arg p "$pane" --arg s "$status" '(.panes[]|select(.pane_id==$p)).agent=$s' "$state" > "$tmp" && mv "$tmp" "$state"
+}
+
+# split_env: set up a split-mode fake for one test; echoes "<fb> <log> <state>".
+split_env() {  # <name>
+  local name=$1 dir fb
+  dir="$TMP_ROOT/$name"; mkdir -p "$dir"; : > "$dir/log"
+  fb=$(make_herdr_splitfake "$dir")
+  printf '%s %s %s\n' "$fb" "$dir/log" "$dir/split-state.json"
+}
+
+# run_split: call fm_backend_herdr_split_create_task with the split fake on PATH,
+# a lab session name, and the spawner pane w1:p1 as the anchor. The HERDR_PANE_ID
+# prefix overrides whatever pane this test process itself runs in. Echoes stdout;
+# exit code is the function's own return code. A caller that needs a non-default
+# cap simply prefixes the call (FM_HERDR_SPLIT_MAX=4 run_split ...); it is in
+# run_split's environment and the bash -c child inherits it.
+run_split() {  # <fb> <state> <label>
+  local fb=$1 state=$2 label=$3
+  PATH="$fb:$PATH" FM_HERDR_LOG="${fb%/fakebin}/log" FM_SPLIT_STATE="$state" \
+    HERDR_SESSION=fm-lab-split-test HERDR_ENV=1 HERDR_PANE_ID=w1:p1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_create_task "$1" /tmp' "$ROOT" "$label"
+}
+
+# --- layout / cap / ratio resolution -----------------------------------------
+
+test_layout_absent_is_tabs() {
+  local home="$TMP_ROOT/layout-absent"; mkdir -p "$home/config"
+  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" )
+  [ "$out" = tabs ] || fail "an absent config/herdr-layout should resolve to 'tabs', got '$out'"
+  pass "fm_backend_herdr_layout: absent config resolves to tabs (byte-identical default)"
+}
+
+test_layout_file_tabs_and_split() {
+  local home="$TMP_ROOT/layout-file"; mkdir -p "$home/config"
+  printf 'tabs\n' > "$home/config/herdr-layout"
+  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" )
+  [ "$out" = tabs ] || fail "config/herdr-layout=tabs should resolve to 'tabs', got '$out'"
+  printf 'split\n' > "$home/config/herdr-layout"
+  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" )
+  [ "$out" = split ] || fail "config/herdr-layout=split should resolve to 'split', got '$out'"
+  pass "fm_backend_herdr_layout: reads tabs/split from config/herdr-layout"
+}
+
+test_layout_env_overrides_file() {
+  local home="$TMP_ROOT/layout-env"; mkdir -p "$home/config"
+  printf 'tabs\n' > "$home/config/herdr-layout"
+  out=$( FM_HOME="$home" FM_HERDR_LAYOUT=split bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" )
+  [ "$out" = split ] || fail "FM_HERDR_LAYOUT should override the file, got '$out'"
+  pass "fm_backend_herdr_layout: FM_HERDR_LAYOUT overrides the config file"
+}
+
+test_layout_unrecognized_value_warns_and_defaults_tabs() {
+  local home="$TMP_ROOT/layout-bad"; mkdir -p "$home/config"
+  printf 'splitt\n' > "$home/config/herdr-layout"
+  out=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" 2>/dev/null )
+  [ "$out" = tabs ] || fail "an unrecognized layout should fall back to 'tabs', got '$out'"
+  err=$( FM_HOME="$home" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_layout' "$ROOT" 2>&1 >/dev/null )
+  assert_contains "$err" "unrecognized herdr layout" "an unrecognized layout should warn to stderr"
+  pass "fm_backend_herdr_layout: an unrecognized value warns and safely defaults to tabs"
+}
+
+test_split_max_default_and_override() {
+  out=$( bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_max' "$ROOT" )
+  [ "$out" = 3 ] || fail "default split max should be 3, got '$out'"
+  out=$( FM_HERDR_SPLIT_MAX=5 bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_max' "$ROOT" )
+  [ "$out" = 5 ] || fail "FM_HERDR_SPLIT_MAX should override the cap, got '$out'"
+  out=$( FM_HERDR_SPLIT_MAX=nope bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_max' "$ROOT" )
+  [ "$out" = 3 ] || fail "a non-numeric FM_HERDR_SPLIT_MAX should fall back to 3, got '$out'"
+  pass "fm_backend_herdr_split_max: default 3, overridable, sanitized"
+}
+
+# --- split_create_task: placement, cap overflow, no-anchor, husk -------------
+
+test_split_first_spawn_splits_spawner_right() {
+  read -r fb log state < <(split_env split-first)
+  out=$(run_split "$fb" "$state" fm-a1)
+  rc=$?
+  expect_code 0 "$rc" "first split spawn should succeed"
+  # echoes "<session>\t<ws>\t<tab>\t<pane>"; the session field is not asserted here.
+  local ws tab pane
+  IFS=$'\t' read -r _ ws tab pane <<<"$out"
+  [ "$ws" = w1 ] && [ "$tab" = w1:t1 ] || fail "first spawn should land in the spawner's own workspace/tab, got ws=$ws tab=$tab"
+  [ -n "$pane" ] && [ "$pane" != w1:p1 ] || fail "first spawn should create a new pane, got '$pane'"
+  # the split targeted the spawner pane, direction right
+  assert_contains "$(cat "$log")" $'\x1f''split'$'\x1f''w1:p1'$'\x1f''--direction'$'\x1f''right' \
+    "first spawn should split the spawner pane --direction right"
+  # the new pane is labeled fm-a1
+  labelled=$(jq -r --arg p "$pane" '.panes[]|select(.pane_id==$p)|.label' "$state")
+  [ "$labelled" = fm-a1 ] || fail "the new pane should be renamed fm-a1, got '$labelled'"
+  pass "split_create_task: first crewmate splits the spawner pane right and labels the pane"
+}
+
+test_split_subsequent_spawns_stack_below() {
+  read -r fb log state < <(split_env split-stack)
+  run_split "$fb" "$state" fm-a1 >/dev/null
+  run_split "$fb" "$state" fm-a2 >/dev/null
+  local out3 pane3
+  out3=$(run_split "$fb" "$state" fm-a3)
+  IFS=$'\t' read -r _ _ _ pane3 <<<"$out3"
+  # three crewmate panes now exist, all in the spawner's tab, newest lowest.
+  local count maxy pane3y
+  count=$(jq '[.panes[]|select(.label!=null)]|length' "$state")
+  [ "$count" -eq 3 ] || fail "expected 3 labelled crewmate panes, got $count"
+  maxy=$(jq '[.panes[]|select(.label!=null)|.y]|max' "$state")
+  pane3y=$(jq -r --arg p "$pane3" '.panes[]|select(.pane_id==$p)|.y' "$state")
+  [ "$pane3y" = "$maxy" ] || fail "the newest crewmate pane should be the bottom-most (max y=$maxy), got y=$pane3y"
+  # subsequent spawns split --direction down (not a second right split).
+  grep -q $'\x1f''--direction'$'\x1f''down' "$log" || fail "subsequent spawns should split --direction down"
+  pass "split_create_task: subsequent crewmates stack below, newest at the bottom"
+}
+
+test_split_cap_overflows_to_tab() {
+  read -r fb log state < <(split_env split-cap)
+  run_split "$fb" "$state" fm-a1 >/dev/null
+  run_split "$fb" "$state" fm-a2 >/dev/null
+  run_split "$fb" "$state" fm-a3 >/dev/null
+  # cap default is 3; the 4th spawn must overflow to tab mode (rc=3), no new pane.
+  local before after err
+  before=$(jq '.panes|length' "$state")
+  err=$(run_split "$fb" "$state" fm-a4 2>&1 >/dev/null)
+  rc=$?
+  after=$(jq '.panes|length' "$state")
+  expect_code 3 "$rc" "the 4th split spawn should overflow to tab mode (fall-back code 3)"
+  [ "$before" -eq "$after" ] || fail "an overflow spawn must not create a pane (before=$before after=$after)"
+  assert_contains "$err" "cap (3" "the overflow should print a one-line cap notice"
+  pass "split_create_task: overflows to tab mode at the cap without creating a pane"
+}
+
+test_split_cap_override_raises_limit() {
+  read -r fb log state < <(split_env split-cap-override)
+  run_split "$fb" "$state" fm-a1 >/dev/null
+  run_split "$fb" "$state" fm-a2 >/dev/null
+  run_split "$fb" "$state" fm-a3 >/dev/null
+  # with FM_HERDR_SPLIT_MAX=4 the 4th spawn now splits instead of overflowing.
+  out=$(FM_HERDR_SPLIT_MAX=4 run_split "$fb" "$state" fm-a4)
+  rc=$?
+  expect_code 0 "$rc" "with FM_HERDR_SPLIT_MAX=4 the 4th spawn should split, not overflow"
+  local count
+  count=$(jq '[.panes[]|select(.label!=null)]|length' "$state")
+  [ "$count" -eq 4 ] || fail "expected 4 crewmate panes with the raised cap, got $count"
+  pass "split_create_task: FM_HERDR_SPLIT_MAX raises the overflow cap"
+}
+
+test_split_no_anchor_falls_back_to_tab() {
+  read -r fb log state < <(split_env split-noanchor)
+  # firstmate not in a herdr pane: HERDR_ENV forced empty (overriding this test
+  # process's own HERDR_ENV=1), which reads as "not in a herdr pane".
+  local err rc
+  err=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_SPLIT_STATE="$state" \
+    HERDR_SESSION=fm-lab-split-test HERDR_ENV='' HERDR_PANE_ID=w1:p1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_create_task fm-a1 /tmp' "$ROOT" 2>&1 >/dev/null )
+  rc=$?
+  expect_code 3 "$rc" "no anchor (not in a herdr pane) should fall back to tab mode (code 3)"
+  assert_contains "$err" "not running in a herdr pane" "the no-anchor notice should explain firstmate is not in a herdr pane"
+  pass "split_create_task: no HERDR_PANE_ID falls back to tab mode with a notice"
+}
+
+test_split_dead_anchor_falls_back_to_tab() {
+  read -r fb log state < <(split_env split-deadanchor)
+  # HERDR_PANE_ID points at a pane that does not exist in this session.
+  local err rc
+  err=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_SPLIT_STATE="$state" \
+    HERDR_SESSION=fm-lab-split-test HERDR_ENV=1 HERDR_PANE_ID=w9:p9 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_split_create_task fm-a1 /tmp' "$ROOT" 2>&1 >/dev/null )
+  rc=$?
+  expect_code 3 "$rc" "a spawner pane not live in the session should fall back to tab mode (code 3)"
+  assert_contains "$err" "not live in session" "the dead-anchor notice should explain the pane is not live"
+  pass "split_create_task: a spawner pane not live in the session falls back to tab mode"
+}
+
+test_split_husk_pane_is_closed_and_replaced() {
+  read -r fb log state < <(split_env split-husk)
+  # Create fm-a1; it has no registered agent, so a respawn sees it as a husk.
+  local out1 pane1
+  out1=$(run_split "$fb" "$state" fm-a1)
+  IFS=$'\t' read -r _ _ _ pane1 <<<"$out1"
+  : > "$log"
+  local out2 pane2
+  out2=$(run_split "$fb" "$state" fm-a1)
+  rc=$?
+  IFS=$'\t' read -r _ _ _ pane2 <<<"$out2"
+  expect_code 0 "$rc" "respawning a husk-labelled task should succeed (close-and-replace)"
+  [ "$pane2" != "$pane1" ] || fail "the replacement should be a NEW pane, got the same id '$pane2'"
+  # exactly one fm-a1 pane remains, and it is the replacement.
+  local count survivor
+  count=$(jq '[.panes[]|select(.label=="fm-a1")]|length' "$state")
+  [ "$count" -eq 1 ] || fail "exactly one fm-a1 pane should remain after replacement, got $count"
+  survivor=$(jq -r '.panes[]|select(.label=="fm-a1")|.pane_id' "$state")
+  [ "$survivor" = "$pane2" ] || fail "the surviving fm-a1 pane should be the replacement '$pane2', got '$survivor'"
+  # create-before-close: the new pane split happened before the husk close.
+  local split_line close_line
+  # fm_backend_herdr_cli always appends "--session <s>", so the pane id is
+  # followed by a unit separator, never end-of-line.
+  split_line=$(grep -n $'\x1f''split'$'\x1f' "$log" | head -1 | cut -d: -f1)
+  close_line=$(grep -n $'\x1f''close'$'\x1f'"$pane1"$'\x1f' "$log" | head -1 | cut -d: -f1)
+  [ -n "$split_line" ] && [ -n "$close_line" ] || fail "expected both a split and a close of the husk in the log"
+  [ "$split_line" -lt "$close_line" ] || fail "create-before-close violated: split(line $split_line) must precede husk close(line $close_line)"
+  pass "split_create_task: a husk pane is closed and replaced, create-before-close"
+}
+
+test_split_live_duplicate_refuses() {
+  read -r fb log state < <(split_env split-livedup)
+  local out1 pane1
+  out1=$(run_split "$fb" "$state" fm-a1)
+  IFS=$'\t' read -r _ _ _ pane1 <<<"$out1"
+  # Register a live agent on the pane so a respawn sees a genuine live duplicate.
+  split_fake_set_agent "$state" "$pane1" working
+  local before err rc after
+  before=$(jq '.panes|length' "$state")
+  err=$(run_split "$fb" "$state" fm-a1 2>&1 >/dev/null)
+  rc=$?
+  after=$(jq '.panes|length' "$state")
+  expect_code 1 "$rc" "a live duplicate label should refuse (code 1)"
+  [ "$before" -eq "$after" ] || fail "a refused duplicate must not create or close a pane"
+  assert_contains "$err" "already exists" "the duplicate refusal should name the conflict"
+  pass "split_create_task: a live duplicate-labelled pane refuses the spawn"
+}
+
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
@@ -1676,3 +2016,17 @@ test_dispatch_routes_herdr_backend
 test_dispatch_busy_state_unknown_for_tmux
 test_dispatch_composer_state_routes_by_backend
 test_scripts_route_explicit_target_through_meta_backend
+
+test_layout_absent_is_tabs
+test_layout_file_tabs_and_split
+test_layout_env_overrides_file
+test_layout_unrecognized_value_warns_and_defaults_tabs
+test_split_max_default_and_override
+test_split_first_spawn_splits_spawner_right
+test_split_subsequent_spawns_stack_below
+test_split_cap_overflows_to_tab
+test_split_cap_override_raises_limit
+test_split_no_anchor_falls_back_to_tab
+test_split_dead_anchor_falls_back_to_tab
+test_split_husk_pane_is_closed_and_replaced
+test_split_live_duplicate_refuses

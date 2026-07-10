@@ -709,24 +709,55 @@ case "$BACKEND" in
     if [ "$KIND" = secondmate ]; then
       HERDR_LABEL_HOME=$PROJ_ABS
     fi
-    HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS") || exit 1
-    # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
-    # (the second field empty when this call ADOPTED a pre-existing workspace
-    # rather than creating a fresh one). Split on the guaranteed single tab
-    # character; the seeded tab id is threaded through to create_task
-    # untouched, which is the only function permitted to prune it (never
-    # re-derived from labels - see docs/herdr-backend.md "Default-tab prune").
-    CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
-    HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
-    HERDR_SES=${CONTAINER%%:*}
-    HERDR_WORKSPACE_ID=${CONTAINER#*:}
-    HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    # Opt-in pane-split layout (docs/herdr-backend.md "Pane-split layout mode"):
+    # crewmate/scout only, and only when config/herdr-layout (or FM_HERDR_LAYOUT)
+    # selects "split". fm_backend_herdr_split_create_task grows the pane inside
+    # the spawner's OWN pane/tab and returns FM_BACKEND_HERDR_SPLIT_FALLBACK (3)
+    # to ask for a tab-mode fall-back (no anchor, or the crewmate-pane cap
+    # reached) - which drops into the unchanged tab path below. Any other
+    # non-zero is a hard refusal (e.g. a live duplicate label). When split mode
+    # is off (the default), this whole branch is skipped and the tab path runs
+    # byte-for-byte as before.
+    HERDR_SPLIT_DONE=0
+    if [ "$KIND" != secondmate ] && [ "$(fm_backend_herdr_layout)" = split ]; then
+      set +e
+      HERDR_SPLIT_RAW=$(fm_backend_herdr_split_create_task "$W" "$PROJ_ABS")
+      HERDR_SPLIT_RC=$?
+      set -e
+      if [ "$HERDR_SPLIT_RC" -eq 0 ]; then
+        IFS=$'\t' read -r HERDR_SES HERDR_WORKSPACE_ID HERDR_TAB_ID HERDR_PANE_ID <<EOF
+$HERDR_SPLIT_RAW
+EOF
+        if [ -z "$HERDR_SES" ] || [ -z "$HERDR_PANE_ID" ]; then
+          echo "error: herdr split layout did not return a session/pane id for $W" >&2
+          exit 1
+        fi
+        HERDR_SPLIT_DONE=1
+      elif [ "$HERDR_SPLIT_RC" -ne "$FM_BACKEND_HERDR_SPLIT_FALLBACK" ]; then
+        exit 1
+      fi
+      # FM_BACKEND_HERDR_SPLIT_FALLBACK: fall through to the tab path below.
+    fi
+    if [ "$HERDR_SPLIT_DONE" -eq 0 ]; then
+      HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS") || exit 1
+      # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
+      # (the second field empty when this call ADOPTED a pre-existing workspace
+      # rather than creating a fresh one). Split on the guaranteed single tab
+      # character; the seeded tab id is threaded through to create_task
+      # untouched, which is the only function permitted to prune it (never
+      # re-derived from labels - see docs/herdr-backend.md "Default-tab prune").
+      CONTAINER=${HERDR_CONTAINER_RAW%%$'\t'*}
+      HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
+      HERDR_SES=${CONTAINER%%:*}
+      HERDR_WORKSPACE_ID=${CONTAINER#*:}
+      HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+      read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
-    if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
-      echo "error: herdr did not return a tab/pane id for $W" >&2
-      exit 1
+      if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
+        echo "error: herdr did not return a tab/pane id for $W" >&2
+        exit 1
+      fi
     fi
     T="$HERDR_SES:$HERDR_PANE_ID"
     ;;

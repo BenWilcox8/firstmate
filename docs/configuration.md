@@ -49,6 +49,10 @@ Only metadata-routed task selectors carry secondmate-marker and Codex-harness co
 `fm-teardown.sh <id>` takes a task id directly and uses the same recorded backend target fields after loading `state/<id>.meta`.
 Herdr workspaces are derived from `FM_HOME`: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 Spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Herdr has an optional per-home pane-split layout, selected by the local, gitignored `config/herdr-layout` file (`split` enables it; `tabs` or an absent file is the byte-identical default of one tab per task), overridable for a one-off with `FM_HERDR_LAYOUT`.
+In split mode, crewmate/scout panes are split into the spawning firstmate's own pane (spawner on the left, crewmates stacked in the right column, newest at the bottom) instead of getting their own tab; `FM_HERDR_SPLIT_MAX` (default 3) caps the stack before further spawns overflow to tab mode, and the layout falls back to tab mode when firstmate is not itself running in a herdr pane.
+Split mode is crewmate/scout only (a `--secondmate` spawn always uses its own workspace in tab mode) and herdr-only; see [`docs/herdr-backend.md`](herdr-backend.md) "Pane-split layout mode".
+`config/herdr-layout` is not inherited by secondmate homes.
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
 For normal zellij operations, `FM_ZELLIJ_SESSION` selects the named session and defaults to `firstmate`.
@@ -250,6 +254,9 @@ FM_BACKEND_HERDR_IDLE_RE='^Type a message\.\.\.$'  # herdr-only: empty-composer 
 FM_BACKEND_HERDR_BARE_PROMPT_RE='^[❯›]'  # herdr-only: verified agent glyphs recognized as an UNBORDERED (bare) composer row, e.g. claude's ❯ or codex's ›; faint Codex suggestion text after that prompt reads empty (docs/herdr-backend.md "Incident (2026-07-08)")
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Native agent-state submit confirmation")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
+FM_HERDR_LAYOUT=       # herdr-only: overrides config/herdr-layout for one spawn; "split" or "tabs" (absent/tabs is the default tab-per-task layout) (docs/herdr-backend.md "Pane-split layout mode")
+FM_HERDR_SPLIT_MAX=3   # herdr-only: max crewmate panes stacked in the spawner's right column in split mode before further spawns overflow to tab mode
+FM_HERDR_SPLIT_RATIO=0.5  # herdr-only: ratio for every split-mode pane split (right and down)
 FM_BACKEND_ORCA_COMPOSER_LINES=200  # orca-only: terminal-read lines scanned to locate the composer row for submit verification
 FM_BACKEND_ORCA_IDLE_RE='^Type a message\.\.\.$'  # orca-only: empty-composer placeholder regex after border/prompt stripping
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)

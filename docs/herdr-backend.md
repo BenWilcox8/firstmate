@@ -121,6 +121,85 @@ If an older live workspace is still labeled `firstmate-<secondmate-id>`, rename 
 Tab-per-task (within each home's own workspace) still wins on the human-watching axis for the reason P2 originally found: attaching once shows every one of that home's tasks as a tab in one tab bar, switchable with `ctrl+b <n>`, matching how a captain already watches a tmux-backed fleet.
 Workspace-per-task - tried against the real binary in P2 and again considered here - would still only show one task's workspace at a time by default, requiring a separate top-level "space" switch to see the rest of even a single home's fleet; that tradeoff is unchanged by the per-home refinement and workspace-per-task remains rejected.
 
+## Pane-split layout mode (opt-in)
+
+Tab-per-task is the default and only mode described above.
+The optional pane-split layout instead grows crewmate/scout panes INSIDE the spawning firstmate's own pane and tab, so a captain watches firstmate and its live crewmates side by side on one screen rather than switching tabs.
+It is off by default; nothing below changes tab-mode behavior.
+
+### Toggle
+
+Split mode is selected per home by the local, gitignored `config/herdr-layout` file: `split` enables it, and `tabs` or an absent file is byte-identical to today's tab-per-task behavior.
+`FM_HERDR_LAYOUT` overrides the file for a one-off.
+`fm_backend_herdr_layout` (`bin/backends/herdr.sh`) reads it fresh on every spawn from the effective config dir (`FM_CONFIG_OVERRIDE`, else `$FM_HOME/config`), exactly like every other `config/*` knob.
+An unrecognized non-empty value warns once to stderr and falls back to `tabs`, so a typo can never silently enable split mode.
+The knob is herdr-only and does not affect tmux, zellij, Orca, or cmux.
+
+### Layout behavior
+
+The spawning firstmate runs in its own herdr pane, discovered from the env herdr injects into every pane it manages (`HERDR_ENV=1` + `HERDR_PANE_ID`, the same signals `bin/fm-supervise-daemon.sh` trusts for its own supervisor-pane discovery).
+That pane is the split anchor, and its OWN tab/workspace - NOT the home's `firstmate` tab-mode workspace - hosts the crewmate panes:
+
+- First crewmate: `herdr pane split <spawner> --direction right` - the spawner keeps the LEFT half, the crewmate takes the RIGHT half.
+- Each subsequent crewmate: `herdr pane split <bottom-most-crewmate> --direction down` - crewmates stack in the right-half column, newest at the bottom.
+
+`fm_backend_herdr_split_create_task` finds the bottom-most existing crewmate pane by joining `pane list` (which carries the pane `label` but no geometry) with `pane edges`'s layout (which carries `rect.y` but no label) and taking the max-y fm-*-labelled pane in the spawner's tab.
+
+### Pane geometry: `--ratio 0.5`, and why columns are not perfectly even
+
+Every split uses `--ratio 0.5` (overridable via `FM_HERDR_SPLIT_RATIO`), which keeps each individual split even between its two panes.
+Verified against the real binary: the resulting right-column heights cascade `1/2, 1/4, 1/4` for three crewmate panes and `1/2, 1/4, 1/8, 1/8` for four - the first (top) crewmate pane stays at half the column.
+Perfectly even N-pane columns are NOT achievable by pure bottom-splitting: herdr's layout is a binary split tree, and `herdr pane resize` grows a pane relatively rather than equalizing, so equalizing every pane would need per-pane resize arithmetic on every spawn.
+`0.5` is the flattest sensible fixed ratio, and the default cap (below) keeps the smallest pane readable.
+
+### Cap and overflow to tab mode
+
+`FM_HERDR_SPLIT_MAX` (default 3) caps how many crewmate panes stack in the spawner's right column.
+When the cap is reached, a further spawn OVERFLOWS to ordinary tab mode for that spawn (a `notice:` line to stderr, then a fresh `fm-<id>` tab in the home's own workspace) - a layout constraint never refuses a spawn.
+The cap counts every fm-*-labelled pane currently in the spawner's tab, so a transient husk from another task after a whole-fleet restart counts until it is itself respawned; the only effect is pushing a spawn to tab mode, always safe.
+
+### No anchor: fall back to tab mode
+
+Split mode needs firstmate to itself be running in a herdr pane of the target session.
+When `HERDR_PANE_ID` is unset (firstmate is not in a herdr pane, e.g. an explicit `--backend herdr` launched from tmux), or that pane is not live in the resolved session, `fm_backend_herdr_split_create_task` prints a one-line `notice:` and returns the fall-back code so `bin/fm-spawn.sh` uses tab mode for that spawn - never a failed spawn.
+
+### Identity and husk handling at pane granularity
+
+A split-mode crewmate pane has no tab of its own, so it is labelled with `herdr pane rename <pane_id> fm-<id>` and the duplicate/husk check operates on PANE labels instead of tab labels.
+`fm_backend_herdr_split_create_task` classifies any existing same-labelled pane with the SAME `fm_backend_herdr_pane_agent_state` used for tab husks: a live (registered-agent) pane refuses the spawn outright, while a restart-restored husk (dead or agent-less) is closed and replaced.
+The replacement pane is split into being FIRST and the husk is closed only after, the identical create-before-close ordering `fm_backend_herdr_create_task` and `fm_backend_herdr_workspace_prune_seeded_default_tab` already established; herdr's lack of label-uniqueness lets both briefly share the label with no error.
+
+### Scope, supervision, and recovery
+
+Split mode applies only to crewmate/scout spawns into the spawner's own workspace; a `--secondmate` spawn always uses its own workspace in tab mode (see "Task container shape" above), so a secondmate's tabs never mix into the primary's split column.
+All supervision (`fm-send`, `fm-peek`, `fm-watch`, `fm-crew-state`) already addresses `session:pane_id` targets resolved from each task's recorded `window=` meta (`fm_backend_resolve_selector`), which is backend- and layout-independent, so a split-mode pane is supervised exactly like a tab-mode one - no supervision path assumes one tab per agent.
+Teardown closes the task's pane by id; verified that closing a middle pane in the stack re-tiles the remaining panes cleanly and that closing the last crewmate pane leaves the spawner's own pane (and therefore its tab) intact.
+Recovery is meta-driven: a task's `herdr_pane_id=` stays a valid target across an ordinary server restart (pane ids persist - see "ID stability across a server restart"), and the label-based `fm_backend_herdr_list_live` tab scan is unchanged.
+Toggling the config between spawns is safe: existing tab-based tasks keep working (all supervision is pane-id-addressed), and each new spawn simply follows the current config value.
+
+### Verification (2026-07-09, herdr 0.7.2, protocol 16, NixOS Linux x86_64)
+
+Environment:
+
+```sh
+herdr status --json | jq -c '{version:.client.version,protocol:.client.protocol}'
+# {"version":"0.7.2","protocol":16}
+uname -sm   # Linux x86_64
+```
+
+All commands ran in an isolated `fm-lab-*` session provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's default session was never a target and its fleet-state tripwire held.
+
+- **First split (spawner right).** `pane split w1:p1 --direction right --ratio 0.5 --no-focus` -> new pane `w1:p2` in the same tab `w1:t1`; layout `edges` reported the spawner `w1:p1` at `x=26,w=27` (left) and `w1:p2` at `x=53,w=27` (right), confirming the spawner keeps the LEFT half.
+- **Stacking (down splits).** Splitting the bottom crewmate pane `--direction down` twice produced right-column rows `w1:p2 (y=1,h=12)`, `w1:p3 (y=13,h=6)`, `w1:p4 (y=19,h=5)` - newest at the bottom, cascade `~1/2, 1/4, 1/4`.
+- **Labelling.** `pane rename w1:p2 fm-demoA` set `.label`, visible in both `pane get` and `pane list` (unset panes report `label:null`); geometry stayed only in `pane edges`, confirming the list+edges join is needed.
+- **Cap overflow.** With `FM_HERDR_SPLIT_MAX` default 3, the 4th `fm_backend_herdr_split_create_task` returned the fall-back code with `notice: herdr split layout cap (3 crewmate panes) reached ...` and created no pane; `FM_HERDR_SPLIT_MAX=4` let the 4th spawn split normally.
+- **No anchor.** Unsetting `HERDR_ENV` returned the fall-back with `notice: ... not running in a herdr pane`; pointing `HERDR_PANE_ID` at a non-existent pane returned the fall-back with `notice: ... not live in session ...`.
+- **Husk close-and-replace.** Respawning `fm-demoA` when its pane had no registered agent (a restored-husk shape) closed the old pane and created a new one, leaving exactly one `fm-demoA` pane; the new split was logged BEFORE the husk close (create-before-close).
+- **Live duplicate refuses.** After `herdr pane report-agent w1:p2 --state working`, respawning `fm-demoA` refused with `error: a live herdr pane labeled 'fm-demoA' already exists ...` and created/closed nothing.
+- **Teardown re-tile.** Closing a middle pane re-tiled the neighbour to fill the gap (`h=6+5 -> 11`); closing all crewmate panes left the spawner pane alone in its still-open tab.
+
+Fake-CLI unit coverage for all of the above (layout resolution, cap overflow and override, both no-anchor paths, pane-label husk close-and-replace with create-before-close ordering, and live-duplicate refusal) lives in `tests/fm-backend-herdr.test.sh` (`make_herdr_splitfake` and the `test_layout_*` / `test_split_*` cases).
+
 ## Workspace lifecycle: one persistent per-home workspace, reused
 
 Each home's own workspace (`firstmate` for the primary, `2ndmate-<secondmate-id>` for a secondmate - see "Label derivation" above) is created once per session and reused by every subsequent spawn from that home: `fm_backend_herdr_workspace_ensure` calls `fm_backend_herdr_workspace_find` first and creates a workspace only when none labelled for that home exists yet.
