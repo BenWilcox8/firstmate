@@ -795,18 +795,26 @@ test_spawn_conformance_old_vs_new() {
   assert_contains "$out_new" "spawned $id harness=claude kind=ship mode=no-mistakes yolo=off window=firstmate:fm-$id worktree=$wt" \
     "spawn output missing the expected summary line"
 
-  diff -u "$log_old" "$log_new" > "$TMP_ROOT/spawn-diff.txt" 2>&1 \
-    || fail "fm-spawn.sh: tmux command log differs old vs new"$'\n'"$(cat "$TMP_ROOT/spawn-diff.txt")"
+  # The ONE intentional divergence from the pre-refactor baseline is the default
+  # claude session display name: fm-spawn now threads `--name '<id>'` into the
+  # claude launch (AGENTS.md task lifecycle / spawn). Strip exactly that segment
+  # from the new log before diffing so the rest of the tmux session/window
+  # lifecycle is still proven byte-identical old vs new; the launch line's new
+  # `--name` is asserted positively below.
+  sed "s/ --name '$id'//" "$log_new" > "$TMP_ROOT/spawn-new-normalized.log"
+  diff -u "$log_old" "$TMP_ROOT/spawn-new-normalized.log" > "$TMP_ROOT/spawn-diff.txt" 2>&1 \
+    || fail "fm-spawn.sh: tmux command log differs old vs new (ignoring the intentional default --name)"$'\n'"$(cat "$TMP_ROOT/spawn-diff.txt")"
 
   # Sanity: the log actually captured the session/window lifecycle so an
   # accidentally-empty log (e.g. a fake tmux path typo) cannot pass silently.
   assert_contains "$(cat "$log_new")" $'\x1f''new-window' "spawn tmux log missing new-window"
   assert_contains "$(cat "$log_new")" $'\x1f''treehouse get' "spawn tmux log missing the treehouse get send"
-  assert_contains "$(cat "$log_new")" $'\x1f''-l'$'\x1f'"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$(cat '$data/$id/brief.md')\"" \
-    "spawn tmux log missing the literal launch-command send"
+  assert_contains "$(cat "$log_new")" $'\x1f''-l'$'\x1f'"CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$(cat '$data/$id/brief.md')\"" \
+    "spawn tmux log missing the literal launch-command send with the default session name"
+  assert_grep "session_name=$id" "$state_new/$id.meta" "spawn meta missing default session_name=$id for claude"
 
   rm -rf "/tmp/fm-$id"
-  pass "fm-spawn.sh: tmux command log and printed summary line are byte-identical old vs new for a ship-task claude spawn"
+  pass "fm-spawn.sh: tmux command log and printed summary line are byte-identical old vs new (modulo the intentional default --name) for a ship-task claude spawn"
 }
 
 # --- symlinked project prefix must not false-refuse the isolation guard -----

@@ -90,6 +90,15 @@ The supported launch-profile flags below were verified locally on 2026-06-30 wit
 When a requested effort value is outside the harness-specific accepted set, `fm-spawn` records the requested `effort=` in meta but emits no effort flag for that harness.
 This preserves launch success instead of passing a known-bad value.
 
+`bin/fm-spawn.sh` also accepts `--session-name <text>` to set a purpose-relevant display name on the spawned session; omitted, a crewmate/scout defaults to the task id and a secondmate to `Secondmate, <id>`.
+
+| Harness | Session-name flag | Notes |
+|---|---|---|
+| claude | `--name <text>` | Verified 2026-07-10 on Claude Code 2.1.201: sets the pane title and composer name and does not disturb the positional-prompt launch. |
+| codex, opencode, pi, grok | none | No session-name flag threaded. codex/opencode/pi have no verified equivalent; grok was not installed on the verifying box, so its `--name` equivalent is unverified and deliberately omitted rather than guessed. These launch byte-identically whether or not `--session-name` is passed. |
+
+`fm-spawn` records the applied name as `session_name=` in meta only when a name flag was actually passed to the launch, so an absent `session_name=` means the harness received no name flag.
+
 ## no-mistakes skill invocation
 
 Send the validation skill using the target harness's skill invocation form.
