@@ -1095,9 +1095,10 @@ fm_backend_herdr_list_live() {  # <session>
 # side on one screen:
 #   - first crewmate:  split the spawner pane --direction right (the spawner
 #                      keeps the LEFT half, the crewmate takes the RIGHT half).
-#   - each subsequent: split the bottom-most crewmate pane --direction down, so
-#                      crewmates stack in the right-half column, newest at the
-#                      bottom.
+#   - each subsequent: split the most recent (right-most) crewmate pane
+#                      --direction right too, so crewmates form side-by-side
+#                      FULL-HEIGHT COLUMNS in the right half, newest at the
+#                      right edge - many tall panes, never short wide ones.
 # Split mode is crewmate/scout only; a --secondmate spawn always uses its own
 # workspace in tab mode (docs/herdr-backend.md "Task container shape"). It needs
 # the spawner's own herdr pane as the split anchor: when firstmate is NOT itself
@@ -1114,17 +1115,16 @@ fm_backend_herdr_list_live() {  # <session>
 # (success, echoes the created pane) and a hard 1 (a live duplicate label
 # refuses the spawn outright, exactly like the tab path's duplicate check).
 FM_BACKEND_HERDR_SPLIT_FALLBACK=3
-# Ratio for every split (right and down). 0.5 keeps each split even between its
-# two panes. Perfectly even N-pane columns are NOT achievable by pure
-# bottom-splitting without post-split resizing (herdr's layout is a binary
-# split tree, and `pane resize` is relative, not "equalize"); 0.5 is the
-# flattest sensible choice, giving right-column heights 1/2, 1/4, 1/4, ... See
-# docs/herdr-backend.md "Pane geometry".
+# Ratio for every split. 0.5 keeps each split even between its two panes.
+# Perfectly even N-pane columns are NOT achievable by pure right-most-splitting
+# without post-split resizing (herdr's layout is a binary split tree, and
+# `pane resize` is relative, not "equalize"); 0.5 is the flattest sensible
+# choice, giving crewmate column widths 1/2, 1/4, 1/4, ... of the right half.
+# See docs/herdr-backend.md "Pane geometry".
 FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT=0.5
-# Max crewmate panes stacked in the spawner's right column before further
-# spawns overflow to tab mode. Default 3 keeps the smallest pane readable (at
-# the cap the right column is 1/2, 1/4, 1/4 of screen height). Override with
-# FM_HERDR_SPLIT_MAX.
+# Max crewmate columns beside the spawner before further spawns overflow to
+# tab mode. Default 3 keeps the narrowest column readable (at the cap the
+# right half is 1/2, 1/4, 1/4 of its width). Override with FM_HERDR_SPLIT_MAX.
 FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT=3
 
 # fm_backend_herdr_layout: resolve the layout knob to tabs|split. FM_HERDR_LAYOUT
@@ -1191,15 +1191,16 @@ fm_backend_herdr_spawner_pane() {
   printf '%s' "${HERDR_PANE_ID:-}"
 }
 
-# fm_backend_herdr_tab_crew_panes: one "<pane_id>\t<y>\t<label>" line per
-# fm-*-labeled pane in <tab> (excluding the spawner pane), where <y> is the
-# pane's top row from the live layout. herdr exposes pane geometry only through
-# `pane edges`'s layout and pane LABELS only through `pane list`, so this joins
-# the two by pane_id. A pane missing from the layout defaults to y=0. The
-# `pane edges` JSON is passed as a string and parsed with `try fromjson` so an
-# unreadable/empty layout degrades to "no geometry" rather than corrupting the
-# whole result. The caller counts these lines and picks the max-y line as the
-# bottom-most crewmate pane to stack beneath.
+# fm_backend_herdr_tab_crew_panes: one "<pane_id>\t<x>\t<label>" line per
+# fm-*-labeled pane in <tab> (excluding the spawner pane), where <x> is the
+# pane's left column from the live layout. herdr exposes pane geometry only
+# through `pane edges`'s layout and pane LABELS only through `pane list`, so
+# this joins the two by pane_id. A pane missing from the layout defaults to
+# x=0. The `pane edges` JSON is passed as a string and parsed with `try
+# fromjson` so an unreadable/empty layout degrades to "no geometry" rather
+# than corrupting the whole result. The caller counts these lines and picks
+# the max-x line as the most recent (right-most) crewmate column to split
+# beside.
 fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane>
   local session=$1 wsid=$2 tab=$3 spawner=$4 panes layout
   panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 0
@@ -1210,8 +1211,8 @@ fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane
     | select(.tab_id == $tab and .pane_id != $spawner)
     | select(((.label // "") | startswith("fm-")))
     | . as $p
-    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect.y ] | (.[0] // 0)) as $y
-    | "\($p.pane_id)\t\($y)\t\($p.label)"
+    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect.x ] | (.[0] // 0)) as $x
+    | "\($p.pane_id)\t\($x)\t\($p.label)"
   ' 2>/dev/null
 }
 
@@ -1238,7 +1239,7 @@ fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane
 fm_backend_herdr_split_create_task() {  # <label> <cwd>
   local label=$1 cwd=$2 session spawner sp_get sp_tab sp_ws
   local all same_label pane husk_panes="" live_dup=0
-  local crew_count=0 cap ratio anchor new_pane pane_y
+  local crew_count=0 cap ratio anchor new_pane pane_x
   session=$(fm_backend_herdr_session)
   fm_backend_herdr_version_check || return 1
   fm_backend_herdr_server_ensure "$session" || return 1
@@ -1272,10 +1273,10 @@ EOF
   fi
   # Anchor set = fm-* crew panes that are NOT a same-label husk we will replace.
   local anchor_lines=""
-  while IFS=$'\t' read -r pane pane_y; do
+  while IFS=$'\t' read -r pane pane_x; do
     [ -n "$pane" ] || continue
     printf '%s\n' "$husk_panes" | grep -qxF "$pane" && continue
-    anchor_lines="${anchor_lines}${pane}"$'\t'"${pane_y}"$'\n'
+    anchor_lines="${anchor_lines}${pane}"$'\t'"${pane_x}"$'\n'
     crew_count=$((crew_count + 1))
   done <<EOF
 $(printf '%s\n' "$all" | cut -f1,2)
@@ -1314,9 +1315,9 @@ EOF
     # First crewmate: split the spawner pane left/right.
     new_pane=$(fm_backend_herdr_cli "$session" pane split "$spawner" --direction right --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
   else
-    # Stack beneath the bottom-most (max-y) existing crewmate pane.
+    # New column beside the most recent (right-most, max-x) crewmate pane.
     anchor=$(printf '%s' "$anchor_lines" | sort -t$'\t' -k2,2n | awk -F'\t' '$1 != "" {p=$1} END {print p}')
-    new_pane=$(fm_backend_herdr_cli "$session" pane split "$anchor" --direction down --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
+    new_pane=$(fm_backend_herdr_cli "$session" pane split "$anchor" --direction right --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
   fi
   if [ -z "$new_pane" ]; then
     echo "error: herdr pane split did not return a new pane id for '$label' (session $session)" >&2

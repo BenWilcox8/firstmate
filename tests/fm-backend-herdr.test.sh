@@ -1615,20 +1615,21 @@ test_no_jq_reserved_keyword_arg_names() {
 # models the pane primitives split mode drives - pane get/list/edges (geometry),
 # split (right/down), rename (label), close, and agent get - the same
 # real-herdr behaviors verified in docs/herdr-backend.md "Pane-split layout
-# mode". Geometry is modeled just enough for the max-y bottom-most anchor
-# selection: a right split keeps the parent's row, a down split lands one row
-# below the current lowest pane in the tab, so the newest pane is always the
-# bottom-most.
+# mode". Geometry is modeled just enough for the max-x right-most anchor
+# selection: a right split lands one column right of the current right-most
+# pane in the tab (production only ever splits the right-most pane, verified
+# against the real binary), a down split keeps the parent's column, so the
+# newest pane is always the right-most.
 
 # make_herdr_splitfake: a stateful `herdr` stub for split-mode tests. State is a
-# JSON file ($FM_SPLIT_STATE) of panes ({pane_id,tab_id,workspace_id,label,y,
+# JSON file ($FM_SPLIT_STATE) of panes ({pane_id,tab_id,workspace_id,label,x,
 # agent}); it is pre-seeded with a single unlabeled "spawner" pane w1:p1 in
 # tab w1:t1 / workspace w1, standing in for firstmate's own pane. Every call is
 # logged to $FM_HERDR_LOG in the same unit-separated form as the other fakes.
 make_herdr_splitfake() {  # <dir> -> echoes fakebin dir; seeds spawner pane w1:p1
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  printf '{"next":2,"workspaces":[],"tabs":[],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":null,"y":0,"agent":null}]}\n' > "$dir/split-state.json"
+  printf '{"next":2,"workspaces":[],"tabs":[],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":null,"x":0,"agent":null}]}\n' > "$dir/split-state.json"
   cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -1675,9 +1676,9 @@ case "$cmd $sub" in
     jq_state --arg w "$wsid" '{result:{panes:[.panes[]|select($w=="" or .workspace_id==$w)|{pane_id,tab_id,label}]}}'
     ;;
   "pane edges")
-    # Layout = every pane sharing the referenced pane's tab, with its row (y).
+    # Layout = every pane sharing the referenced pane's tab, with its column (x).
     tab=$(jq_state -r --arg p "$pane" '.panes[]|select(.pane_id==$p)|.tab_id')
-    jq_state --arg t "$tab" '{result:{edges:{layout:{panes:[.panes[]|select(.tab_id==$t)|{pane_id,rect:{y:.y}}]}}}}'
+    jq_state --arg t "$tab" '{result:{edges:{layout:{panes:[.panes[]|select(.tab_id==$t)|{pane_id,rect:{x:.x}}]}}}}'
     ;;
   "pane split")
     n=$(jq_state -r '.next'); newid="w1:p$n"
@@ -1687,13 +1688,13 @@ case "$cmd $sub" in
     fi
     tab=$(printf '%s' "$parent" | jq -r '.tab_id')
     ws=$(printf '%s' "$parent" | jq -r '.workspace_id')
-    if [ "$direction" = down ]; then
-      newy=$(( $(jq_state -r --arg t "$tab" '[.panes[]|select(.tab_id==$t)|.y]|max') + 1 ))
+    if [ "$direction" = right ]; then
+      newx=$(( $(jq_state -r --arg t "$tab" '[.panes[]|select(.tab_id==$t)|.x]|max') + 1 ))
     else
-      newy=$(printf '%s' "$parent" | jq -r '.y')
+      newx=$(printf '%s' "$parent" | jq -r '.x')
     fi
-    jq_state --arg id "$newid" --arg t "$tab" --arg w "$ws" --argjson y "$newy" \
-      '.panes += [{pane_id:$id,tab_id:$t,workspace_id:$w,label:null,y:$y,agent:null}] | .next=(.next+1)' | save
+    jq_state --arg id "$newid" --arg t "$tab" --arg w "$ws" --argjson x "$newx" \
+      '.panes += [{pane_id:$id,tab_id:$t,workspace_id:$w,label:null,x:$x,agent:null}] | .next=(.next+1)' | save
     printf '{"result":{"pane":{"pane_id":"%s","tab_id":"%s","workspace_id":"%s"}}}\n' "$newid" "$tab" "$ws"
     ;;
   "pane rename")
@@ -1873,23 +1874,28 @@ test_split_first_spawn_splits_spawner_right() {
   pass "split_create_task: first crewmate splits the spawner pane right and labels the pane"
 }
 
-test_split_subsequent_spawns_stack_below() {
-  read -r fb log state < <(split_env split-stack)
+test_split_subsequent_spawns_add_columns_right() {
+  read -r fb log state < <(split_env split-cols)
+  local out2 pane2
   run_split "$fb" "$state" fm-a1 >/dev/null
-  run_split "$fb" "$state" fm-a2 >/dev/null
+  out2=$(run_split "$fb" "$state" fm-a2)
+  IFS=$'\t' read -r _ _ _ pane2 <<<"$out2"
   local out3 pane3
   out3=$(run_split "$fb" "$state" fm-a3)
   IFS=$'\t' read -r _ _ _ pane3 <<<"$out3"
-  # three crewmate panes now exist, all in the spawner's tab, newest lowest.
-  local count maxy pane3y
+  # three crewmate panes now exist, all in the spawner's tab, newest right-most.
+  local count maxx pane3x
   count=$(jq '[.panes[]|select(.label!=null)]|length' "$state")
   [ "$count" -eq 3 ] || fail "expected 3 labelled crewmate panes, got $count"
-  maxy=$(jq '[.panes[]|select(.label!=null)|.y]|max' "$state")
-  pane3y=$(jq -r --arg p "$pane3" '.panes[]|select(.pane_id==$p)|.y' "$state")
-  [ "$pane3y" = "$maxy" ] || fail "the newest crewmate pane should be the bottom-most (max y=$maxy), got y=$pane3y"
-  # subsequent spawns split --direction down (not a second right split).
-  grep -q $'\x1f''--direction'$'\x1f''down' "$log" || fail "subsequent spawns should split --direction down"
-  pass "split_create_task: subsequent crewmates stack below, newest at the bottom"
+  maxx=$(jq '[.panes[]|select(.label!=null)|.x]|max' "$state")
+  pane3x=$(jq -r --arg p "$pane3" '.panes[]|select(.pane_id==$p)|.x' "$state")
+  [ "$pane3x" = "$maxx" ] || fail "the newest crewmate pane should be the right-most column (max x=$maxx), got x=$pane3x"
+  # every split is --direction right (columns), never --direction down (stack),
+  # and the third spawn's anchor is the previous (right-most) crewmate pane.
+  grep -q $'\x1f''--direction'$'\x1f''down' "$log" && fail "no spawn should split --direction down in column layout"
+  grep -q $'\x1f''split'$'\x1f'"$pane2"$'\x1f''--direction'$'\x1f''right' "$log" \
+    || fail "the third spawn should split the most recent crewmate pane ($pane2) --direction right"
+  pass "split_create_task: subsequent crewmates form side-by-side columns, newest at the right"
 }
 
 test_split_cap_overflows_to_tab() {
@@ -2170,7 +2176,7 @@ test_layout_unrecognized_value_warns_and_defaults_tabs
 test_split_max_default_and_override
 test_split_ratio_default_and_sanitize
 test_split_first_spawn_splits_spawner_right
-test_split_subsequent_spawns_stack_below
+test_split_subsequent_spawns_add_columns_right
 test_split_cap_overflows_to_tab
 test_split_cap_override_raises_limit
 test_split_no_anchor_falls_back_to_tab

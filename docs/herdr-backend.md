@@ -141,20 +141,20 @@ The spawning firstmate runs in its own herdr pane, discovered from the env herdr
 That pane is the split anchor, and its OWN tab/workspace - NOT the home's `firstmate` tab-mode workspace - hosts the crewmate panes:
 
 - First crewmate: `herdr pane split <spawner> --direction right` - the spawner keeps the LEFT half, the crewmate takes the RIGHT half.
-- Each subsequent crewmate: `herdr pane split <bottom-most-crewmate> --direction down` - crewmates stack in the right-half column, newest at the bottom.
+- Each subsequent crewmate: `herdr pane split <most-recent-crewmate> --direction right` - crewmates form side-by-side FULL-HEIGHT COLUMNS in the right half, newest at the right edge (many tall panes, never short wide ones).
 
-`fm_backend_herdr_split_create_task` finds the bottom-most existing crewmate pane by joining `pane list` (which carries the pane `label` but no geometry) with `pane edges`'s layout (which carries `rect.y` but no label) and taking the max-y fm-*-labelled pane in the spawner's tab.
+`fm_backend_herdr_split_create_task` finds the most recent (right-most) existing crewmate pane by joining `pane list` (which carries the pane `label` but no geometry) with `pane edges`'s layout (which carries `rect.x` but no label) and taking the max-x fm-*-labelled pane in the spawner's tab.
 
 ### Pane geometry: `--ratio 0.5`, and why columns are not perfectly even
 
 Every split uses `--ratio 0.5` (overridable via `FM_HERDR_SPLIT_RATIO`; only a real decimal strictly between 0 and 1 is accepted, anything else falls back to 0.5), which keeps each individual split even between its two panes.
-Verified against the real binary: the resulting right-column heights cascade `1/2, 1/4, 1/4` for three crewmate panes and `1/2, 1/4, 1/8, 1/8` for four - the first (top) crewmate pane stays at half the column.
-Perfectly even N-pane columns are NOT achievable by pure bottom-splitting: herdr's layout is a binary split tree, and `herdr pane resize` grows a pane relatively rather than equalizing, so equalizing every pane would need per-pane resize arithmetic on every spawn.
-`0.5` is the flattest sensible fixed ratio, and the default cap (below) keeps the smallest pane readable.
+Verified against the real binary: the resulting crewmate column widths cascade `1/2, 1/4, 1/4` of the right half for three crewmates - the first (left-most) crewmate column stays at half the right half.
+Perfectly even N-column layouts are NOT achievable by pure right-most-splitting: herdr's layout is a binary split tree, and `herdr pane resize` grows a pane relatively rather than equalizing, so equalizing every column would need per-pane resize arithmetic on every spawn.
+`0.5` is the flattest sensible fixed ratio, and the default cap (below) keeps the narrowest column readable.
 
 ### Cap and overflow to tab mode
 
-`FM_HERDR_SPLIT_MAX` (default 3) caps how many crewmate panes stack in the spawner's right column.
+`FM_HERDR_SPLIT_MAX` (default 3) caps how many crewmate columns sit beside the spawner.
 When the cap is reached, a further spawn OVERFLOWS to ordinary tab mode for that spawn (a `notice:` line to stderr, then a fresh `fm-<id>` tab in the home's own workspace) - a layout constraint never refuses a spawn.
 The cap counts every fm-*-labelled pane currently in the spawner's tab, so a transient husk from another task after a whole-fleet restart counts until it is itself respawned; the only effect is pushing a spawn to tab mode, always safe.
 
@@ -177,11 +177,11 @@ Both cross-scope paths apply the identical conservative classification (only a c
 
 Split mode applies only to crewmate/scout spawns into the spawner's own workspace; a `--secondmate` spawn always uses its own workspace in tab mode (see "Task container shape" above), so a secondmate's tabs never mix into the primary's split column.
 All supervision (`fm-send`, `fm-peek`, `fm-watch`, `fm-crew-state`) already addresses `session:pane_id` targets resolved from each task's recorded `window=` meta (`fm_backend_resolve_selector`), which is backend- and layout-independent, so a split-mode pane is supervised exactly like a tab-mode one - no supervision path assumes one tab per agent.
-Teardown closes the task's pane by id; verified that closing a middle pane in the stack re-tiles the remaining panes cleanly and that closing the last crewmate pane leaves the spawner's own pane (and therefore its tab) intact.
+Teardown closes the task's pane by id; verified that closing a middle column re-tiles the remaining columns cleanly and that closing the last crewmate pane leaves the spawner's own pane (and therefore its tab) intact.
 Recovery is meta-driven: a task's `herdr_pane_id=` stays a valid target across an ordinary server restart (pane ids persist - see "ID stability across a server restart"), and the label-based `fm_backend_herdr_list_live` tab scan is unchanged.
 Toggling the config between spawns is safe: existing tasks keep working in whichever layout they landed (all supervision is pane-id-addressed), each new spawn simply follows the current config value, and the cross-layout duplicate/husk detection above means a respawned task id still finds an earlier incarnation left in the other layout's scope.
 
-### Verification (2026-07-09, herdr 0.7.2, protocol 16, NixOS Linux x86_64)
+### Verification (2026-07-09 and 2026-07-10, herdr 0.7.2, protocol 16, NixOS Linux x86_64)
 
 Environment:
 
@@ -191,16 +191,17 @@ herdr status --json | jq -c '{version:.client.version,protocol:.client.protocol}
 uname -sm   # Linux x86_64
 ```
 
-All commands ran in an isolated `fm-lab-*` session provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's default session was never a target and its fleet-state tripwire held.
+All commands ran in isolated `fm-lab-*` sessions provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's default session was never a target and its fleet-state tripwire held in every pass.
+The 2026-07-09 pass verified the split primitives, labelling, cap, fallback, and husk behavior; the 2026-07-10 pass re-verified the layout geometry after the stacking axis changed from a vertical stack (down splits) to side-by-side columns (right splits) on the captain's live-testing feedback.
 
-- **First split (spawner right).** `pane split w1:p1 --direction right --ratio 0.5 --no-focus` -> new pane `w1:p2` in the same tab `w1:t1`; layout `edges` reported the spawner `w1:p1` at `x=26,w=27` (left) and `w1:p2` at `x=53,w=27` (right), confirming the spawner keeps the LEFT half.
-- **Stacking (down splits).** Splitting the bottom crewmate pane `--direction down` twice produced right-column rows `w1:p2 (y=1,h=12)`, `w1:p3 (y=13,h=6)`, `w1:p4 (y=19,h=5)` - newest at the bottom, cascade `~1/2, 1/4, 1/4`.
-- **Labelling.** `pane rename w1:p2 fm-demoA` set `.label`, visible in both `pane get` and `pane list` (unset panes report `label:null`); geometry stayed only in `pane edges`, confirming the list+edges join is needed.
-- **Cap overflow.** With `FM_HERDR_SPLIT_MAX` default 3, the 4th `fm_backend_herdr_split_create_task` returned the fall-back code with `notice: herdr split layout cap (3 crewmate panes) reached ...` and created no pane; `FM_HERDR_SPLIT_MAX=4` let the 4th spawn split normally.
-- **No anchor.** Unsetting `HERDR_ENV` returned the fall-back with `notice: ... not running in a herdr pane`; pointing `HERDR_PANE_ID` at a non-existent pane returned the fall-back with `notice: ... not live in session ...`.
-- **Husk close-and-replace.** Respawning `fm-demoA` when its pane had no registered agent (a restored-husk shape) closed the old pane and created a new one, leaving exactly one `fm-demoA` pane; the new split was logged BEFORE the husk close (create-before-close).
-- **Live duplicate refuses.** After `herdr pane report-agent w1:p2 --state working`, respawning `fm-demoA` refused with `error: a live herdr pane labeled 'fm-demoA' already exists ...` and created/closed nothing.
-- **Teardown re-tile.** Closing a middle pane re-tiled the neighbour to fill the gap (`h=6+5 -> 11`); closing all crewmate panes left the spawner pane alone in its still-open tab.
+- **First split (spawner right, 2026-07-09).** `pane split w1:p1 --direction right --ratio 0.5 --no-focus` -> new pane `w1:p2` in the same tab `w1:t1`; layout `edges` reported the spawner `w1:p1` at `x=26,w=27` (left) and `w1:p2` at `x=53,w=27` (right), confirming the spawner keeps the LEFT half.
+- **Columns (right splits, 2026-07-10).** Splitting the right-most crewmate pane `--direction right --ratio 0.5` twice produced full-height columns `w1:p2 (x=53,w=14,h=23)`, `w1:p3 (x=67,w=7,h=23)`, `w1:p4 (x=74,w=6,h=23)` beside the spawner `w1:p1 (x=26,w=27,h=23)` - every pane full height (`h=23`), newest at the right edge, widths cascading `~1/2, 1/4, 1/4` of the right half.
+- **Labelling (2026-07-09).** `pane rename w1:p2 fm-demoA` set `.label`, visible in both `pane get` and `pane list` (unset panes report `label:null`); geometry stayed only in `pane edges`, confirming the list+edges join is needed.
+- **Cap overflow (2026-07-09).** With `FM_HERDR_SPLIT_MAX` default 3, the 4th `fm_backend_herdr_split_create_task` returned the fall-back code with `notice: herdr split layout cap (3 crewmate panes) reached ...` and created no pane; `FM_HERDR_SPLIT_MAX=4` let the 4th spawn split normally.
+- **No anchor (2026-07-09).** Unsetting `HERDR_ENV` returned the fall-back with `notice: ... not running in a herdr pane`; pointing `HERDR_PANE_ID` at a non-existent pane returned the fall-back with `notice: ... not live in session ...`.
+- **Husk close-and-replace (2026-07-09).** Respawning `fm-demoA` when its pane had no registered agent (a restored-husk shape) closed the old pane and created a new one, leaving exactly one `fm-demoA` pane; the new split was logged BEFORE the husk close (create-before-close).
+- **Live duplicate refuses (2026-07-09).** After `herdr pane report-agent w1:p2 --state working`, respawning `fm-demoA` refused with `error: a live herdr pane labeled 'fm-demoA' already exists ...` and created/closed nothing.
+- **Teardown re-tile (2026-07-10).** Closing the middle column re-tiled its neighbour to fill the gap (`w=7+6 -> 13`, all columns still full height); closing all crewmate columns left the spawner pane alone in its still-open tab.
 
 Fake-CLI unit coverage for all of the above (layout resolution, cap overflow and override, both no-anchor paths, pane-label husk close-and-replace with create-before-close ordering, and live-duplicate refusal) lives in `tests/fm-backend-herdr.test.sh` (`make_herdr_splitfake` and the `test_layout_*` / `test_split_*` cases).
 
