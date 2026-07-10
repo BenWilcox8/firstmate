@@ -1613,23 +1613,26 @@ test_no_jq_reserved_keyword_arg_names() {
 # one tab per task. The layout-resolution tests are pure config reads; the
 # split_create_task tests use make_herdr_splitfake, a stateful `herdr` stub that
 # models the pane primitives split mode drives - pane get/list/edges (geometry),
-# split (right/down), rename (label), close, and agent get - the same
+# split (right, with a real width partition), rename (label), resize (divider
+# move between horizontally adjacent panes), close, and agent get - the same
 # real-herdr behaviors verified in docs/herdr-backend.md "Pane-split layout
-# mode". Geometry is modeled just enough for the max-x right-most anchor
-# selection: a right split lands one column right of the current right-most
-# pane in the tab (production only ever splits the right-most pane, verified
-# against the real binary), a down split keeps the parent's column, so the
-# newest pane is always the right-most.
+# mode". Geometry is modeled as contiguous integer-cell columns (x, width): a
+# right split partitions the parent's width at the requested ratio (parent
+# keeps the ceil half, matching the real binary), and resize moves the named
+# edge by round(amount * labeled-region width) between the pane and its
+# horizontal neighbor - mirroring production's own amount normalization so
+# the rebalance loop's math is exact against this fake, while the real
+# enclosing-split semantics stay covered by the lab verification in the doc.
 
 # make_herdr_splitfake: a stateful `herdr` stub for split-mode tests. State is a
-# JSON file ($FM_SPLIT_STATE) of panes ({pane_id,tab_id,workspace_id,label,x,
+# JSON file ($FM_SPLIT_STATE) of panes ({pane_id,tab_id,workspace_id,label,x,w,
 # agent}); it is pre-seeded with a single unlabeled "spawner" pane w1:p1 in
 # tab w1:t1 / workspace w1, standing in for firstmate's own pane. Every call is
 # logged to $FM_HERDR_LOG in the same unit-separated form as the other fakes.
 make_herdr_splitfake() {  # <dir> -> echoes fakebin dir; seeds spawner pane w1:p1
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
-  printf '{"next":2,"workspaces":[],"tabs":[],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":null,"x":0,"agent":null}]}\n' > "$dir/split-state.json"
+  printf '{"next":2,"workspaces":[],"tabs":[],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1","label":null,"x":0,"w":54,"agent":null}]}\n' > "$dir/split-state.json"
   cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -1676,9 +1679,10 @@ case "$cmd $sub" in
     jq_state --arg w "$wsid" '{result:{panes:[.panes[]|select($w=="" or .workspace_id==$w)|{pane_id,tab_id,label}]}}'
     ;;
   "pane edges")
-    # Layout = every pane sharing the referenced pane's tab, with its column (x).
+    # Layout = every pane sharing the referenced pane's tab, with its column
+    # geometry (x, width).
     tab=$(jq_state -r --arg p "$pane" '.panes[]|select(.pane_id==$p)|.tab_id')
-    jq_state --arg t "$tab" '{result:{edges:{layout:{panes:[.panes[]|select(.tab_id==$t)|{pane_id,rect:{x:.x}}]}}}}'
+    jq_state --arg t "$tab" '{result:{edges:{layout:{panes:[.panes[]|select(.tab_id==$t)|{pane_id,rect:{x:.x,width:.w}}]}}}}'
     ;;
   "pane split")
     n=$(jq_state -r '.next'); newid="w1:p$n"
@@ -1688,14 +1692,49 @@ case "$cmd $sub" in
     fi
     tab=$(printf '%s' "$parent" | jq -r '.tab_id')
     ws=$(printf '%s' "$parent" | jq -r '.workspace_id')
-    if [ "$direction" = right ]; then
-      newx=$(( $(jq_state -r --arg t "$tab" '[.panes[]|select(.tab_id==$t)|.x]|max') + 1 ))
-    else
-      newx=$(printf '%s' "$parent" | jq -r '.x')
-    fi
-    jq_state --arg id "$newid" --arg t "$tab" --arg w "$ws" --argjson x "$newx" \
-      '.panes += [{pane_id:$id,tab_id:$t,workspace_id:$w,label:null,x:$x,agent:null}] | .next=(.next+1)' | save
+    ratio=0.5
+    for ((j=2; j<${#args[@]}; j++)); do
+      [ "${args[$j]}" = --ratio ] && ratio=${args[$((j+1))]:-0.5}
+    done
+    # Partition the parent's width at the ratio: parent keeps the ceil half
+    # (verified real-herdr rounding), the new pane takes the rest to its right.
+    jq_state --arg p "$pane" --arg id "$newid" --arg t "$tab" --arg w "$ws" --argjson r "$ratio" '
+      (.panes[] | select(.pane_id==$p)) as $par
+      | (($par.w * $r) | ceil) as $keep
+      | (.panes[] | select(.pane_id==$p)).w = $keep
+      | .panes += [{pane_id:$id,tab_id:$t,workspace_id:$w,label:null,x:($par.x + $keep),w:($par.w - $keep),agent:null}]
+      | .next = (.next + 1)' | save
     printf '{"result":{"pane":{"pane_id":"%s","tab_id":"%s","workspace_id":"%s"}}}\n' "$newid" "$tab" "$ws"
+    ;;
+  "pane resize")
+    amount=""
+    for ((j=2; j<${#args[@]}; j++)); do
+      [ "${args[$j]}" = --amount ] && amount=${args[$((j+1))]:-}
+    done
+    [ -n "$amount" ] || exit 0
+    # Move the named edge by round(amount * labeled-region width) between the
+    # pane and its horizontal neighbor (contiguous columns: neighbor's x
+    # matches this pane's edge exactly).
+    jq_state --arg p "$pane" --arg dir "$direction" --argjson f "$amount" '
+      ([.panes[] | select(.label != null) | .w] | add // 0) as $regw
+      | (($f * $regw) + 0.5 | floor) as $d
+      | (.panes[] | select(.pane_id==$p)) as $me
+      | if $dir == "right" then
+          ([.panes[] | select(.tab_id==$me.tab_id and .x == ($me.x + $me.w))] | .[0]) as $nb
+          | if $nb == null or ($nb.w - $d) < 1 then .
+            else (.panes[] | select(.pane_id==$p)).w += $d
+            | (.panes[] | select(.pane_id==$nb.pane_id)).x += $d
+            | (.panes[] | select(.pane_id==$nb.pane_id)).w -= $d
+            end
+        elif $dir == "left" then
+          ([.panes[] | select(.tab_id==$me.tab_id and (.x + .w) == $me.x)] | .[0]) as $nb
+          | if $nb == null or ($nb.w - $d) < 1 then .
+            else (.panes[] | select(.pane_id==$nb.pane_id)).w -= $d
+            | (.panes[] | select(.pane_id==$p)).x -= $d
+            | (.panes[] | select(.pane_id==$p)).w += $d
+            end
+        else . end' | save
+    printf '{"result":{"resize":{"changed":true}}}\n'
     ;;
   "pane rename")
     # herdr pane rename <pane_id> <label>: $3 is the pane, $4 the new label.
@@ -1874,28 +1913,52 @@ test_split_first_spawn_splits_spawner_right() {
   pass "split_create_task: first crewmate splits the spawner pane right and labels the pane"
 }
 
-test_split_subsequent_spawns_add_columns_right() {
+test_split_subsequent_spawns_split_widest_and_rebalance() {
   read -r fb log state < <(split_env split-cols)
-  local out2 pane2
-  run_split "$fb" "$state" fm-a1 >/dev/null
-  out2=$(run_split "$fb" "$state" fm-a2)
-  IFS=$'\t' read -r _ _ _ pane2 <<<"$out2"
-  local out3 pane3
-  out3=$(run_split "$fb" "$state" fm-a3)
-  IFS=$'\t' read -r _ _ _ pane3 <<<"$out3"
-  # three crewmate panes now exist, all in the spawner's tab, newest right-most.
-  local count maxx pane3x
+  local out1 pane1
+  out1=$(run_split "$fb" "$state" fm-a1)
+  IFS=$'\t' read -r _ _ _ pane1 <<<"$out1"
+  run_split "$fb" "$state" fm-a2 >/dev/null
+  : > "$log"
+  run_split "$fb" "$state" fm-a3 >/dev/null
+  # three crewmate columns now exist, all in the spawner's tab.
+  local count
   count=$(jq '[.panes[]|select(.label!=null)]|length' "$state")
   [ "$count" -eq 3 ] || fail "expected 3 labelled crewmate panes, got $count"
-  maxx=$(jq '[.panes[]|select(.label!=null)|.x]|max' "$state")
-  pane3x=$(jq -r --arg p "$pane3" '.panes[]|select(.pane_id==$p)|.x' "$state")
-  [ "$pane3x" = "$maxx" ] || fail "the newest crewmate pane should be the right-most column (max x=$maxx), got x=$pane3x"
-  # every split is --direction right (columns), never --direction down (stack),
-  # and the third spawn's anchor is the previous (right-most) crewmate pane.
+  # every split is --direction right (columns), never --direction down (stack).
   grep -q $'\x1f''--direction'$'\x1f''down' "$log" && fail "no spawn should split --direction down in column layout"
-  grep -q $'\x1f''split'$'\x1f'"$pane2"$'\x1f''--direction'$'\x1f''right' "$log" \
-    || fail "the third spawn should split the most recent crewmate pane ($pane2) --direction right"
-  pass "split_create_task: subsequent crewmates form side-by-side columns, newest at the right"
+  # the third spawn's anchor is the WIDEST crewmate column, which after the
+  # even fm-a2 rebalance is fm-a1's pane (the ceil half of the first split).
+  grep -q $'\x1f''split'$'\x1f'"$pane1"$'\x1f''--direction'$'\x1f''right' "$log" \
+    || fail "the third spawn should split the widest crewmate pane ($pane1) --direction right"
+  # the rebalance leaves the three columns near-even (max-min <= 2 cells).
+  local spread
+  spread=$(jq '[.panes[]|select(.label!=null)|.w] | (max - min)' "$state")
+  [ "$spread" -le 2 ] || fail "columns should be near-even after rebalance (max-min <= 2), got spread $spread: $(jq -c '[.panes[]|select(.label!=null)|.w]' "$state")"
+  pass "split_create_task: subsequent crewmates split the widest column and rebalance near-even"
+}
+
+test_split_eight_columns_stay_near_even_every_step() {
+  read -r fb log state < <(split_env split-eight)
+  # Mirror the captain's live 8-pane scenario (FM_HERDR_SPLIT_MAX=8): at EVERY
+  # step, no crewmate column may be width zero and the spread must stay small -
+  # the regression this guards is the geometric 27/14/7/3/2/1/0/0 collapse of
+  # ratio-0.5-on-most-recent splitting. The spread bound is 3, not tighter:
+  # the rebalance tolerates each boundary sitting within +/-1 cell of its
+  # exact target, so two adjacent boundaries off in opposite directions can
+  # legally leave adjacent widths differing by up to 3 - still near-even in
+  # cells, and categorically different from the multi-fold geometric spread.
+  local i widths minw spread
+  for i in 1 2 3 4 5 6 7 8; do
+    FM_HERDR_SPLIT_MAX=8 run_split "$fb" "$state" "fm-c$i" >/dev/null \
+      || fail "spawn fm-c$i should succeed under cap 8"
+    widths=$(jq -c '[.panes[]|select(.label!=null)|.w]' "$state")
+    minw=$(jq '[.panes[]|select(.label!=null)|.w] | min' "$state")
+    spread=$(jq '[.panes[]|select(.label!=null)|.w] | (max - min)' "$state")
+    [ "$minw" -ge 1 ] || fail "step $i: a crewmate column collapsed to width $minw (widths $widths)"
+    [ "$spread" -le 3 ] || fail "step $i: columns not near-even (max-min $spread > 3; widths $widths)"
+  done
+  pass "split_create_task: 8 columns stay near-even (no zero-width, spread <= 3) at every step"
 }
 
 test_split_cap_overflows_to_tab() {
@@ -2176,7 +2239,8 @@ test_layout_unrecognized_value_warns_and_defaults_tabs
 test_split_max_default_and_override
 test_split_ratio_default_and_sanitize
 test_split_first_spawn_splits_spawner_right
-test_split_subsequent_spawns_add_columns_right
+test_split_subsequent_spawns_split_widest_and_rebalance
+test_split_eight_columns_stay_near_even_every_step
 test_split_cap_overflows_to_tab
 test_split_cap_override_raises_limit
 test_split_no_anchor_falls_back_to_tab
