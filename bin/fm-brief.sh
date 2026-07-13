@@ -36,6 +36,9 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
+# Every scaffold kind (ship, scout, secondmate charter) ends with a dashboard
+# message-marker section instructing the agent to emit %%dash-fin%% and
+# %%dash-sum: markers so the agent dashboard can parse its messages.
 # Refuses to overwrite an existing brief.
 set -eu
 
