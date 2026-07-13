@@ -20,12 +20,12 @@ Two canonical homes hold general agent material, both indexed from firstmate; a 
 
 ```
 ~/AGENTS.md                        neutral global primary, read natively by every harness
-~/.claude/CLAUDE.md                20-byte @import of ~/AGENTS.md - the only Claude wiring; carries no content
+~/.claude/CLAUDE.md                small @import of ~/AGENTS.md - the only Claude wiring; carries no content
 
 ~/.agents/skills/                  CANONICAL user-level general skills, harness-neutral
 ~/.claude/skills  ->  ~/.agents/skills     symlink, so Claude sees the identical set
 
-~/firstmate/                       THE HUB (a shared template repo, git-tracked)
+<primary firstmate home>/          THE HUB (a shared template repo, git-tracked; location-independent via FM_HOME)
    AGENTS.md (real)  ;  CLAUDE.md -> AGENTS.md
    .agents/skills/   internal operating skills, canonical, metadata.internal=true
    .claude/skills  ->  ../.agents/skills
@@ -37,8 +37,8 @@ Two canonical homes hold general agent material, both indexed from firstmate; a 
 ```
 
 The rule behind the split: firstmate is the hub and the index, but "within firstmate" means firstmate is the interface, not that every file physically lives in the shared template repo.
-The captain's personal general skills (tdd, prototype, tool skills, third-party packs) belong at `~/.agents/skills`, not committed inside firstmate.
-Firstmate's own operating knowledge, and the machine map itself, live in `~/firstmate/.agents/skills` so they are git-tracked and reach every secondmate home through firstmate sync.
+The user's harness-neutral general skills belong at `~/.agents/skills`, not committed inside firstmate.
+Firstmate's own operating knowledge, and the machine map itself, live in the primary firstmate home's `.agents/skills` so they are git-tracked and reach every secondmate home through firstmate sync.
 
 ## Where does it go?
 
@@ -48,7 +48,7 @@ Given a new skill, config, or instruction file, place it at the first tier that 
    `~/.agents/skills/<skill>/`.
    Claude reaches it automatically through the `~/.claude/skills` symlink; never author a second Claude-only copy.
 2. Firstmate operating knowledge - something the fleet needs while running firstmate?
-   `~/firstmate/.agents/skills/<skill>/` with `metadata.internal=true`, plus a one-line load trigger in `AGENTS.md` section 13.
+   The primary firstmate home's `.agents/skills/<skill>/` with `metadata.internal=true`, plus a one-line load trigger in `AGENTS.md` section 13.
 3. A skill that is a specific project's deliverable (installed or gated per-home)?
    In that project at `.agents/skills/<skill>/` with the `.claude/skills -> ../.agents/skills` wiring, shipped through the project's own PR.
 4. Per-harness-only content?
