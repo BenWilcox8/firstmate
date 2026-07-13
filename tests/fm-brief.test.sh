@@ -177,6 +177,82 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
   pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
 }
 
+test_pause_verb_override_renders_all_brief_scaffolds() {
+  local home kind id brief
+  home="$TMP_ROOT/pause-verb-home"
+  mkdir -p "$home/data"
+
+  for kind in ship scout secondmate; do
+    id="brief-pause-verb-$kind"
+    case "$kind" in
+      ship)
+        FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
+          "$ROOT/bin/fm-brief.sh" "$id" firstmate >/dev/null 2>&1
+        ;;
+      scout)
+        FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
+          "$ROOT/bin/fm-brief.sh" "$id" firstmate --scout >/dev/null 2>&1
+        ;;
+      secondmate)
+        FM_HOME="$home" FM_CLASSIFY_PAUSED_VERB=awaiting \
+          "$ROOT/bin/fm-brief.sh" "$id" --secondmate --no-projects >/dev/null 2>&1
+        ;;
+    esac
+    brief="$home/data/$id/brief.md"
+    assert_grep "States: working, needs-decision, blocked, awaiting, done, failed." "$brief" \
+      "$kind brief did not render the configured pause verb in its states list"
+    # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+    assert_grep 'Use `awaiting: {why}`' "$brief" \
+      "$kind brief did not instruct the configured pause status"
+    # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+    assert_no_grep '`paused: {why}`' "$brief" \
+      "$kind brief still instructs the default paused status"
+    assert_grep 'or a blocker clears' "$brief" \
+      "$kind brief did not require durable resolution when a blocker clears"
+  done
+  pass "fm-brief.sh: custom pause verb renders in every scaffold"
+}
+
+test_dashboard_marker_block_in_all_scaffolds() {
+  local home brief
+  home="$TMP_ROOT/markers-home"
+  write_registry "$home"
+
+  # Ship brief.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-ship some-proj >/dev/null 2>&1
+  brief="$home/data/markers-ship/brief.md"
+  assert_grep "## Dashboard message markers" "$brief" \
+    "ship brief missing ## Dashboard message markers heading"
+  assert_grep "%%dash-fin%%" "$brief" \
+    "ship brief missing %%dash-fin%% marker"
+  assert_grep "%%dash-sum:" "$brief" \
+    "ship brief missing %%dash-sum: marker"
+
+  # Scout brief.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
+  brief="$home/data/markers-scout/brief.md"
+  assert_grep "## Dashboard message markers" "$brief" \
+    "scout brief missing ## Dashboard message markers heading"
+  assert_grep "%%dash-fin%%" "$brief" \
+    "scout brief missing %%dash-fin%% marker"
+  assert_grep "%%dash-sum:" "$brief" \
+    "scout brief missing %%dash-sum: marker"
+
+  # Secondmate charter.
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
+    "$ROOT/bin/fm-brief.sh" markers-secondmate --secondmate --no-projects >/dev/null 2>&1
+  brief="$home/data/markers-secondmate/brief.md"
+  assert_grep "## Dashboard message markers" "$brief" \
+    "secondmate charter missing ## Dashboard message markers heading"
+  assert_grep "%%dash-fin%%" "$brief" \
+    "secondmate charter missing %%dash-fin%% marker"
+  assert_grep "%%dash-sum:" "$brief" \
+    "secondmate charter missing %%dash-sum: marker"
+
+  pass "fm-brief.sh: dashboard marker block appears in ship, scout, and secondmate scaffolds"
+}
+
+
 test_script_parses
 test_ship_modes_generate_clean_briefs
 test_no_mistakes_dod_wording
@@ -185,3 +261,5 @@ test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
+test_pause_verb_override_renders_all_brief_scaffolds
+test_dashboard_marker_block_in_all_scaffolds

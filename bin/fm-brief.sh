@@ -141,6 +141,28 @@ On startup and restart, run normal firstmate bootstrap and recovery through \`bi
 When you have no assigned or in-flight work after that reconciliation, go idle and wait silently for the main firstmate to route you a task.
 An empty queue is a healthy resting state, not a cue to invent work: never spawn a survey, audit, or any self-directed "find work" task on your own initiative.
 If this charter cannot be carried out, append \`blocked: {why}\` or \`failed: {why}\` to the main status file and stop.
+
+## Dashboard message markers
+
+The agent dashboard parses two tiny markers out of your messages. Include both in
+every substantive response so the dashboard shows your work intentionally. They are
+stripped before display and never shown to anyone.
+
+- Put \`%%dash-fin%%\` on its own line immediately BEFORE your final answer. Everything
+  after it is shown as your "final response"; put working narration and tool chatter
+  above it.
+- Put \`%%dash-sum: <2-3 words>%%\` on its own line to summarize the message for the
+  timeline (e.g. \`%%dash-sum: fixed parser bug%%\`). Keep it to a few plain words; do
+  not include a \`%\` character.
+
+Example:
+    <your working narration>
+    %%dash-sum: fixed parser bug%%
+    %%dash-fin%%
+    Done - the parser bug is fixed and all tests pass.
+
+If you forget, nothing breaks: the dashboard falls back to its heuristics. But include
+them whenever you can.
 EOF
 if [ "$SECONDMATE_CHARTER" = "{TASK}" ]; then
   echo "scaffolded: $BRIEF (secondmate charter; replace {TASK})"
@@ -218,6 +240,28 @@ Write your findings to \`$DATA/$ID/report.md\`.
 The report must stand alone: what you did, what you found, the evidence (commands run, output, file:line references), and what you recommend.
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
+
+## Dashboard message markers
+
+The agent dashboard parses two tiny markers out of your messages. Include both in
+every substantive response so the dashboard shows your work intentionally. They are
+stripped before display and never shown to anyone.
+
+- Put \`%%dash-fin%%\` on its own line immediately BEFORE your final answer. Everything
+  after it is shown as your "final response"; put working narration and tool chatter
+  above it.
+- Put \`%%dash-sum: <2-3 words>%%\` on its own line to summarize the message for the
+  timeline (e.g. \`%%dash-sum: fixed parser bug%%\`). Keep it to a few plain words; do
+  not include a \`%\` character.
+
+Example:
+    <your working narration>
+    %%dash-sum: fixed parser bug%%
+    %%dash-fin%%
+    Done - the parser bug is fixed and all tests pass.
+
+If you forget, nothing breaks: the dashboard falls back to its heuristics. But include
+them whenever you can.
 EOF
 echo "scaffolded: $BRIEF (scout; replace {TASK})"
 exit 0
@@ -320,5 +364,27 @@ If you touch a project \`AGENTS.md\` that lacks \`## Maintaining this file\`, ad
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
 $DOD
+
+## Dashboard message markers
+
+The agent dashboard parses two tiny markers out of your messages. Include both in
+every substantive response so the dashboard shows your work intentionally. They are
+stripped before display and never shown to anyone.
+
+- Put \`%%dash-fin%%\` on its own line immediately BEFORE your final answer. Everything
+  after it is shown as your "final response"; put working narration and tool chatter
+  above it.
+- Put \`%%dash-sum: <2-3 words>%%\` on its own line to summarize the message for the
+  timeline (e.g. \`%%dash-sum: fixed parser bug%%\`). Keep it to a few plain words; do
+  not include a \`%\` character.
+
+Example:
+    <your working narration>
+    %%dash-sum: fixed parser bug%%
+    %%dash-fin%%
+    Done - the parser bug is fixed and all tests pass.
+
+If you forget, nothing breaks: the dashboard falls back to its heuristics. But include
+them whenever you can.
 EOF
 echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"

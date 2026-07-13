@@ -820,6 +820,7 @@ It tracks work items only, never agents; persistent secondmates never appear as 
 Work routed to a secondmate is recorded in that secondmate home's own backlog, not the main backlog.
 When a main-side thread such as a pending captain decision or relay reminder is worth durable tracking, file it as its own work item; use `tasks-axi hold <id> --reason "<reason>" --kind captain` for a captain-gated thread.
 Update the backlog on every dispatch, completion, and decision for a work item.
+Keep task ids in this backlog byte-identical to any `spec-axi` slice `--task` ids that reference them, so board slices always trace back to the queue.
 
 ```markdown
 ## In flight
@@ -910,6 +911,9 @@ These skills are not captain-invocable; they are conditional operating reference
 - `fmx-respond` - load on an `x-mention <request_id>` `check:` wake to handle the mention, on an `x-mode-error ...` `check:` wake to report the X-mode configuration blocker, and on any milestone or terminal wake for an X-mode-linked task before posting its completion follow-up; relevant only when X mode is on.
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
+- `specs` - when `config/specs` exists in this home, load before intake of captain-defined product work, and apply its board triggers at every lifecycle moment: spawn or promotion of a ship crewmate (`slice add`, `move in-progress`), crewmate `done` (`slice move review`), validation start (`slice move no-mistakes`), merge (`slice done --pr` or local `slice done`), all-shipped (`move done`), failure or abandonment (`slice block` + `note`), stalls (`block`/`unblock`), plan changes (`note`), and on every `specs-inbox` check wake (reconcile, never re-apply).
+- `spec-authoring` - load when writing a new spec body; governs depth, `--review`, and `--skip-phases` at create time.
+- `spec-slicing` - load before breaking an accepted spec into planned slices for dispatch.
 
 ## 14. X mode
 
