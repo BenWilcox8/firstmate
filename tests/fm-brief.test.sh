@@ -185,35 +185,47 @@ test_dashboard_marker_block_in_all_scaffolds() {
   # Ship brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-ship some-proj >/dev/null 2>&1
   brief="$home/data/markers-ship/brief.md"
-  assert_grep "## Dashboard message markers" "$brief" \
-    "ship brief missing ## Dashboard message markers heading"
+  assert_grep "## Dashboard signals (CLI)" "$brief" \
+    "ship brief missing ## Dashboard signals (CLI) heading"
+  assert_grep "spec-axi ask" "$brief" \
+    "ship brief missing spec-axi ask instruction"
+  assert_grep "spec-axi status" "$brief" \
+    "ship brief missing spec-axi status instruction"
   assert_grep "%%dash-fin%%" "$brief" \
-    "ship brief missing %%dash-fin%% marker"
-  assert_grep "%%dash-sum:" "$brief" \
-    "ship brief missing %%dash-sum: marker"
+    "ship brief missing %%dash-fin%% inline marker"
+  assert_no_grep "%%dash-sum" "$brief" \
+    "ship brief still instructs the retired %%dash-sum%% marker"
 
   # Scout brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
   brief="$home/data/markers-scout/brief.md"
-  assert_grep "## Dashboard message markers" "$brief" \
-    "scout brief missing ## Dashboard message markers heading"
+  assert_grep "## Dashboard signals (CLI)" "$brief" \
+    "scout brief missing ## Dashboard signals (CLI) heading"
+  assert_grep "spec-axi ask" "$brief" \
+    "scout brief missing spec-axi ask instruction"
+  assert_grep "spec-axi status" "$brief" \
+    "scout brief missing spec-axi status instruction"
   assert_grep "%%dash-fin%%" "$brief" \
-    "scout brief missing %%dash-fin%% marker"
-  assert_grep "%%dash-sum:" "$brief" \
-    "scout brief missing %%dash-sum: marker"
+    "scout brief missing %%dash-fin%% inline marker"
+  assert_no_grep "%%dash-sum" "$brief" \
+    "scout brief still instructs the retired %%dash-sum%% marker"
 
   # Secondmate charter.
   FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
     "$ROOT/bin/fm-brief.sh" markers-secondmate --secondmate --no-projects >/dev/null 2>&1
   brief="$home/data/markers-secondmate/brief.md"
-  assert_grep "## Dashboard message markers" "$brief" \
-    "secondmate charter missing ## Dashboard message markers heading"
+  assert_grep "## Dashboard signals (CLI)" "$brief" \
+    "secondmate charter missing ## Dashboard signals (CLI) heading"
+  assert_grep "spec-axi ask" "$brief" \
+    "secondmate charter missing spec-axi ask instruction"
+  assert_grep "spec-axi status" "$brief" \
+    "secondmate charter missing spec-axi status instruction"
   assert_grep "%%dash-fin%%" "$brief" \
-    "secondmate charter missing %%dash-fin%% marker"
-  assert_grep "%%dash-sum:" "$brief" \
-    "secondmate charter missing %%dash-sum: marker"
+    "secondmate charter missing %%dash-fin%% inline marker"
+  assert_no_grep "%%dash-sum" "$brief" \
+    "secondmate charter still instructs the retired %%dash-sum%% marker"
 
-  pass "fm-brief.sh: dashboard marker block appears in ship, scout, and secondmate scaffolds"
+  pass "fm-brief.sh: CLI-signals block appears in ship, scout, and secondmate scaffolds"
 }
 
 test_script_parses

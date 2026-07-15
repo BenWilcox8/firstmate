@@ -37,8 +37,8 @@
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
 # Every scaffold kind (ship, scout, secondmate charter) ends with a dashboard
-# message-marker section instructing the agent to emit %%dash-fin%% and
-# %%dash-sum: markers so the agent dashboard can parse its messages.
+# signals section (MARKERS_SECTION) with spec-axi CLI commands and %%dash-fin%%;
+# source of truth: apps/agent-dashboard/docs/message-markers.md "Adoption".
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -89,27 +89,30 @@ shell_quote() {
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 
 MARKERS_SECTION=$(cat <<'EOF'
-## Dashboard message markers
+## Dashboard signals (CLI)
 
-The agent dashboard parses two tiny markers out of your messages. Include both in
-every substantive response so the dashboard shows your work intentionally. They are
-stripped before display and never shown to anyone.
+The captain watches you on a dashboard. Signal it with two tiny commands
+(they are on your PATH via spec-axi; success prints one word, then carry on):
 
-- Put `%%dash-fin%%` on its own line immediately BEFORE your final answer. Everything
-  after it is shown as your "final response"; put working narration and tool chatter
-  above it.
-- Put `%%dash-sum: <2-3 words>%%` on its own line to summarize the message for the
-  timeline (e.g. `%%dash-sum: fixed parser bug%%`). Keep it to a few plain words; do
-  not include a `%` character.
+- When you are BLOCKED on a human decision, ask the captain:
+      spec-axi ask "delete the legacy table or keep it?"
+  Run it once PER independent question. The answer arrives later as a normal
+  message in your session prefixed %%dash-ans%%. Do not wait idle for it if
+  you have other work you can continue safely.
+  If the decision is a pick from a few options, offer them so the captain can
+  just tap one:
+      spec-axi ask "which db?" --options "postgres,mysql,sqlite"
+  Options are optional; omit them for a free-text question.
+- When you start or finish a distinct phase of work, label the timeline:
+      spec-axi status "fixing parser bug"
+  2-6 plain words about what you are doing right now. Once per phase is enough.
 
-Example:
-    <your working narration>
-    %%dash-sum: fixed parser bug%%
-    %%dash-fin%%
-    Done - the parser bug is fixed and all tests pass.
+Also put %%dash-fin%% on its own line immediately before the final answer in
+every substantive message (working narration above it). That marker stays
+inline; everything else goes through the commands above.
 
-If you forget, nothing breaks: the dashboard falls back to its heuristics. But include
-them whenever you can.
+If a command fails, note it and keep working - never retry-loop or stall on a
+signal.
 EOF
 )
 
