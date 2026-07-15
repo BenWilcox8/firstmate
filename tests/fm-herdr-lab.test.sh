@@ -20,13 +20,25 @@ cat > "$FAKEBIN/herdr" <<'SH'
 set -eu
 printf '%s\n' "$*" >> "$FM_FAKE_HERDR_LOG"
 state=$FM_FAKE_HERDR_STATE
-last=
+# Mirror real herdr: --session is honored only as herdr's own flag, i.e. BEFORE
+# the first "--" argv separator. A --session that lands after "--" is part of a
+# started agent's argv and does NOT select the session, so this fake treats it
+# as missing - exactly the mis-scoping the before-"--" injection fix prevents.
+session=
+prev=
+sep=0
 for arg in "$@"; do
-  previous=$last
-  last=$arg
+  if [ "$arg" = "--" ] && [ "$sep" = 0 ]; then
+    sep=1
+    prev=$arg
+    continue
+  fi
+  if [ "$sep" = 0 ] && [ "$prev" = --session ]; then
+    session=$arg
+  fi
+  prev=$arg
 done
-[ "${previous:-}" = --session ] || { echo "fake herdr: missing trailing --session" >&2; exit 90; }
-session=$last
+[ -n "$session" ] || { echo "fake herdr: missing --session before argv separator" >&2; exit 90; }
 default_socket=$(cat "$state/default-socket")
 lab_state=absent
 [ ! -f "$state/$session" ] || lab_state=$(cat "$state/$session")
@@ -153,6 +165,63 @@ test_provision_run_and_guarded_teardown() {
   pass "fm-herdr-lab: provisioning, scoped calls, guarded teardown, and fleet tripwire are deterministic"
 }
 
+test_session_flag_precedes_argv_separator() {
+  local name="fm-lab-argv-$$" line prefix
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_provision "$name" || fail "argv-form fixture provision failed"
+
+  # The bug: an `agent start <name> ... -- <argv>` form must place --session
+  # BEFORE the "--" separator, or it leaks into the started agent's argv and
+  # mis-scopes the agent into the default (captain) session. The fake herdr
+  # fails closed (exit 90) when --session is absent before "--", so a passing
+  # call already proves correct placement; the log-order check is belt-and-braces.
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_cli "$name" agent start labcat -- sleep 100 >/dev/null \
+    || fail "agent start with a -- argv separator was mis-scoped (session leaked past --)"
+  line=$(grep -F 'agent start labcat' "$FAKE_LOG")
+  prefix=${line%% -- *}
+  case "$prefix" in
+    *"--session $name"*) : ;;
+    *) fail "--session did not land before the -- separator: $line" ;;
+  esac
+  case "$prefix" in
+    *"agent start labcat"*) : ;;
+    *) fail "agent subcommand missing before the -- separator: $line" ;;
+  esac
+
+  # A second -- form to cover more than one wrapped shape.
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_cli "$name" pane run w1:p1 -- echo hi >/dev/null \
+    || fail "pane run with a -- argv separator was mis-scoped"
+  line=$(grep -F 'pane run w1:p1' "$FAKE_LOG")
+  prefix=${line%% -- *}
+  case "$prefix" in
+    *"--session $name"*) : ;;
+    *) fail "--session did not land before the -- separator for pane run: $line" ;;
+  esac
+
+  # The previously-working no-'--' forms must still carry a trailing --session.
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_cli "$name" workspace create >/dev/null \
+    || fail "workspace create (no -- form) regressed"
+  line=$(grep -F 'workspace create' "$FAKE_LOG")
+  case "$line" in
+    *"--session $name") : ;;
+    *) fail "workspace create must keep a trailing --session: $line" ;;
+  esac
+  : > "$FAKE_LOG"
+  run_with_fake fm_herdr_lab_cli "$name" pane report-agent w1:p1 agentx >/dev/null \
+    || fail "pane report-agent (no -- form) regressed"
+  line=$(grep -F 'pane report-agent' "$FAKE_LOG")
+  case "$line" in
+    *"--session $name") : ;;
+    *) fail "pane report-agent must keep a trailing --session: $line" ;;
+  esac
+
+  run_with_fake fm_herdr_lab_teardown "$name" || fail "teardown after argv-form checks failed"
+  pass "fm-herdr-lab: --session lands before any -- separator and stays trailing otherwise"
+}
+
 test_missing_tripwire_blocks_destruction() {
   local name="fm-lab-no-tripwire-$$" status=0 before after
   printf '%s\n' running > "$FAKE_STATE/$name"
@@ -233,6 +302,7 @@ SH
 
 test_refuses_unsafe_names
 test_provision_run_and_guarded_teardown
+test_session_flag_precedes_argv_separator
 test_missing_tripwire_blocks_destruction
 test_changed_default_trips_after_teardown
 test_stopped_owned_lab_can_reprovision
