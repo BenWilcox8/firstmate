@@ -78,14 +78,38 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 # shellcheck source=bin/fm-backend.sh
 . "$SCRIPT_DIR/fm-backend.sh"
 
-STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
-case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
+# FM_SESSION_START_VERBOSE=1 restores full-width delimiters, full CREW_DISPATCH
+# rule listing, untruncated backlog titles, and a 5-line status tail.
+# Default (0) is lean: short delimiters, compact CREW_DISPATCH summary, truncated
+# titles, and a 3-line tail.
+VERBOSE=${FM_SESSION_START_VERBOSE:-0}
+
+if [ -n "${FM_SESSION_START_STATUS_TAIL:-}" ]; then
+  STATUS_TAIL=$FM_SESSION_START_STATUS_TAIL
+  case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=3 ;; esac
+elif [ "$VERBOSE" = "1" ]; then
+  STATUS_TAIL=5
+else
+  STATUS_TAIL=3
+fi
 
 RULE='================================================================================'
 SUBRULE='--------------------------------------------------------------------------------'
 
-section() { printf '\n%s\n%s\n%s\n' "$RULE" "$1" "$RULE"; }
-subsection() { printf '\n%s\n%s\n' "$1" "$SUBRULE"; }
+section() {
+  if [ "$VERBOSE" = "1" ]; then
+    printf '\n%s\n%s\n%s\n' "$RULE" "$1" "$RULE"
+  else
+    printf '\n---\n%s\n' "$1"
+  fi
+}
+subsection() {
+  if [ "$VERBOSE" = "1" ]; then
+    printf '\n%s\n%s\n' "$1" "$SUBRULE"
+  else
+    printf '\n%s\n---\n' "$1"
+  fi
+}
 
 # print_file_or_absent <path> <label>: full contents under a labeled
 # subsection, or an explicit ABSENT marker. Absence is semantically
@@ -99,6 +123,28 @@ print_file_or_absent() {
   if [ -f "$path" ]; then
     if [ -s "$path" ]; then
       cat "$path"
+    else
+      printf '(present, empty)\n'
+    fi
+  else
+    printf 'ABSENT\n'
+  fi
+}
+
+# print_backlog_or_absent <path> <label>: like print_file_or_absent but in
+# lean mode (VERBOSE != 1) truncates lines longer than 120 characters with an
+# ellipsis so multi-sentence task titles do not bloat the digest. Full text
+# stays in data/backlog.md for on-demand read.
+print_backlog_or_absent() {
+  local path=$1 label=$2
+  subsection "$label"
+  if [ -f "$path" ]; then
+    if [ -s "$path" ]; then
+      if [ "$VERBOSE" = "1" ]; then
+        cat "$path"
+      else
+        awk '{ if (length($0) > 120) print substr($0, 1, 120) "…"; else print }' "$path"
+      fi
     else
       printf '(present, empty)\n'
     fi
@@ -230,7 +276,7 @@ print_file_or_absent "$DATA/learnings.md" "data/learnings.md"
 
 # --- 5. fleet-state digest ---------------------------------------------
 section "FLEET STATE"
-print_file_or_absent "$DATA/backlog.md" "data/backlog.md"
+print_backlog_or_absent "$DATA/backlog.md" "data/backlog.md"
 
 subsection "In-flight tasks (state/*.meta)"
 META_FOUND=0

@@ -522,7 +522,7 @@ crew_dispatch_validate() {
     echo "CREW_DISPATCH: invalid config/crew-dispatch.json - $err"
     return 0
   fi
-  jq -r '
+  jq -r --arg verbose "${FM_SESSION_START_VERBOSE:-0}" '
     def profile($p):
       ($p.harness | tostring)
       + (if ($p.model? != null) then "/" + ($p.model | tostring)
@@ -535,10 +535,17 @@ crew_dispatch_validate() {
           + "[" + ([$r.use[] | profile(.)] | join(", ")) + "]")
       else profile($r.use)
       end;
-    (["CREW_DISPATCH: active config/crew-dispatch.json"]
-      + [(.rules // [])[]? | "  rule: " + (.when | tostring) + " -> " + use_label(.)]
-      + (if (.default? | type) == "object" then ["  default: " + profile(.default)] else [] end))
-    | .[]
+    if $verbose == "1" then
+      (["CREW_DISPATCH: active config/crew-dispatch.json"]
+        + [(.rules // [])[]? | "  rule: " + (.when | tostring) + " -> " + use_label(.)]
+        + (if (.default? | type) == "object" then ["  default: " + profile(.default)] else [] end))
+      | .[]
+    else
+      ((.rules // []) | length) as $n
+      | (if $n == 1 then "1 rule" else "\($n) rules" end) as $count
+      | (if (.default? | type) == "object" then " + default " + profile(.default) else "" end) as $def
+      | "CREW_DISPATCH: \($count) active\($def) (config/crew-dispatch.json)"
+    end
   ' "$file"
 }
 

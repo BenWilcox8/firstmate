@@ -393,8 +393,8 @@ EOF
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "working: step 7" "default status tail missing the most recent line"
-  assert_contains "$out" "working: step 3" "default status tail (5 lines) missing an expected recent line"
-  assert_not_contains "$out" "working: step 1" "default status tail (5 lines) leaked an older line"
+  assert_contains "$out" "working: step 5" "default status tail (3 lines) missing an expected recent line"
+  assert_not_contains "$out" "working: step 4" "default status tail (3 lines) leaked an older line"
   assert_contains "$out" "$home/state/task-a.status" "digest did not print the full status log path for a deeper read"
   assert_contains "$out" "Do NOT bulk-read state/*.status now either: their bounded tails were just" "closing reminder does not distinguish bounded status tails"
   assert_not_contains "$out" "state/*.status now - they were just" "closing reminder still describes status logs as fully printed"
@@ -402,6 +402,13 @@ EOF
   out=$(FM_SESSION_START_STATUS_TAIL=2 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "working: step 7" "FM_SESSION_START_STATUS_TAIL=2 tail missing the most recent line"
   assert_not_contains "$out" "working: step 5" "FM_SESSION_START_STATUS_TAIL=2 did not bound the tail to 2 lines"
+
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_SESSION_START_VERBOSE=1 \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    "$SESSION_START")
+  assert_contains "$out" "working: step 3" "FM_SESSION_START_VERBOSE=1 did not restore 5-line status tail"
+  assert_not_contains "$out" "working: step 1" "FM_SESSION_START_VERBOSE=1 tail exceeded 5 lines"
 
   pass "status tail is bounded to the configured line count, with the full log path always printed"
 }
@@ -695,6 +702,102 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+# --- lean defaults and verbose opt-in ----------------------------------------
+
+test_lean_default_uses_short_delimiters() {
+  local rec root home fakebin out context_delim fleet_delim
+  rec=$(new_world lean-delimiters)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "---" "lean mode did not emit any short delimiter"
+  assert_contains "$out" "CONTEXT" "CONTEXT section label missing in lean mode"
+  assert_contains "$out" "FLEET STATE" "FLEET STATE section label missing in lean mode"
+  assert_contains "$out" "LOCK" "LOCK subsection label missing in lean mode"
+  assert_contains "$out" "BOOTSTRAP" "BOOTSTRAP subsection label missing in lean mode"
+
+  # The section delimiters owned by this script (CONTEXT, FLEET STATE) must use
+  # '---' in lean mode, not the 80-char rule. The supervision block is a
+  # separate script and retains its own formatting.
+  context_delim=$(printf '%s\n' "$out" | grep -B1 "^CONTEXT$" | head -1)
+  [ "$context_delim" = "---" ] || \
+    fail "lean mode: line before CONTEXT is '$context_delim', expected '---'"
+  fleet_delim=$(printf '%s\n' "$out" | grep -B1 "^FLEET STATE$" | head -1)
+  [ "$fleet_delim" = "---" ] || \
+    fail "lean mode: line before FLEET STATE is '$fleet_delim', expected '---'"
+
+  pass "lean default uses short delimiters; all section labels still present"
+}
+
+test_verbose_restores_full_width_delimiters() {
+  local rec root home fakebin out context_delim fleet_delim
+  rec=$(new_world verbose-delimiters)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_SESSION_START_VERBOSE=1 \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    "$SESSION_START")
+
+  context_delim=$(printf '%s\n' "$out" | grep -B1 "^CONTEXT$" | head -1)
+  [ "$context_delim" = "================================================================================" ] || \
+    fail "verbose mode: line before CONTEXT is '$context_delim', expected 80-char rule"
+  fleet_delim=$(printf '%s\n' "$out" | grep -B1 "^FLEET STATE$" | head -1)
+  [ "$fleet_delim" = "================================================================================" ] || \
+    fail "verbose mode: line before FLEET STATE is '$fleet_delim', expected 80-char rule"
+  assert_contains "$out" "CONTEXT" "CONTEXT section label missing in verbose mode"
+
+  pass "FM_SESSION_START_VERBOSE=1 restores full-width delimiters"
+}
+
+test_backlog_title_truncation_in_digest() {
+  local rec root home fakebin out long_title short_title truncated_prefix
+  rec=$(new_world backlog-truncation)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  long_title="Implement the comprehensive authentication flow refactoring with detailed error messages and proper session management for all user account types including admins"
+  short_title="Fix login bug"
+  cat > "$home/data/backlog.md" <<BACKLOG
+## In flight
+- **long-task** - ${long_title} (repo: myapp, since 2026-07-14)
+- **short-task** - ${short_title} (repo: myapp, since 2026-07-14)
+BACKLOG
+
+  truncated_prefix=$(printf '%s' "- **long-task** - ${long_title}" | head -c 120)
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_not_contains "$out" "$long_title" "lean mode did not truncate the long backlog title"
+  assert_contains "$out" "$truncated_prefix" "lean mode truncated too aggressively (first 120 chars missing)"
+  assert_contains "$out" "…" "lean mode did not append ellipsis after truncation"
+  assert_contains "$out" "$short_title" "lean mode incorrectly truncated a short backlog title"
+
+  # data/backlog.md must be unchanged
+  grep -qF "$long_title" "$home/data/backlog.md" || \
+    fail "data/backlog.md was modified by the digest - only the rendered output must change"
+
+  # verbose mode restores full title
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_SESSION_START_VERBOSE=1 \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    "$SESSION_START")
+  assert_contains "$out" "$long_title" "FM_SESSION_START_VERBOSE=1 did not restore the full backlog title"
+
+  pass "backlog title truncation: lean truncates at 120 chars; verbose restores; source file unchanged"
+}
+
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_output_ordering_diagnostics_lead
@@ -711,3 +814,6 @@ test_pi_diagnostic_rejects_stale_loaded_marker
 test_pi_diagnostic_accepts_prelock_loaded_marker
 test_pi_diagnostic_rejects_missing_turnend_guard_marker
 test_pi_diagnostic_rejects_previous_session_loaded_marker
+test_lean_default_uses_short_delimiters
+test_verbose_restores_full_width_delimiters
+test_backlog_title_truncation_in_digest
