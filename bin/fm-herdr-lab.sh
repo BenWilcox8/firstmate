@@ -11,6 +11,8 @@
 #   fm-herdr-lab.sh teardown <session>
 #
 # Session names must begin with "fm-lab-" and can never be "default".
+# The name command sanitizes the label, caps it at 16 characters, and appends
+# process/random suffixes to keep generated socket paths short.
 # Every Herdr call made here carries --session <session> as Herdr's own flag,
 # injected before any "--" argv separator so it never leaks into a started
 # agent's argv and mis-scopes the agent into the default session.
@@ -184,7 +186,7 @@ fm_herdr_lab_cancel_provision() { # <pid>
 }
 
 fm_herdr_lab_provision() { # <session>
-  local name=$1 sessions tripwire running attempt server_pid
+  local name=$1 sessions tripwire running attempt server_pid max_attempts timeout_seconds
   fm_herdr_lab_validate_name "$name" || return 1
   command -v herdr >/dev/null 2>&1 || { fm_herdr_lab_error "herdr is required"; return 1; }
   command -v jq >/dev/null 2>&1 || { fm_herdr_lab_error "jq is required"; return 1; }
@@ -213,7 +215,9 @@ fm_herdr_lab_provision() { # <session>
   fm_herdr_lab_raw "$name" server >/dev/null 2>&1 &
   server_pid=$!
   attempt=0
-  while [ "$attempt" -lt 50 ]; do
+  max_attempts=300
+  timeout_seconds=60
+  while [ "$attempt" -lt "$max_attempts" ]; do
     running=$(fm_herdr_lab_cli "$name" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null) || running=false
     if [ "$running" = true ]; then
       fm_herdr_lab_refuse_if_default "$name" || {
@@ -226,7 +230,7 @@ fm_herdr_lab_provision() { # <session>
     attempt=$((attempt + 1))
   done
   fm_herdr_lab_cancel_provision "$server_pid"
-  fm_herdr_lab_error "lab session '$name' did not report running within 10 seconds"
+  fm_herdr_lab_error "lab session '$name' did not report running within $timeout_seconds seconds"
   return 1
 }
 
@@ -304,6 +308,9 @@ fm_herdr_lab_teardown() { # <session>
 fm_herdr_lab_name() { # <label>
   local label=${1:-lab}
   label=$(printf '%s' "$label" | tr -cd 'a-zA-Z0-9_-' | sed 's/^[^a-zA-Z0-9]*//; s/-*$//')
+  [ -n "$label" ] || label=lab
+  label=${label:0:16}
+  label=${label%-}
   [ -n "$label" ] || label=lab
   printf 'fm-lab-%s-%s-%s\n' "$label" "$$" "$RANDOM"
 }
