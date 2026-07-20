@@ -726,8 +726,31 @@ test_pid_identity_is_locale_invariant() {
   pass "fm_pid_identity is locale-invariant across LC_ALL/LC_TIME"
 }
 
+test_pid_identity_is_tz_invariant() {
+  # Regression for the bug fixed 2026-07-17: fm_pid_identity pinned LC_ALL=C but
+  # not TZ, so ps's lstart output differed between UTC and non-UTC environments
+  # (e.g. "Mon Jul 14 10:00:00 2025 CDT" vs "Mon Jul 14 15:00:00 2025 UTC").
+  # The watcher wrote its identity under one TZ while the turn-end guard re-read
+  # it under another, causing a false "SUPERVISION IS OFF" banner on non-UTC hosts.
+  # The fix adds TZ=UTC inside fm_pid_identity so the output is stable regardless
+  # of the caller's ambient TZ.
+  local live baseline via_tz_chicago via_tz_tokyo
+  sleep 300 &
+  live=$!
+  baseline=$(TZ=UTC bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
+  via_tz_chicago=$(TZ=America/Chicago bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
+  via_tz_tokyo=$(TZ=Asia/Tokyo bash -c '. "$1"; fm_pid_identity "$2"' _ "$LIB" "$live" 2>/dev/null)
+  kill "$live" 2>/dev/null || true
+  wait "$live" 2>/dev/null || true
+  [ -n "$baseline" ] || fail "fm_pid_identity produced no baseline identity under TZ=UTC"
+  [ "$via_tz_chicago" = "$baseline" ] || fail "fm_pid_identity varied with TZ=America/Chicago (got '$via_tz_chicago', want '$baseline')"
+  [ "$via_tz_tokyo" = "$baseline" ] || fail "fm_pid_identity varied with TZ=Asia/Tokyo (got '$via_tz_tokyo', want '$baseline')"
+  pass "fm_pid_identity is timezone-invariant across TZ values"
+}
+
 test_singleton_start
 test_pid_identity_is_locale_invariant
+test_pid_identity_is_tz_invariant
 test_stale_watch_lock_reclaimed
 test_live_stale_watch_lock_is_actionable
 test_guard_warnings

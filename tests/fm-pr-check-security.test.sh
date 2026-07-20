@@ -147,7 +147,7 @@ write_watcher_lock() {
   local state=$1 home=$2 pid=$3 identity
   rm -rf "$state/.watch.lock"
   mkdir "$state/.watch.lock"
-  identity=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null | sed 's/^[[:space:]]*//')
+  identity=$(LC_ALL=C TZ=UTC ps -p "$pid" -o lstart= -o command= 2>/dev/null | sed 's/^[[:space:]]*//')
   [ -n "$identity" ] || fail "could not capture fake older-watcher identity"
   printf '%s\n' "$pid" > "$state/.watch.lock/pid"
   printf '%s\n' "$home" > "$state/.watch.lock/fm-home"
