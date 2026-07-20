@@ -113,18 +113,33 @@ STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 MARKERS_SECTION=$(cat <<'EOF'
 ## Dashboard signals (CLI)
 
-The captain watches you on a dashboard. Signal it with two tiny commands
+The captain watches you on a dashboard. Signal it with three tiny commands
 (they are on your PATH via spec-axi; success prints one word, then carry on):
 
-- When you are BLOCKED on a human decision, ask the captain:
+- When you are BLOCKED on a human DECISION, ask the captain:
       spec-axi ask "delete the legacy table or keep it?"
   Run it once PER independent question. The answer arrives later as a normal
-  message in your session prefixed %%dash-ans%%. Do not wait idle for it if
-  you have other work you can continue safely.
+  message in your session prefixed %%dash-ans%% (that prefix appears only on
+  captain answers to your asks, not on ordinary dashboard messages). Do not
+  wait idle for it if you have other work you can continue safely.
   If the decision is a pick from a few options, offer them so the captain can
   just tap one:
       spec-axi ask "which db?" --options "postgres,mysql,sqlite"
   Options are optional; omit them for a free-text question.
+  NEVER use harness-native pickers (TUI select dialogs, interactive CLI prompts,
+  AskUserQuestion tool) for captain decisions - they cannot be seen or answered
+  remotely and will deadlock or drop the question. Encode the choices in
+  --options instead.
+  ESCALATION RULE: if you need a human decision, pick EITHER escalating to your
+  supervisor OR asking the captain directly - never both. If you ask the captain
+  directly, tell your supervisor you already asked. Exactly one question should
+  reach the captain per decision.
+- When you FINISHED something the captain should look at (needs oversight, not a
+  decision - a spec entering review, a finished design, completed work), flag it:
+      spec-axi review "auth refactor done, ready for a look"
+  NON-BLOCKING: move on immediately. Your next message is highlighted as a review
+  and the captain marks it reviewed when handled. Use this, NOT ask, whenever you
+  are moving on either way.
 - When you start or finish a distinct phase of work, label the timeline:
       spec-axi status "fixing parser bug"
   2-6 plain words about what you are doing right now. Once per phase is enough.
