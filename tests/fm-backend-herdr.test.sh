@@ -17,6 +17,25 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
+# Force the NATIVE pane-lifecycle path by default: this suite runs on a machine
+# where agent-axi may be installed on PATH, and the phase-0 shim
+# (fm_backend_herdr_create_task / _kill) would otherwise delegate to it. An empty
+# FM_BACKEND_HERDR_AXI_BIN disables delegation; the delegated-path tests below
+# set it back to a fake agent-axi explicitly.
+export FM_BACKEND_HERDR_AXI_BIN=
+# Neutralize any ambient herdr-pane identity (this suite may itself run inside a
+# herdr pane, where HERDR_ENV=1/HERDR_PANE_ID are set). Left set, the native
+# create_task cross-layout spawner scan would fire an extra `pane get` and
+# consume a canned response mid-test. Tests that exercise the split/cross-layout
+# path set HERDR_ENV/HERDR_PANE_ID inline, so this only affects the default
+# "firstmate not in a herdr pane" case - matching how the suite runs in CI.
+unset HERDR_ENV HERDR_PANE_ID
+# The two Bash-3.2-safe fd-9 wait_transition tests below deliberately drive the
+# code under the stock macOS system Bash (/bin/bash, which is 3.2) to prove the
+# FIFO/fd path works there. On systems with no /bin/bash (e.g. NixOS) fall back
+# to the PATH bash so the tests still exercise the path instead of failing to
+# launch a shell at all.
+SYSTEM_BASH=$(command -v /bin/bash 2>/dev/null || command -v bash)
 
 # make_herdr_fakebin: a `herdr` stub that logs every invocation (one line,
 # unit-separated args, to $FM_HERDR_LOG) and returns the canned response for
@@ -209,7 +228,10 @@ test_version_check_refuses_old_protocol() {
 test_version_check_refuses_missing_herdr() {
   local dir out status
   dir="$TMP_ROOT/version-missing"; mkdir -p "$dir/empty-fakebin"
-  out=$( PATH="$dir/empty-fakebin:/usr/bin:/bin" \
+  # Simulate "herdr not installed" with a PATH that excludes herdr but still
+  # resolves the shell itself. Include the running bash's own dir so this holds
+  # where bash is not under /usr/bin or /bin (e.g. a Nix profile), not only in CI.
+  out=$( PATH="$dir/empty-fakebin:$(dirname "$(command -v bash)"):/usr/bin:/bin" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_version_check' "$ROOT" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "version_check should refuse when herdr is not installed"
@@ -2011,9 +2033,13 @@ test_wait_transition_bad_ack_returns_2_and_cleans_up() {
   fb=$(make_herdr_eventfake "$dir")
   set_fake_agent "$agent" "wG:pQ" idle
   reader=$(make_fake_reader "$dir"); lines="$dir/lines"; : > "$lines"
+  # SC2016: the single-quoted body is the inner shell's script; $0/$1/$rc/$fd_open
+  # are expanded there, not here (shellcheck no longer recognizes the "$SYSTEM_BASH"
+  # variable as a shell command the way it did the literal /bin/bash).
+  # shellcheck disable=SC2016
   result=$(PATH="$fb:$PATH" TMPDIR="$temp" FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_FAKE_SESSION_NAME=sess FM_FAKE_SOCKET="$dir/x.sock" FM_FAKE_AGENT_DIR="$agent" \
     FM_BACKEND_HERDR_EVENT_READER="$reader" FM_FAKE_READER_LINES="$lines" FM_FAKE_READER_ACK=invalid \
-    /bin/bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
+    "$SYSTEM_BASH" -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
   rc=${result%% *}; fd_open=${result#* }
   [ "$rc" = 2 ] || fail "an invalid subscription acknowledgement must return 2, got $rc"
   [ "$fd_open" = no ] || fail "an invalid subscription acknowledgement must close fixed fd 9"
@@ -2027,9 +2053,10 @@ test_wait_transition_clean_timeout_returns_1() {
   fb=$(make_herdr_eventfake "$dir")
   set_fake_agent "$agent" "wG:pQ" idle
   reader=$(make_fake_reader "$dir"); lines="$dir/lines"; : > "$lines"   # no events, reader exits 0
+  # shellcheck disable=SC2016  # single-quoted body runs in the inner shell (see above)
   result=$(PATH="$fb:$PATH" TMPDIR="$temp" FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_FAKE_SESSION_NAME=sess FM_FAKE_SOCKET="$dir/x.sock" FM_FAKE_AGENT_DIR="$agent" \
     FM_BACKEND_HERDR_EVENT_READER="$reader" FM_FAKE_READER_LINES="$lines" \
-    /bin/bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
+    "$SYSTEM_BASH" -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
   rc=${result%% *}; fd_open=${result#* }
   [ "$rc" = 1 ] || fail "a clean full-budget wait with no actionable edge must return 1, got $rc"
   [ "$fd_open" = no ] || fail "a clean timeout must close fixed fd 9"
@@ -2588,6 +2615,118 @@ test_tab_cross_scope_husk_pane_is_closed_after_tab_create() {
   pass "create_task: a husk split pane in the spawner's tab is closed after the replacement tab exists"
 }
 
+# --- Phase-0 agent-axi delegation shim (spec agent-axi/v1, slice s6) ---------
+#
+# make_agent_axi_fakebin: an `agent-axi` stub that logs each invocation (one
+# line, unit-separated args, prefixed with the caller's FM_HOME so a test can
+# assert the invoking home is passed through unchanged) to $FM_AXI_LOG and, for
+# `spawn --json`, emits a canned spawn envelope naming a NEW tab/pane id. Other
+# verbs (teardown) succeed silently, mirroring the real CLI's quiet mutations.
+make_agent_axi_fakebin() {  # <dir> -> echoes fakebin dir
+  local dir=$1 fb="$1/axibin"
+  mkdir -p "$fb"
+  cat > "$fb/agent-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+LOG="${FM_AXI_LOG:?}"
+{
+  printf 'FM_HOME=%s' "${FM_HOME:-}"
+  for a in "$@"; do printf '\x1f%s' "$a"; done
+  printf '\n'
+} >> "$LOG"
+if [ "${1:-}" = spawn ]; then
+  # A spawn --json response naming the new tab/pane the shim must echo back.
+  printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
+fi
+exit 0
+SH
+  chmod +x "$fb/agent-axi"
+  printf '%s\n' "$fb"
+}
+
+test_create_task_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb out tab pane
+  dir="$TMP_ROOT/axi-create-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  out=$( PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj some-seeded-tab' "$ROOT" ) \
+    || fail "create_task should delegate to agent-axi when it is on PATH"
+  read -r tab pane <<EOF
+$out
+EOF
+  [ "$tab" = "w9:t3" ] && [ "$pane" = "w9:p5" ] || fail "create_task should echo agent-axi's tab/pane ids, got '$out'"
+  # agent-axi was invoked: spawn, task id (label minus fm-), session from the
+  # container, cwd, --json, and the launch argv after `--`.
+  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
+    "create_task did not invoke agent-axi spawn with the expected argv"
+  # The invoking home is passed through unchanged (ledger-home resolution).
+  assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "create_task did not pass the invoking FM_HOME to agent-axi"
+  # Native herdr pane/tab creation is fully bypassed.
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "delegated create_task must not run native herdr tab create"
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''list' "delegated create_task must not run the native duplicate scan"
+  pass "fm_backend_herdr_create_task: delegates to agent-axi spawn and echoes its tab/pane byte-identically"
+}
+
+test_create_task_fallback_when_agent_axi_absent() {
+  local dir hlog resp fb out tab pane
+  dir="$TMP_ROOT/axi-create-fallback"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  # A clean, minimal native tab-create success (no duplicate labels present).
+  printf '{"result":{"tabs":[]}}\n' > "$resp/1.out"
+  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  # The configured agent-axi bin does not resolve on PATH, so `command -v` fails
+  # and the shim falls back to the native path - the production "agent-axi not
+  # installed" case, without disturbing PATH (bash/jq stay resolvable).
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_AXI_BIN=agent-axi-absent-xyz \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj some-seeded-tab' "$ROOT" ) \
+    || fail "create_task should fall back to the native path when agent-axi is not on PATH"
+  read -r tab pane <<EOF
+$out
+EOF
+  [ "$tab" = "w1:t3" ] && [ "$pane" = "w1:p3" ] || fail "native fallback should echo the native tab/pane ids, got '$out'"
+  assert_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-axi1' \
+    "native fallback did not create the tab through herdr"
+  pass "fm_backend_herdr_create_task: falls back byte-identically to the native path when agent-axi is absent"
+}
+
+test_kill_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb
+  dir="$TMP_ROOT/axi-kill-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    || fail "kill should succeed while delegating to agent-axi"
+  # Delegated: agent-axi teardown by task id + session, home passed through.
+  assert_contains "$(cat "$axilog")" $'\x1f''teardown'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest' \
+    "kill did not invoke agent-axi teardown with the task id and session"
+  assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "kill did not pass the invoking FM_HOME to agent-axi"
+  # The native pane close still runs as the mechanical endpoint-gone guarantee.
+  assert_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "kill must still close the pane after a delegated teardown"
+  pass "fm_backend_herdr_kill: delegates to agent-axi teardown and still closes the pane as a backstop"
+}
+
+test_kill_fallback_when_agent_axi_absent() {
+  local dir hlog resp fb
+  dir="$TMP_ROOT/axi-kill-fallback"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  fb=$(make_herdr_fakebin "$dir")
+  # The configured agent-axi bin does not resolve, so the shim uses only the
+  # native pane close - byte-identical to the pre-shim behavior.
+  PATH="$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_AXI_BIN=agent-axi-absent-xyz \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    || fail "kill should fall back to the native pane close when agent-axi is absent"
+  assert_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "native fallback kill did not close the pane"
+  pass "fm_backend_herdr_kill: falls back byte-identically to the native pane close when agent-axi is absent"
+}
+
 # shellcheck source=bin/fm-backend.sh
 . "$ROOT/bin/fm-backend.sh"
 
@@ -2610,6 +2749,10 @@ test_adopted_workspace_never_prunes_default_tab
 test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_no_jq_reserved_keyword_arg_names
+test_create_task_delegates_to_agent_axi
+test_create_task_fallback_when_agent_axi_absent
+test_kill_delegates_to_agent_axi
+test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label
 test_create_task_refuses_duplicate_label_when_agent_live
 test_create_task_refuses_when_any_duplicate_label_is_live

@@ -450,6 +450,77 @@ fm_backend_herdr_agent_alive() {  # <target>
   esac
 }
 
+# --- Phase-0 agent-axi delegation (spec agent-axi/v1, slice s6) --------------
+#
+# When an agent-axi executable is resolvable, pane CREATE (fm_backend_herdr_create_task)
+# and pane KILL (fm_backend_herdr_kill) delegate the pane lifecycle to it:
+# agent-axi owns the durable per-home slot ledger and drives herdr's atomic
+# `agent start` / pane close, so occupancy is counted by live agent rather than
+# re-derived from label geometry. This is a SHIM only - the returned target
+# string ("<session>:<pane_id>"), the "<tab_id> <pane_id>" create echo, the
+# `fm-<id>` label, and every meta field stay byte-identical, so fm-spawn,
+# fm-teardown, the watcher, crew-state, and every existing test are unaffected.
+# When agent-axi is NOT resolvable the two functions fall back, byte-identically,
+# to the native implementations below.
+#
+# agent-axi resolves the target workspace from the invoking home exactly as this
+# adapter does (FM_HOME > FM_ROOT_OVERRIDE > FM_ROOT); the shim never rewrites
+# FM_HOME, so the home fm-spawn/fm-teardown invoked under is passed through
+# unchanged and each home's spawn lands in - and its teardown frees - that home's
+# own ledger.
+#
+# FM_BACKEND_HERDR_AXI_BIN: the executable name/path to delegate to. Unset
+# defaults to "agent-axi" (resolved on PATH); an explicit path pins a specific
+# build; an EMPTY value forces the native fallback even when agent-axi is
+# installed - the phase-0 rollback lever, and how the unit tests pin each path.
+FM_BACKEND_HERDR_AXI_BIN=${FM_BACKEND_HERDR_AXI_BIN-agent-axi}
+
+# fm_backend_herdr_axi_available: true only when delegation is both enabled
+# (non-empty bin) and the bin actually resolves.
+fm_backend_herdr_axi_available() {
+  [ -n "$FM_BACKEND_HERDR_AXI_BIN" ] && command -v "$FM_BACKEND_HERDR_AXI_BIN" >/dev/null 2>&1
+}
+
+# The launch argv agent-axi runs in the delegated pane. Phase-0 keeps fm-spawn
+# untouched: it still drives `treehouse get` and the harness launch into the
+# pane by typed input, exactly as it does the native tab's shell, so the
+# delegated pane must run an interactive login shell (the native `tab create`
+# pane runs the operator's shell too). Overridable so the unit and lab tests can
+# substitute a dummy agent (e.g. `sleep 600`), which is all a bare-pane spawn
+# needs to exercise the ledger + target-string contract.
+FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
+
+# fm_backend_herdr_create_task_delegate: create the task's pane through
+# `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
+# fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
+# intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
+# pane as its slot anchor rather than pruning it, so there is nothing to thread
+# through. Session comes from the container's first field; the task id is the
+# label with its `fm-` prefix stripped (agent-axi re-derives the identical
+# `fm-<id>` pane label from it).
+fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
+  local container=$1 label=$2 cwd=$3 session task_id out pane_id tab_id
+  local -a launch
+  session=${container%%:*}
+  task_id=${label#fm-}
+  if [ -n "$FM_BACKEND_HERDR_AXI_LAUNCH" ]; then
+    read -r -a launch <<<"$FM_BACKEND_HERDR_AXI_LAUNCH"
+  else
+    launch=("${SHELL:-/bin/bash}" -l)
+  fi
+  out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
+    echo "error: agent-axi spawn failed for $label (session $session)" >&2
+    return 1
+  }
+  pane_id=$(printf '%s' "$out" | jq -r '.spawn.paneId // empty' 2>/dev/null)
+  tab_id=$(printf '%s' "$out" | jq -r '.spawn.tabId // empty' 2>/dev/null)
+  if [ -z "$pane_id" ] || [ -z "$tab_id" ]; then
+    echo "error: agent-axi spawn did not return a tab/pane id for $label (session $session)" >&2
+    return 1
+  fi
+  printf '%s %s' "$tab_id" "$pane_id"
+}
+
 # fm_backend_herdr_create_task: create the task's tab (one pane) in
 # <container> ("session:workspace_id"). Herdr does NOT enforce label
 # uniqueness itself (verified: two tabs can share a label), so the duplicate
@@ -494,6 +565,10 @@ fm_backend_herdr_agent_alive() {  # <target>
 # 4th arg, so this function never even queries for a prune candidate in that
 # case. Echoes "<tab_id> <pane_id>" on success.
 fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id>
+  if fm_backend_herdr_axi_available; then
+    fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
+    return
+  fi
   local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
   session=${container%%:*}
   wsid=${container#*:}
@@ -1037,8 +1112,25 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
 # fm_backend_herdr_kill: remove the task's pane, best-effort (mirrors
 # tmux-kill-window's `|| true` contract). Verified: closing a tab's only pane
 # closes the tab too, so a separate tab close is unnecessary.
-fm_backend_herdr_kill() {  # <target>
-  fm_backend_herdr_target_ready "$1" || return 0
+#
+# fm_backend_kill passes "<target> <zellij_tab_id-ignored> fm-<id>", so the task
+# label is available as $3. Phase-0 shim (spec agent-axi/v1 s6): when agent-axi
+# is resolvable and the label is known, delegate to `agent-axi teardown` first so
+# the ledger slot is freed. The native `pane close` then still runs as the
+# mechanical guarantee the endpoint is gone: it is idempotent (an already-reaped
+# pane is a no-op), it is the sole path when agent-axi is absent or the label is
+# unknown, and it also reaps a pre-shim pane that agent-axi's ledger never
+# recorded. Session for the teardown comes from the target's first field; FM_HOME
+# is inherited unchanged so the teardown frees the slot in the invoking home's
+# own ledger.
+fm_backend_herdr_kill() {  # <target> [<zellij_tab_id-ignored> <fm-label>]
+  local target=$1 label=${3:-} task_id session
+  if fm_backend_herdr_axi_available && [ -n "$label" ]; then
+    task_id=${label#fm-}
+    session=${target%%:*}
+    "$FM_BACKEND_HERDR_AXI_BIN" teardown "$task_id" --session "$session" >/dev/null 2>&1 || true
+  fi
+  fm_backend_herdr_target_ready "$target" || return 0
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane close "$FM_BACKEND_HERDR_PANE" >/dev/null 2>&1 || true
 }
 
