@@ -121,87 +121,47 @@ If an older live workspace is still labeled `firstmate-<secondmate-id>`, rename 
 Tab-per-task (within each home's own workspace) still wins on the human-watching axis for the reason P2 originally found: attaching once shows every one of that home's tasks as a tab in one tab bar, switchable with `ctrl+b <n>`, matching how a captain already watches a tmux-backed fleet.
 Workspace-per-task - tried against the real binary in P2 and again considered here - would still only show one task's workspace at a time by default, requiring a separate top-level "space" switch to see the rest of even a single home's fleet; that tradeoff is unchanged by the per-home refinement and workspace-per-task remains rejected.
 
-## Pane-split layout mode (opt-in)
+## Pane layout is owned by agent-axi (delegation architecture)
 
-Tab-per-task is the default and only mode described above.
-The optional pane-split layout instead grows crewmate/scout panes INSIDE the spawning firstmate's own pane and tab, so a captain watches firstmate and its live crewmates side by side on one screen rather than switching tabs.
-It is off by default; nothing below changes tab-mode behavior.
+Pane placement - tab vs split, the slot plan, overflow, husk reaping, and recovery-by-label for placement - is owned by [`agent-axi`](../projects/agent-axi) (spec `agent-axi/v1`; design report `data/agent-axi-research-f2/report.md`), NOT by firstmate bash.
+agent-axi keeps a durable per-home slot ledger, reconciles it against live herdr before every mutation, counts occupancy by live agent (never by label geometry), and drives herdr's atomic `agent start` / native `pane move` primitives.
+firstmate's herdr adapter delegates the pane lifecycle to it; the adapter now owns only the pane I/O verbs (resolve target, capture, send, busy-state, composer-state) plus workspace ensure/prune and a minimal fallback.
 
-### Toggle
+### Delegation architecture
 
-Split mode is selected per home by the local, gitignored `config/herdr-layout` file: `split` enables it, and `tabs` or an absent file is byte-identical to today's tab-per-task behavior.
-`FM_HERDR_LAYOUT` overrides the file for a one-off.
-`fm_backend_herdr_layout` (`bin/backends/herdr.sh`) reads it fresh on every spawn from the effective config dir (`FM_CONFIG_OVERRIDE`, else `$FM_HOME/config`), exactly like every other `config/*` knob.
-An unrecognized non-empty value warns once to stderr and falls back to `tabs`, so a typo can never silently enable split mode.
-The knob is herdr-only and does not affect tmux, zellij, Orca, or cmux.
+`fm_backend_herdr_create_task` and `fm_backend_herdr_kill` delegate to `agent-axi spawn` / `agent-axi teardown` when an agent-axi executable is resolvable (phase-0 shim, slice s6; `fm_backend_herdr_axi_available`, gated by `FM_BACKEND_HERDR_AXI_BIN`, default `agent-axi`, empty forces the native fallback).
+The returned target string (`"<session>:<pane_id>"`), the `"<tab_id> <pane_id>"` create echo, the `fm-<id>` label, and every meta field stay byte-identical, so `fm-spawn`, `fm-teardown`, the watcher, crew-state, and every existing caller are unaffected.
+`bin/fm-spawn.sh`'s herdr branch no longer has a split path or a `config/herdr-layout` read: it only ensures the home's workspace and calls `create_task`, which delegates placement to agent-axi's ledger.
 
-### The deterministic 6-slot plan
+### What was deleted (phase 1, slice s7, 2026-07-20)
 
-The spawning firstmate runs in its own herdr pane, discovered from the env herdr injects into every pane it manages (`HERDR_ENV=1` + `HERDR_PANE_ID`, the same signals `bin/fm-supervise-daemon.sh` trusts for its own supervisor-pane discovery).
-That pane is the split anchor, and its OWN tab/workspace - NOT the home's `firstmate` tab-mode workspace - hosts the crewmate panes, following the captain's deterministic 6-slot plan:
+The re-derived slot/geometry/label-scan bash that agent-axi's ledger now owns was removed from `bin/backends/herdr.sh`:
 
-| Slot | Split | Resulting layout |
-|---|---|---|
-| c1 | spawner `--direction right` | spawner keeps the LEFT half; c1 takes the RIGHT half |
-| c2 | c1 `--direction right` | right half = two side-by-side full-height columns |
-| c3 | c1 `--direction down` | c3 takes the right half's BOTTOM-LEFT |
-| c4 | c2 `--direction down` | right half = a full 2x2 grid |
-| c5 | spawner `--direction down` | spawner keeps the TOP-LEFT quarter; c5 below it |
-| c6 | c5 `--direction right` | c5 and c6 side by side in the bottom-left |
-| 7+ | - | overflow to ordinary tab mode (the cap) |
+- The deterministic split-slot bisection plan and its resolver (`fm_backend_herdr_split_plan`), the split spawn path (`fm_backend_herdr_split_create_task`), and the split knobs (`fm_backend_herdr_layout`, `fm_backend_herdr_split_ratio`, `fm_backend_herdr_split_max`, and the `FM_BACKEND_HERDR_SPLIT_*` constants).
+- The label-based pane discovery used for placement (`fm_backend_herdr_tab_crew_panes`, which joined `pane list` labels to `pane edges` geometry) and the spawner-anchor probe (`fm_backend_herdr_spawner_pane`).
+- The husk-classification heuristics that drove placement decisions: the tab-mode close-and-replace of a restored same-labelled husk tab, the cross-layout same-label scan, and `fm_backend_herdr_tab_is_husk`.
 
-Every slot is a 0.5 bisection of one existing pane, so all sizes are exact halvings by construction - no post-spawn resizing is needed (this plan REPLACED an earlier widest-column-plus-`pane resize`-rebalance approach).
-The split ratio is overridable via `FM_HERDR_SPLIT_RATIO` (only a real decimal strictly between 0 and 1 is accepted, anything else falls back to 0.5), which skews every bisection identically.
+`config/herdr-layout` and the `FM_HERDR_LAYOUT` / `FM_HERDR_SPLIT_MAX` / `FM_HERDR_SPLIT_RATIO` overrides no longer exist; agent-axi owns the plan (its own `--plan` / built-in `home` + `overflow` plans).
+`fm_backend_herdr_pane_agent_state` stays (it still backs the `fm_backend_herdr_agent_alive` liveness verb), and the recovery/selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` stay - they are recovery scoping, not placement, and match every other backend's contract.
 
-`fm_backend_herdr_split_plan` (`bin/backends/herdr.sh`) resolves each spawn's anchor pane and direction from LIVE geometry: `pane list` carries the pane `label` but no geometry, `pane edges`'s layout carries the rects but no label, so the resolver joins the two by pane_id and picks the slot's anchor by measured position (min-x crew pane for slot 3, max-x for slot 4, the spawner itself for slots 1 and 5, the pane below the spawner for slot 6).
+### Native fallback contract
 
-### Gap handling: refill by count, widest-pane fallback
+When agent-axi is not resolvable (empty `FM_BACKEND_HERDR_AXI_BIN`, or the binary absent), `fm_backend_herdr_create_task` falls back to a MINIMAL native path: one plain tab per task in the home's own workspace, `--no-focus`, plus the seeded-default-tab prune.
+There is NO split layout and NO proactive husk reaping in the fallback - split layouts and husk convergence REQUIRE agent-axi.
+The fallback keeps only a cheap same-label refusal: it never re-derives geometry and never classifies husks, so a same-labelled tab left over from a herdr session restore is reported (`error: ... already exists ... close it manually or install agent-axi`), not silently replaced.
+Install agent-axi (whose `layout --repair` reaps husks) or close the leftover tab manually to recover.
 
-Slot selection is by live crewmate COUNT - n live crew panes means the next spawn runs slot n+1 - with a geometric precondition per slot (slot 3 needs two distinct crew columns; slot 5 needs the spawner's column free of crew panes; slot 6 needs a crew pane below the spawner).
-That count-based rule is what makes teardowns self-heal toward the canonical plan: with c1-c4 alive in the 2x2 grid and c5 gone, the count is 4, so the next spawn re-runs slot 5 and lands exactly where c5 was (verified live below).
-When panes have closed in combinations the plan's preconditions no longer match (e.g. the surviving crew panes are stacked in one column, or the spawner's column is already occupied when slot 5 comes up), the spawn falls back to splitting the WIDEST live crewmate pane `--direction right` - a deliberate, documented approximation chosen over erroring, per the captain's spec.
-Slots beyond 6 (a raised `FM_HERDR_SPLIT_MAX`) use the same widest-pane fallback, because the plan defines positions only up to 6.
+### Repair and snapshot wiring (supervision loop)
 
-### Cap and overflow to tab mode
+firstmate no longer re-derives layout; it only asks agent-axi to keep the workspace converged and to report drift, through the shared `bin/fm-herdr-layout-lib.sh` (the single owner of the applicability guard and the three invocations).
+Every wiring is a definitive no-op unless the home is EXPLICITLY configured for herdr (`FM_BACKEND` or `config/backend`, never runtime auto-detection) AND agent-axi (and `jq`) resolve (`fm_herdr_layout_applicable`).
+Keying on explicit configuration rather than auto-detection is deliberate: the mutating `layout --repair` drives agent-axi against the home's live herdr workspace, so it must never fire merely because firstmate happens to run inside an ambient herdr pane in a home that is not itself herdr-backed.
 
-`FM_HERDR_SPLIT_MAX` (default 6, matching the plan's last defined slot) caps how many crewmate panes share the spawner's tab.
-When the cap is reached, a further spawn OVERFLOWS to ordinary tab mode for that spawn (a `notice:` line to stderr, then a fresh `fm-<id>` tab in the home's own workspace) - a layout constraint never refuses a spawn.
-The knob stays the overflow control: values below 6 overflow earlier, values above 6 fill the extra slots by the widest-pane fallback.
-The cap counts every fm-*-labelled pane currently in the spawner's tab, so a transient husk from another task after a whole-fleet restart counts until it is itself respawned; the only effect is pushing a spawn to tab mode, always safe.
+- **Session start (`bin/fm-bootstrap.sh`, `herdr_layout_repair_sweep`).** At a locked session boundary, the full `agent-axi layout --repair` converges the live workspace to the slot plan (reaps husks, re-binds drifted labels), so a layout that drifted while firstmate was away self-heals on session start. A converged workspace stays silent; a heal reports one `BOOTSTRAP_INFO:` fact. It is one of the six mutating sweeps skipped in the lock-refused read-only path.
+- **Watcher heartbeat (`bin/fm-watch.sh`, `heartbeat_finds_herdr_layout_drift`).** On the heartbeat cadence, the read-only `agent-axi layout --repair --dry-run` PREVIEWS drift; the watcher never mutates geometry on its own, it only SURFACES a non-converged workspace as a heartbeat wake for firstmate to heal. Deduped against `state/.herdr-layout-drift-surfaced` (drift signature) so a persistent drift is woken once, not every heartbeat.
+- **Session-start digest (`bin/fm-session-start.sh`).** The read-only `agent-axi snapshot` (token-lean live slot map) is printed in the FLEET STATE section for herdr-backed homes, so the digest opens already showing live slot occupancy and any husks. Read-only, so it also runs in the lock-refused path.
 
-### `pane resize` semantics (recorded for reference)
-
-The replaced rebalance approach empirically verified these `pane resize` facts on herdr 0.7.2; they are kept for future resize work:
-
-- `--direction` names the edge to move and a POSITIVE `--amount` moves it outward in that direction; a NEGATIVE `--amount` misbehaves (observed resizing the wrong way).
-- `--amount` is a fraction of the divider's ENCLOSING SPLIT rect (verified: `0.1` on a 27-cell split moved 2 cells, not `0.1` of the 54-cell tab).
-- Moving one divider proportionally rescales the whole subtree beyond it (a single resize changed several panes at once).
-- herdr has no native equalize primitive: `herdr tab` has only list/create/get/focus/rename/close, and `pane layout` is a read-only view.
-
-### No anchor: fall back to tab mode
-
-Split mode needs firstmate to itself be running in a herdr pane of the target session.
-When `HERDR_PANE_ID` is unset (firstmate is not in a herdr pane, e.g. an explicit `--backend herdr` launched from tmux), or that pane is not live in the resolved session, `fm_backend_herdr_split_create_task` prints a one-line `notice:` and returns the fall-back code so `bin/fm-spawn.sh` uses tab mode for that spawn - never a failed spawn.
-
-### Identity and husk handling at pane granularity
-
-A split-mode crewmate pane has no tab of its own, so it is labelled with `herdr pane rename <pane_id> fm-<id>` and the duplicate/husk check operates on PANE labels instead of tab labels.
-`fm_backend_herdr_split_create_task` classifies any existing same-labelled pane with the SAME `fm_backend_herdr_pane_agent_state` used for tab husks: a live (registered-agent) pane refuses the spawn outright, while a restart-restored husk (dead or agent-less) is closed and replaced.
-The replacement pane is split into being FIRST and the husk is closed only after, the identical create-before-close ordering `fm_backend_herdr_create_task` and `fm_backend_herdr_workspace_prune_seeded_default_tab` already established; herdr's lack of label-uniqueness lets both briefly share the label with no error.
-
-Detection is cross-layout: because cap overflow, the no-anchor fallback, and a config toggle make a task's layout per-spawn rather than fixed, each spawn path also scans the OTHER scope for the same `fm-<id>` label.
-A split spawn additionally checks TAB labels in the home's own tab-mode workspace, and a tab-mode spawn additionally checks PANE labels in the spawner's tab (when firstmate itself runs in a herdr pane; otherwise there is no split scope to scan).
-Both cross-scope paths apply the identical conservative classification (only a confirmed dead or agent-less husk may be closed; live or ambiguous refuses) and the identical create-before-close ordering, so a task id respawned in the other layout finds its earlier incarnation instead of orphaning a live duplicate or leaving a husk behind.
-
-### Scope, supervision, and recovery
-
-Split mode applies only to crewmate/scout spawns into the spawner's own workspace; a `--secondmate` spawn always uses its own workspace in tab mode (see "Task container shape" above), so a secondmate's tabs never mix into the primary's split column.
-All supervision (`fm-send`, `fm-peek`, `fm-watch`, `fm-crew-state`) already addresses `session:pane_id` targets resolved from each task's recorded `window=` meta (`fm_backend_resolve_selector`), which is backend- and layout-independent, so a split-mode pane is supervised exactly like a tab-mode one - no supervision path assumes one tab per agent.
-Teardown closes the task's pane by id; verified that closing a middle column re-tiles the remaining columns cleanly and that closing the last crewmate pane leaves the spawner's own pane (and therefore its tab) intact.
-Recovery is meta-driven: a task's `herdr_pane_id=` stays a valid target across an ordinary server restart (pane ids persist - see "ID stability across a server restart"), and the label-based `fm_backend_herdr_list_live` tab scan is unchanged.
-Toggling the config between spawns is safe: existing tasks keep working in whichever layout they landed (all supervision is pane-id-addressed), each new spawn simply follows the current config value, and the cross-layout duplicate/husk detection above means a respawned task id still finds an earlier incarnation left in the other layout's scope.
-
-### Verification (2026-07-09 and 2026-07-10, herdr 0.7.2, protocol 16, NixOS Linux x86_64)
+### Verification (2026-07-20, herdr 0.7.2, protocol 16, agent-axi 0.1.0, NixOS Linux x86_64)
 
 Environment:
 
@@ -211,33 +171,14 @@ herdr status --json | jq -c '{version:.client.version,protocol:.client.protocol}
 uname -sm   # Linux x86_64
 ```
 
-All commands ran in isolated `fm-lab-*` sessions provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's default session was never a target and its fleet-state tripwire held in every pass.
-The 2026-07-09 pass verified the split primitives, labelling, cap, fallback, and husk behavior; the 2026-07-10 passes first re-verified the geometry through two superseded layouts (a vertical stack, then near-even columns via widest-split-plus-rebalance - the rebalance pass produced the `pane resize` facts recorded above) and finally verified the deterministic 6-slot plan that replaced them.
+The mutating native-fallback checks ran in an isolated `fm-lab-*` session provisioned and torn down through `bin/fm-herdr-lab.sh` (the guarded lab helper); the captain's `default` session was never a target and its fleet-state tripwire held (verified intact after teardown).
+The read-only wiring checks (`snapshot` and the `--dry-run` drift preview) ran against the live server, since they never mutate.
 
-- **First split (spawner right, 2026-07-09).** `pane split w1:p1 --direction right --ratio 0.5 --no-focus` -> new pane `w1:p2` in the same tab `w1:t1`; layout `edges` reported the spawner `w1:p1` at `x=26,w=27` (left) and `w1:p2` at `x=53,w=27` (right), confirming the spawner keeps the LEFT half.
-- **The 6-slot plan, slots 1..7 (2026-07-10).** Driving the real `fm_backend_herdr_split_create_task` seven times on an 80x24 terminal (default cap 6), every placement matched the plan exactly and the 7th overflowed:
+- **Native fallback (agent-axi disabled, `FM_BACKEND_HERDR_AXI_BIN=`, lab session).** `fm_backend_herdr_container_ensure` created the home's own workspace (`w1`, seeded default tab `w1:t1`); `fm_backend_herdr_create_task` made exactly one plain `fm-nativeA` tab (`w1:t2 w1:p2`) and pruned the seeded tab. A second `create_task` for the same label REFUSED with `error: herdr tab 'fm-nativeA' already exists ... close it manually or install agent-axi` and created no replacement tab (still exactly one `fm-nativeA` tab, no `pane close`). `fm_backend_herdr_kill` closed the pane. No split logic ran at any point.
+- **Read-only wiring (agent-axi present, real server).** `fm_herdr_layout_snapshot` rendered the live token-lean slot map for workspace `firstmate (wJ)` (0 occupied, 0 husks, 1 untracked pane). `fm_herdr_layout_drift` (the heartbeat's `layout --repair --dry-run`) reported the drift signature `0 husk(s), 0 rebind, 0 freed, 1 adopted` for that untracked pane - drift surfaced for firstmate to heal, nothing mutated.
+- **Applicability guard.** With `FM_BACKEND=tmux` (or `FM_BACKEND_HERDR_AXI_BIN=`), every helper is a silent no-op and never invokes agent-axi (covered by `tests/fm-herdr-layout-lib.test.sh`); the watcher heartbeat's no-change absorb is unaffected (`tests/fm-watch-triage.test.sh`).
 
-  | Spawn | rc | Placement (x,y w x h) |
-  |---|---|---|
-  | c1 | 0 | right half `53,1 27x23`; spawner keeps `26,1 27x23` |
-  | c2 | 0 | c1 -> `53,1 14x23`; c2 `67,1 13x23` (two full-height columns) |
-  | c3 | 0 | c3 `53,13 14x11` - bottom-left of the right half, under c1 |
-  | c4 | 0 | c4 `67,13 13x11` - bottom-right; right half is a full 2x2 grid |
-  | c5 | 0 | spawner -> `26,1 27x12`; c5 `26,13 27x11` below it |
-  | c6 | 0 | c5 -> `26,13 14x11`; c6 `40,13 13x11` beside it |
-  | c7 | 3 | no pane created; `notice: herdr split layout cap (6 crewmate panes) reached ...` |
-
-- **Gap refill toward the plan (2026-07-10).** From the full 6-slot layout, closing c5 and respawning re-ran slot 6 against the re-tiled bottom-left pane and restored the canonical two-pane bottom-left (`26,13 14x11` + `40,13 13x11`).
-- **Widest-pane fallback (2026-07-10).** From the full layout, closing c2 and c4 (leaving the surviving right-half panes stacked in one column and the spawner's column occupied) made the next spawn fall back to splitting the widest crewmate pane `--direction right` - rc=0, no error, a 5th pane added.
-- **Labelling (2026-07-09).** `pane rename w1:p2 fm-demoA` set `.label`, visible in both `pane get` and `pane list` (unset panes report `label:null`); geometry stayed only in `pane edges`, confirming the list+edges join is needed.
-- **No anchor (2026-07-09).** Unsetting `HERDR_ENV` returned the fall-back with `notice: ... not running in a herdr pane`; pointing `HERDR_PANE_ID` at a non-existent pane returned the fall-back with `notice: ... not live in session ...`.
-- **Husk close-and-replace (2026-07-09).** Respawning `fm-demoA` when its pane had no registered agent (a restored-husk shape) closed the old pane and created a new one, leaving exactly one `fm-demoA` pane; the new split was logged BEFORE the husk close (create-before-close).
-- **Live duplicate refuses (2026-07-09).** After `herdr pane report-agent w1:p2 --state working`, respawning `fm-demoA` refused with `error: a live herdr pane labeled 'fm-demoA' already exists ...` and created/closed nothing.
-- **Teardown re-tile (2026-07-10).** Closing a middle pane re-tiled its neighbour to fill the gap (all remaining panes kept their axis extents); closing all crewmate panes left the spawner pane alone in its still-open tab.
-- **Superseded-layout evidence (2026-07-10).** The most-recent-split column layout collapsed geometrically in the captain's live 8-pane test (`27/14/7/3/2/1/0/0`, width-zero panes) - the failure that motivated the plan; the interim widest-split-plus-rebalance approach held 8 columns near-even (final `3/3/4/4/3/4/3/3`) before being replaced by the deterministic plan.
-
-Fake-CLI unit coverage for all of the above (layout resolution, the exact slot-1..6 placements, cap-6 overflow, the beyond-plan widest fallback under a raised cap, canonical gap refill, the blocked-precondition widest fallback, both no-anchor paths, pane-label husk close-and-replace with create-before-close ordering, live-duplicate refusal, and cross-layout detection) lives in `tests/fm-backend-herdr.test.sh` (`make_herdr_splitfake` and the `test_layout_*` / `test_split_*` cases).
-The fake models rect bisections with the verified ceil rounding but does NOT model herdr's re-tiling of freed space, so re-tile-dependent refills are covered by the lab evidence above.
+Fake-CLI unit coverage lives in `tests/fm-backend-herdr.test.sh` (the delegation and native-fallback `create_task` cases) and `tests/fm-herdr-layout-lib.test.sh` (the repair/snapshot/drift wiring and its applicability guards: absent executable, non-herdr backend).
 
 ## Workspace lifecycle: one persistent per-home workspace, reused
 

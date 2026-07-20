@@ -70,10 +70,8 @@ These five sentences are the single owner of the task-selector vocabulary; backe
 `fm-teardown.sh <id>` takes a task id directly and uses the same recorded backend target fields after loading `state/<id>.meta`.
 Herdr workspaces are derived from `FM_HOME`: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 Spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
-Herdr has an optional per-home pane-split layout, selected by the local, gitignored `config/herdr-layout` file (`split` enables it; `tabs` or an absent file is the byte-identical default of one tab per task), overridable for a one-off with `FM_HERDR_LAYOUT`.
-In split mode, crewmate/scout panes are split into the spawning firstmate's own pane following a deterministic 6-slot plan (c1 right of the spawner, c2 beside c1, c3/c4 turning the right half into a 2x2 grid, c5 below the spawner, c6 beside c5) instead of getting their own tab; `FM_HERDR_SPLIT_MAX` (default 6, the plan's last slot) is the overflow knob before further spawns go to tab mode, torn-down slots refill toward the plan by crewmate count with a widest-pane fallback for non-canonical gaps, and the layout falls back to tab mode when firstmate is not itself running in a herdr pane.
-Split mode is crewmate/scout only (a `--secondmate` spawn always uses its own workspace in tab mode) and herdr-only; see [`docs/herdr-backend.md`](herdr-backend.md) "Pane-split layout mode".
-`config/herdr-layout` is not inherited by secondmate homes.
+Herdr pane placement - tab vs split, the slot plan, overflow, and husk reaping - is owned by `agent-axi`, not firstmate config: firstmate's herdr adapter delegates the pane lifecycle to it and keeps only a minimal one-tab-per-task fallback for hosts without agent-axi (see [`docs/herdr-backend.md`](herdr-backend.md) "Delegation architecture" and "Native fallback contract").
+There is no `config/herdr-layout` knob; the old bash split-mode config and its `FM_HERDR_*` overrides were removed in phase 1 of the agent-axi migration (spec agent-axi/v1).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
 For normal zellij operations, `FM_ZELLIJ_SESSION` selects the named session and defaults to `firstmate`.
@@ -363,9 +361,7 @@ FM_BACKEND_HERDR_BARE_PROMPT_RE='^[❯›]'  # herdr-only: verified agent glyphs
 FM_BACKEND_HERDR_PI_COMPOSER_MAX_LINES=8  # herdr-only: maximum rows admitted between Pi's native-identity-corroborated separator pair; taller or ambiguous candidates stay unknown (docs/herdr-backend.md "Incident (2026-07-14)")
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Native agent-state submit confirmation")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
-FM_HERDR_LAYOUT=       # herdr-only: overrides config/herdr-layout for one spawn; "split" or "tabs" (absent/tabs is the default tab-per-task layout) (docs/herdr-backend.md "Pane-split layout mode")
-FM_HERDR_SPLIT_MAX=6   # herdr-only: split-mode overflow cap; the deterministic plan defines positions up to 6, higher values fill extra slots by the widest-pane fallback (docs/herdr-backend.md "The deterministic 6-slot plan")
-FM_HERDR_SPLIT_RATIO=0.5  # herdr-only: ratio for every split-mode bisection; the 6-slot plan is built from halvings, so a custom value skews every slot identically
+FM_BACKEND_HERDR_AXI_BIN=agent-axi  # herdr-only: executable the pane-lifecycle delegation and the layout repair/snapshot wiring resolve; an empty value forces the minimal native tab-per-task fallback (docs/herdr-backend.md "Delegation architecture")
 FM_BACKEND_ORCA_COMPOSER_LINES=200  # orca-only: terminal-read lines scanned to locate the composer row for submit verification
 FM_BACKEND_ORCA_IDLE_RE='^Type a message\.\.\.$'  # orca-only: empty-composer placeholder regex after border/prompt stripping
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)

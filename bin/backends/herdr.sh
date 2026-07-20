@@ -416,18 +416,6 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
   esac
 }
 
-# fm_backend_herdr_tab_is_husk: true (0) only for the two conservative husk
-# states (dead, no-agent) fm_backend_herdr_pane_agent_state can positively
-# confirm; live and unknown both refuse (1), so an inconclusive read never
-# licenses closing anything. Restored-layout recovery depends on this
-# fail-safe-toward-refusal behavior.
-fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
-  case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
-    dead|no-agent) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # fm_backend_herdr_agent_alive: CONFIDENT liveness of a live harness-agent
 # PROCESS under <target> ("<session>:<pane_id>"), for the same
 # session-start secondmate-liveness sweep fm_backend_tmux_agent_alive serves
@@ -521,55 +509,44 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
-# fm_backend_herdr_create_task: create the task's tab (one pane) in
-# <container> ("session:workspace_id"). Herdr does NOT enforce label
-# uniqueness itself (verified: two tabs can share a label), so the duplicate
-# check is ours, mirroring tmux's manual check.
+# fm_backend_herdr_create_task: create the task's pane in <container>
+# ("session:workspace_id") and echo "<tab_id> <pane_id>".
 #
-# A same-labeled tab already existing no longer means an automatic refusal:
-# herdr persists and restores its whole session layout (workspaces/tabs/
-# panes) across a server restart, including a reboot, and a restored fm-<id>
-# task tab comes back a HUSK - a dead pane, or (today, and unconditionally
-# once a future `resume_agents_on_restore = false` config ships) a plain
-# agent-less shell sitting in the saved cwd, never the crewmate that used to
-# be there. Before this fix, every fleet respawn after such a restart needed
-# the operator to manually close each husk pane first before firstmate could
-# spawn into it again. fm_backend_herdr_tab_is_husk classifies the existing
-# tab's pane conservatively (dead or no-agent only; anything live or
-# ambiguous refuses exactly as before) and, when it is a confirmed husk,
-# this function CLOSES AND REPLACES it instead of refusing.
+# The primary path DELEGATES to agent-axi (phase-0 shim above): agent-axi owns
+# the durable per-home slot ledger, counts occupancy by live agent, reaps husks,
+# and drives split/overflow placement (spec agent-axi/v1;
+# data/agent-axi-research-f2/report.md). All the re-derived slot/geometry/label-
+# scan bash that used to live here - the deterministic split-slot plan, live
+# label-based pane discovery for placement, and the husk-classification heuristics
+# that drove close-and-replace placement decisions - was DELETED in phase 1
+# because agent-axi now owns it (docs/herdr-backend.md "Delegation architecture").
 #
-# Ordering is deliberate: the REPLACEMENT tab is created FIRST, and the husk
-# is closed only AFTER that succeeds - never the reverse. Closing a
-# workspace's LAST remaining tab deletes the whole workspace on real herdr
-# (docs/herdr-backend.md "Workspace lifecycle"), and a session-restore husk
-# can legitimately be that workspace's only tab (e.g. its own seeded default
-# tab was already pruned, long before the restart, by a prior real task tab
-# existing alongside it). Herdr's lack of label-uniqueness enforcement is
-# exactly what makes this safe: the new and the husk tab can briefly share
-# the same label with no error, so the workspace never drops to zero tabs.
-# This mirrors fm_backend_herdr_workspace_prune_seeded_default_tab's own
-# create-before-close safety argument.
+# The native branch below is the MINIMAL fallback for a host without agent-axi:
+# one plain tab per task in the home's own workspace, no split layout and no
+# proactive husk reaping. Split layouts and husk convergence REQUIRE agent-axi
+# (docs/herdr-backend.md "Native fallback contract"). Herdr does not enforce
+# label uniqueness (verified: two tabs may share a label), so the fallback keeps
+# only a cheap same-label refusal - it never re-derives geometry and never
+# classifies husks. A same-labeled tab left over from a server restore is
+# reported, not silently replaced; close it manually or install agent-axi, whose
+# `layout --repair` reaps it.
 #
-# --no-focus: verified tab create never focuses by default regardless of
-# sibling tabs, so this is defense in depth rather than a behavior change.
+# --no-focus: verified tab create never focuses by default regardless of sibling
+# tabs, so this is defense in depth rather than a behavior change.
 # <seeded_default_tab_id> (4th arg, may be empty) is exactly the value
 # fm_backend_herdr_workspace_ensure captured as FM_BACKEND_HERDR_WS_SEEDED_TAB_ID
-# for THIS SAME container - non-empty only when this spawn's own
-# container_ensure call just created the workspace. Once the real task tab
-# above is created, this is the ONLY input that may trigger a prune, and it is
-# passed by the caller, never re-derived here from tab list contents or
-# labels (the live-fire self-kill fix - see
-# fm_backend_herdr_workspace_prune_seeded_default_tab for the incident and
-# the safety argument). An ADOPTED workspace's caller always passes an empty
-# 4th arg, so this function never even queries for a prune candidate in that
-# case. Echoes "<tab_id> <pane_id>" on success.
+# for THIS SAME container - non-empty only when this spawn's own container_ensure
+# call just created the workspace. It is passed by the caller, never re-derived
+# here from tab-list contents or labels (the live-fire self-kill fix - see
+# fm_backend_herdr_workspace_prune_seeded_default_tab for the incident and the
+# safety argument). An ADOPTED workspace's caller always passes an empty 4th arg,
+# so this function never even queries for a prune candidate in that case.
 fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id>
   if fm_backend_herdr_axi_available; then
     fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
     return
   fi
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs out tab_id pane_id
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -577,49 +554,9 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
-  dup_tab_ids=""
   if [ -n "$dup_tabs" ]; then
-    while IFS= read -r dup; do
-      [ -n "$dup" ] || continue
-      dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
-      if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
-        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
-        return 1
-      fi
-      dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
-    done <<EOF
-$dup_tabs
-EOF
-  fi
-  # Cross-layout check: this task's earlier incarnation may live in the OTHER
-  # scope, as an fm-<id>-labeled PANE split into the spawner's own tab (split
-  # layout mode; docs/herdr-backend.md "Pane-split layout mode"). Only
-  # reachable when firstmate itself runs in a herdr pane of this session, so
-  # tab-mode behavior is untouched everywhere else. Same conservative husk
-  # classification (live or unknown refuses) and the same create-before-close
-  # ordering as the tab duplicate check above.
-  local spawner sp_get sp_tab sp_ws cross_dups cross_pane cross_husk_panes=""
-  spawner=$(fm_backend_herdr_spawner_pane)
-  if [ -n "$spawner" ]; then
-    sp_get=$(fm_backend_herdr_cli "$session" pane get "$spawner" 2>/dev/null)
-    sp_tab=$(printf '%s' "$sp_get" | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
-    sp_ws=$(printf '%s' "$sp_get" | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
-    if [ -n "$sp_tab" ] && [ -n "$sp_ws" ]; then
-      cross_dups=$(fm_backend_herdr_tab_crew_panes "$session" "$sp_ws" "$sp_tab" "$spawner" \
-        | awk -F'\t' -v l="$label" '$1 != "" && $6 == l {print $1}')
-      while IFS= read -r cross_pane; do
-        [ -n "$cross_pane" ] || continue
-        case "$(fm_backend_herdr_pane_agent_state "$session" "$cross_pane")" in
-          dead|no-agent) cross_husk_panes="${cross_husk_panes}${cross_pane}"$'\n' ;;
-          *)
-            echo "error: a live herdr pane labeled '$label' already exists in firstmate's tab '$sp_tab' (session $session)" >&2
-            return 1
-            ;;
-        esac
-      done <<EOF
-$cross_dups
-EOF
-    fi
+    echo "error: herdr tab '$label' already exists in workspace $wsid (session $session); the native fallback does not reap husks - close it manually or install agent-axi" >&2
+    return 1
   fi
   out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
@@ -629,37 +566,6 @@ EOF
     return 1
   fi
   [ -z "$seeded_tab_id" ] || fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$wsid" "$seeded_tab_id"
-  if [ -n "$dup_tab_ids" ]; then
-    while IFS= read -r dup; do
-      [ -n "$dup" ] || continue
-      fm_backend_herdr_cli "$session" tab close "$dup" >/dev/null 2>&1 || true
-    done <<EOF
-$dup_tab_ids
-EOF
-    list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
-      echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2
-      return 1
-    }
-    if ! printf '%s' "$list" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
-      echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
-      return 1
-    fi
-    remaining_dup_tabs=$(printf '%s' "$list" | jq -r --arg want "$label" --arg replacement "$tab_id" \
-      '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
-    remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
-    if [ -n "$remaining_dup_tabs" ]; then
-      echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
-      return 1
-    fi
-  fi
-  if [ -n "$cross_husk_panes" ]; then
-    while IFS= read -r cross_pane; do
-      [ -n "$cross_pane" ] || continue
-      fm_backend_herdr_cli "$session" pane close "$cross_pane" >/dev/null 2>&1 || true
-    done <<EOF
-$cross_husk_panes
-EOF
-  fi
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
@@ -1321,384 +1227,6 @@ fm_backend_herdr_list_live() {  # <session>
     [ -n "$pane_id" ] || continue
     printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
   done < <(printf '%s' "$tabs" | jq -r '.result.tabs[]? | select(.label | startswith("fm-")) | "\(.tab_id)\t\(.label)"' 2>/dev/null)
-}
-
-# --- Pane-split layout mode (opt-in) -----------------------------------------
-#
-# docs/herdr-backend.md "Pane-split layout mode". The default is tab mode - one
-# tab per task in the home's own workspace, everything above this line. Split
-# mode instead grows crewmate/scout panes INSIDE the spawning firstmate's OWN
-# pane and tab, so a captain watches firstmate and its live crewmates side by
-# side on one screen, following the captain's deterministic 6-slot plan
-# (fm_backend_herdr_split_plan; docs/herdr-backend.md "The deterministic
-# 6-slot plan"):
-#   c1: split the spawner right   - spawner keeps the LEFT half.
-#   c2: split c1 right            - right half = two side-by-side columns.
-#   c3: split c1 down             - c3 takes the right half's BOTTOM-LEFT.
-#   c4: split c2 down             - right half = a full 2x2 grid.
-#   c5: split the spawner down    - spawner keeps the TOP-LEFT quarter.
-#   c6: split c5 right            - c5 and c6 share the bottom-left.
-#   7+: overflow to tab mode (the FM_HERDR_SPLIT_MAX cap, default 6).
-# Slot targeting is computed from LIVE geometry by crewmate count, so a torn-
-# down slot is refilled toward the canonical plan on the next spawn; when the
-# live layout no longer matches the plan's expectations for that count (gaps
-# in odd shapes), the spawn falls back to splitting the WIDEST crewmate pane
-# rather than erroring (docs/herdr-backend.md "Gap handling").
-# Split mode is crewmate/scout only; a --secondmate spawn always uses its own
-# workspace in tab mode (docs/herdr-backend.md "Task container shape"). It needs
-# the spawner's own herdr pane as the split anchor: when firstmate is NOT itself
-# running in a herdr pane of the target session, or the per-tab crewmate-pane
-# cap is reached, the caller falls back to tab mode for that spawn - a layout
-# constraint never refuses a spawn.
-#
-# Toggle: local, gitignored config/herdr-layout ("tabs" | "split"; absent or
-# "tabs" is byte-identical to today). FM_HERDR_LAYOUT overrides the file. Read
-# fresh on every spawn, matching every other config/* knob.
-
-# fm_backend_herdr_split_create_task returns this code to tell the caller "no
-# split anchor / cap reached - fall back to tab mode", distinct from 0
-# (success, echoes the created pane) and a hard 1 (a live duplicate label
-# refuses the spawn outright, exactly like the tab path's duplicate check).
-FM_BACKEND_HERDR_SPLIT_FALLBACK=3
-# Ratio for every split call. The 6-slot plan is built entirely from halvings
-# (each slot bisects one existing pane), so 0.5 IS the plan's geometry; a
-# custom FM_HERDR_SPLIT_RATIO skews every bisection the same way.
-FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT=0.5
-# Max crewmate panes in the spawner's tab before further spawns overflow to
-# tab mode. Default 6 matches the deterministic plan's last defined slot; the
-# knob stays the overflow control (FM_HERDR_SPLIT_MAX): values below 6
-# overflow earlier, values above 6 fill slots 7+ by the widest-pane fallback
-# because the plan defines positions only up to 6.
-FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT=6
-
-# fm_backend_herdr_layout: resolve the layout knob to tabs|split. FM_HERDR_LAYOUT
-# wins over the file; the file is read fresh from the effective config dir
-# (matching fm-harness.sh's CONFIG resolution). An unrecognized non-empty value
-# warns once and falls back to the safe tabs default, so a typo can never
-# silently enable split mode.
-fm_backend_herdr_layout() {  # -> tabs|split
-  local raw="" cfg
-  if [ -n "${FM_HERDR_LAYOUT:-}" ]; then
-    raw=$FM_HERDR_LAYOUT
-  else
-    cfg="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}/herdr-layout"
-    [ -f "$cfg" ] && raw=$(tr -d '[:space:]' < "$cfg" 2>/dev/null)
-  fi
-  case "$raw" in
-    split) printf 'split' ;;
-    ''|tabs) printf 'tabs' ;;
-    *)
-      echo "warning: unrecognized herdr layout '$raw' (expected 'tabs' or 'split'); using 'tabs'" >&2
-      printf 'tabs'
-      ;;
-  esac
-}
-
-# fm_backend_herdr_split_ratio: the per-split ratio (FM_HERDR_SPLIT_RATIO or the
-# 0.5 default), sanitized to a real decimal strictly inside (0,1) - "0.25" or
-# ".25" forms only. Anything else ("0..5", ".", "7", "1", "0.0") falls back to
-# the default, mirroring fm_backend_herdr_split_max, so a malformed knob can
-# never hard-fail the spawn's pane split.
-fm_backend_herdr_split_ratio() {
-  local v=${FM_HERDR_SPLIT_RATIO:-$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT} frac
-  case "$v" in
-    0.[0-9]*|.[0-9]*)
-      frac=${v#*.}
-      case "$frac" in
-        *[!0-9]*) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
-        *[1-9]*) ;;
-        *) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
-      esac
-      ;;
-    *) v=$FM_BACKEND_HERDR_SPLIT_RATIO_DEFAULT ;;
-  esac
-  printf '%s' "$v"
-}
-
-# fm_backend_herdr_split_max: the crewmate-pane cap (FM_HERDR_SPLIT_MAX or the
-# default 3), sanitized to a positive integer.
-fm_backend_herdr_split_max() {
-  local v=${FM_HERDR_SPLIT_MAX:-$FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT}
-  case "$v" in ''|*[!0-9]*|0) v=$FM_BACKEND_HERDR_SPLIT_MAX_DEFAULT ;; esac
-  printf '%s' "$v"
-}
-
-# fm_backend_herdr_spawner_pane: the anchor pane for split mode - the herdr pane
-# firstmate itself is running in, read from the env herdr injects into every
-# pane it manages (HERDR_ENV=1 + HERDR_PANE_ID; the same signals
-# bin/fm-supervise-daemon.sh already trusts for its own supervisor-pane
-# discovery). Empty when firstmate is not running inside a herdr pane (e.g. an
-# explicit --backend herdr launched from tmux), which is the caller's cue to
-# fall back to tab mode.
-fm_backend_herdr_spawner_pane() {
-  [ "${HERDR_ENV:-}" = 1 ] || return 0
-  printf '%s' "${HERDR_PANE_ID:-}"
-}
-
-# fm_backend_herdr_tab_crew_panes: one "<pane_id>\t<x>\t<y>\t<width>\t<height>\t<label>"
-# line per fm-*-labeled pane in <tab> (excluding the spawner pane), with the
-# pane's rect from the live layout. herdr exposes pane geometry only through
-# `pane edges`'s layout and pane LABELS only through `pane list`, so this
-# joins the two by pane_id. A pane missing from the layout defaults to zeroed
-# geometry. The `pane edges` JSON is passed as a string and parsed with `try
-# fromjson` so an unreadable/empty layout degrades to "no geometry" rather
-# than corrupting the whole result. The caller counts these lines and feeds
-# them to fm_backend_herdr_split_plan to pick the next slot's anchor and
-# direction (docs/herdr-backend.md "The deterministic 6-slot plan").
-fm_backend_herdr_tab_crew_panes() {  # <session> <workspace> <tab> <spawner_pane>
-  local session=$1 wsid=$2 tab=$3 spawner=$4 panes layout
-  panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 0
-  layout=$(fm_backend_herdr_cli "$session" pane edges --pane "$spawner" 2>/dev/null) || layout=""
-  printf '%s' "$panes" | jq -r --arg layout "$layout" --arg tab "$tab" --arg spawner "$spawner" '
-    (($layout | try fromjson catch {}) | .result.edges.layout.panes // []) as $geo
-    | .result.panes[]?
-    | select(.tab_id == $tab and .pane_id != $spawner)
-    | select(((.label // "") | startswith("fm-")))
-    | . as $p
-    | ([ $geo[] | select(.pane_id == $p.pane_id) | .rect ] | (.[0] // {})) as $r
-    | "\($p.pane_id)\t\($r.x // 0)\t\($r.y // 0)\t\($r.width // 0)\t\($r.height // 0)\t\($p.label)"
-  ' 2>/dev/null
-}
-
-# NOTE: an earlier fm_backend_herdr_split_rebalance function (measured
-# `pane resize` nudging toward even columns) was REPLACED by the deterministic
-# 6-slot plan below - the plan is built entirely from 0.5 bisections, so every
-# slot's size is exact by construction and no post-spawn resize pass is
-# needed. The `pane resize` semantics that work verified (enclosing-split-
-# relative --amount, negative-amount misbehavior, subtree rescaling) are
-# recorded in docs/herdr-backend.md "pane resize semantics" for future
-# reference.
-#
-# fm_backend_herdr_split_plan: resolve the next spawn's anchor pane and split
-# direction from the LIVE crew-pane geometry, following the captain's
-# deterministic 6-slot plan (see the section comment above and
-# docs/herdr-backend.md "The deterministic 6-slot plan"). Echoes
-# "<anchor_pane>\t<direction>" on stdout, or nothing when no anchor fits.
-#
-# Slot selection is by live crewmate COUNT (the plan's slot n+1 for n live
-# crew panes), with a geometric precondition per slot; that is what makes a
-# torn-down slot refill toward the canonical plan: e.g. with c1-c4 alive in
-# the 2x2 grid and c5 gone, the count is 4, so the next spawn re-runs slot 5
-# (split the spawner down) and lands exactly where c5 was. When the live
-# layout does not match the slot's precondition (panes closed in odd
-# combinations), the resolver falls back to the WIDEST crewmate pane,
-# --direction right - a deliberate, documented approximation instead of an
-# error (docs/herdr-backend.md "Gap handling"). Slots beyond 6 (a raised
-# FM_HERDR_SPLIT_MAX) use the same widest-pane fallback because the plan
-# defines positions only up to 6.
-#
-# Preconditions per slot (all measured from the live rects; sx/sy are the
-# spawner's own left/top):
-#   slot 1 (n=0): none - anchor is the spawner, right.
-#   slot 2 (n=1): the sole crew pane, right.
-#   slot 3 (n=2): the two crew panes sit in DIFFERENT columns (distinct x) -
-#                 anchor is the left one (min x), down.
-#   slot 4 (n=3): at least two distinct crew columns - anchor is the
-#                 right-most crew pane (max x; ties toward the top), down.
-#   slot 5 (n=4): the spawner's own column is free of crew panes (nothing
-#                 with x <= sx) - anchor is the spawner, down.
-#   slot 6 (n=5): a crew pane sits BELOW the spawner in its column (x <= sx,
-#                 y > sy) - anchor is that pane, right.
-fm_backend_herdr_split_plan() {  # <crew-lines> <n> <spawner_pane> <sx> <sy>
-  local crew_lines=$1 n=$2 spawner=$3 sx=$4 sy=$5 resolved
-  case "$n" in
-    0)
-      printf '%s\tright' "$spawner"
-      return 0
-      ;;
-    1)
-      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '$1 != "" { print $1 "\tright"; exit }')
-      ;;
-    2)
-      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '
-        $1 != "" { n++; p[n]=$1; x[n]=$2 }
-        END {
-          if (n != 2 || x[1] == x[2]) exit
-          a = (x[1] <= x[2]) ? 1 : 2
-          print p[a] "\tdown"
-        }')
-      ;;
-    3)
-      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' '
-        $1 != "" { n++; p[n]=$1; x[n]=$2; y[n]=$3 }
-        END {
-          if (n != 3) exit
-          distinct = 0
-          for (i = 1; i <= n; i++) { seen = 0; for (j = 1; j < i; j++) if (x[j] == x[i]) seen = 1; if (!seen) distinct++ }
-          if (distinct < 2) exit
-          best = 1
-          for (i = 2; i <= n; i++) if (x[i] > x[best] || (x[i] == x[best] && y[i] < y[best])) best = i
-          print p[best] "\tdown"
-        }')
-      ;;
-    4)
-      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' -v sx="$sx" '
-        $1 != "" { n++; if ($2 <= sx) blocked = 1 }
-        END { if (n == 4 && !blocked) print "SPAWNER\tdown" }')
-      [ "$resolved" = "SPAWNER"$'\t'"down" ] && resolved="$spawner"$'\t'"down"
-      ;;
-    5)
-      resolved=$(printf '%s\n' "$crew_lines" | awk -F'\t' -v sx="$sx" -v sy="$sy" '
-        $1 != "" { n++; if ($2 <= sx && $3 > sy) { if (!p || $3 < py) { p = $1; py = $3 } } }
-        END { if (n == 5 && p) print p "\tright" }')
-      ;;
-    *)
-      resolved=""
-      ;;
-  esac
-  if [ -z "$resolved" ]; then
-    # Gap fallback: the widest live crewmate pane (ties toward the right-most),
-    # split right - never an error.
-    resolved=$(printf '%s\n' "$crew_lines" | sort -t$'\t' -k4,4n -k2,2n \
-      | awk -F'\t' '$1 != "" { p = $1 } END { if (p) print p "\tright" }')
-  fi
-  [ -n "$resolved" ] || return 0
-  printf '%s' "$resolved"
-}
-
-# fm_backend_herdr_split_create_task: create the task's pane by SPLITTING the
-# spawner's own pane/tab (split layout mode). On success (0) echoes
-# "<session>\t<workspace_id>\t<tab_id>\t<pane_id>" - the workspace/tab are the
-# spawner's own, NOT the home's `firstmate` tab-mode workspace. Returns
-# FM_BACKEND_HERDR_SPLIT_FALLBACK (3), with a one-line stderr notice, when there
-# is no usable anchor or the crewmate-pane cap is reached, so the caller falls
-# back to tab mode WITHOUT failing the spawn. Returns 1 only for a genuine
-# refusal (a live, non-husk pane already carries this label) or an unexpected
-# herdr failure, mirroring fm_backend_herdr_create_task's duplicate-refusal
-# contract.
-#
-# Restart-restored husk panes (a pane that came back dead or agent-less, the
-# same two states fm_backend_herdr_pane_agent_state confirms for tab husks) that
-# carry THIS task's label are closed-and-replaced with the create-before-close
-# ordering the tab path established: the replacement pane is split into being
-# first, and the husk is closed only after, so the task never briefly loses its
-# pane and herdr's lack of label-uniqueness lets both share the label meanwhile.
-# The cap counts every fm-* pane currently in the tab, so a transient husk from
-# ANOTHER task after a whole-fleet restart can push a spawn to tab mode until it
-# is itself respawned - always a safe fall-back, never a refusal.
-fm_backend_herdr_split_create_task() {  # <label> <cwd>
-  local label=$1 cwd=$2 session spawner sp_get sp_tab sp_ws sp_x sp_y
-  local all same_label pane husk_panes="" live_dup=0
-  local crew_count=0 cap ratio anchor direction plan new_pane crew_line
-  session=$(fm_backend_herdr_session)
-  fm_backend_herdr_version_check || return 1
-  fm_backend_herdr_server_ensure "$session" || return 1
-  spawner=$(fm_backend_herdr_spawner_pane)
-  if [ -z "$spawner" ]; then
-    echo "notice: herdr split layout requested but firstmate is not running in a herdr pane; using tab layout for this spawn" >&2
-    return "$FM_BACKEND_HERDR_SPLIT_FALLBACK"
-  fi
-  sp_get=$(fm_backend_herdr_cli "$session" pane get "$spawner" 2>/dev/null)
-  sp_tab=$(printf '%s' "$sp_get" | jq -r '.result.pane.tab_id // empty' 2>/dev/null)
-  sp_ws=$(printf '%s' "$sp_get" | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
-  if [ -z "$sp_tab" ] || [ -z "$sp_ws" ]; then
-    echo "notice: herdr split layout requested but firstmate pane '$spawner' is not live in session '$session'; using tab layout for this spawn" >&2
-    return "$FM_BACKEND_HERDR_SPLIT_FALLBACK"
-  fi
-  # The spawner's own rect anchors the plan's slot-5/6 preconditions.
-  read -r sp_x sp_y <<EOF
-$(fm_backend_herdr_cli "$session" pane edges --pane "$spawner" 2>/dev/null \
-  | jq -r --arg p "$spawner" '.result.edges.layout.panes[]? | select(.pane_id == $p) | "\(.rect.x // 0) \(.rect.y // 0)"' 2>/dev/null)
-EOF
-  sp_x=${sp_x:-0}
-  sp_y=${sp_y:-0}
-  all=$(fm_backend_herdr_tab_crew_panes "$session" "$sp_ws" "$sp_tab" "$spawner")
-  # Classify same-label panes (husk vs live) exactly like the tab duplicate check.
-  same_label=$(printf '%s\n' "$all" | awk -F'\t' -v l="$label" '$1 != "" && $6 == l {print $1}')
-  while IFS= read -r pane; do
-    [ -n "$pane" ] || continue
-    case "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" in
-      dead|no-agent) husk_panes="${husk_panes}${pane}"$'\n' ;;
-      *) live_dup=1 ;;
-    esac
-  done <<EOF
-$same_label
-EOF
-  if [ "$live_dup" -eq 1 ]; then
-    echo "error: a live herdr pane labeled '$label' already exists in firstmate's tab '$sp_tab' (session $session)" >&2
-    return 1
-  fi
-  # Anchor set = fm-* crew panes that are NOT a same-label husk we will replace.
-  local anchor_lines=""
-  while IFS= read -r crew_line; do
-    pane=${crew_line%%$'\t'*}
-    [ -n "$pane" ] || continue
-    printf '%s\n' "$husk_panes" | grep -qxF "$pane" && continue
-    anchor_lines="${anchor_lines}${crew_line}"$'\n'
-    crew_count=$((crew_count + 1))
-  done <<EOF
-$all
-EOF
-  cap=$(fm_backend_herdr_split_max)
-  # Overflow to tab mode only when there is no husk to replace in place (an
-  # in-place replacement never grows the visible pane count).
-  if [ -z "$husk_panes" ] && [ "$crew_count" -ge "$cap" ]; then
-    echo "notice: herdr split layout cap ($cap crewmate panes) reached in firstmate's tab; using a separate tab for '$label'" >&2
-    return "$FM_BACKEND_HERDR_SPLIT_FALLBACK"
-  fi
-  # Cross-layout check: this task's earlier incarnation may live in the OTHER
-  # scope, as an fm-<id> TAB in the home's own tab-mode workspace (cap
-  # overflow, a no-anchor fallback, or a layout toggle put it there). Same
-  # conservative husk classification (live or unknown refuses) and the same
-  # create-before-close ordering as the in-scope pane check above.
-  local home_ws tab_dups dup_tab dup_tab_pane husk_tabs=""
-  home_ws=$(fm_backend_herdr_workspace_find "$session")
-  if [ -n "$home_ws" ]; then
-    tab_dups=$(fm_backend_herdr_cli "$session" tab list --workspace "$home_ws" 2>/dev/null \
-      | jq -r --arg want "$label" '.result.tabs[]? | select(.label == $want) | .tab_id' 2>/dev/null)
-    while IFS= read -r dup_tab; do
-      [ -n "$dup_tab" ] || continue
-      dup_tab_pane=$(fm_backend_herdr_pane_for_tab "$session" "$home_ws" "$dup_tab")
-      if [ -z "$dup_tab_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_tab_pane"; then
-        echo "error: a live herdr tab labeled '$label' already exists in workspace $home_ws (session $session)" >&2
-        return 1
-      fi
-      husk_tabs="${husk_tabs}${dup_tab}"$'\n'
-    done <<EOF
-$tab_dups
-EOF
-  fi
-  ratio=$(fm_backend_herdr_split_ratio)
-  # Resolve the next slot's anchor and direction from the deterministic plan
-  # (fm_backend_herdr_split_plan): slot by live crewmate count, canonical
-  # refill after teardowns, widest-pane fallback for gap shapes and slots
-  # beyond 6.
-  plan=$(fm_backend_herdr_split_plan "$anchor_lines" "$crew_count" "$spawner" "$sp_x" "$sp_y")
-  IFS=$'\t' read -r anchor direction <<EOF
-$plan
-EOF
-  if [ -z "$anchor" ] || [ -z "$direction" ]; then
-    echo "error: herdr split layout could not resolve an anchor pane for '$label' (session $session)" >&2
-    return 1
-  fi
-  new_pane=$(fm_backend_herdr_cli "$session" pane split "$anchor" --direction "$direction" --ratio "$ratio" --cwd "$cwd" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty' 2>/dev/null)
-  if [ -z "$new_pane" ]; then
-    echo "error: herdr pane split did not return a new pane id for '$label' (session $session)" >&2
-    return 1
-  fi
-  # Label the pane so duplicate/husk detection and split-mode recovery can find
-  # it - a split-mode crewmate pane has no dedicated tab of its own.
-  fm_backend_herdr_cli "$session" pane rename "$new_pane" "$label" >/dev/null 2>&1 \
-    || echo "warning: could not label herdr pane '$new_pane' as '$label'; identity/husk detection may miss it" >&2
-  # Create-before-close: the replacement pane now exists, so closing the husk(s)
-  # cannot strand the task without a pane, mirroring the tab husk path.
-  if [ -n "$husk_panes" ]; then
-    while IFS= read -r pane; do
-      [ -n "$pane" ] || continue
-      fm_backend_herdr_cli "$session" pane close "$pane" >/dev/null 2>&1 || true
-    done <<EOF
-$husk_panes
-EOF
-  fi
-  if [ -n "$husk_tabs" ]; then
-    while IFS= read -r dup_tab; do
-      [ -n "$dup_tab" ] || continue
-      fm_backend_herdr_cli "$session" tab close "$dup_tab" >/dev/null 2>&1 || true
-    done <<EOF
-$husk_tabs
-EOF
-  fi
-  printf '%s\t%s\t%s\t%s' "$session" "$sp_ws" "$sp_tab" "$new_pane"
 }
 
 # --- native event push: pane.agent_status_changed subscriber -----------------

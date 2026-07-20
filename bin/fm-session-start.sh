@@ -18,7 +18,7 @@
 # standalone with unchanged default behavior - other flows (fm-bootstrap.sh
 # install <tools> after consent, /updatefirstmate, the afk daemon, existing
 # tests) still call them directly. The one seam this script needed -
-# bootstrap running its detect-only diagnostics without its five mutating
+# bootstrap running its detect-only diagnostics without its six mutating
 # sweeps - is an opt-in FM_BOOTSTRAP_DETECT_ONLY=1 flag on fm-bootstrap.sh
 # itself (default unset/0 = unchanged behavior), not a fork.
 #
@@ -27,9 +27,10 @@
 #
 #   1. lock          - acquire the per-home session lock FIRST, before any
 #                       mutating step runs.
-#   2. bootstrap      - detect-only diagnostics always run. The five
+#   2. bootstrap      - detect-only diagnostics always run. The six
 #                       MUTATING sweeps (legacy PR-check migration, secondmate
-#                       fast-forward, secondmate liveness, X-mode artifact writes, fleet sync) run only
+#                       fast-forward, secondmate liveness, herdr layout repair,
+#                       X-mode artifact writes, fleet sync) run only
 #                       when this session actually holds the lock.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
@@ -38,8 +39,9 @@
 #                       always safe, always runs.
 #   5. fleet digest   - a compact data/backlog.md identity/metadata listing,
 #                       every state/*.meta, a bounded state/*.status tail,
-#                       state/.afk, and a cheap per-task endpoint-liveness read:
-#                       read-only, always runs.
+#                       state/.afk, a cheap per-task endpoint-liveness read, and
+#                       (herdr-backed homes with agent-axi) the agent-axi slot
+#                       snapshot: read-only, always runs.
 #   6. closing reminder - prints the context-specific watcher next step; this
 #                       script points back to the emitted harness supervision
 #                       block and deliberately never arms the watcher itself.
@@ -63,7 +65,7 @@
 # tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
 # which mutate shared state and all of which are safe to compute from a second
 # session.
-# Only the five mutating sweeps and the wake-queue drain are skipped.
+# Only the six mutating sweeps and the wake-queue drain are skipped.
 # The context and fleet-state digests
 # below are always read-only, so they run unconditionally in both modes.
 #
@@ -100,6 +102,8 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+# shellcheck source=bin/fm-herdr-layout-lib.sh
+. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
 
 # FM_SESSION_START_VERBOSE=1 restores full-width delimiters, the verbose
 # bootstrap facts (including the full crew-dispatch listing), untruncated
@@ -393,6 +397,16 @@ for meta in "$STATE"/*.meta; do
   fi
 done
 [ "$META_FOUND" -eq 1 ] || printf '(none)\n'
+
+# Herdr-backed homes: agent-axi owns the durable slot ledger, so its snapshot is
+# the authoritative live layout view (occupied slots + any husks). A no-op on
+# every other backend or without agent-axi (fm_herdr_layout_snapshot stays
+# silent), and read-only, so it runs in the lock-refused path too.
+HERDR_SNAPSHOT=$(fm_herdr_layout_snapshot 2>/dev/null || true)
+if [ -n "$HERDR_SNAPSHOT" ]; then
+  subsection "Herdr workspace layout (agent-axi snapshot)"
+  printf '%s\n' "$HERDR_SNAPSHOT"
+fi
 
 subsection "Orphan status logs (state/*.status without matching .meta)"
 ORPHAN_STATUS_FOUND=0
