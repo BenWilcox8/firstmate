@@ -14,7 +14,7 @@ PAYLOAD=$(cat 2>/dev/null || true)
 
 [ -n "${GROK_TURNEND_GUARD_ACTIVE:-}" ] && exit 0
 
-ROOT=${GROK_WORKSPACE_ROOT:-${CLAUDE_PROJECT_DIR:-}}
+ROOT=${GROK_WORKSPACE_ROOT:-}
 [ -n "$ROOT" ] || exit 0
 ROOT=${ROOT%/}
 [ -x "$ROOT/bin/fm-turnend-guard.sh" ] || exit 0
