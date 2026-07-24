@@ -58,7 +58,7 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 
 ### Requirements
 
-- A verified agent harness: Claude Code, Grok, Pi, Codex, or OpenCode.
+- A verified agent harness: Pi, Claude Code, Grok, Codex, or OpenCode.
 - Git and the GitHub CLI, authenticated through `gh auth login`.
 - tmux, for the reference session backend.
 
@@ -66,8 +66,8 @@ The first mate detects and offers to install everything else.
 
 ### Recommended harnesses
 
-**Claude Code, Grok, and Pi are equal co-primary recommendations** for running the primary firstmate session.
-Claude Code and Grok use background-notify wake cycles; Pi uses its tracked primary watcher extension.
+**Pi, Claude Code, and Grok are equal co-primary recommendations** for running the primary firstmate session.
+Pi uses its tracked primary watcher extension; Claude Code and Grok use background-notify wake cycles.
 All three have verified turn-end guard paths when launched with their documented setup.
 Pick whichever one matches your subscription and workflow.
 
@@ -83,6 +83,12 @@ cd firstmate
 
 Then launch one of the co-primary harnesses; AGENTS.md takes over from there:
 
+**Pi**
+
+```sh
+pi
+```
+
 **Claude Code**
 
 ```sh
@@ -93,12 +99,6 @@ claude
 
 ```sh
 grok --trust
-```
-
-**Pi**
-
-```sh
-pi
 ```
 
 For Grok, `--trust` is needed once per clone so project hooks and the turn-end guard load; `/hooks-trust` inside Grok works too.
@@ -159,7 +159,8 @@ Full architecture - the supervision engine, worktree isolation, secondmates, dis
 ## Built-in skills
 
 Firstmate ships these user-invocable built-in skills.
-Claude and grok use the slash form shown here; codex uses the same names with `$`, such as `$afk`.
+Invocation syntax varies by harness: claude and grok use the slash form shown here (`/afk`); codex uses the same names with `$` (`$afk`); pi and opencode have no separate slash form, so invoke the skill by name in natural language.
+The `harness-adapters` skill is the authoritative per-harness invocation reference.
 
 | Skill              | What it does                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
