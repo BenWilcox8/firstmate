@@ -142,24 +142,30 @@ fm_backend_tmux_current_command() {  # <target>
 # idle shell passes THAT check as "alive" - the secondmate-liveness gap
 # AGENTS.md's session-start guarantee closes). See docs/tmux-backend.md
 # "Agent liveness probe" for the empirical basis. Prints one of:
-#   alive   - the foreground command is one of the verified harness binaries
-#             (claude, codex, opencode, grok - each confirmed to run as its
-#             own process name, never wrapped by a generic interpreter).
+#   alive   - the foreground command is one of the verified harness binaries.
+#             claude, codex, opencode, grok run as their own process name
+#             (matched as a substring). pi is a `#!/usr/bin/env node` script
+#             that sets its process title to `pi`, so tmux reports the
+#             foreground command as exactly `pi` (verified pi 0.81.1,
+#             docs/tmux-backend.md "Agent liveness probe"); matched exactly so
+#             it never catches an unrelated `pip`/`mpi*` command.
 #   dead    - the foreground command is a bare shell: nothing is running in
 #             the pane, so a prior agent process has exited.
 #   unknown - anything else, INCLUDING a bare "node"/"python" interpreter
-#             name (pi's own launcher execs into a generic "node" process
-#             with no reliable way to attribute it back to pi from outside
-#             the pane - docs/tmux-backend.md "Known gaps"), or an unreadable
-#             pane. Callers must never treat unknown as a confirmed-dead
-#             signal (bin/fm-bootstrap.sh's secondmate-liveness sweep gates a
-#             respawn on `dead` only).
+#             name (an older or differently-packaged pi may still surface as a
+#             generic "node" process with no reliable way to attribute it back
+#             to pi from outside the pane - docs/tmux-backend.md "Known gaps"),
+#             or an unreadable pane. Callers must never treat unknown as a
+#             confirmed-dead signal (bin/fm-bootstrap.sh's secondmate-liveness
+#             sweep gates a respawn on `dead` only), so a node-wrapped pi is
+#             safe here - it just cannot be positively confirmed alive.
 fm_backend_tmux_agent_alive() {  # <target>
   local target=$1 comm
   comm=$(fm_backend_tmux_current_command "$target") || { printf 'unknown'; return 0; }
   comm=${comm#-}
   case "$comm" in
     '') printf 'unknown' ;;
+    pi) printf 'alive' ;;
     *claude*|*codex*|*opencode*|*grok*) printf 'alive' ;;
     zsh|bash|sh|dash|ash|ksh|mksh|tcsh|csh|fish) printf 'dead' ;;
     *) printf 'unknown' ;;

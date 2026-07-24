@@ -103,15 +103,25 @@ The classifier (`fm_backend_tmux_agent_alive`) maps the observed name to `alive`
 - `dead` - the name is a bare shell (`zsh`, `bash`, `sh`, `dash`, `ash`, `ksh`, `mksh`, `tcsh`, `csh`, `fish`).
 - `unknown` - anything else, including an unreadable pane.
 
-### Known gap: `pi` cannot be confidently classified
+### `pi` liveness (former known gap, resolved 2026-07-23 for current pi)
 
-`pi` is a `#!/usr/bin/env node` script (confirmed via its shebang and installed path, 2026-07-07), so a live `pi` agent's pane reports `node` as its `pane_current_command`, not `pi` - verified by running a long-lived `node -e` script in a pane and confirming its foreground process is a genuine child reachable via `pgrep -P <pane_pid>` with an inspectable `ps -o args=` (the same technique `bin/fm-harness.sh`'s own self-detection uses when walking UP its ancestry), while `pi --version` itself was observed to exit too quickly under the same pane to reliably capture its live foreground state - real `pi` invocations were not available to test.
-Since `node` is also the generic name for a plain interpreter session, any future JS-based harness, or someone's unrelated node script, there is no way to attribute a bare `node` foreground process back to `pi` specifically from outside the pane without deeper (and fragile) argument introspection.
-The classifier deliberately reports `unknown` for `node`/`python`/`python3` rather than guess - per the secondmate-liveness sweep's correctness bar, a wrong `alive` is harmless but a wrong `dead` spins up a duplicate agent, so an unresolvable case must never be treated as confidently dead.
-Practical effect: a dead `pi` secondmate is not auto-healed by the liveness sweep today; it is reported as `skipped: liveness probe inconclusive` instead, which still surfaces it for a human to act on.
-Resolving this would need either a `pi`-specific env marker inspectable from outside the process (mirroring `PI_CODING_AGENT=true`, which `bin/fm-harness.sh` already uses for self-detection but which is not readable from a different process without deeper introspection) or accepting the argument-inspection fragility - not attempted here.
+`pi` is a `#!/usr/bin/env node` script, so an earlier record (2026-07-07, made without a real `pi` to test - a `node -e` proxy was used instead) assumed a live `pi` pane would report the generic `node` as its `pane_current_command` and left `pi` unclassifiable.
+
+Re-verified against a real `pi` 0.81.1 in tmux 3.7b (2026-07-23): `pi` sets its Node process title to `pi`, so both `tmux display-message -p '#{pane_current_command}'` and `ps -o comm=` report exactly `pi`, stably across the process tree and over time.
+
+```
+$ tmux send-keys -t fmtest:pi "pi --no-session" Enter    # then, once idle:
+$ tmux display-message -p -t fmtest:pi '#{pane_current_command}'
+pi
+$ ps --ppid "$(tmux display-message -p -t fmtest:pi '#{pane_pid}')" -o comm=
+pi
+```
+
+So `fm_backend_tmux_agent_alive` now classifies an exact `pi` foreground command as `alive` (exact match, so an unrelated `pip`/`mpi*` command is never caught).
+The match is additive and monotonic-safe: an older or differently-packaged `pi` that still surfaces as a bare `node` falls through to `unknown` (unchanged), a bare shell still reports `dead`, and the secondmate-liveness sweep respawns on `dead`/`missing` only - so there is no false-respawn risk, only a positive-liveness gain for the current default harness.
+The classifier still reports `unknown` for a bare `node`/`python`/`python3` rather than guess - per the sweep's correctness bar, a wrong `alive` is harmless but a wrong `dead` spins up a duplicate agent, so an unresolvable interpreter name must never be treated as confidently dead.
 
 ## Limitations
 
 None specific to tmux for the reference path itself - it is the fully verified reference backend, while Orca and cmux are the backends without secondmate support.
-The agent-liveness probe above has one known gap (`pi`'s generic `node` process name, see above).
+The agent-liveness probe positively classifies all five verified harnesses on the current default builds; only an older or differently-packaged `pi` that surfaces as a bare `node` process falls back to the safe `unknown` verdict (see the `pi` liveness note above).

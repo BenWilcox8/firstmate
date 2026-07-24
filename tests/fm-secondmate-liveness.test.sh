@@ -100,9 +100,22 @@ test_tmux_agent_alive_classifies() {
   [ "$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_source tmux; fm_backend_tmux_agent_alive sess:win' "$ROOT")" = dead ] \
     || fail "a defensively-stripped login-shell name should still classify as dead"
 
-  # A bare interpreter name is ambiguous (pi's own launcher execs into a
-  # generic "node" process - docs/tmux-backend.md "Known gap") - must be
-  # unknown, never dead, so the sweep can never respawn on a false-dead read.
+  # pi sets its process title to `pi` (verified pi 0.81.1, docs/tmux-backend.md
+  # "Agent liveness probe"), so tmux reports the foreground command as exactly
+  # `pi` and it classifies as alive - closing the former pi-liveness gap.
+  fb=$(make_probe_tmux "$TMP_ROOT/tmux-pi" pi)
+  [ "$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_source tmux; fm_backend_tmux_agent_alive sess:win' "$ROOT")" = alive ] \
+    || fail "a live pi foreground process (process title pi) should classify as alive"
+
+  # But the exact match must not catch an unrelated pi-prefixed command.
+  fb=$(make_probe_tmux "$TMP_ROOT/tmux-pip" pip)
+  [ "$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_source tmux; fm_backend_tmux_agent_alive sess:win' "$ROOT")" = unknown ] \
+    || fail "an unrelated pi-prefixed command (pip) must not classify as a live pi agent"
+
+  # A bare interpreter name stays ambiguous (an older or differently-packaged
+  # pi may still surface as a generic "node" process - docs/tmux-backend.md
+  # "Known gaps") - must be unknown, never dead, so the sweep can never respawn
+  # on a false-dead read.
   fb=$(make_probe_tmux "$TMP_ROOT/tmux-node" node)
   [ "$(PATH="$fb:$BASE_PATH" bash -c '. "$0/bin/fm-backend.sh"; fm_backend_source tmux; fm_backend_tmux_agent_alive sess:win' "$ROOT")" = unknown ] \
     || fail "an ambiguous bare-interpreter (node) foreground process should classify as unknown, never dead"
