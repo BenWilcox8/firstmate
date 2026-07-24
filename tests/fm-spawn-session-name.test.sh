@@ -98,6 +98,11 @@ $1
 EOF
 }
 
+# These assertions pin the --name flag and its position immediately before the
+# brief substitution, and stop at the opening "$( on purpose. What reads the
+# brief inside that substitution is fm-spawn's own launch template (today the
+# fm-operational-input.sh encoder, previously a plain cat), and pinning it here
+# would duplicate a contract this file does not own.
 test_claude_explicit_session_name_threads_name_flag() {
   local rec id out status launch name
   id=session-explicit-z1
@@ -110,7 +115,7 @@ test_claude_explicit_session_name_threads_name_flag() {
   expect_code 0 "$status" "claude spawn with an explicit session name should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'herdr pane-split layout' \"\$(cat " \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'herdr pane-split layout' \"\$(" \
     "claude launch did not thread the explicit --name flag"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta missing explicit session_name"
   pass "claude threads an explicit --session-name and records session_name= in meta"
@@ -126,7 +131,7 @@ test_crewmate_default_name_is_task_id() {
   status=$?
   expect_code 0 "$status" "claude crewmate spawn without a session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(cat " \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(" \
     "claude crewmate launch did not default --name to the task id"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default crewmate session_name=<id>"
   pass "a crewmate defaults its session name to the task id"
@@ -143,7 +148,7 @@ test_scout_default_name_is_task_id() {
   expect_code 0 "$status" "claude scout spawn without a session name should succeed"
   assert_contains "$out" "kind=scout" "scout spawn did not report kind=scout"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(cat " \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(" \
     "claude scout launch did not default --name to the task id"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default scout session_name=<id>"
   pass "a scout defaults its session name to the task id"
@@ -162,7 +167,7 @@ test_secondmate_default_name_is_secondmate_id() {
   expect_code 0 "$status" "claude secondmate spawn without a session name should succeed"
   assert_contains "$out" "spawned $id harness=claude kind=secondmate" "secondmate launch did not use claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'Secondmate, $id' \"\$(cat " \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'Secondmate, $id' \"\$(" \
     "claude secondmate launch did not default --name to 'Secondmate, <id>'"
   assert_grep "session_name=Secondmate, $id" "$HOME_DIR/state/$id.meta" \
     "meta missing default secondmate session_name=Secondmate, <id>"
@@ -211,7 +216,7 @@ test_quoting_safety_spaces_and_single_quotes() {
   expect_code 0 "$status" "claude spawn with a quote-laden session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
   # POSIX single-quote escaping: a literal ' becomes '\'' inside the quoted run.
-  assert_contains "$launch" "--name 'a '\\''b'\\'' c' \"\$(cat " \
+  assert_contains "$launch" "--name 'a '\\''b'\\'' c' \"\$(" \
     "claude launch did not safely single-quote a name containing spaces and single quotes"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta did not record the raw quoted session name"
   pass "a session name with spaces and single quotes is safely quoted and recorded verbatim"
@@ -230,7 +235,7 @@ test_quoting_safety_ampersand() {
   status=$?
   expect_code 0 "$status" "claude spawn with an ampersand session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--name 'fix build & tests' \"\$(cat " \
+  assert_contains "$launch" "--name 'fix build & tests' \"\$(" \
     "claude launch did not preserve a literal ampersand in the session name"
   assert_not_contains "$launch" "__NAMEFLAG__" \
     "claude launch leaked the __NAMEFLAG__ placeholder into the ampersand name"

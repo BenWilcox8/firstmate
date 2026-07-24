@@ -161,8 +161,12 @@ test_ahoy_is_an_internal_user_invocable_skill() {
 }
 
 test_ahoy_readme_uses_cross_harness_convention() {
-  assert_grep 'Claude and grok use the slash form shown here; codex uses the same names with `$`' "$README" \
-    "README lost the cross-harness slash and dollar convention"
+  assert_grep 'claude and grok use the slash form shown here' "$README" \
+    "README lost the cross-harness slash convention"
+  assert_grep 'codex uses the same names with `$`' "$README" \
+    "README lost the cross-harness dollar convention"
+  assert_grep 'pi and opencode have no separate slash form' "$README" \
+    "README lost the no-slash-form caveat for the remaining verified harnesses"
   assert_grep '| `/ahoy`' "$README" "README built-in skills table does not list /ahoy"
   pass "README lists ahoy under the shared cross-harness invocation convention"
 }
