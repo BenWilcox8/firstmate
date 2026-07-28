@@ -557,7 +557,7 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
   pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
 }
 
-test_dashboard_marker_block_in_all_scaffolds() {
+test_no_dashboard_signals_in_any_scaffold() {
   local home brief
   home="$TMP_ROOT/markers-home"
   write_registry "$home"
@@ -565,47 +565,35 @@ test_dashboard_marker_block_in_all_scaffolds() {
   # Ship brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-ship some-proj >/dev/null 2>&1
   brief="$home/data/markers-ship/brief.md"
-  assert_grep "## Dashboard signals (CLI)" "$brief" \
-    "ship brief missing ## Dashboard signals (CLI) heading"
-  assert_grep "spec-axi ask" "$brief" \
-    "ship brief missing spec-axi ask instruction"
-  assert_grep "spec-axi status" "$brief" \
-    "ship brief missing spec-axi status instruction"
-  assert_grep "%%dash-fin%%" "$brief" \
-    "ship brief missing %%dash-fin%% inline marker"
-  assert_no_grep "%%dash-sum" "$brief" \
-    "ship brief still instructs the retired %%dash-sum%% marker"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "ship brief still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "ship brief still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "ship brief still carries a dashboard marker"
 
   # Scout brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
   brief="$home/data/markers-scout/brief.md"
-  assert_grep "## Dashboard signals (CLI)" "$brief" \
-    "scout brief missing ## Dashboard signals (CLI) heading"
-  assert_grep "spec-axi ask" "$brief" \
-    "scout brief missing spec-axi ask instruction"
-  assert_grep "spec-axi status" "$brief" \
-    "scout brief missing spec-axi status instruction"
-  assert_grep "%%dash-fin%%" "$brief" \
-    "scout brief missing %%dash-fin%% inline marker"
-  assert_no_grep "%%dash-sum" "$brief" \
-    "scout brief still instructs the retired %%dash-sum%% marker"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "scout brief still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "scout brief still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "scout brief still carries a dashboard marker"
 
   # Secondmate charter.
   FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
     "$ROOT/bin/fm-brief.sh" markers-secondmate --secondmate --no-projects >/dev/null 2>&1
   brief="$home/data/markers-secondmate/brief.md"
-  assert_grep "## Dashboard signals (CLI)" "$brief" \
-    "secondmate charter missing ## Dashboard signals (CLI) heading"
-  assert_grep "spec-axi ask" "$brief" \
-    "secondmate charter missing spec-axi ask instruction"
-  assert_grep "spec-axi status" "$brief" \
-    "secondmate charter missing spec-axi status instruction"
-  assert_grep "%%dash-fin%%" "$brief" \
-    "secondmate charter missing %%dash-fin%% inline marker"
-  assert_no_grep "%%dash-sum" "$brief" \
-    "secondmate charter still instructs the retired %%dash-sum%% marker"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "secondmate charter still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "secondmate charter still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "secondmate charter still carries a dashboard marker"
 
-  pass "fm-brief.sh: CLI-signals block appears in ship, scout, and secondmate scaffolds"
+  pass "fm-brief.sh: no dashboard signal content in ship, scout, or secondmate scaffolds"
 }
 
 test_pause_verb_override_renders_all_brief_scaffolds() {
@@ -694,7 +682,7 @@ test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
-test_dashboard_marker_block_in_all_scaffolds
+test_no_dashboard_signals_in_any_scaffold
 test_secondmate_no_projects_charter
 test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable

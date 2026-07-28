@@ -162,6 +162,9 @@ A silent bootstrap section needs no action; for any printed actionable diagnosti
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `secondmate-provisioning` owns startup secondmate sync, liveness, and inherited local-material convergence.
 
+Load `dashboard-signals` at session start and again whenever an instruction-update nudge arrives; it owns how this session signals the captain's dashboard.
+If this home's runtime backend is herdr, also load `herdr-pane-management`.
+
 ## 4. Harness and runtime dispatch
 
 Load `harness-adapters` before every spawn or recovery and before trust handling, skill invocation, interrupt, exit, resume, or adapter verification.
@@ -497,6 +500,8 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `quota-array-dispatch` - load before choosing among a matched crew-dispatch profile array from current quota-axi output.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
+- `dashboard-signals` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
+- `herdr-pane-management` - load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 - `project-management` - load before adding, creating, removing, or initializing a project.
   Cloning or registering a project is add intake and uses the same trigger.
 - `stuck-crewmate-recovery` - load when the session-start digest reports an ordinary direct report's endpoint dead or its metadata has no window, or after a stale wake, looping pane, repeated confusion, an answered-by-brief question, an unresponsive crewmate, or a failed steer.
