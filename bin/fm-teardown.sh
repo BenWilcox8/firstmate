@@ -45,6 +45,14 @@
 # Projected closes share the presentation-order lock, refuse to close the
 # captain's active tab, and restore the exact response-derived pre-close tab
 # if Herdr's last-pane cleanup focuses an unrelated neighboring workspace.
+# Every Herdr close is confirmed against the exact recorded pane and retried
+# until it is gone (teardown_herdr_close_confirmed owns the retry, the
+# already-dead shortcut, and the one confirmation the journal also follows).
+# FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS (default 3) and
+# FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS (default 0.3) tune that retry; an
+# empty, zero, or non-numeric value falls back to the default. A pane still
+# open after the last attempt is reported loudly by task and pane id, so the
+# supervising turn can close it even though cleanup continues.
 # Secondmates (kind=secondmate in meta) are retired explicitly. Normal
 # teardown refuses while their home has in-flight crewmate meta files; --force
 # is the approved discard path that prevalidates child removal targets, discards
@@ -1141,10 +1149,126 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
   }
 fi
 
+# teardown_herdr_close_attempts: how many times the Herdr close may be
+# attempted. An empty, non-numeric, or zero override falls back to the default
+# so a bad value can never turn the retry into "never close the pane at all".
+teardown_herdr_close_attempts() {
+  local attempts=${FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS:-3}
+  case "$attempts" in
+    ''|*[!0-9]*|0) attempts=3 ;;
+  esac
+  printf '%s' "$attempts"
+}
+
+# teardown_herdr_pane_gone: the exact recorded pane is structurally gone.
+# Only a structured pane_not_found proves it; an unknown or unreadable answer
+# stays unconfirmed, because treating an ambiguous read as "gone" is how a live
+# pane loses the record that names it.
+# Reads the task globals TEARDOWN_HERDR_SESSION and TEARDOWN_HERDR_PANE.
+teardown_herdr_pane_gone() {
+  [ "$(fm_backend_herdr_pane_agent_state "$TEARDOWN_HERDR_SESSION" "$TEARDOWN_HERDR_PANE")" = dead ]
+}
+
+# teardown_herdr_close_confirmed: close this task's exact Herdr pane and return
+# 0 only once that pane is confirmed gone.
+#
+# The close is best-effort at every layer beneath this one: the projected close
+# refuses outright on the captain's active tab or an ambiguous pane read, and
+# the ordinary path is `agent-axi teardown ... || true` followed by
+# `pane close ... || true`, neither of which reports whether the pane actually
+# went away. A single unverified attempt is why a task pane could survive its
+# own teardown as a bare terminal - the agent exits, nothing confirms the
+# close, and cleanup proceeds past the records that could still name the pane.
+#
+# So this confirms, and retries the close between confirmations. An
+# already-dead pane is confirmed without closing anything: a pane that died
+# before teardown is the case where retirement is safest, not a reason to
+# attempt another close.
+# Reads the task globals BACKEND, T, ID, TEARDOWN_HERDR_SESSION,
+# TEARDOWN_HERDR_PANE, HERDR_PRESENTATION_RETIRE_CANDIDATE,
+# HERDR_PRESENTATION_SESSION, and HERDR_PRESENTATION_PANE.
+teardown_herdr_close_confirmed() {
+  local attempt=0 max_attempts wait_secs
+  max_attempts=$(teardown_herdr_close_attempts)
+  wait_secs=${FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS:-0.3}
+  case "$wait_secs" in
+    ''|*[!0-9.]*|*.*.*) wait_secs=0.3 ;;
+  esac
+  fm_backend_source herdr || true
+  if ! declare -F fm_backend_herdr_pane_agent_state >/dev/null 2>&1 \
+    || ! declare -F fm_backend_herdr_parse_target >/dev/null 2>&1; then
+    echo "warning: herdr pane confirmation is unavailable for $ID; the task pane close cannot be verified" >&2
+    return 1
+  fi
+  if [ -z "$TEARDOWN_HERDR_SESSION" ] || [ -z "$TEARDOWN_HERDR_PANE" ]; then
+    echo "warning: herdr endpoint $T for $ID could not be parsed exactly; the task pane close cannot be verified" >&2
+    return 1
+  fi
+  while [ "$attempt" -lt "$max_attempts" ]; do
+    # An already-gone pane needs no close, on the first attempt or a later one.
+    if teardown_herdr_pane_gone; then
+      return 0
+    fi
+    if [ "$attempt" -gt 0 ]; then
+      echo "warning: herdr pane $T for $ID was not confirmed gone; retrying the close (attempt $((attempt + 1)) of $max_attempts)" >&2
+    fi
+    teardown_herdr_close_once
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt "$max_attempts" ] && sleep "$wait_secs"
+  done
+  teardown_herdr_pane_gone
+}
+
+# teardown_herdr_close_once: one close attempt through whichever seam owns this
+# task's pane - the focus-preserving projected close under the presentation
+# lock, or the ordinary backend kill that delegates to agent-axi and then
+# closes the pane natively. Both remain best-effort here; the caller confirms.
+teardown_herdr_close_once() {
+  local lock lock_held=0 lock_attempt=0
+  if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$SCRIPT_DIR/fm-wake-lib.sh"
+    if lock=$(fm_backend_herdr_presentation_session_lock_path "$HERDR_PRESENTATION_SESSION"); then
+      while [ "$lock_attempt" -lt 50 ]; do
+        if fm_lock_try_acquire "$lock"; then
+          lock_held=1
+          break
+        fi
+        sleep 0.1
+        lock_attempt=$((lock_attempt + 1))
+      done
+    fi
+    if [ "$lock_held" = 1 ]; then
+      # The refusal reason reaches the operator instead of /dev/null: it names
+      # the one condition (the captain's own active tab) a retry cannot clear.
+      fm_backend_herdr_projection_close_pane_focus_preserving \
+        "$HERDR_PRESENTATION_SESSION" "$HERDR_PRESENTATION_PANE" || true
+      fm_lock_release "$lock" || true
+    else
+      echo "warning: herdr presentation focus lock unavailable; refusing a concurrent focus-unsafe pane close" >&2
+    fi
+    return 0
+  fi
+  fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
+}
+
+# teardown_herdr_report_unclosed_pane: report a pane this teardown could not
+# close, loudly and by exact task and pane id. Cleanup still continues, so this
+# line is the only thing that will still name the pane once the task's records
+# are gone - it has to carry everything the supervising turn needs to close it.
+# Reads the task globals T and ID.
+teardown_herdr_report_unclosed_pane() {
+  echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
+  echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
+  echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
+}
+
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"
 HERDR_PRESENTATION_RETIRE_CANDIDATE=0
 HERDR_PRESENTATION_SESSION=
 HERDR_PRESENTATION_PANE=
+TEARDOWN_HERDR_SESSION=
+TEARDOWN_HERDR_PANE=
 if [ "$BACKEND" = herdr ] \
    && { [ -e "$HERDR_PRESENTATION_JOURNAL" ] || [ -L "$HERDR_PRESENTATION_JOURNAL" ]; }; then
   fm_backend_source herdr || true
@@ -1162,35 +1286,26 @@ if [ "$BACKEND" = herdr ] \
   fi
 fi
 
-if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
-  # shellcheck source=bin/fm-wake-lib.sh
-  . "$SCRIPT_DIR/fm-wake-lib.sh"
-  HERDR_PRESENTATION_FOCUS_LOCK=
-  HERDR_PRESENTATION_FOCUS_LOCK_HELD=0
-  HERDR_PRESENTATION_FOCUS_LOCK_ATTEMPT=0
-  if HERDR_PRESENTATION_FOCUS_LOCK=$(fm_backend_herdr_presentation_session_lock_path "$HERDR_PRESENTATION_SESSION"); then
-    while [ "$HERDR_PRESENTATION_FOCUS_LOCK_ATTEMPT" -lt 50 ]; do
-      if fm_lock_try_acquire "$HERDR_PRESENTATION_FOCUS_LOCK"; then
-        HERDR_PRESENTATION_FOCUS_LOCK_HELD=1
-        break
-      fi
-      sleep 0.1
-      HERDR_PRESENTATION_FOCUS_LOCK_ATTEMPT=$((HERDR_PRESENTATION_FOCUS_LOCK_ATTEMPT + 1))
-    done
+HERDR_CLOSE_CONFIRMED=0
+if [ "$BACKEND" = herdr ]; then
+  if fm_backend_source herdr \
+     && declare -F fm_backend_herdr_parse_target >/dev/null 2>&1 \
+     && fm_backend_herdr_parse_target "$T"; then
+    TEARDOWN_HERDR_SESSION=$FM_BACKEND_HERDR_SESSION
+    TEARDOWN_HERDR_PANE=$FM_BACKEND_HERDR_PANE
   fi
-  if [ "$HERDR_PRESENTATION_FOCUS_LOCK_HELD" = 1 ]; then
-    fm_backend_herdr_projection_close_pane_focus_preserving \
-      "$HERDR_PRESENTATION_SESSION" "$HERDR_PRESENTATION_PANE" 2>/dev/null || true
-    HERDR_PRESENTATION_FOCUS_LOCK_HELD=0
-    fm_lock_release "$HERDR_PRESENTATION_FOCUS_LOCK" || true
-  else
-    echo "warning: herdr presentation focus lock unavailable; refusing a concurrent focus-unsafe pane close" >&2
+  if teardown_herdr_close_confirmed; then
+    HERDR_CLOSE_CONFIRMED=1
   fi
 elif [ "$BACKEND" != orca ]; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
 fi
+# Journal retirement follows that ONE confirmation instead of taking a second
+# independent pane read: two reads let a transient ambiguity on the first
+# quarantine the journal forever while the second still proves the pane gone
+# and completes teardown, deleting every record that could ever retire it.
 if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
-  if [ "$(fm_backend_herdr_pane_agent_state "$HERDR_PRESENTATION_SESSION" "$HERDR_PRESENTATION_PANE")" = dead ]; then
+  if [ "$HERDR_CLOSE_CONFIRMED" = 1 ]; then
     rm -f "$HERDR_PRESENTATION_JOURNAL"
   else
     echo "warning: exact herdr task-pane close could not be confirmed for $ID; retaining the presentation journal and attempting no workspace cleanup" >&2
@@ -1198,6 +1313,9 @@ if [ "$HERDR_PRESENTATION_RETIRE_CANDIDATE" = 1 ]; then
 elif [ "$BACKEND" = herdr ] \
      && { [ -e "$HERDR_PRESENTATION_JOURNAL" ] || [ -L "$HERDR_PRESENTATION_JOURNAL" ]; }; then
   echo "warning: herdr presentation journal for $ID remains quarantined; no workspace cleanup was attempted" >&2
+fi
+if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
+  teardown_herdr_report_unclosed_pane
 fi
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
