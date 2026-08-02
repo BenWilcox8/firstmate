@@ -13,6 +13,13 @@ set -u
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-dispatch-profile)
 
+# The minimal system PATH used by the "binary is missing" case below, which must
+# exclude the fakebin stub without also losing the ordinary tools fm-spawn calls.
+# Overridable through the same FM_TEST_BASE_PATH seam the other suites use, so a
+# non-FHS system (NixOS and friends, where /usr/bin holds only env) can supply
+# its own real tool directories instead of failing on absent /bin.
+BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -548,7 +555,7 @@ test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
-    FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" PATH="$FAKEBIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin" \
+    FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" PATH="$FAKEBIN_DIR:$BASE_PATH" \
     "$SPAWN" "$id" "$PROJ_DIR" 2>&1)
   status=$?
   expect_code 1 "$status" "a missing pi-signed executable should refuse the spawn"

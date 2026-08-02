@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--scout]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--scout]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] --secondmate
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -17,6 +17,15 @@
 #   bin/fm-backend.sh's fm_backend_detect, with cmux fallback details in
 #   docs/cmux-backend.md),
 #   then tmux.
+#   --account <name> pins a claude-harness spawn to that exact configured Claude
+#   account, beating the headroom scoring. It is valid only when the resolved
+#   harness is claude and config/claude-accounts.json exists; bin/fm-claude-account.sh
+#   owns the accounts, the scoring, and the standing ceilings, and
+#   docs/configuration.md "Claude accounts" owns the schema. Without the flag, a
+#   claude spawn selects the account with the most headroom; with no accounts
+#   config the whole feature is inert and the launch keeps forwarding firstmate's
+#   own CLAUDE_CONFIG_DIR exactly as before. A selected account is recorded as
+#   account= in the task's meta; an unselected one writes no account= line.
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
 #   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
@@ -99,7 +108,7 @@
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
-#   source of truth; shared --scout/--harness/--model/--effort/--backend applies to every pair.
+#   source of truth; shared --scout/--harness/--model/--effort/--backend/--account applies to every pair.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
 #   and scout batches. The loop lives here, in bash, so callers never hand-write a
 #   multi-task shell loop (the tool shell is zsh, which does not word-split unquoted
@@ -118,7 +127,8 @@
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
 # grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
-# On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> mode=<mode> yolo=<on|off> window=<backend-target> worktree=<path>
+# On success prints: spawned <id> harness=<name> [account=<name>] kind=<ship|scout|secondmate> mode=<mode> yolo=<on|off> window=<backend-target> worktree=<path>
+# account= appears only when multi-account Claude routing selected an account.
 # mode/yolo are resolved per-project from data/projects.md for ship/scout tasks;
 # secondmate spawns record mode=secondmate, yolo=off, home=, and projects=.
 set -eu
@@ -188,10 +198,12 @@ HARNESS_ARG=
 MODEL=
 EFFORT=
 BACKEND_ARG=
+ACCOUNT_ARG=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
+ACCOUNT_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -204,6 +216,7 @@ for a in "$@"; do
       model) MODEL=$a; MODEL_SET=1 ;;
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
+      account) ACCOUNT_ARG=$a; ACCOUNT_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -220,6 +233,8 @@ for a in "$@"; do
     --effort=*) EFFORT=${a#--effort=}; EFFORT_SET=1 ;;
     --backend) want_value=backend ;;
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
+    --account) want_value=account ;;
+    --account=*) ACCOUNT_ARG=${a#--account=}; ACCOUNT_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -228,6 +243,7 @@ done
 [ "$MODEL_SET" -eq 0 ] || [ -n "$MODEL" ] || { echo "error: --model requires a non-empty value" >&2; exit 1; }
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
+[ "$ACCOUNT_SET" -eq 0 ] || [ -n "$ACCOUNT_ARG" ] || { echo "error: --account requires a non-empty value" >&2; exit 1; }
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -329,6 +345,7 @@ spawn_abort_cleanup() {
             echo "tasktmp=${TASK_TMP:-}"
             echo "model=${MODEL:-default}"
             echo "effort=${EFFORT:-default}"
+            [ -z "${ACCOUNT_NAME:-}" ] || echo "account=$ACCOUNT_NAME"
             echo "backend=orca"
             echo "orca_worktree_id=$ORCA_WORKTREE_ID"
             [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
@@ -394,6 +411,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ -z "$MODEL" ] || shared_args+=(--model "$MODEL")
   [ -z "$EFFORT" ] || shared_args+=(--effort "$EFFORT")
   [ -z "$BACKEND_ARG" ] || shared_args+=(--backend "$BACKEND_ARG")
+  [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -540,6 +558,43 @@ esac
 # retain the literal name in the launch command and task metadata.
 if [ "$HARNESS" = pi-signed ] && ! command -v pi-signed >/dev/null 2>&1; then
   echo "error: pi-signed executable not found on PATH; install the signed Pi wrapper or select a different verified harness" >&2
+  exit 1
+fi
+
+# Multi-account Claude routing. bin/fm-claude-account.sh owns which accounts
+# exist, how their headroom is scored, and which one wins; this script only
+# consumes the answer. Resolving BEFORE any endpoint, worktree, or metadata is
+# created is deliberate: malformed account configuration must abort the spawn
+# while nothing has been created yet, never mid-launch. Exit status 3 means no
+# account config exists at all, which keeps the single-store path below exactly
+# as it behaved before this feature existed.
+ACCOUNT_NAME=
+ACCOUNT_DIR=
+if [ "$HARNESS" = claude ]; then
+  account_args=(select)
+  [ "$ACCOUNT_SET" -eq 0 ] || account_args+=(--account "$ACCOUNT_ARG")
+  if account_line=$("$SCRIPT_DIR/fm-claude-account.sh" "${account_args[@]}"); then
+    account_rc=0
+  else
+    account_rc=$?
+  fi
+  case "$account_rc" in
+    0)
+      ACCOUNT_NAME=${account_line%%$'\t'*}
+      ACCOUNT_DIR=${account_line#*$'\t'}
+      if [ -z "$ACCOUNT_NAME" ] || [ -z "$ACCOUNT_DIR" ] || [ "$ACCOUNT_NAME" = "$ACCOUNT_DIR" ]; then
+        echo "error: claude account selection returned an unusable result: $account_line" >&2
+        exit 1
+      fi
+      ;;
+    3) ;;  # no accounts configured: stay on the pre-existing single-store path
+    *)
+      echo "error: refusing to spawn $HARNESS without a resolved Claude account" >&2
+      exit 1
+      ;;
+  esac
+elif [ "$ACCOUNT_SET" -eq 1 ]; then
+  echo "error: --account applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
   exit 1
 fi
 
@@ -1614,6 +1669,9 @@ META_WINDOW=$T
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  # account= is written only when multi-account Claude routing actually chose one,
+  # so a home with no accounts config keeps byte-identical metadata.
+  [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
@@ -1665,11 +1723,20 @@ LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
 # inherit firstmate's current environment, so a bare `claude` in the pane falls
 # back to the default ~/.claude store even when firstmate itself runs under a
 # different CLAUDE_CONFIG_DIR (for example a work-vs-personal subscription split).
-# Forward firstmate's own resolved store onto the claude launch so the crewmate
-# uses the same credential/config firstmate is authenticated with. Only when set;
-# an unset value is the single-store default and needs no prefix.
-if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
-  LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+# Precedence: the account chosen above wins, because it was selected for this
+# exact task's headroom; otherwise forward firstmate's own resolved store so the
+# crewmate uses the same credential/config firstmate is authenticated with. With
+# neither, an unset value is the single-store default and needs no prefix.
+CLAUDE_LAUNCH_CONFIG_DIR=
+if [ "$HARNESS" = claude ]; then
+  if [ -n "$ACCOUNT_DIR" ]; then
+    CLAUDE_LAUNCH_CONFIG_DIR=$ACCOUNT_DIR
+  else
+    CLAUDE_LAUNCH_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-}
+  fi
+fi
+if [ -n "$CLAUDE_LAUNCH_CONFIG_DIR" ]; then
+  LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_LAUNCH_CONFIG_DIR") $LAUNCH"
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
@@ -1722,4 +1789,4 @@ if [ "$KIND" = secondmate ]; then
   fi
 fi
 
-echo "spawned $ID harness=$HARNESS kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"
+echo "spawned $ID harness=$HARNESS${ACCOUNT_NAME:+ account=$ACCOUNT_NAME} kind=$KIND mode=$MODE yolo=$YOLO window=$META_WINDOW worktree=$WT"
