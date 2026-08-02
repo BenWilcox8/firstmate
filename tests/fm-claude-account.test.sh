@@ -454,6 +454,30 @@ test_spawn_account_override_beats_scoring() {
   pass "an explicit --account beats headroom scoring at spawn time"
 }
 
+test_batch_spawn_forwards_the_shared_account() {
+  local rec first second out status launch
+  first=account-batch-a3a
+  second=account-batch-a3b
+  rec=$(make_spawn_case spawn-batch "$first")
+  read_spawn_case "$rec"
+  mkdir -p "$HOME_DIR/data/$second"
+  printf 'brief for %s\n' "$second" > "$HOME_DIR/data/$second/brief.md"
+  write_accounts_config "$HOME_DIR/config" "spent=$DIR_SPENT" "fresh=$DIR_FRESH"
+  write_quota_fixture "$FIXTURES" "$DIR_SPENT" 20 20
+  write_quota_fixture "$FIXTURES" "$DIR_FRESH" 100 100
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$FIXTURES" \
+    "$first=$PROJ_DIR" "$second=$PROJ_DIR" --account spent)
+  status=$?
+  expect_code 0 "$status" "a batch spawn with a shared account should succeed"
+  launch=$(cat "$LAUNCH_LOG")
+  [ "$(grep -c "CLAUDE_CONFIG_DIR='$DIR_SPENT' " <<<"$launch")" -eq 2 ] \
+    || fail "the shared account did not reach both batch launches: $launch"
+  assert_grep "account=spent" "$HOME_DIR/state/$first.meta" "the first batch task lost the shared account"
+  assert_grep "account=spent" "$HOME_DIR/state/$second.meta" "the second batch task lost the shared account"
+  pass "a batch spawn forwards the shared account to every pair"
+}
+
 test_spawn_account_beats_the_inherited_config_dir() {
   local rec id status launch
   id=account-precedence-a4
@@ -543,6 +567,7 @@ test_missing_config_directory_is_a_validation_error
 test_spawn_without_accounts_config_is_unchanged
 test_spawn_selects_the_fresher_account
 test_spawn_account_override_beats_scoring
+test_batch_spawn_forwards_the_shared_account
 test_spawn_account_beats_the_inherited_config_dir
 test_spawn_aborts_on_malformed_accounts_config
 test_spawn_rejects_account_flag_for_a_non_claude_harness
