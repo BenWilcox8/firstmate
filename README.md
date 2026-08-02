@@ -84,6 +84,12 @@ cd firstmate
 
 Then launch one of the co-primary harnesses; AGENTS.md takes over from there:
 
+**Pi**
+
+```sh
+pi
+```
+
 **Claude Code**
 
 ```sh
@@ -165,7 +171,8 @@ Full architecture - the supervision engine, worktree isolation, secondmates, dis
 ## Built-in skills
 
 Firstmate ships these user-invocable built-in skills.
-Claude and grok use the slash form shown here; codex uses the same names with `$`, such as `$afk`.
+Invocation syntax varies by harness: claude and grok use the slash form shown here (`/afk`); codex uses the same names with `$` (`$afk`); pi and opencode have no separate slash form, so invoke the skill by name in natural language.
+The `harness-adapters` skill is the authoritative per-harness invocation reference.
 
 | Skill              | What it does                                                                                                                                  |
 | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |

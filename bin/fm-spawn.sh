@@ -1,14 +1,22 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--scout]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--scout]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] --secondmate
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
 #   axes chosen by firstmate at intake. They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed.
+#   --session-name <text> sets a purpose-relevant display name on the spawned
+#   agent's session, for harnesses whose CLI supports it. Omitted, a crewmate or
+#   scout defaults to the task id (already a purpose slug) and a secondmate to
+#   "Secondmate, <id>". Only a harness whose session-name support was empirically
+#   verified receives the flag (claude's --name today; codex/opencode/pi/grok have
+#   no verified equivalent and launch unchanged), and the applied name is recorded
+#   as session_name= in meta only when a flag was actually passed. Batch id=repo
+#   dispatch refuses --session-name; each pair uses its per-kind default instead.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -199,11 +207,13 @@ MODEL=
 EFFORT=
 BACKEND_ARG=
 ACCOUNT_ARG=
+SESSION_NAME=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
 BACKEND_SET=0
 ACCOUNT_SET=0
+SESSION_NAME_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -217,6 +227,7 @@ for a in "$@"; do
       effort) EFFORT=$a; EFFORT_SET=1 ;;
       backend) BACKEND_ARG=$a; BACKEND_SET=1 ;;
       account) ACCOUNT_ARG=$a; ACCOUNT_SET=1 ;;
+      session-name) SESSION_NAME=$a; SESSION_NAME_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -235,6 +246,8 @@ for a in "$@"; do
     --backend=*) BACKEND_ARG=${a#--backend=}; BACKEND_SET=1 ;;
     --account) want_value=account ;;
     --account=*) ACCOUNT_ARG=${a#--account=}; ACCOUNT_SET=1 ;;
+    --session-name) want_value='session-name' ;;
+    --session-name=*) SESSION_NAME=${a#--session-name=}; SESSION_NAME_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -244,6 +257,7 @@ done
 [ "$EFFORT_SET" -eq 0 ] || [ -n "$EFFORT" ] || { echo "error: --effort requires a non-empty value" >&2; exit 1; }
 [ "$BACKEND_SET" -eq 0 ] || [ -n "$BACKEND_ARG" ] || { echo "error: --backend requires a non-empty value" >&2; exit 1; }
 [ "$ACCOUNT_SET" -eq 0 ] || [ -n "$ACCOUNT_ARG" ] || { echo "error: --account requires a non-empty value" >&2; exit 1; }
+[ "$SESSION_NAME_SET" -eq 0 ] || [ -n "$SESSION_NAME" ] || { echo "error: --session-name requires a non-empty value" >&2; exit 1; }
 case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
@@ -405,6 +419,13 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
     echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
     exit 1
   fi
+  # --session-name is refused for batch dispatch: a single shared name across every
+  # pair would be wrong (each task deserves its own purpose-relevant name), so each
+  # pair falls through to its per-kind default (the task id) instead.
+  if [ "$SESSION_NAME_SET" -eq 1 ]; then
+    echo "error: --session-name is not supported for batch id=repo dispatch; each pair uses its task id as the session name. Spawn a per-name task individually." >&2
+    exit 1
+  fi
   rc=0
   shared_args=()
   [ -z "$HARNESS_ARG" ] || shared_args+=(--harness "$HARNESS_ARG")
@@ -480,7 +501,7 @@ launch_template() {
     # does NOT suppress the interactive ghost text (verified empirically), so the env
     # var is the correct control. The dim-aware composer reader in fm-tmux-lib.sh is
     # the defense-in-depth backstop for any pane this flag cannot reach.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG____NAMEFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
@@ -660,6 +681,29 @@ model_flag_for_harness() {
   case "$harness" in
     claude|codex|opencode|pi|pi-signed|grok|kimi)
       printf -- '--model %s ' "$(shell_quote "$model")"
+      ;;
+  esac
+}
+
+# Session display-name flag. Emits a launch flag ONLY for a harness whose
+# session-name support was empirically verified with fm-spawn's interactive
+# launch template (positional prompt + flags); an unverified harness gets nothing
+# so its launch stays byte-identical and no unknown flag can break it. The name is
+# shell-quoted, so a value with spaces or single quotes cannot break out of the
+# command line. Verified 2026-07-10:
+#   claude 2.1.201: `claude --dangerously-skip-permissions --name '<text>' "<prompt>"`
+#   set the session display name (pane title `✳ <text>`, composer divider `<text>`)
+#   and still processed the positional prompt.
+# grok: claude-compatible CLI, but not installed on the verifying box, so its
+#   --name equivalent could not be verified end to end; deliberately omitted rather
+#   than guessed (never pass an unknown flag). codex/opencode/pi have no verified
+#   session-name flag, so they are omitted too.
+name_flag_for_harness() {
+  local harness=$1 name=$2
+  [ -n "$name" ] || return 0
+  case "$harness" in
+    claude)
+      printf -- '--name %s ' "$(shell_quote "$name")"
       ;;
   esac
 }
@@ -1065,6 +1109,20 @@ case "$BACKEND" in
       HERDR_LABEL_HOME=$PROJ_ABS
       HERDR_LAUNCHER_RELATIONSHIP=other-home
     fi
+    # Two placements are possible here, and they are orthogonal.
+    #
+    # 1. The optional disposable presentation projection (config/herdr-presentation-spaces,
+    #    docs/herdr-backend.md "Optional disposable single-task presentation spaces")
+    #    puts a single task in its own throwaway workspace beside the home's own.
+    #    It owns its whole placement, so it never consults the slot ledger.
+    # 2. The ordinary flat placement below. Pane placement there (tab vs split,
+    #    overflow, slot fill order) is owned by agent-axi's durable slot ledger,
+    #    invoked through the create_task delegation in bin/backends/herdr.sh
+    #    (spec agent-axi/v1; docs/herdr-backend.md "Delegation architecture").
+    #    fm-spawn only ensures the home's workspace and asks create_task for the
+    #    task's pane; the old config/herdr-layout split branch was deleted in
+    #    phase 1. Without agent-axi, create_task falls back to one plain tab per
+    #    task (docs/herdr-backend.md "Native fallback contract").
     HERDR_PRESENTATION_JOURNAL=$(fm_backend_herdr_projection_journal_path "$STATE" "$ID")
     HERDR_PROJECTED=0
     if [ "$KIND" != secondmate ] && [ -f "$CONFIG/herdr-presentation-spaces" ]; then
@@ -1655,6 +1713,27 @@ $("$FM_ROOT/bin/fm-project-mode.sh" "$PROJ_NAME")
 EOF
 fi
 
+# Session display name (AGENTS.md task lifecycle / spawn): a purpose-relevant name
+# on the spawned agent's session where the harness supports it. Explicit
+# --session-name wins; otherwise crewmate/scout default to the task id (already a
+# purpose slug) and a secondmate to "Secondmate, <id>" (the captain's naming
+# convention). NAMEFLAG is non-empty only for a harness with verified support
+# (name_flag_for_harness) AND a template-based launch carrying the __NAMEFLAG__
+# placeholder (a raw launch command has neither), so session_name= lands in meta
+# ONLY when a flag is actually passed to the launch - an absent session_name=
+# means the harness got no name flag and launched unchanged.
+if [ "$SESSION_NAME_SET" -eq 0 ]; then
+  if [ "$KIND" = secondmate ]; then
+    SESSION_NAME="Secondmate, $ID"
+  else
+    SESSION_NAME=$ID
+  fi
+fi
+case "$LAUNCH" in
+  *__NAMEFLAG__*) NAMEFLAG=$(name_flag_for_harness "$HARNESS" "$SESSION_NAME") ;;
+  *) NAMEFLAG= ;;
+esac
+
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 {
@@ -1672,6 +1751,7 @@ META_WINDOW=$T
   # account= is written only when multi-account Claude routing actually chose one,
   # so a home with no accounts config keeps byte-identical metadata.
   [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
+  [ -z "$NAMEFLAG" ] || echo "session_name=$SESSION_NAME"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   # backend= is written only for a non-default (non-tmux) backend, so the
   # default path's meta stays byte-identical (absent backend= means tmux;
@@ -1711,8 +1791,11 @@ sq_piwatch=$(shell_quote "$PROJ_ABS/.pi/extensions/fm-primary-pi-watch.ts")
 sq_opinput=$(shell_quote "$FM_ROOT/bin/fm-operational-input.sh")
 MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
+# NAMEFLAG was resolved above (before the meta block) so meta can record
+# session_name= only when a name flag is actually passed.
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
+LAUNCH=${LAUNCH//__NAMEFLAG__/"$NAMEFLAG"}
 LAUNCH=${LAUNCH//__BRIEF__/$sq_brief}
 LAUNCH=${LAUNCH//__TURNEND__/$sq_turnend}
 LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}

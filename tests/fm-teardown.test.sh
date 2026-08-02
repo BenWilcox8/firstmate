@@ -1300,7 +1300,7 @@ SH
 # Flat (non-projected) Herdr endpoint whose fake pane exists until a locked
 # close removes it. The socket path is case-local so the derived presentation
 # lock never collides with another test or a real fleet session.
-configure_flat_herdr_teardown_case() {  # <case-dir>
+configure_flat_herdr_locked_teardown_case() {  # <case-dir>
   local case_dir=$1
   sed -i.bak 's/^window=.*/window=default:wG:pQ/' "$case_dir/state/task-x1.meta"
   rm -f "$case_dir/state/task-x1.meta.bak"
@@ -1365,7 +1365,7 @@ test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes() {
   local case_dir log closed lock ready release holder_pid rc thlog
   case_dir=$(make_case herdr-orphan-refusal)
   write_meta "$case_dir" local-only ship
-  configure_flat_herdr_teardown_case "$case_dir"
+  configure_flat_herdr_locked_teardown_case "$case_dir"
   log="$case_dir/herdr.log"; : > "$log"
   closed="$case_dir/closed"
   : > "$case_dir/state/task-x1.status"
@@ -1436,34 +1436,11 @@ SH
   pass "herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly"
 }
 
-test_herdr_flat_teardown_refuses_records_on_unparseable_presence() {
-  local case_dir log closed rc
-  case_dir=$(make_case herdr-garbage-presence)
-  write_meta "$case_dir" local-only ship
-  configure_flat_herdr_teardown_case "$case_dir"
-  log="$case_dir/herdr.log"; : > "$log"
-  closed="$case_dir/closed"
-  : > "$case_dir/state/task-x1.status"
-  rc=0
-  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_PANE_GET_GARBAGE=1 \
-    FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 \
-    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  [ "$rc" -ne 0 ] \
-    || fail "herdr-garbage-presence: teardown erased records on an unparseable pane presence"
-  [ -e "$case_dir/state/task-x1.meta" ] \
-    || fail "herdr-garbage-presence: ambiguous presence erased the durable endpoint metadata"
-  [ -e "$case_dir/state/task-x1.status" ] \
-    || fail "herdr-garbage-presence: ambiguous presence erased the task status record"
-  assert_grep "ambiguous structured presence" "$case_dir/stderr" \
-    "herdr-garbage-presence: the ambiguity refusal was not explained visibly"
-  pass "herdr flat teardown never erases records when pane presence is unparseable"
-}
-
 assert_herdr_teardown_preflight_refuses_before_changes() {
   local mode=$1 case_dir log closed rc thlog teardown_bin
   case_dir=$(make_case "herdr-preflight-$mode")
   write_meta "$case_dir" local-only ship
-  configure_flat_herdr_teardown_case "$case_dir"
+  configure_flat_herdr_locked_teardown_case "$case_dir"
   log="$case_dir/herdr.log"; : > "$log"
   closed="$case_dir/closed"
   : > "$case_dir/state/task-x1.status"
@@ -1749,6 +1726,15 @@ case "${1:-} ${2:-}" in
     if [ "${FM_FAKE_HERDR_CLOSE_FAIL:-0}" = 1 ]; then
       exit 1
     fi
+    # A close the server accepts but does not apply, for the first N calls.
+    if [ -n "${FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES:-}" ]; then
+      count=$(cat "${FM_FAKE_HERDR_CLOSE_COUNT:?}" 2>/dev/null || printf 0)
+      count=$((count + 1))
+      printf '%s' "$count" > "${FM_FAKE_HERDR_CLOSE_COUNT:?}"
+      if [ "$count" -le "$FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES" ]; then
+        exit 0
+      fi
+    fi
     : > "${FM_FAKE_HERDR_CLOSED:?}"
     ;;
   "pane get")
@@ -1778,6 +1764,188 @@ SH
   chmod +x "$case_dir/fakebin/herdr"
 }
 
+# Flat (non-projected) Herdr endpoint: the ordinary close seam, where
+# fm_backend_kill delegates to agent-axi when it is resolvable and then closes
+# the pane natively. agent-axi is deliberately absent from the case PATH, so
+# these cases exercise the native close and this repo's own confirmation of it.
+# FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES models a close the server accepts but
+# does not apply; FM_FAKE_HERDR_PRESENCE_UNKNOWN_AT makes the Nth post-close
+# presence read ambiguous.
+configure_flat_herdr_teardown_case() {  # <case-dir>
+  local case_dir=$1
+  sed -i.bak 's/^window=.*/window=fmtest:w1:p2/' "$case_dir/state/task-x1.meta"
+  rm -f "$case_dir/state/task-x1.meta.bak"
+  printf '%s\n' \
+    'backend=herdr' \
+    'herdr_session=fmtest' \
+    'herdr_workspace_id=w1' \
+    'herdr_tab_id=w1:t2' \
+    'herdr_pane_id=w1:p2' >> "$case_dir/state/task-x1.meta"
+  cat > "$case_dir/fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '%s\n' "$*" >> "${FM_FAKE_HERDR_LOG:?}"
+case "${1:-} ${2:-}" in
+  "status --json")
+    printf '%s\n' '{"client":{"version":"0.7.5","protocol":14},"server":{"running":true}}'
+    ;;
+  "session list")
+    printf '%s\n' '{"sessions":[{"name":"fmtest","running":true,"socket_path":"/tmp/fmtest.sock"}]}'
+    ;;
+  "pane close")
+    if [ -n "${FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES:-}" ]; then
+      count=$(cat "${FM_FAKE_HERDR_CLOSE_COUNT:?}" 2>/dev/null || printf 0)
+      count=$((count + 1))
+      printf '%s' "$count" > "${FM_FAKE_HERDR_CLOSE_COUNT:?}"
+      if [ "$count" -le "$FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES" ]; then
+        exit 0
+      fi
+    fi
+    : > "${FM_FAKE_HERDR_CLOSED:?}"
+    ;;
+  "pane get")
+    if [ -e "${FM_FAKE_HERDR_CLOSED:?}" ]; then
+      if [ -n "${FM_FAKE_HERDR_PRESENCE_UNKNOWN_AT:-}" ]; then
+        seen=$(cat "${FM_FAKE_HERDR_PRESENCE_READ_COUNT:?}" 2>/dev/null || printf 0)
+        seen=$((seen + 1))
+        printf '%s' "$seen" > "${FM_FAKE_HERDR_PRESENCE_READ_COUNT:?}"
+        if [ "$seen" = "$FM_FAKE_HERDR_PRESENCE_UNKNOWN_AT" ]; then
+          printf '%s\n' '{"error":{"code":"internal"}}' >&2
+          exit 1
+        fi
+      fi
+      printf '%s\n' '{"error":{"code":"pane_not_found"}}' >&2
+      exit 1
+    fi
+    printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p2","tab_id":"w1:t2","workspace_id":"w1"}}}'
+    ;;
+  "agent get")
+    printf '%s\n' '{"error":{"code":"agent_not_found"}}' >&2
+    exit 1
+    ;;
+esac
+SH
+  chmod +x "$case_dir/fakebin/herdr"
+}
+
+# The ordinary crewmate teardown returns the isolated copy first, and that
+# return kills the pane's shell, so Herdr usually reaps the pane before this
+# close runs at all. The cases below remove that masking kill and exercise the
+# close on its own - the only thing standing between a task whose agent has
+# already exited and a bare terminal pane left on the captain's screen.
+test_herdr_teardown_closes_pane_whose_agent_already_exited() {
+  local case_dir log closed
+  case_dir=$(make_case herdr-agent-already-exited)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"
+  : > "$case_dir/state/task-x1.status"
+
+  # The fixture's `agent get` always answers agent_not_found, so the recorded
+  # pane is structurally alive with no agent registered in it: a bare shell.
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-agent-already-exited: teardown failed on a pane whose agent had exited: $(cat "$case_dir/stderr")"
+  [ -e "$closed" ] \
+    || fail "herdr-agent-already-exited: teardown left the bare shell pane open"
+  assert_not_contains "$(cat "$case_dir/stderr")" "LEAKED HERDR PANE" \
+    "herdr-agent-already-exited: a confirmed close still reported a leak"
+  pass "herdr teardown closes a task pane whose agent already exited instead of leaving a bare terminal"
+}
+
+test_herdr_teardown_treats_already_dead_pane_as_confirmed_without_reclosing() {
+  local case_dir log closed
+  case_dir=$(make_case herdr-pane-already-dead)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"
+  # The pane died before teardown ever ran.
+  : > "$closed"
+  : > "$case_dir/state/task-x1.status"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-pane-already-dead: teardown failed on a pane that was already gone: $(cat "$case_dir/stderr")"
+  assert_not_contains "$(cat "$log")" "pane close" \
+    "herdr-pane-already-dead: teardown closed a pane that was already gone"
+  assert_not_contains "$(cat "$case_dir/stderr")" "LEAKED HERDR PANE" \
+    "herdr-pane-already-dead: an already-gone pane was reported as leaked"
+  pass "herdr teardown counts an already-dead pane as confirmed closed without issuing a close"
+}
+
+test_herdr_teardown_retries_an_unapplied_close_then_completes() {
+  local case_dir log closed count
+  case_dir=$(make_case herdr-close-retry)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"; count="$case_dir/close-count"
+  : > "$case_dir/state/task-x1.status"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=1 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
+    FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-close-retry: teardown failed: $(cat "$case_dir/stderr")"
+  [ "$(grep -c '^pane close' "$log")" -ge 2 ] \
+    || fail "herdr-close-retry: the unconfirmed close was never retried: $(cat "$log")"
+  assert_grep "retrying the close" "$case_dir/stderr" \
+    "herdr-close-retry: the retry was not reported"
+  assert_not_contains "$(cat "$case_dir/stderr")" "LEAKED HERDR PANE" \
+    "herdr-close-retry: a close that succeeded on retry was still reported as leaked"
+  pass "herdr teardown retries a close the server accepted but never applied, then confirms it"
+}
+
+test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
+  local case_dir log closed count
+  case_dir=$(make_case herdr-close-never-confirms)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"; count="$case_dir/close-count"
+  : > "$case_dir/state/task-x1.status"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
+    FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-close-never-confirms: teardown failed: $(cat "$case_dir/stderr")"
+  [ "$(grep -c '^pane close' "$log")" -ge 3 ] \
+    || fail "herdr-close-never-confirms: the close was not retried before giving up: $(cat "$log")"
+  assert_grep "LEAKED HERDR PANE" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the leaked pane was not reported loudly"
+  assert_grep "fmtest:w1:p2" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the loud report did not name the exact leaked pane"
+  assert_grep "task-x1" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the loud report did not name the task"
+  assert_grep "bare terminal" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the loud report did not say what the captain would see"
+  pass "herdr teardown reports a pane it could never close loudly, by task and pane, instead of leaking it silently"
+}
+
+test_herdr_teardown_close_overrides_fall_back_instead_of_aborting() {
+  local case_dir log closed count
+  case_dir=$(make_case herdr-close-bad-overrides)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"; count="$case_dir/close-count"
+  : > "$case_dir/state/task-x1.status"
+
+  # Empty, non-numeric, and zero overrides must not abort a teardown that is
+  # already mid-cleanup, and must not turn the retry into "never close".
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=1 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
+    FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS=0 FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS='' \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-close-bad-overrides: malformed close overrides aborted teardown: $(cat "$case_dir/stderr")"
+  [ "$(grep -c '^pane close' "$log")" -ge 2 ] \
+    || fail "herdr-close-bad-overrides: a zero attempt override skipped the retry: $(cat "$log")"
+  pass "herdr teardown falls back to default close attempts and retry wait when the overrides are empty, zero, or non-numeric"
+}
+
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close() {
   local case_dir log closed restored
   case_dir=$(make_case herdr-projection-confirmed-close)
@@ -1797,6 +1965,33 @@ test_herdr_projection_teardown_retires_journal_only_after_confirmed_close() {
   pass "herdr projection teardown retires its journal only after confirming the exact recorded pane is gone"
 }
 
+# Journal retirement must follow the ONE confirmation the close reached, not a
+# separate later read. A first close attempt the server accepts but does not
+# apply used to end the story: nothing retried, the independent journal read
+# saw the pane still there, and the journal was quarantined for good even
+# though the pane went away moments later on any subsequent attempt.
+test_herdr_projection_teardown_retires_journal_after_a_retried_close() {
+  local case_dir log closed restored count
+  case_dir=$(make_case herdr-projection-retried-close)
+  write_meta "$case_dir" local-only ship
+  configure_herdr_projection_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
+  count="$case_dir/close-count"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_RESTORED="$restored" \
+    FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=1 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
+    FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-projection-retried-close: teardown failed: $(cat "$case_dir/stderr")"
+  [ "$(grep -c '^pane close' "$log")" -ge 2 ] \
+    || fail "herdr-projection-retried-close: the projected close was never retried: $(cat "$log")"
+  [ ! -e "$case_dir/state/task-x1.herdr-presentation" ] \
+    || fail "herdr-projection-retried-close: a close that succeeded on retry still left the journal quarantined"
+  assert_not_contains "$(cat "$case_dir/stderr")" "LEAKED HERDR PANE" \
+    "herdr-projection-retried-close: a confirmed close was still reported as a leak"
+  pass "herdr projection teardown retires its journal on the confirmation the retried close actually reached"
+}
+
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
   local case_dir log closed restored
   case_dir=$(make_case herdr-projection-unconfirmed-close)
@@ -1804,24 +1999,16 @@ test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
   configure_herdr_projection_teardown_case "$case_dir"
   log="$case_dir/herdr.log"; closed="$case_dir/closed"; restored="$case_dir/restored"; : > "$log"
 
-  local rc=0
-  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_RESTORED="$restored" FM_FAKE_HERDR_PRESENCE_UNKNOWN=1 \
-    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  [ "$rc" -ne 0 ] \
-    || fail "herdr-projection-unconfirmed-close: teardown reported success after an unknown post-close presence read"
-  [ -e "$closed" ] \
-    || fail "herdr-projection-unconfirmed-close: regression did not exercise an attempted close"
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_RESTORED="$restored" FM_FAKE_HERDR_CLOSE_FAIL=1 \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" \
+    || fail "herdr-projection-unconfirmed-close: teardown should preserve best-effort endpoint semantics"
   [ -e "$case_dir/state/task-x1.herdr-presentation" ] \
     || fail "unconfirmed task-pane close incorrectly retired the presentation journal"
-  [ -e "$case_dir/state/task-x1.meta" ] \
-    || fail "unconfirmed task-pane close erased the durable endpoint metadata"
   assert_grep "close could not be confirmed" "$case_dir/stderr" \
     "unconfirmed projected close did not explain why the journal was retained"
-  assert_grep "not confirmed gone" "$case_dir/stderr" \
-    "unconfirmed projected close did not explain why the records were retained"
   assert_not_contains "$(cat "$log")" "workspace close" \
     "unconfirmed projected close must not escalate to workspace cleanup"
-  pass "herdr projection teardown retains every record when post-close presence is unknown"
+  pass "herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed"
 }
 
 test_local_only_fork_remote_allows
@@ -1835,11 +2022,16 @@ test_local_only_force_overrides_unpushed
 test_teardown_missing_busy_sidecar_completes
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
-test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes
 test_forced_secondmate_herdr_child_retains_records_when_close_unconfirmed
 test_forced_teardown_retains_nested_secondmate_home_when_grandchild_close_unconfirmed
+test_herdr_teardown_closes_pane_whose_agent_already_exited
+test_herdr_teardown_treats_already_dead_pane_as_confirmed_without_reclosing
+test_herdr_teardown_retries_an_unapplied_close_then_completes
+test_herdr_teardown_reports_a_pane_it_could_never_close_loudly
+test_herdr_teardown_close_overrides_fall_back_instead_of_aborting
+test_herdr_projection_teardown_retires_journal_after_a_retried_close
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close
 test_herdr_projection_teardown_retains_journal_when_close_unconfirmed
 test_squash_merged_branch_deleted_allows

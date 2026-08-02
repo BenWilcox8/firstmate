@@ -18,7 +18,7 @@
 # standalone with unchanged default behavior - other flows (fm-bootstrap.sh
 # install <tools> after consent, /updatefirstmate, the afk daemon, existing
 # tests) still call them directly. The one seam this script needed -
-# bootstrap running its detect-only diagnostics without its five mutating
+# bootstrap running its detect-only diagnostics without its six mutating
 # sweeps - is an opt-in FM_BOOTSTRAP_DETECT_ONLY=1 flag on fm-bootstrap.sh
 # itself (default unset/0 = unchanged behavior), not a fork.
 #
@@ -29,10 +29,10 @@
 #                       mutating step runs.
 #   2. bootstrap      - home-local stale Herdr projection cleanup runs only
 #                       when this session actually holds the lock. Detect-only
-#                       diagnostics always run. Bootstrap's five MUTATING sweeps
+#                       diagnostics always run. Bootstrap's six MUTATING sweeps
 #                       (legacy PR-check migration, secondmate fast-forward,
-#                       secondmate liveness, X-mode artifact writes, fleet sync)
-#                       also run only when locked.
+#                       secondmate liveness, herdr layout repair, X-mode
+#                       artifact writes, fleet sync) also run only when locked.
 #   3. wake-drain     - mutates the durable wake queue, so it also only runs
 #                       when locked.
 #   4. context digest - data/projects.md, data/secondmates.md, data/captain.md,
@@ -40,8 +40,9 @@
 #                       always safe, always runs.
 #   5. fleet digest   - a compact data/backlog.md identity/metadata listing,
 #                       every state/*.meta, a bounded state/*.status tail,
-#                       state/.afk, and a cheap per-task endpoint-liveness read:
-#                       read-only, always runs.
+#                       state/.afk, a cheap per-task endpoint-liveness read, and
+#                       (herdr-backed homes with agent-axi) the agent-axi slot
+#                       snapshot: read-only, always runs.
 #   6. closing reminder - prints the context-specific watcher next step; this
 #                       script points back to the emitted harness supervision
 #                       block and deliberately never arms the watcher itself.
@@ -65,7 +66,7 @@
 # tasks-axi and quota-axi tool checks, and tasks-axi availability - none of
 # which mutate shared state and all of which are safe to compute without
 # verified lock ownership.
-# Only projection cleanup, the five bootstrap mutating sweeps, and the
+# Only projection cleanup, the six bootstrap mutating sweeps, and the
 # wake-queue drain are skipped.
 # The context and fleet-state digests
 # below are always read-only, so they run unconditionally in both modes.
@@ -105,17 +106,44 @@ PRIMARY_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" 2>/dev/null || printf unknown)
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-public-followup-lib.sh
 . "$SCRIPT_DIR/fm-public-followup-lib.sh"
+# shellcheck source=bin/fm-herdr-layout-lib.sh
+. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
 
-STATUS_TAIL=${FM_SESSION_START_STATUS_TAIL:-5}
-case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=5 ;; esac
+# FM_SESSION_START_VERBOSE=1 restores full-width delimiters, the verbose
+# bootstrap facts (including the full crew-dispatch listing), untruncated
+# backlog titles, and a 5-line status tail.
+# Default (0) is lean: short delimiters, silent bootstrap facts, compact backlog,
+# and a 3-line tail.
+VERBOSE=${FM_SESSION_START_VERBOSE:-0}
+
+if [ -n "${FM_SESSION_START_STATUS_TAIL:-}" ]; then
+  STATUS_TAIL=$FM_SESSION_START_STATUS_TAIL
+  case "$STATUS_TAIL" in ''|*[!0-9]*) STATUS_TAIL=3 ;; esac
+elif [ "$VERBOSE" = "1" ]; then
+  STATUS_TAIL=5
+else
+  STATUS_TAIL=3
+fi
 BACKLOG_LIMIT=${FM_SESSION_START_BACKLOG_LIMIT:-80}
 case "$BACKLOG_LIMIT" in ''|*[!0-9]*|0) BACKLOG_LIMIT=80 ;; esac
 
 RULE='================================================================================'
 SUBRULE='--------------------------------------------------------------------------------'
 
-section() { printf '\n%s\n%s\n%s\n' "$RULE" "$1" "$RULE"; }
-subsection() { printf '\n%s\n%s\n' "$1" "$SUBRULE"; }
+section() {
+  if [ "$VERBOSE" = "1" ]; then
+    printf '\n%s\n%s\n%s\n' "$RULE" "$1" "$RULE"
+  else
+    printf '\n---\n%s\n' "$1"
+  fi
+}
+subsection() {
+  if [ "$VERBOSE" = "1" ]; then
+    printf '\n%s\n%s\n' "$1" "$SUBRULE"
+  else
+    printf '\n%s\n---\n' "$1"
+  fi
+}
 
 # print_file_or_absent <path> <label>: full contents under a labeled
 # subsection, or an explicit ABSENT marker. Absence is semantically
@@ -269,12 +297,14 @@ fi
 
 # --- 2. bootstrap --------------------------------------------------------
 subsection "BOOTSTRAP"
+# Lean by default: bootstrap's informational facts stay silent unless the digest
+# is in verbose mode, when FM_BOOTSTRAP_VERBOSE_FACTS restores the full listing.
 if [ "$READ_ONLY" -eq 1 ]; then
-  BOOT_OUT=$(FM_BOOTSTRAP_DETECT_ONLY=1 "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
+  BOOT_OUT=$(FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_VERBOSE_FACTS="$VERBOSE" "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1)
 else
   BOOT_OUT=$(
     "$SCRIPT_DIR/fm-herdr-session-cleanup.sh" 2>&1 || true
-    "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1
+    FM_BOOTSTRAP_VERBOSE_FACTS="$VERBOSE" "$SCRIPT_DIR/fm-bootstrap.sh" 2>&1
   )
 fi
 if [ -n "$BOOT_OUT" ]; then
@@ -376,6 +406,16 @@ for meta in "$STATE"/*.meta; do
   fi
 done
 [ "$META_FOUND" -eq 1 ] || printf '(none)\n'
+
+# Herdr-backed homes: agent-axi owns the durable slot ledger, so its snapshot is
+# the authoritative live layout view (occupied slots + any husks). A no-op on
+# every other backend or without agent-axi (fm_herdr_layout_snapshot stays
+# silent), and read-only, so it runs in the lock-refused path too.
+HERDR_SNAPSHOT=$(fm_herdr_layout_snapshot 2>/dev/null || true)
+if [ -n "$HERDR_SNAPSHOT" ]; then
+  subsection "Herdr workspace layout (agent-axi snapshot)"
+  printf '%s\n' "$HERDR_SNAPSHOT"
+fi
 
 subsection "Orphan status logs (state/*.status without matching .meta)"
 ORPHAN_STATUS_FOUND=0

@@ -130,9 +130,13 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
-  [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
-  pass "no --model/--effort records defaults and types the claude launch instructions"
+  # With no --session-name, a crewmate defaults its session name to the task id
+  # (AGENTS.md task lifecycle / spawn), so claude receives --name '<id>'; the
+  # brief still goes through the canonical operational-input launch encoder, and
+  # the rest of the launch is unchanged by the absent --model/--effort flags.
+  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  [ "$launch" = "$expected" ] || fail "no-profile claude launch changed or did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  pass "no --model/--effort records defaults, keeps the default --name, and types the claude launch instructions"
 }
 
 test_relative_home_overrides_launch_with_absolute_cross_process_paths() {

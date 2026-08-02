@@ -1670,23 +1670,14 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
   esac
 }
 
-# fm_backend_herdr_tab_is_husk: true (0) only for the two conservative husk
-# states (dead, no-agent) fm_backend_herdr_pane_agent_state can positively
-# confirm; live and unknown both refuse (1), so an inconclusive read never
-# licenses closing anything. Restored-layout recovery depends on this
-# fail-safe-toward-refusal behavior.
-fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
-  case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
-    dead|no-agent) return 0 ;;
-    *) return 1 ;;
-  esac
-}
-
 # fm_backend_herdr_agent_state: recovery-grade state for the same session-start
-# sweep as the tmux classifier. It reuses the husk classifier rather than
-# creating a second Herdr state machine: a structurally gone pane is `missing`,
-# a confirmed agent-less pane is `dead`, a registered agent is `alive`, and an
-# unexpected or failed API read is `unreadable`.
+# sweep as the tmux classifier. It reuses fm_backend_herdr_pane_agent_state
+# rather than creating a second Herdr state machine: a structurally gone pane is
+# `missing`, a confirmed agent-less pane is `dead`, a registered agent is
+# `alive`, and an unexpected or failed API read is `unreadable`.
+# (fm_backend_herdr_tab_is_husk, the old boolean view of that same classifier,
+# was deleted with the bash placement logic agent-axi now owns -
+# docs/herdr-backend.md "Delegation architecture".)
 fm_backend_herdr_agent_state() {  # <target>
   local target=$1
   fm_backend_herdr_parse_target "$target" || { printf 'unreadable'; return 0; }
@@ -1708,51 +1699,115 @@ fm_backend_herdr_agent_alive() {  # <target>
   esac
 }
 
-# fm_backend_herdr_create_task: create the task's tab (one pane) in
-# <container> ("session:workspace_id"). Herdr does NOT enforce label
-# uniqueness itself (verified: two tabs can share a label), so the duplicate
-# check is ours, mirroring tmux's manual check.
+# --- Phase-0 agent-axi delegation (spec agent-axi/v1, slice s6) --------------
 #
-# A same-labeled tab already existing no longer means an automatic refusal:
-# herdr persists and restores its whole session layout (workspaces/tabs/
-# panes) across a server restart, including a reboot, and a restored fm-<id>
-# task tab comes back a HUSK - a dead pane, or (today, and unconditionally
-# once a future `resume_agents_on_restore = false` config ships) a plain
-# agent-less shell sitting in the saved cwd, never the crewmate that used to
-# be there. Before this fix, every fleet respawn after such a restart needed
-# the operator to manually close each husk pane first before firstmate could
-# spawn into it again. fm_backend_herdr_tab_is_husk classifies the existing
-# tab's pane conservatively (dead or no-agent only; anything live or
-# ambiguous refuses exactly as before) and, when it is a confirmed husk,
-# this function CLOSES AND REPLACES it instead of refusing.
+# When an agent-axi executable is resolvable, pane CREATE (fm_backend_herdr_create_task)
+# and pane KILL (fm_backend_herdr_kill) delegate the pane lifecycle to it:
+# agent-axi owns the durable per-home slot ledger and drives herdr's atomic
+# `agent start` / pane close, so occupancy is counted by live agent rather than
+# re-derived from label geometry. This is a SHIM only - the returned target
+# string ("<session>:<pane_id>"), the "<tab_id> <pane_id>" create echo, the
+# `fm-<id>` label, and every meta field stay byte-identical, so fm-spawn,
+# fm-teardown, the watcher, crew-state, and every existing test are unaffected.
+# When agent-axi is NOT resolvable the two functions fall back, byte-identically,
+# to the native implementations below.
 #
-# Ordering is deliberate: the REPLACEMENT tab is created FIRST, and the husk
-# is closed only AFTER that succeeds - never the reverse. Closing a
-# workspace's LAST remaining tab deletes the whole workspace on real herdr
-# (docs/herdr-backend.md "Default workspace lifecycle"), and a session-restore husk
-# can legitimately be that workspace's only tab (e.g. its own seeded default
-# tab was already pruned, long before the restart, by a prior real task tab
-# existing alongside it). Herdr's lack of label-uniqueness enforcement is
-# exactly what makes this safe: the new and the husk tab can briefly share
-# the same label with no error, so the workspace never drops to zero tabs.
-# This mirrors fm_backend_herdr_workspace_prune_seeded_default_tab's own
-# create-before-close safety argument.
+# agent-axi resolves the target workspace from the invoking home exactly as this
+# adapter does (FM_HOME > FM_ROOT_OVERRIDE > FM_ROOT); the shim never rewrites
+# FM_HOME, so the home fm-spawn/fm-teardown invoked under is passed through
+# unchanged and each home's spawn lands in - and its teardown frees - that home's
+# own ledger.
 #
-# --no-focus: verified tab create never focuses by default regardless of
-# sibling tabs, so this is defense in depth rather than a behavior change.
+# FM_BACKEND_HERDR_AXI_BIN: the executable name/path to delegate to. Unset
+# defaults to "agent-axi" (resolved on PATH); an explicit path pins a specific
+# build; an EMPTY value forces the native fallback even when agent-axi is
+# installed - the phase-0 rollback lever, and how the unit tests pin each path.
+FM_BACKEND_HERDR_AXI_BIN=${FM_BACKEND_HERDR_AXI_BIN-agent-axi}
+
+# fm_backend_herdr_axi_available: true only when delegation is both enabled
+# (non-empty bin) and the bin actually resolves.
+fm_backend_herdr_axi_available() {
+  [ -n "$FM_BACKEND_HERDR_AXI_BIN" ] && command -v "$FM_BACKEND_HERDR_AXI_BIN" >/dev/null 2>&1
+}
+
+# The launch argv agent-axi runs in the delegated pane. Phase-0 keeps fm-spawn
+# untouched: it still drives `treehouse get` and the harness launch into the
+# pane by typed input, exactly as it does the native tab's shell, so the
+# delegated pane must run an interactive login shell (the native `tab create`
+# pane runs the operator's shell too). Overridable so the unit and lab tests can
+# substitute a dummy agent (e.g. `sleep 600`), which is all a bare-pane spawn
+# needs to exercise the ledger + target-string contract.
+FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
+
+# fm_backend_herdr_create_task_delegate: create the task's pane through
+# `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
+# fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
+# intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
+# pane as its slot anchor rather than pruning it, so there is nothing to thread
+# through. Session comes from the container's first field; the task id is the
+# label with its `fm-` prefix stripped (agent-axi re-derives the identical
+# `fm-<id>` pane label from it).
+fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
+  local container=$1 label=$2 cwd=$3 session task_id out pane_id tab_id
+  local -a launch
+  session=${container%%:*}
+  task_id=${label#fm-}
+  if [ -n "$FM_BACKEND_HERDR_AXI_LAUNCH" ]; then
+    read -r -a launch <<<"$FM_BACKEND_HERDR_AXI_LAUNCH"
+  else
+    launch=("${SHELL:-/bin/bash}" -l)
+  fi
+  out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
+    echo "error: agent-axi spawn failed for $label (session $session)" >&2
+    return 1
+  }
+  pane_id=$(printf '%s' "$out" | jq -r '.spawn.paneId // empty' 2>/dev/null)
+  tab_id=$(printf '%s' "$out" | jq -r '.spawn.tabId // empty' 2>/dev/null)
+  if [ -z "$pane_id" ] || [ -z "$tab_id" ]; then
+    echo "error: agent-axi spawn did not return a tab/pane id for $label (session $session)" >&2
+    return 1
+  fi
+  printf '%s %s' "$tab_id" "$pane_id"
+}
+
+# fm_backend_herdr_create_task: create the task's pane in <container>
+# ("session:workspace_id") and echo "<tab_id> <pane_id>".
+#
+# The primary path DELEGATES to agent-axi (phase-0 shim above): agent-axi owns
+# the durable per-home slot ledger, counts occupancy by live agent, reaps husks,
+# and drives split/overflow placement (spec agent-axi/v1;
+# data/agent-axi-research-f2/report.md). All the re-derived slot/geometry/label-
+# scan bash that used to live here - the deterministic split-slot plan, live
+# label-based pane discovery for placement, and the husk-classification heuristics
+# that drove close-and-replace placement decisions - was DELETED in phase 1
+# because agent-axi now owns it (docs/herdr-backend.md "Delegation architecture").
+#
+# The native branch below is the MINIMAL fallback for a host without agent-axi:
+# one plain tab per task in the home's own workspace, no split layout and no
+# proactive husk reaping. Split layouts and husk convergence REQUIRE agent-axi
+# (docs/herdr-backend.md "Native fallback contract"). Herdr does not enforce
+# label uniqueness (verified: two tabs may share a label), so the fallback keeps
+# only a cheap same-label refusal - it never re-derives geometry and never
+# classifies husks. A same-labeled tab left over from a server restore is
+# reported, not silently replaced; close it manually or install agent-axi, whose
+# `layout --repair` reaps it.
+#
+# --no-focus: verified tab create never focuses by default regardless of sibling
+# tabs, so this is defense in depth rather than a behavior change.
 # <seeded_default_tab_id> (4th arg, may be empty) is exactly the value
 # fm_backend_herdr_workspace_ensure captured as FM_BACKEND_HERDR_WS_SEEDED_TAB_ID
-# for THIS SAME container - non-empty only when this spawn's own
-# container_ensure call just created the workspace. Once the real task tab
-# above is created, this is the ONLY input that may trigger a prune, and it is
-# passed by the caller, never re-derived here from tab list contents or
-# labels (the live-fire self-kill fix - see
-# fm_backend_herdr_workspace_prune_seeded_default_tab for the incident and
-# the safety argument). An ADOPTED workspace's caller always passes an empty
-# 4th arg, so this function never even queries for a prune candidate in that
-# case. Echoes "<tab_id> <pane_id>" on success.
+# for THIS SAME container - non-empty only when this spawn's own container_ensure
+# call just created the workspace. It is passed by the caller, never re-derived
+# here from tab-list contents or labels (the live-fire self-kill fix - see
+# fm_backend_herdr_workspace_prune_seeded_default_tab for the incident and the
+# safety argument). An ADOPTED workspace's caller always passes an empty 4th arg,
+# so this function never even queries for a prune candidate in that case.
 fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id>
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
+  if fm_backend_herdr_axi_available; then
+    fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
+    return
+  fi
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs out tab_id pane_id
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -1760,19 +1815,9 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
-  dup_tab_ids=""
   if [ -n "$dup_tabs" ]; then
-    while IFS= read -r dup; do
-      [ -n "$dup" ] || continue
-      dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
-      if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
-        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
-        return 1
-      fi
-      dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
-    done <<EOF
-$dup_tabs
-EOF
+    echo "error: herdr tab '$label' already exists in workspace $wsid (session $session); the native fallback does not reap husks - close it manually or install agent-axi" >&2
+    return 1
   fi
   out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
@@ -1782,29 +1827,6 @@ EOF
     return 1
   fi
   [ -z "$seeded_tab_id" ] || fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$wsid" "$seeded_tab_id"
-  if [ -n "$dup_tab_ids" ]; then
-    while IFS= read -r dup; do
-      [ -n "$dup" ] || continue
-      fm_backend_herdr_cli "$session" tab close "$dup" >/dev/null 2>&1 || true
-    done <<EOF
-$dup_tab_ids
-EOF
-    list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
-      echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2
-      return 1
-    }
-    if ! printf '%s' "$list" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
-      echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
-      return 1
-    fi
-    remaining_dup_tabs=$(printf '%s' "$list" | jq -r --arg want "$label" --arg replacement "$tab_id" \
-      '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
-    remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
-    if [ -n "$remaining_dup_tabs" ]; then
-      echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
-      return 1
-    fi
-  fi
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
@@ -2772,30 +2794,28 @@ fm_backend_herdr_kill_serialized() {  # <session> <pane>
   fm_backend_herdr_explicit_close_pane_confirmed "$session" "$pane" || true
 }
 
-fm_backend_herdr_kill() {  # <target>
-  fm_backend_herdr_target_ready "$1" || return 0
-  local session=$FM_BACKEND_HERDR_SESSION pane=$FM_BACKEND_HERDR_PANE
-  local lock_path attempt=0 lock_held=0
-  if ! declare -F fm_lock_try_acquire >/dev/null 2>&1; then
-    # shellcheck source=bin/fm-wake-lib.sh
-    . "$FM_BACKEND_HERDR_ROOT/bin/fm-wake-lib.sh"
+# fm_backend_kill passes "<target> <zellij_tab_id-ignored> fm-<id>", so the task
+# label is available as $3. Phase-0 shim (spec agent-axi/v1 s6): when agent-axi
+# is resolvable and the label is known, delegate to `agent-axi teardown` first so
+# the ledger slot is freed. The native `pane close` then still runs as the
+# mechanical guarantee the endpoint is gone: it is idempotent (an already-reaped
+# pane is a no-op), it is the sole path when agent-axi is absent or the label is
+# unknown, and it also reaps a pre-shim pane that agent-axi's ledger never
+# recorded. Session for the teardown comes from the target's first field; FM_HOME
+# is inherited unchanged so the teardown frees the slot in the invoking home's
+# own ledger.
+# Teardown does not call this: it closes through fm_backend_herdr_kill_serialized
+# under the session presentation lock it already holds (bin/fm-teardown.sh's
+# teardown_herdr_close_once), which is the focus-safe path for the common close.
+fm_backend_herdr_kill() {  # <target> [<zellij_tab_id-ignored> <fm-label>]
+  local target=$1 label=${3:-} task_id session
+  if fm_backend_herdr_axi_available && [ -n "$label" ]; then
+    task_id=${label#fm-}
+    session=${target%%:*}
+    "$FM_BACKEND_HERDR_AXI_BIN" teardown "$task_id" --session "$session" >/dev/null 2>&1 || true
   fi
-  if lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session"); then
-    while [ "$attempt" -lt 50 ]; do
-      if fm_lock_try_acquire "$lock_path"; then
-        lock_held=1
-        break
-      fi
-      sleep 0.1
-      attempt=$((attempt + 1))
-    done
-  fi
-  if [ "$lock_held" = 1 ]; then
-    fm_backend_herdr_kill_serialized "$session" "$pane"
-    fm_lock_release "$lock_path" || true
-  else
-    echo "warning: herdr task kill could not acquire its session presentation lock; refusing an unlocked pane close" >&2
-  fi
+  fm_backend_herdr_target_ready "$target" || return 0
+  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane close "$FM_BACKEND_HERDR_PANE" >/dev/null 2>&1 || true
 }
 
 # fm_backend_herdr_endpoint_confirmed_gone: gate durable-record removal on

@@ -403,7 +403,7 @@ test_spawn_without_accounts_config_is_unchanged() {
   status=$?
   expect_code 0 "$status" "a claude spawn with no accounts config should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
   [ "$launch" = "$expected" ] || fail "no accounts config changed the launch command"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   grep -q '^account=' "$HOME_DIR/state/$id.meta" && fail "no accounts config still recorded an account"
   assert_contains "$out" "spawned $id harness=claude kind=ship" "the spawn line gained an account with no config"

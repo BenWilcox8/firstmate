@@ -44,6 +44,9 @@
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
 # over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
 # self-governance section when a touched project AGENTS.md lacks it.
+# Every scaffold kind (ship, scout, secondmate charter) ends with a dashboard
+# signals section (MARKERS_SECTION) with spec-axi CLI commands and %%dash-fin%%;
+# source of truth: apps/agent-dashboard/docs/message-markers.md "Adoption".
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -128,6 +131,49 @@ shell_quote() {
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 
+MARKERS_SECTION=$(cat <<'EOF'
+## Dashboard signals (CLI)
+
+The captain watches you on a dashboard. Signal it with three tiny commands
+(they are on your PATH via spec-axi; success prints one word, then carry on):
+
+- When you are BLOCKED on a human DECISION, ask the captain:
+      spec-axi ask "delete the legacy table or keep it?"
+  Run it once PER independent question. The answer arrives later as a normal
+  message in your session prefixed %%dash-ans%% (that prefix appears only on
+  captain answers to your asks, not on ordinary dashboard messages). Do not
+  wait idle for it if you have other work you can continue safely.
+  If the decision is a pick from a few options, offer them so the captain can
+  just tap one:
+      spec-axi ask "which db?" --options "postgres,mysql,sqlite"
+  Options are optional; omit them for a free-text question.
+  NEVER use harness-native pickers (TUI select dialogs, interactive CLI prompts,
+  AskUserQuestion tool) for captain decisions - they cannot be seen or answered
+  remotely and will deadlock or drop the question. Encode the choices in
+  --options instead.
+  ESCALATION RULE: if you need a human decision, pick EITHER escalating to your
+  supervisor OR asking the captain directly - never both. If you ask the captain
+  directly, tell your supervisor you already asked. Exactly one question should
+  reach the captain per decision.
+- When you FINISHED something the captain should look at (needs oversight, not a
+  decision - a spec entering review, a finished design, completed work), flag it:
+      spec-axi review "auth refactor done, ready for a look"
+  NON-BLOCKING: move on immediately. Your next message is highlighted as a review
+  and the captain marks it reviewed when handled. Use this, NOT ask, whenever you
+  are moving on either way.
+- When you start or finish a distinct phase of work, label the timeline:
+      spec-axi status "fixing parser bug"
+  2-6 plain words about what you are doing right now. Once per phase is enough.
+
+Also put %%dash-fin%% on its own line immediately before the final answer in
+every substantive message (working narration above it). That marker stays
+inline; everything else goes through the commands above.
+
+If a command fails, note it and keep working - never retry-loop or stall on a
+signal.
+EOF
+)
+
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
 idx=1
@@ -204,6 +250,8 @@ On startup and restart, run normal firstmate bootstrap and recovery through \`bi
 When you have no assigned or in-flight work after that reconciliation, go idle and wait silently for the main firstmate to route you a task.
 An empty queue is a healthy resting state, not a cue to invent work: never spawn a survey, audit, or any self-directed "find work" task on your own initiative.
 If this charter cannot be carried out, append \`blocked: {why}\` or \`failed: {why}\` to the main status file and stop.
+
+$MARKERS_SECTION
 EOF
 if [ "$SECONDMATE_CHARTER" = "{TASK}" ]; then
   echo "scaffolded: $BRIEF (secondmate charter; replace {TASK})"
@@ -290,6 +338,8 @@ The report must stand alone: what you did, what you found, the evidence (command
 Before reporting done, read and follow \`$FM_ROOT/.agents/skills/decision-hold-lifecycle/SKILL.md\` and pass its shared completion gate for the report and any visual review.
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
+
+$MARKERS_SECTION
 EOF
 echo "scaffolded: $BRIEF (scout; replace {TASK})"
 exit 0
@@ -407,5 +457,7 @@ If you touch a project \`AGENTS.md\` that lacks \`## Maintaining this file\`, ad
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
 $DOD
+
+$MARKERS_SECTION
 EOF
 echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"

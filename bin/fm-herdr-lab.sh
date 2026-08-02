@@ -13,7 +13,9 @@
 # Session names must begin with "fm-lab-" and can never be "default".
 # The name command sanitizes the label, caps it at 16 characters, and appends
 # process/random suffixes to keep generated socket paths short.
-# Every Herdr call made here carries a trailing --session <session>.
+# Every Herdr call made here carries --session <session> as Herdr's own flag,
+# injected before any "--" argv separator so it never leaks into a started
+# agent's argv and mis-scopes the agent into the default session.
 # The run command rejects caller-supplied --session flags, any leading option
 # before the subcommand, all session lifecycle operations, and every server
 # operation.
@@ -49,9 +51,24 @@ fm_herdr_lab_tripwire_path() { # <session>
 }
 
 fm_herdr_lab_raw() { # <session> <herdr arguments...>
-  local name=$1
+  # Inject --session <name> as Herdr's own flag, BEFORE any "--" argv separator.
+  # Appending it at the end would land it after "--" for forms like
+  # `agent start <name> ... -- <argv>`, making it part of the started agent's
+  # argv instead of Herdr's session selector, which silently creates the agent
+  # in the default (captain) session. Herdr does not honor HERDR_SESSION for
+  # routing, so before-"--" placement is the only reliable scoping.
+  local name=$1 arg sep_found=0
   shift
-  HERDR_SESSION="$name" herdr "$@" --session "$name"
+  local -a cmd=()
+  for arg in "$@"; do
+    if [ "$sep_found" -eq 0 ] && [ "$arg" = "--" ]; then
+      cmd+=(--session "$name")
+      sep_found=1
+    fi
+    cmd+=("$arg")
+  done
+  [ "$sep_found" -eq 1 ] || cmd+=(--session "$name")
+  HERDR_SESSION="$name" herdr "${cmd[@]}"
 }
 
 fm_herdr_lab_session_list() { # <session>

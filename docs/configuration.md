@@ -82,8 +82,10 @@ These five sentences are the single owner of the task-selector vocabulary; backe
 Missing, empty, duplicate, malformed, backend-inconsistent, or task-mismatched endpoint records are preserved and refused.
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
-[`herdr-backend.md`](herdr-backend.md#watching-and-task-containers) owns launcher-bound workspace placement, the label-only fallback, collision handling, and recovery behavior.
-The optional local `config/herdr-presentation-spaces` presence flag instead enables Herdr's default-off disposable single-task visual projection; [Optional presentation spaces](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
+The default-container spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Pane placement inside that default container - tab vs split, the slot plan, overflow, and husk reaping - is owned by `agent-axi`, not firstmate config: firstmate's herdr adapter delegates the pane lifecycle to it and keeps only a minimal fallback for hosts without agent-axi (see [`docs/herdr-backend.md`](herdr-backend.md) "Delegation architecture").
+There is no `config/herdr-layout` knob; the old bash split-mode config and its `FM_HERDR_*` overrides were removed in phase 1 of the agent-axi migration (spec agent-axi/v1).
+The optional local `config/herdr-presentation-spaces` presence flag is orthogonal to both: it enables Herdr's default-off disposable single-task visual projection, which owns its own placement and never consults the slot ledger; [`docs/herdr-backend.md`](herdr-backend.md#optional-presentation-spaces) owns its behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
 The flag is default-off and inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
@@ -115,6 +117,13 @@ Directives are `off` (a position-independent kill switch that disables every act
 An absent file means `auto`, i.e. default-on on macOS: the alarm exists precisely so a wedged away-mode primary is never silent, and it fires at most once per max-defer window after a genuine wedge.
 A missing or failing channel logs and falls through to the next, never crashing the daemon.
 See [`wedge-alarm.md`](wedge-alarm.md) for the current channel reference, [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) for active evidence, and [`examples/wedge-alarm`](examples/wedge-alarm) for a copyable config.
+
+## Specs board (config/specs)
+
+`config/specs` is the activation pointer for the specs skill set: a local, gitignored, per-home file whose content is the absolute path to the local specs repo.
+It is installer-provisioned rather than firstmate-written, and it is not propagated into secondmate homes.
+When the file is absent, there is no specs board wiring and the `specs`, `spec-authoring`, and `spec-slicing` skills are never loaded.
+When it is present, firstmate loads those skills at the trigger points named in [`AGENTS.md`](../AGENTS.md) section 13, which owns the lifecycle-moment map.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -501,6 +510,7 @@ FM_BACKEND_HERDR_BARE_PROMPT_RE='^(❯|›)'  # herdr-only: verified agent glyph
 FM_BACKEND_HERDR_PI_COMPOSER_MAX_LINES=8  # herdr-only: maximum rows admitted between Pi's native-identity-corroborated separator pair; taller or ambiguous candidates stay unknown (docs/herdr-backend.md "Composer and injection safety")
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Current transport behavior")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
+FM_BACKEND_HERDR_AXI_BIN=agent-axi  # herdr-only: executable the pane-lifecycle delegation and the layout repair/snapshot wiring resolve; an empty value forces the minimal native tab-per-task fallback (docs/herdr-backend.md "Delegation architecture")
 FM_BACKEND_ORCA_COMPOSER_LINES=200  # orca-only: terminal-read lines scanned to locate the composer row for submit verification
 FM_BACKEND_ORCA_IDLE_RE='^Type a message\.\.\.$'  # orca-only: empty-composer placeholder regex after border/prompt stripping
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)

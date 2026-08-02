@@ -54,7 +54,7 @@ set -u
 # was launched from; every case states the marker it means to test.
 unset CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT
 
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 fm_git_identity fmtest fmtest@example.com
 TMP_ROOT=$(fm_test_tmproot fm-secondmate-harness)
 export FM_BACKEND=tmux

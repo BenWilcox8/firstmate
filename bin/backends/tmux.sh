@@ -157,6 +157,18 @@ fm_backend_tmux_current_command() {  # <target>
 # An omitted window or a definitive missing-session/server response is
 # `missing`; any other inventory or pane read failure is `unreadable`, so a
 # transient tmux problem never licenses a duplicate.
+#
+# The foreground-command classification recognizes every verified harness:
+# claude, codex, opencode, and grok run as their own process name (matched as a
+# substring). pi is a `#!/usr/bin/env node` script that sets its process title
+# to `pi`, so tmux reports the foreground command as exactly `pi` (verified pi
+# 0.81.1, docs/tmux-backend.md "Agent liveness probe"); it is matched EXACTLY so
+# it never catches an unrelated `pip`/`mpi*` command. An older or
+# differently-packaged pi may still surface as a generic `node` process with no
+# reliable way to attribute it back to pi from outside the pane
+# (docs/tmux-backend.md "Known gaps"); that falls through to `ambiguous`, which
+# no caller may treat as confirmed-dead, so a node-wrapped pi is safe here - it
+# just cannot be positively confirmed alive.
 fm_backend_tmux_agent_state() {  # <target>
   local target=$1 comm session window windows inventory_status
   case "$target" in
