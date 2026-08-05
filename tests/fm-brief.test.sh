@@ -617,6 +617,50 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable() {
   pass "fm-brief.sh: relative directory inputs ignore CDPATH, render stable absolute charter paths, or fail loudly"
 }
 
+# Pin the captain decision (2026-07-27): crewmate briefs carry no dashboard signal
+# instructions; a crewmate reports through its status file and firstmate relays.
+# The dashboard-signals skill is the single owner of the spec-axi verb protocol,
+# scoped to firstmate and secondmate sessions only.
+test_no_dashboard_signals_in_any_scaffold() {
+  local home brief
+  home="$TMP_ROOT/markers-home"
+  mkdir -p "$home/data"
+
+  # Ship brief: verify no dashboard signal content regardless of delivery mode.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-ship some-proj --mode no-mistakes >/dev/null 2>&1
+  brief="$home/data/markers-ship/brief.md"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "ship brief still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "ship brief still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "ship brief still carries a dashboard marker"
+
+  # Scout brief.
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
+  brief="$home/data/markers-scout/brief.md"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "scout brief still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "scout brief still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "scout brief still carries a dashboard marker"
+
+  # Secondmate charter: supervisors do use spec-axi (via the dashboard-signals skill),
+  # but the scaffold itself must not carry the verb documentation as boilerplate.
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
+    "$ROOT/bin/fm-brief.sh" markers-secondmate --secondmate --no-projects >/dev/null 2>&1
+  brief="$home/data/markers-secondmate/brief.md"
+  assert_no_grep "Dashboard signals" "$brief" \
+    "secondmate charter still carries the dashboard signals block"
+  assert_no_grep "spec-axi" "$brief" \
+    "secondmate charter still carries a spec-axi signal command"
+  assert_no_grep "%%dash-" "$brief" \
+    "secondmate charter still carries a dashboard marker"
+
+  pass "fm-brief.sh: no dashboard signal content in ship, scout, or secondmate scaffolds"
+}
+
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
   local home brief status=0
   home="$TMP_ROOT/herdr-kind-home"
@@ -722,6 +766,7 @@ test_herdr_lab_contract_is_explicit_and_complete
 test_herdr_lab_contract_quotes_foreign_firstmate_path
 test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
+test_no_dashboard_signals_in_any_scaffold
 test_secondmate_no_projects_charter
 test_secondmate_marked_request_reporting_contract
 test_secondmate_directory_paths_are_absolute_and_output_is_stable
