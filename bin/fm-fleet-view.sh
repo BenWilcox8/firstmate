@@ -29,6 +29,12 @@ command -v jq >/dev/null 2>&1 || { echo "fm-fleet-view: jq not found" >&2; exit 
 SNAPSHOT=$("$SCRIPT_DIR/fm-fleet-snapshot.sh" --json) || exit $?
 
 printf '%s\n' "$SNAPSHOT" | jq -r '
+  def verbose: (($ENV.FM_SESSION_START_VERBOSE // "0") == "1");
+  def trunc_title($s):
+    if $s == null then null
+    elif verbose or ($s | length) <= 120 then $s
+    else ($s[0:120]) + "…"
+    end;
   def dash($v): if $v == null or $v == "" then "-" else $v end;
   def endpoint_exists($t):
     if $t.endpoint.exists == null then "unknown"
@@ -57,7 +63,7 @@ printf '%s\n' "$SNAPSHOT" | jq -r '
     elif ($r.blocked_reason // "") == "" then $r.blocked_by
     else "\($r.blocked_by) - \($r.blocked_reason)" end;
   def backlog_row($r):
-    "| \($r.id // "-") | \(dash($r.title // $r.raw)) | \(dash($r.repo)) | \(dash($r.kind)) | \(blocker($r)) | \(dash($r.pr_url // $r.report_path // $r.local_note)) |";
+    "| \($r.id // "-") | \(dash(trunc_title($r.title // $r.raw))) | \(dash($r.repo)) | \(dash($r.kind)) | \(blocker($r)) | \(dash($r.pr_url // $r.report_path // $r.local_note)) |";
 
   "# Fleet View",
   "",

@@ -240,6 +240,18 @@ fm_backend_tmux_foreground_argv0s() {  # <target>
 # live worktree, while the foreground process group - when it is readable - is
 # authoritative for the negative verdicts, since it is the only source that can
 # distinguish a truly idle pane from a rewritten process title.
+#
+# The foreground-command classification recognizes every verified harness:
+# claude, codex, opencode, and grok run as their own process name (matched as a
+# substring). pi is a `#!/usr/bin/env node` script that sets its process title
+# to `pi`, so tmux reports the foreground command as exactly `pi` (verified pi
+# 0.81.1, docs/tmux-backend.md "Agent liveness probe"); it is matched EXACTLY so
+# it never catches an unrelated `pip`/`mpi*` command. An older or
+# differently-packaged pi may still surface as a generic `node` process with no
+# reliable way to attribute it back to pi from outside the pane
+# (docs/tmux-backend.md "Known gaps"); that falls through to `ambiguous`, which
+# no caller may treat as confirmed-dead, so a node-wrapped pi is safe here - it
+# just cannot be positively confirmed alive.
 fm_backend_tmux_agent_state() {  # <target>
   local target=$1 comm session window windows inventory_status
   local foreground argv0s name fg_seen=0 fg_shell=0 fg_other=0

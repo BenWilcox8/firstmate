@@ -159,6 +159,10 @@ write_watcher_lock() {
   local state=$1 home=$2 pid=$3 identity
   rm -rf "$state/.watch.lock"
   mkdir "$state/.watch.lock"
+  # Build the fake lock identity through production fm_pid_identity itself, so
+  # this helper can never drift from the format the code under test re-reads
+  # (the failure mode the earlier hand-rolled `ps` copy had: it needed its own
+  # LC_ALL/TZ pins to stay byte-identical).
   identity=$(FM_STATE_OVERRIDE="$state" bash -c '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$pid")
   [ -n "$identity" ] || fail "could not capture fake older-watcher identity"
   printf '%s\n' "$pid" > "$state/.watch.lock/pid"

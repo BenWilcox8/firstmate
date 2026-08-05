@@ -905,6 +905,36 @@ test_failed_send_discards_undelivered_expectation() {
   pass "failed transport discards undelivered expectation only"
 }
 
+test_new_id_no_openssl_set_u_safe() {
+  # Regression: local raw hex without init caused set -u crash when openssl absent.
+  local fb id len
+  fb="$TMP_ROOT/fakebin-no-openssl"
+  mkdir -p "$fb"
+  # Shadow openssl with a stub that fails so the od fallback runs.
+  printf '#!/bin/sh\nexit 127\n' > "$fb/openssl"
+  chmod +x "$fb/openssl"
+  id=$(PATH="$fb:$PATH" bash -u -c \
+    '. "'"$ROOT"'/bin/fm-pending-reply-lib.sh"; fm_pending_reply_new_id' \
+    2>&1) || fail "fm_pending_reply_new_id must not crash under set -u without openssl"
+  len=${#id}
+  [ "$len" -eq 16 ] || fail "id must be 16 chars without openssl, got $len: '$id'"
+  case "$id" in
+    *[^a-f0-9]*) fail "id must be lowercase hex only without openssl, got: '$id'" ;;
+  esac
+  # Also verify the last-resort path (no openssl, no od) stays set -u safe.
+  printf '#!/bin/sh\nexit 127\n' > "$fb/od"
+  chmod +x "$fb/od"
+  id=$(PATH="$fb:$PATH" bash -u -c \
+    '. "'"$ROOT"'/bin/fm-pending-reply-lib.sh"; fm_pending_reply_new_id' \
+    2>&1) || fail "fm_pending_reply_new_id must not crash under set -u without openssl or od"
+  len=${#id}
+  [ "$len" -eq 16 ] || fail "id must be 16 chars on last-resort path, got $len: '$id'"
+  case "$id" in
+    *[^a-f0-9]*) fail "id must be lowercase hex on last-resort path, got: '$id'" ;;
+  esac
+  pass "fm_pending_reply_new_id is set -u safe and returns valid id without openssl"
+}
+
 # --- run --------------------------------------------------------------------
 
 test_normal_correlated_reply_resolves_once
@@ -930,5 +960,6 @@ test_tick_skips_terminal_and_reuses_target_observation
 test_correlations_reuse_only_for_matching_open_task
 test_tick_end_to_end_missed_then_escalate
 test_failed_send_discards_undelivered_expectation
+test_new_id_no_openssl_set_u_safe
 
 printf 'ok - all pending-reply tests passed\n'

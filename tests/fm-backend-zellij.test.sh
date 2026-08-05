@@ -184,6 +184,11 @@ test_version_check_refuses_old_version() {
 test_version_check_refuses_missing_zellij() {
   local dir out status
   dir="$TMP_ROOT/version-missing"; mkdir -p "$dir/empty-fakebin"
+  # Symlink the real bash INTO the private fakebin so the inner `bash -c`
+  # resolves on hosts (e.g. NixOS) where bash is not under /usr/bin:/bin,
+  # WITHOUT putting bash's own directory - which may also hold zellij (e.g.
+  # Homebrew's shared bin) - on the restricted PATH.
+  ln -sf "$(command -v bash)" "$dir/empty-fakebin/bash"
   out=$( PATH="$dir/empty-fakebin:/usr/bin:/bin" \
     bash -c '. "$0/bin/backends/zellij.sh"; fm_backend_zellij_version_check' "$ROOT" 2>&1 )
   status=$?

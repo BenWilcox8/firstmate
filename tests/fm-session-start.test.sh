@@ -26,7 +26,7 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/wake-helpers.sh"
 
 SESSION_START="$ROOT/bin/fm-session-start.sh"
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 TMP_ROOT=$(fm_test_tmproot fm-session-start-tests)
 SESSION_START_SECOND_MATE_ID="fmtest-sm-${TMP_ROOT##*.}"
 SESSION_START_SECOND_MATE_TMP="/tmp/fm-$SESSION_START_SECOND_MATE_ID"
@@ -427,6 +427,10 @@ SH
 # (no ambient markers) still passes.
 run_session_start() {
   local home=$1 root=$2 path=$3 pi_harness=${4:-}
+  # Unset harness-detection env markers so the fake-ps-driven harness detection
+  # (make_fake_ps_harness) is authoritative regardless of which real harness
+  # this test suite itself happens to be running under. The optional fourth
+  # argument opts one call into Pi marker detection for the pi/pi-signed cases.
   if [ -n "$pi_harness" ]; then
     env -u CLAUDECODE -u GROK_AGENT PI_CODING_AGENT=true FM_PI_HARNESS="$pi_harness" \
       FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$path" \
@@ -898,8 +902,8 @@ EOF
 
   out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "working: step 7" "default status tail missing the most recent line"
-  assert_contains "$out" "working: step 3" "default status tail (5 lines) missing an expected recent line"
-  assert_not_contains "$out" "working: step 1" "default status tail (5 lines) leaked an older line"
+  assert_contains "$out" "working: step 5" "default status tail (3 lines) missing an expected recent line"
+  assert_not_contains "$out" "working: step 4" "default status tail (3 lines) leaked an older line"
   assert_contains "$out" "$home/state/task-a.status" "digest did not print the full status log path for a deeper read"
   assert_contains "$out" "Do NOT bulk-read state/*.status now either: their bounded tails were just" "closing reminder does not distinguish bounded status tails"
   assert_not_contains "$out" "state/*.status now - they were just" "closing reminder still describes status logs as fully printed"
@@ -907,6 +911,13 @@ EOF
   out=$(FM_SESSION_START_STATUS_TAIL=2 run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
   assert_contains "$out" "working: step 7" "FM_SESSION_START_STATUS_TAIL=2 tail missing the most recent line"
   assert_not_contains "$out" "working: step 5" "FM_SESSION_START_STATUS_TAIL=2 did not bound the tail to 2 lines"
+
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_SESSION_START_VERBOSE=1 \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    "$SESSION_START")
+  assert_contains "$out" "working: step 3" "FM_SESSION_START_VERBOSE=1 did not restore 5-line status tail"
+  assert_not_contains "$out" "working: step 1" "FM_SESSION_START_VERBOSE=1 tail exceeded 5 lines"
 
   pass "status tail is bounded to the configured line count, with the full log path always printed"
 }
@@ -1433,6 +1444,63 @@ EOF
   pass "session start rejects Pi loaded markers from previous sessions"
 }
 
+# --- lean defaults and verbose opt-in ----------------------------------------
+
+test_lean_default_uses_short_delimiters() {
+  local rec root home fakebin out context_delim fleet_delim
+  rec=$(new_world lean-delimiters)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+
+  assert_contains "$out" "---" "lean mode did not emit any short delimiter"
+  assert_contains "$out" "CONTEXT" "CONTEXT section label missing in lean mode"
+  assert_contains "$out" "FLEET STATE" "FLEET STATE section label missing in lean mode"
+  assert_contains "$out" "LOCK" "LOCK subsection label missing in lean mode"
+  assert_contains "$out" "BOOTSTRAP" "BOOTSTRAP subsection label missing in lean mode"
+
+  # The section delimiters owned by this script (CONTEXT, FLEET STATE) must use
+  # '---' in lean mode, not the 80-char rule. The supervision block is a
+  # separate script and retains its own formatting.
+  context_delim=$(printf '%s\n' "$out" | grep -B1 "^CONTEXT$" | head -1)
+  [ "$context_delim" = "---" ] || \
+    fail "lean mode: line before CONTEXT is '$context_delim', expected '---'"
+  fleet_delim=$(printf '%s\n' "$out" | grep -B1 "^FLEET STATE$" | head -1)
+  [ "$fleet_delim" = "---" ] || \
+    fail "lean mode: line before FLEET STATE is '$fleet_delim', expected '---'"
+
+  pass "lean default uses short delimiters; all section labels still present"
+}
+
+test_verbose_restores_full_width_delimiters() {
+  local rec root home fakebin out context_delim fleet_delim
+  rec=$(new_world verbose-delimiters)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+
+  out=$(env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT \
+    FM_SESSION_START_VERBOSE=1 \
+    FM_HOME="$home" FM_ROOT_OVERRIDE="$root" PATH="$fakebin:$BASE_PATH" \
+    "$SESSION_START")
+
+  context_delim=$(printf '%s\n' "$out" | grep -B1 "^CONTEXT$" | head -1)
+  [ "$context_delim" = "================================================================================" ] || \
+    fail "verbose mode: line before CONTEXT is '$context_delim', expected 80-char rule"
+  fleet_delim=$(printf '%s\n' "$out" | grep -B1 "^FLEET STATE$" | head -1)
+  [ "$fleet_delim" = "================================================================================" ] || \
+    fail "verbose mode: line before FLEET STATE is '$fleet_delim', expected 80-char rule"
+  assert_contains "$out" "CONTEXT" "CONTEXT section label missing in verbose mode"
+
+  pass "FM_SESSION_START_VERBOSE=1 restores full-width delimiters"
+}
+
 test_context_digest_absent_empty_present
 test_lock_refusal_read_only_path
 test_lock_write_failure_read_only_path
@@ -1462,5 +1530,7 @@ test_pi_diagnostic_rejects_stale_loaded_marker
 test_pi_diagnostic_accepts_prelock_loaded_marker
 test_pi_diagnostic_rejects_missing_turnend_guard_marker
 test_pi_diagnostic_rejects_previous_session_loaded_marker
+test_lean_default_uses_short_delimiters
+test_verbose_restores_full_width_delimiters
 
 echo "# fm-session-start.test.sh: all assertions passed"

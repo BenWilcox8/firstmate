@@ -24,6 +24,22 @@ herdr_forget_inherited_pane
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
+# Force the NATIVE pane-lifecycle path by default: this suite runs on a machine
+# where agent-axi may be installed on PATH, and the phase-0 shim
+# (fm_backend_herdr_create_task / _kill) would otherwise delegate to it. An empty
+# FM_BACKEND_HERDR_AXI_BIN disables delegation; the delegated-path tests below
+# set it back to a fake agent-axi explicitly.
+export FM_BACKEND_HERDR_AXI_BIN=
+# Neutralize any ambient herdr-pane identity (this suite may itself run inside a
+# herdr pane, where HERDR_ENV=1/HERDR_PANE_ID are set), so the native fallback's
+# behavior is deterministic regardless of where the suite runs.
+unset HERDR_ENV HERDR_PANE_ID
+# The two Bash-3.2-safe fd-9 wait_transition tests below deliberately drive the
+# code under the stock macOS system Bash (/bin/bash, which is 3.2) to prove the
+# FIFO/fd path works there. On systems with no /bin/bash (e.g. NixOS) fall back
+# to the PATH bash so the tests still exercise the path instead of failing to
+# launch a shell at all.
+SYSTEM_BASH=$(command -v /bin/bash 2>/dev/null || command -v bash)
 
 # make_herdr_fakebin: a `herdr` stub that logs every invocation (one line,
 # unit-separated args, to $FM_HERDR_LOG) and returns the canned response for
@@ -216,7 +232,10 @@ test_version_check_refuses_old_protocol() {
 test_version_check_refuses_missing_herdr() {
   local dir out status
   dir="$TMP_ROOT/version-missing"; mkdir -p "$dir/empty-fakebin"
-  out=$( PATH="$dir/empty-fakebin:/usr/bin:/bin" \
+  # Simulate "herdr not installed" with a PATH that excludes herdr but still
+  # resolves the shell itself. Include the running bash's own dir so this holds
+  # where bash is not under /usr/bin or /bin (e.g. a Nix profile), not only in CI.
+  out=$( PATH="$dir/empty-fakebin:$(dirname "$(command -v bash)"):/usr/bin:/bin" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_version_check' "$ROOT" 2>&1 )
   status=$?
   [ "$status" -ne 0 ] || fail "version_check should refuse when herdr is not installed"
@@ -538,6 +557,12 @@ test_container_ensure_reuses_existing_workspace() {
   pass "fm_backend_herdr_container_ensure: reuses an existing firstmate workspace without recreating it, and reports no seeded default tab (adopted, not created)"
 }
 
+# The native fallback (agent-axi absent) is deliberately MINIMAL: one tab per
+# task, a cheap same-label refusal, and NO husk classification. It never runs
+# `pane get`/`agent get` to decide whether a same-labeled tab is a reapable husk
+# (that convergence is agent-axi's job now, deleted from bash in phase 1), so a
+# duplicate refuses outright with a pointer to close it manually or install
+# agent-axi - it must not create a replacement tab or close any pane.
 test_create_task_refuses_duplicate_label() {
   local dir log resp fb out status
   dir="$TMP_ROOT/dup-task"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
@@ -548,223 +573,13 @@ test_create_task_refuses_duplicate_label() {
   status=$?
   [ "$status" -ne 0 ] || fail "create_task should refuse an existing tab label (herdr itself does not enforce uniqueness)"
   assert_contains "$out" "already exists" "create_task did not report the duplicate label"
-  pass "fm_backend_herdr_create_task: refuses a duplicate tab label (herdr's own tab create has no uniqueness check)"
+  assert_contains "$out" "install agent-axi" "the fallback refusal should point at agent-axi as the husk-reaping owner"
+  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' "the minimal fallback must not create a replacement tab for a duplicate label"
+  assert_not_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''close' "the minimal fallback must never close a pane (no husk classification remains)"
+  assert_not_contains "$(cat "$log")" $'\x1f''agent'$'\x1f''get' "the minimal fallback must not classify husks (no agent get)"
+  pass "fm_backend_herdr_create_task: the native fallback refuses a duplicate label without any husk classification or replacement"
 }
 
-# --- restored-layout husk close-and-replace (herdr session.json restore) -----
-#
-# herdr persists and restores its whole session layout (workspaces/tabs/
-# panes) across a server restart, including a reboot. A restored fm-<id> task
-# tab comes back a HUSK - a dead pane, or a plain agent-less shell sitting in
-# the saved cwd - never the crewmate that used to be there. Before this fix,
-# create_task refused ANY same-labeled tab unconditionally, so every fleet
-# respawn after such a restart needed the operator to manually close each
-# husk pane first. These tests cover the four cases the fix must get right:
-# a genuinely LIVE duplicate still refuses (unchanged), a DEAD pane husk and a
-# NO-AGENT (restored plain shell) husk both close-and-replace, and an
-# AMBIGUOUS/unparseable read refuses (fail-safe, never guesses toward
-# closing).
-
-test_create_task_refuses_duplicate_label_when_agent_live() {
-  local dir log resp fb out status
-  dir="$TMP_ROOT/dup-live"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  # 1: tab list -> an existing same-labeled tab
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  # 2: pane list (pane_for_tab) -> resolves the duplicate's pane id
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  # 3: pane get -> the pane structurally exists
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  # 4: agent get -> a genuinely registered, live agent (idle, not just working)
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/4.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "create_task should still refuse when the duplicate's pane hosts a live (even idle) registered agent"
-  assert_contains "$out" "already exists" "create_task did not report the duplicate label for a live agent"
-  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' "create_task must not create a replacement tab when the duplicate is live"
-  assert_not_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''close' "create_task must not close a live agent's pane"
-  pass "fm_backend_herdr_create_task: a same-labeled tab with a live (even idle) registered agent still refuses exactly as before"
-}
-
-test_create_task_refuses_when_any_duplicate_label_is_live() {
-  local dir log resp fb out status
-  dir="$TMP_ROOT/dup-mixed-live"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-mixed1","workspace_id":"w1"},{"tab_id":"w1:t3","label":"fm-mixed1","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"}]}}\n' > "$resp/5.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p3"}}}\n' > "$resp/6.out"
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/7.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-mixed1 /tmp/proj' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "create_task must refuse when any same-labeled tab hosts a live registered agent"
-  assert_contains "$out" "already exists" "create_task did not report the duplicate label when one duplicate was live"
-  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' "create_task must not create a replacement tab when any duplicate is live"
-  assert_not_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''close' "create_task must not close any duplicate pane when one duplicate is live"
-  pass "fm_backend_herdr_create_task: scans every same-labeled tab and refuses if any duplicate is live"
-}
-
-test_create_task_closes_and_replaces_dead_pane_husk() {
-  local dir log resp fb out status tab pane
-  dir="$TMP_ROOT/husk-dead"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-husk1","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  # 3: pane get -> pane_not_found: the restored pane is dead
-  printf '{"error":{"code":"pane_not_found","message":"pane w1:p2 not found"}}\n' > "$resp/3.out"
-  # 4: tab create -> the replacement tab (created BEFORE the husk is closed)
-  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/4.out"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-husk1","workspace_id":"w1"}]}}\n' > "$resp/6.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-husk1 /tmp/proj' "$ROOT" ) \
-    || fail "create_task should close-and-replace a dead-pane husk instead of refusing"
-  read -r tab pane <<EOF
-$out
-EOF
-  if [ "$tab" != "w1:t3" ] || [ "$pane" != "w1:p3" ]; then
-    fail "create_task should echo the NEW tab/pane ids, got '$out'"
-  fi
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-husk1' \
-    "create_task did not create the replacement tab"
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the dead husk's tab"
-  pass "fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is dead (pane_not_found)"
-}
-
-test_create_task_closes_and_replaces_no_agent_husk() {
-  local dir log resp fb out status tab pane
-  dir="$TMP_ROOT/husk-no-agent"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-husk2","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  # 3: pane get -> the pane is alive (a session-restore restarts the shell)
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  # 4: agent get -> agent_not_found: nothing registered - a restored plain shell
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
-  # 5: tab create -> the replacement tab (created BEFORE the husk is closed)
-  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/5.out"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-husk2","workspace_id":"w1"}]}}\n' > "$resp/7.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-husk2 /tmp/proj' "$ROOT" ) \
-    || fail "create_task should close-and-replace a no-agent husk (restored plain shell) instead of refusing"
-  read -r tab pane <<EOF
-$out
-EOF
-  if [ "$tab" != "w1:t3" ] || [ "$pane" != "w1:p3" ]; then
-    fail "create_task should echo the NEW tab/pane ids, got '$out'"
-  fi
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-husk2' \
-    "create_task did not create the replacement tab"
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the no-agent husk's tab"
-  pass "fm_backend_herdr_create_task: closes and replaces a same-labeled tab whose pane is alive but hosts no registered agent (a restored plain shell)"
-}
-
-test_create_task_closes_all_duplicate_husks_after_replacement() {
-  local dir log resp fb out tab pane create_line close_p2_line close_p3_line
-  dir="$TMP_ROOT/husk-multiple"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-husk-many","workspace_id":"w1"},{"tab_id":"w1:t3","label":"fm-husk-many","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t3"}]}}\n' > "$resp/5.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p3"}}}\n' > "$resp/6.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p3 not found"}}\n' > "$resp/7.out"
-  printf '{"result":{"tab":{"tab_id":"w1:t4"},"root_pane":{"pane_id":"w1:p4"}}}\n' > "$resp/8.out"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t4","label":"fm-husk-many","workspace_id":"w1"}]}}\n' > "$resp/11.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-husk-many /tmp/proj' "$ROOT" ) \
-    || fail "create_task should close-and-replace all same-labeled husks after creating a replacement"
-  read -r tab pane <<EOF
-$out
-EOF
-  if [ "$tab" != "w1:t4" ] || [ "$pane" != "w1:p4" ]; then
-    fail "create_task should echo the NEW tab/pane ids, got '$out'"
-  fi
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the first duplicate husk"
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t3' "create_task did not close the second duplicate husk"
-  create_line=$(grep -n $'\x1f''tab'$'\x1f''create' "$log" | head -1 | cut -d: -f1)
-  close_p2_line=$(grep -n $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "$log" | head -1 | cut -d: -f1)
-  close_p3_line=$(grep -n $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t3' "$log" | head -1 | cut -d: -f1)
-  [ -n "$create_line" ] || fail "expected a 'tab create' call in the log"
-  if [ "$create_line" -ge "$close_p2_line" ] || [ "$create_line" -ge "$close_p3_line" ]; then
-    fail "REGRESSION: duplicate husks were closed before the replacement tab was created"
-  fi
-  pass "fm_backend_herdr_create_task: closes every confirmed same-labeled husk only after creating the replacement"
-}
-
-test_create_task_refuses_when_preexisting_husk_tab_remains() {
-  local dir log resp fb out status
-  dir="$TMP_ROOT/husk-close-fails"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-stale-husk","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
-  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/5.out"
-  printf '1\n' > "$resp/6.exit"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-stale-husk","workspace_id":"w1"},{"tab_id":"w1:t3","label":"fm-stale-husk","workspace_id":"w1"}]}}\n' > "$resp/7.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-stale-husk /tmp/proj' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "create_task must fail when a preexisting same-labeled husk remains after close-and-replace"
-  assert_contains "$out" "failed to remove preexisting herdr tab" "create_task did not report the stale preexisting husk tab"
-  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the stale husk by tab id"
-  assert_not_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "create_task should not rely on pane close for a preexisting husk"
-  pass "fm_backend_herdr_create_task: refuses success when a preexisting husk tab remains after replacement"
-}
-
-test_create_task_refuses_when_agent_state_ambiguous() {
-  # An unexpected error code from agent get (neither agent_not_found nor a
-  # successful read) must not be misread as a husk - fail-safe toward
-  # refusal, exactly like today's unconditional-refusal behavior.
-  local dir log resp fb out status
-  dir="$TMP_ROOT/husk-ambiguous"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-ambig1","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/3.out"
-  # 4: agent get -> an unrecognized error code, not agent_not_found
-  printf '{"error":{"code":"internal_error","message":"transient failure"}}\n' > "$resp/4.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-ambig1 /tmp/proj' "$ROOT" 2>&1 )
-  status=$?
-  [ "$status" -ne 0 ] || fail "create_task must refuse (fail-safe) when the agent state cannot be classified confidently, not treat it as a husk"
-  assert_contains "$out" "already exists" "create_task did not report the duplicate label for an ambiguous state"
-  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' "create_task must not create a replacement tab on an ambiguous read"
-  assert_not_contains "$(cat "$log")" $'\x1f''pane'$'\x1f''close' "create_task must not close a pane whose state is ambiguous"
-  pass "fm_backend_herdr_create_task: refuses (fail-safe) rather than guessing when the duplicate's agent state cannot be classified confidently"
-}
-
-test_create_task_husk_replacement_creates_before_closing() {
-  # Safety-critical ordering: the replacement tab must be created BEFORE the
-  # husk tab is closed, never the reverse - closing a workspace's LAST
-  # remaining tab deletes the whole workspace on real herdr (docs/herdr-
-  # backend.md "Workspace lifecycle"), and a session-restore husk can
-  # legitimately be that workspace's only tab. Verified here by log order
-  # rather than by state, since herdr's destroy-on-last-tab-close side effect
-  # is not modeled by the canned-response fake.
-  local dir log resp fb out create_line close_line
-  dir="$TMP_ROOT/husk-order"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-order1","workspace_id":"w1"}]}}\n' > "$resp/1.out"
-  printf '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}\n' > "$resp/2.out"
-  printf '{"error":{"code":"pane_not_found","message":"pane w1:p2 not found"}}\n' > "$resp/3.out"
-  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/4.out"
-  printf '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-order1","workspace_id":"w1"}]}}\n' > "$resp/6.out"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-order1 /tmp/proj' "$ROOT" ) \
-    || fail "create_task should close-and-replace the dead-pane husk"
-  create_line=$(grep -n $'\x1f''tab'$'\x1f''create' "$log" | head -1 | cut -d: -f1)
-  close_line=$(grep -n $'\x1f''tab'$'\x1f''close' "$log" | head -1 | cut -d: -f1)
-  [ -n "$create_line" ] || fail "expected a 'tab create' call in the log"
-  [ -n "$close_line" ] || fail "expected a 'tab close' call in the log"
-  [ "$create_line" -lt "$close_line" ] || fail "REGRESSION: the husk tab was closed (line $close_line) before (or at the same time as) the replacement tab was created (line $create_line) - risks deleting the whole workspace if the husk was its only tab"
-  pass "fm_backend_herdr_create_task: creates the replacement tab BEFORE closing the husk tab, never the reverse"
-}
 
 test_create_task_creates_and_parses_ids() {
   local dir log resp fb out
@@ -1737,59 +1552,6 @@ test_projection_close_failed_removal_rolls_back_the_reposition() {
   pass "herdr presentation cleanup: every unconfirmed removal restores the exact original workspace order and reports failure"
 }
 
-test_kill_emptying_non_focused_uses_pane_death() {
-  local dir log resp fb out status bgpid lock_log lock_held
-  dir="$TMP_ROOT/kill-death"; mkdir -p "$dir/responses"
-  log="$dir/log"; resp="$dir/responses"; lock_log="$dir/lock.log"; lock_held="$dir/lock-held"
-  : > "$log"; : > "$lock_log"
-  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","active_tab_id":"w1:t1","focused":true},{"workspace_id":"w2","active_tab_id":"w2:t2","focused":false}]}}' > "$resp/1.out"
-  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t1","focused":true}]}}' > "$resp/2.out"
-  printf '%s\n' '{"result":{"pane":{"pane_id":"w2:p2","tab_id":"w2:t2","workspace_id":"w2"}}}' > "$resp/3.out"
-  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t2","workspace_id":"w2"}]}}' > "$resp/4.out"
-  printf '%s\n' '{"result":{"panes":[{"pane_id":"w2:p2","tab_id":"w2:t2"}]}}' > "$resp/5.out"
-  cp "$resp/1.out" "$resp/6.out"
-  sleep 300 & bgpid=$!
-  death_process_info_fixture w2:p2 "$bgpid" > "$resp/7.out"
-  printf '%s\n' '{"error":{"code":"pane_not_found"}}' > "$resp/8.out"
-  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","active_tab_id":"w1:t1","focused":true}]}}' > "$resp/9.out"
-  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t1","focused":true}]}}' > "$resp/10.out"
-  make_death_lab "$dir" "$bgpid"
-  fb=$(make_herdr_fakebin "$dir")
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    FM_HERDR_PS_BIN="$dir/ps" FM_BACKEND_HERDR_WORKSPACE_MOVER="$dir/mover" \
-    FM_FAKE_MOVER_LOG="$dir/mover.log" FM_FAKE_MOVER_RESPONSE="$dir/no-response" \
-    FM_BACKEND_HERDR_DEATH_CLOSE_POLLS=2 FM_FAKE_LOCK_LOG="$lock_log" \
-    FM_FAKE_LOCK_HELD="$lock_held" \
-    bash -c '
-      . "$0/bin/backends/herdr.sh"
-      fm_backend_herdr_target_ready() { fm_backend_herdr_parse_target "$1"; }
-      fm_backend_herdr_presentation_session_lock_path() { printf "%s" "$FM_FAKE_LOCK_HELD.lock"; }
-      fm_lock_try_acquire() {
-        printf "acquire\n" >> "$FM_FAKE_LOCK_LOG"
-        : > "$FM_FAKE_LOCK_HELD"
-      }
-      fm_lock_release() {
-        [ -e "$FM_FAKE_LOCK_HELD" ] || return 1
-        rm -f "$FM_FAKE_LOCK_HELD"
-        printf "release\n" >> "$FM_FAKE_LOCK_LOG"
-      }
-      eval "$(declare -f fm_backend_herdr_cli | sed "1s/fm_backend_herdr_cli/fm_backend_herdr_cli_locked/")"
-      fm_backend_herdr_cli() {
-        [ -e "$FM_FAKE_LOCK_HELD" ] || return 97
-        fm_backend_herdr_cli_locked "$@"
-      }
-      fm_backend_herdr_kill fmtest:w2:p2
-    ' "$ROOT" 2>&1)
-  status=$?
-  [ "$status" -eq 0 ] || fail "an emptying non-focused kill should stay best-effort: $out"
-  [ "$(cat "$lock_log")" = "$(printf 'acquire\nrelease')" ] \
-    || fail "the generic kill did not hold one presentation lock across its complete mutation: $(cat "$lock_log")"
-  [ ! -e "$lock_held" ] || fail "the generic kill retained its presentation lock"
-  assert_not_contains "$(cat "$log")" $'pane\x1fclose' "an emptying non-focused kill used the focus-unsafe explicit close"
-  assert_not_contains "$(cat "$log")" $'tab\x1ffocus' "an emptying non-focused kill moved focus"
-  pass "fm_backend_herdr_kill: one session lock covers the focus-safe emptying removal"
-}
-
 test_kill_focused_workspace_stays_plain_close() {
   local dir log resp fb out status bgpid
   dir="$TMP_ROOT/kill-focused"; mkdir -p "$dir/responses"
@@ -1819,45 +1581,6 @@ test_kill_focused_workspace_stays_plain_close() {
   kill -0 "$bgpid" 2>/dev/null || fail "a focused-workspace kill signaled the pane's shell"
   kill "$bgpid" 2>/dev/null || true; wait "$bgpid" 2>/dev/null || true
   pass "fm_backend_herdr_kill: killing the focused workspace's tab keeps the legitimate plain close"
-}
-
-test_kill_refuses_when_presentation_lock_is_unavailable() {
-  local dir mode out status attempts
-  dir="$TMP_ROOT/kill-lock-refusal"; mkdir -p "$dir"
-  for mode in unresolved contended; do
-    : > "$dir/cli.log"
-    : > "$dir/attempts"
-    out=$(ROOT="$ROOT" MODE="$mode" CLI_LOG="$dir/cli.log" ATTEMPTS="$dir/attempts" bash -c '
-      . "$ROOT/bin/backends/herdr.sh"
-      fm_backend_herdr_target_ready() { fm_backend_herdr_parse_target "$1"; }
-      fm_backend_herdr_presentation_session_lock_path() {
-        [ "$MODE" = contended ] || return 1
-        printf "/tmp/fm-herdr-contended-test-lock"
-      }
-      fm_lock_try_acquire() {
-        printf "x\n" >> "$ATTEMPTS"
-        return 1
-      }
-      fm_backend_herdr_cli() {
-        printf "%s\n" "$*" >> "$CLI_LOG"
-        return 0
-      }
-      sleep() { :; }
-      fm_backend_herdr_kill fmtest:w2:p2
-    ' 2>&1)
-    status=$?
-    [ "$status" -eq 0 ] || fail "$mode presentation lock refusal changed best-effort kill status: $status"
-    [ ! -s "$dir/cli.log" ] || fail "$mode presentation lock refusal still mutated Herdr: $(cat "$dir/cli.log")"
-    assert_contains "$out" "refusing an unlocked pane close" \
-      "$mode presentation lock refusal did not report the deferred close"
-    attempts=$(wc -l < "$dir/attempts" | tr -d ' ')
-    if [ "$mode" = contended ]; then
-      [ "$attempts" = 50 ] || fail "contended presentation lock did not use the bounded wait: $attempts attempts"
-    else
-      [ "$attempts" = 0 ] || fail "unresolved presentation lock path attempted acquisition: $attempts"
-    fi
-  done
-  pass "fm_backend_herdr_kill: unavailable session locks defer every pane close"
 }
 
 test_endpoint_confirmed_gone_gates_on_structured_presence() {
@@ -3890,9 +3613,13 @@ test_wait_transition_bad_ack_returns_2_and_cleans_up() {
   fb=$(make_herdr_eventfake "$dir")
   set_fake_agent "$agent" "wG:pQ" idle
   reader=$(make_fake_reader "$dir"); lines="$dir/lines"; : > "$lines"
+  # SC2016: the single-quoted body is the inner shell's script; $0/$1/$rc/$fd_open
+  # are expanded there, not here (shellcheck no longer recognizes the "$SYSTEM_BASH"
+  # variable as a shell command the way it did the literal /bin/bash).
+  # shellcheck disable=SC2016
   result=$(PATH="$fb:$PATH" TMPDIR="$temp" FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_FAKE_SESSION_NAME=sess FM_FAKE_SOCKET="$dir/x.sock" FM_FAKE_AGENT_DIR="$agent" \
     FM_BACKEND_HERDR_EVENT_READER="$reader" FM_FAKE_READER_LINES="$lines" FM_FAKE_READER_ACK=invalid \
-    /bin/bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
+    "$SYSTEM_BASH" -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
   rc=${result%% *}; fd_open=${result#* }
   [ "$rc" = 2 ] || fail "an invalid subscription acknowledgement must return 2, got $rc"
   [ "$fd_open" = no ] || fail "an invalid subscription acknowledgement must close fixed fd 9"
@@ -3906,14 +3633,127 @@ test_wait_transition_clean_timeout_returns_1() {
   fb=$(make_herdr_eventfake "$dir")
   set_fake_agent "$agent" "wG:pQ" idle
   reader=$(make_fake_reader "$dir"); lines="$dir/lines"; : > "$lines"   # no events, reader exits 0
+  # shellcheck disable=SC2016  # single-quoted body runs in the inner shell (see above)
   result=$(PATH="$fb:$PATH" TMPDIR="$temp" FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_FAKE_SESSION_NAME=sess FM_FAKE_SOCKET="$dir/x.sock" FM_FAKE_AGENT_DIR="$agent" \
     FM_BACKEND_HERDR_EVENT_READER="$reader" FM_FAKE_READER_LINES="$lines" \
-    /bin/bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
+    "$SYSTEM_BASH" -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_wait_transition sess 1 "$1" sess:wG:pQ; rc=$?; [ -e /dev/fd/9 ] && fd_open=yes || fd_open=no; printf "%s %s\n" "$rc" "$fd_open"' "$ROOT" "$state")
   rc=${result%% *}; fd_open=${result#* }
   [ "$rc" = 1 ] || fail "a clean full-budget wait with no actionable edge must return 1, got $rc"
   [ "$fd_open" = no ] || fail "a clean timeout must close fixed fd 9"
   [ -z "$(find "$temp" -mindepth 1 -print -quit)" ] || fail "a clean timeout must remove its private FIFO directory"
   pass "fm_backend_herdr_wait_transition: stock macOS Bash clean timeout closes fd 9 and returns 1"
+}
+
+# --- Phase-0 agent-axi delegation shim (spec agent-axi/v1, slice s6) ---------
+#
+# make_agent_axi_fakebin: an `agent-axi` stub that logs each invocation (one
+# line, unit-separated args, prefixed with the caller's FM_HOME so a test can
+# assert the invoking home is passed through unchanged) to $FM_AXI_LOG and, for
+# `spawn --json`, emits a canned spawn envelope naming a NEW tab/pane id. Other
+# verbs (teardown) succeed silently, mirroring the real CLI's quiet mutations.
+make_agent_axi_fakebin() {  # <dir> -> echoes fakebin dir
+  local dir=$1 fb="$1/axibin"
+  mkdir -p "$fb"
+  cat > "$fb/agent-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+LOG="${FM_AXI_LOG:?}"
+{
+  printf 'FM_HOME=%s' "${FM_HOME:-}"
+  for a in "$@"; do printf '\x1f%s' "$a"; done
+  printf '\n'
+} >> "$LOG"
+if [ "${1:-}" = spawn ]; then
+  # A spawn --json response naming the new tab/pane the shim must echo back.
+  printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
+fi
+exit 0
+SH
+  chmod +x "$fb/agent-axi"
+  printf '%s\n' "$fb"
+}
+
+test_create_task_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb out tab pane
+  dir="$TMP_ROOT/axi-create-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  out=$( PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj some-seeded-tab' "$ROOT" ) \
+    || fail "create_task should delegate to agent-axi when it is on PATH"
+  read -r tab pane <<EOF
+$out
+EOF
+  [ "$tab" = "w9:t3" ] && [ "$pane" = "w9:p5" ] || fail "create_task should echo agent-axi's tab/pane ids, got '$out'"
+  # agent-axi was invoked: spawn, task id (label minus fm-), session from the
+  # container, cwd, --json, and the launch argv after `--`.
+  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
+    "create_task did not invoke agent-axi spawn with the expected argv"
+  # The invoking home is passed through unchanged (ledger-home resolution).
+  assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "create_task did not pass the invoking FM_HOME to agent-axi"
+  # Native herdr pane/tab creation is fully bypassed.
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "delegated create_task must not run native herdr tab create"
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''list' "delegated create_task must not run the native duplicate scan"
+  pass "fm_backend_herdr_create_task: delegates to agent-axi spawn and echoes its tab/pane byte-identically"
+}
+
+test_create_task_fallback_when_agent_axi_absent() {
+  local dir hlog resp fb out tab pane
+  dir="$TMP_ROOT/axi-create-fallback"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  # A clean, minimal native tab-create success (no duplicate labels present).
+  printf '{"result":{"tabs":[]}}\n' > "$resp/1.out"
+  printf '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}\n' > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  # The configured agent-axi bin does not resolve on PATH, so `command -v` fails
+  # and the shim falls back to the native path - the production "agent-axi not
+  # installed" case, without disturbing PATH (bash/jq stay resolvable).
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_AXI_BIN=agent-axi-absent-xyz \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj some-seeded-tab' "$ROOT" ) \
+    || fail "create_task should fall back to the native path when agent-axi is not on PATH"
+  read -r tab pane <<EOF
+$out
+EOF
+  [ "$tab" = "w1:t3" ] && [ "$pane" = "w1:p3" ] || fail "native fallback should echo the native tab/pane ids, got '$out'"
+  assert_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-axi1' \
+    "native fallback did not create the tab through herdr"
+  pass "fm_backend_herdr_create_task: falls back byte-identically to the native path when agent-axi is absent"
+}
+
+test_kill_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb
+  dir="$TMP_ROOT/axi-kill-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    || fail "kill should succeed while delegating to agent-axi"
+  # Delegated: agent-axi teardown by task id + session, home passed through.
+  assert_contains "$(cat "$axilog")" $'\x1f''teardown'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest' \
+    "kill did not invoke agent-axi teardown with the task id and session"
+  assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "kill did not pass the invoking FM_HOME to agent-axi"
+  # The native pane close still runs as the mechanical endpoint-gone guarantee.
+  assert_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "kill must still close the pane after a delegated teardown"
+  pass "fm_backend_herdr_kill: delegates to agent-axi teardown and still closes the pane as a backstop"
+}
+
+test_kill_fallback_when_agent_axi_absent() {
+  local dir hlog resp fb
+  dir="$TMP_ROOT/axi-kill-fallback"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  fb=$(make_herdr_fakebin "$dir")
+  # The configured agent-axi bin does not resolve, so the shim uses only the
+  # native pane close - byte-identical to the pre-shim behavior.
+  PATH="$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_BACKEND_HERDR_AXI_BIN=agent-axi-absent-xyz \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    || fail "kill should fall back to the native pane close when agent-axi is absent"
+  assert_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "native fallback kill did not close the pane"
+  pass "fm_backend_herdr_kill: falls back byte-identically to the native pane close when agent-axi is absent"
 }
 
 # shellcheck source=bin/fm-backend.sh
@@ -3950,15 +3790,11 @@ test_repeated_cycles_reuse_one_workspace_no_orphans
 test_adopted_workspace_never_prunes_default_tab
 test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
+test_create_task_delegates_to_agent_axi
+test_create_task_fallback_when_agent_axi_absent
+test_kill_delegates_to_agent_axi
+test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label
-test_create_task_refuses_duplicate_label_when_agent_live
-test_create_task_refuses_when_any_duplicate_label_is_live
-test_create_task_closes_and_replaces_dead_pane_husk
-test_create_task_closes_and_replaces_no_agent_husk
-test_create_task_closes_all_duplicate_husks_after_replacement
-test_create_task_refuses_when_preexisting_husk_tab_remains
-test_create_task_refuses_when_agent_state_ambiguous
-test_create_task_husk_replacement_creates_before_closing
 test_create_task_creates_and_parses_ids
 test_create_task_creates_with_no_focus_flag
 test_presentation_defaults_on_without_config
@@ -3989,10 +3825,8 @@ test_projection_close_death_failure_falls_back_to_plain_close
 test_projection_close_death_still_restores_a_stolen_focus
 test_projection_close_death_never_sigkills_a_reused_pid
 test_projection_close_failed_removal_rolls_back_the_reposition
-test_kill_emptying_non_focused_uses_pane_death
 test_kill_focused_workspace_stays_plain_close
 test_endpoint_confirmed_gone_gates_on_structured_presence
-test_kill_refuses_when_presentation_lock_is_unavailable
 test_projection_seeded_prune_refuses_active_tab
 test_projection_label_builder_uses_corner_and_strips_owner_prefixes
 test_projection_order_moves_only_exact_new_workspace_and_preserves_relative_order

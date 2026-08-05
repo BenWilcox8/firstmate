@@ -84,14 +84,14 @@
 #          Set FM_FLEET_PRUNE=0 to skip branch pruning during that refresh.
 #          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
 #          (PR-check migration, secondmate_sync, secondmate_liveness_sweep,
-#          secondmate_handoff_resume, x_mode_setup, fleet_sync) while still
+#          secondmate_handoff_resume, herdr_layout_repair_sweep, x_mode_setup, fleet_sync) while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
 #          PR-check artifacts, secondmate homes, pending handoff outboxes,
-#          X-mode artifacts, project clones, or repair instructions.
+#          herdr layout, X-mode artifacts, project clones, or repair instructions.
 #          Unset/0 (the default) runs every sweep exactly as before - this flag
 #          is purely additive.
 #        fm-bootstrap.sh install <tool>...
@@ -125,6 +125,22 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-herdr-layout-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
+
+# herdr_layout_repair_sweep: at a locked session boundary, ask agent-axi to
+# converge this home's live herdr workspace to its slot plan (reap husks, re-bind
+# drifted labels), so a layout that drifted while firstmate was away self-heals
+# on session start. A definitive no-op unless this is a herdr-backed home with a
+# resolvable agent-axi (fm_herdr_layout_applicable); a converged workspace stays
+# silent, and a heal reports one BOOTSTRAP_INFO fact. Never fails the bootstrap:
+# the whole layout model is best-effort supervision, not a spawn precondition.
+herdr_layout_repair_sweep() {
+  local summary
+  summary=$(fm_herdr_layout_repair 2>/dev/null) || return 0
+  [ -n "$summary" ] || return 0
+  echo "BOOTSTRAP_INFO: $summary"
+}
 
 fleet_sync_origin_backed_project_count() {
   local count proj
@@ -1069,6 +1085,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   secondmate_liveness_sweep
   secondmate_sync
   secondmate_handoff_resume
+  herdr_layout_repair_sweep
   x_mode_setup
   fleet_sync
 fi

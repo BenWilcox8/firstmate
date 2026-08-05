@@ -145,6 +145,10 @@
       "audience": "agent-runtime"
     },
     {
+      "path": ".agents/skills/filesystem-map/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": ".agents/skills/firstmate-orca/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -241,6 +245,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/examples/claude-accounts.json",
+      "audience": "operator-example"
+    },
+    {
       "path": "docs/examples/crew-dispatch.json",
       "audience": "operator-example"
     },
@@ -254,6 +262,10 @@
     },
     {
       "path": "docs/fm-test-portable-shards.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/harness-neutrality-audit.md",
       "audience": "maintainer-verification"
     },
     {

@@ -82,7 +82,10 @@ Missing, empty, duplicate, malformed, backend-inconsistent, or task-mismatched e
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 [`herdr-backend.md`](herdr-backend.md#watching-and-task-containers) owns launcher-bound workspace placement, the label-only fallback, collision handling, and recovery behavior.
-The local `config/herdr-presentation-spaces` file instead opts a home out of Herdr's default-on disposable single-task visual projection; [Presentation spaces](herdr-backend.md#presentation-spaces) owns its accepted values, default, migration, behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
+The default-container spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Pane placement inside that default container - tab vs split, the slot plan, overflow, and husk reaping - is owned by `agent-axi`, not firstmate config: firstmate's herdr adapter delegates the pane lifecycle to it and keeps only a minimal fallback for hosts without agent-axi (see [`docs/herdr-backend.md`](herdr-backend.md) "Delegation architecture").
+There is no `config/herdr-layout` knob; the old bash split-mode config and its `FM_HERDR_*` overrides were removed in phase 1 of the agent-axi migration (spec agent-axi/v1).
+The local `config/herdr-presentation-spaces` file controls Herdr's default-on disposable single-task visual projection; [Presentation spaces](herdr-backend.md#presentation-spaces) owns its accepted values, default, migration, behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
 The setting is inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
 Use the explicit guarded cleanup path described in [`docs/herdr-backend.md`](herdr-backend.md) instead of `herdr server stop`.
@@ -124,6 +127,13 @@ When launching a Secondmate, the primary copies the presence flag into its home 
 A Secondmate on a remote route is covered the same way: the primary resolves and records that task's carrier, and the configured host exports it and receives the same enablement snapshot.
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
+
+## Specs board (config/specs)
+
+`config/specs` is the activation pointer for the specs skill set: a local, gitignored, per-home file whose content is the absolute path to the local specs repo.
+It is installer-provisioned rather than firstmate-written, and it is not propagated into secondmate homes.
+When the file is absent, there is no specs board wiring and the `specs`, `spec-authoring`, and `spec-slicing` skills are never loaded.
+When it is present, firstmate loads those skills at the trigger points named in [`AGENTS.md`](../AGENTS.md) section 13, which owns the lifecycle-moment map.
 
 ## Gate defaults (.no-mistakes.yaml)
 
@@ -277,6 +287,35 @@ Valid files stay silent by default; with `FM_BOOTSTRAP_VERBOSE_FACTS=1`, bootstr
 Malformed JSON, an empty or malformed rule/default array, an unverified harness, or an effort value unsupported by that harness is reported as `CREW_DISPATCH: invalid config/crew-dispatch.json - ...`; missing `jq` is reported through the normal `MISSING: jq` install-consent flow.
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
+
+## Claude accounts (config/claude-accounts.json)
+
+`config/claude-accounts.json` is an optional local, gitignored file listing the Claude subscriptions this home may launch a claude-harness agent on.
+A captain holding more than one Claude account keeps each one in its own Claude config directory, and each directory carries its own independent session and weekly usage windows.
+With the file absent the whole feature is inert: a claude spawn behaves exactly as it did before multi-account routing existed.
+This section is the single owner of the schema; `bin/fm-claude-account.sh`'s header owns the selection mechanics, and `bin/fm-spawn.sh`'s header owns the `--account` flag and how the choice reaches the launch.
+
+```json
+{
+  "accounts": [
+    { "name": "<stable short name>", "configDir": "<absolute path, or ~/ path, to that account's Claude config dir>" }
+  ]
+}
+```
+
+`accounts` is required and needs at least one entry, and every entry needs both `name` and `configDir`.
+A name may use only letters, digits, dot, underscore, and dash, and names must be unique.
+A `configDir` may start with `~/` and must resolve to an existing directory.
+List the account that should serve as the fallback first: it is the one selected when no account's usage can be read at all.
+See [`docs/examples/claude-accounts.json`](examples/claude-accounts.json) for a starting point to copy into local `config/claude-accounts.json`.
+
+At each claude spawn, firstmate scores every configured account by the minimum `percentRemaining` across its session (`five_hour`) and weekly (`seven_day`) windows, read per account through `CLAUDE_CONFIG_DIR=<dir> quota-axi --provider claude --json`, and launches on the highest score.
+An account at or beyond 90% session used or 95% weekly used is ineligible while any eligible account exists; when every account breaches a ceiling the one with the most headroom is still used and a warning is printed.
+An account whose usage cannot be read is never chosen by score, and when no account can be read the first configured account is used with a warning.
+`fm-spawn.sh --account <name>` pins one exact account and skips scoring entirely.
+The selected account is recorded as `account=<name>` in that task's durable record and named on the spawn's success line; with no accounts config neither appears.
+Malformed configuration is never selected around: it aborts the spawn with the exact reason before any worker or record exists.
+Inspect the current picture at any time with `bin/fm-claude-account.sh score`.
 
 ## Toolchain
 
@@ -490,6 +529,7 @@ FM_BACKEND_HERDR_BARE_PROMPT_RE='^(❯|›)'  # herdr-only: verified agent glyph
 FM_BACKEND_HERDR_PI_COMPOSER_MAX_LINES=8  # herdr-only: maximum rows admitted between Pi's native-identity-corroborated separator pair; taller or ambiguous candidates stay unknown (docs/herdr-backend.md "Composer and injection safety")
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Current transport behavior")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
+FM_BACKEND_HERDR_AXI_BIN=agent-axi  # herdr-only: executable the pane-lifecycle delegation and the layout repair/snapshot wiring resolve; an empty value forces the minimal native tab-per-task fallback (docs/herdr-backend.md "Delegation architecture")
 FM_BACKEND_ORCA_COMPOSER_LINES=200  # orca-only: terminal-read lines scanned to locate the composer row for submit verification
 FM_BACKEND_ORCA_IDLE_RE='^Type a message\.\.\.$'  # orca-only: empty-composer placeholder regex after border/prompt stripping
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)

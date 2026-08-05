@@ -56,10 +56,14 @@ fm_pid_identity() {
     printf '%s=%s cmdline-hex=%s\n' "$identity_key" "$starttime" "$cmdline_hex"
     return 0
   fi
-  # Pin LC_ALL=C so lstart's date format is locale-invariant: the identity is
-  # written under one locale but re-read under the machine's ambient locale, which
-  # would otherwise mismatch on a non-C locale (e.g. ko_KR) and reject a live watcher.
-  out=$(LC_ALL=C ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
+  # Non-Linux fallback. Pin LC_ALL=C so lstart's date FORMAT is locale-invariant
+  # (written under one locale but re-read under the machine's ambient locale would
+  # otherwise mismatch on a non-C locale such as ko_KR), and TZ=UTC so its date
+  # STRING is timezone-invariant too: the identity is written once (by the
+  # watcher) and re-read later (by arm/guard/turn-end hooks), potentially under a
+  # different ambient TZ (e.g. CDT vs UTC), which would otherwise render a
+  # different lstart string and falsely reject a live watcher.
+  out=$(LC_ALL=C TZ=UTC ps -p "$pid" -o lstart= -o command= 2>/dev/null) || return 1
   [ -n "$out" ] || return 1
   printf '%s\n' "$out" | sed 's/^[[:space:]]*//'
 }

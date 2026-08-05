@@ -13,7 +13,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 # The client under test uses the real jq; make it resolvable regardless of where
 # it is installed (Homebrew, Nix profile bins, etc.), which the bare BASE_PATH may
 # not include. Prepended after the fakebin so the fake curl still wins.
@@ -2652,22 +2652,23 @@ test_followup_post_failure_keeps_link() {
 }
 
 test_followup_post_record_failure_clears_link() {
-  local home fakebin out rc meta err flag mvflag
+  local home fakebin out rc meta err flag mvflag real_mv
   home="$TMP_ROOT/fu-post-record-fail"; mkdir -p "$home/state"
   fakebin=$(make_fake_curl "$home")
   flag="$home/fail-followups-write"
   mvflag="$home/mv-failed-once"
   err="$home/err.txt"
-  cat > "$fakebin/mv" <<'SH'
+  real_mv=$(command -v mv)
+  cat > "$fakebin/mv" <<SH
 #!/usr/bin/env bash
-if [ -n "${FAKE_MV_FAIL_AFTER_FLAG:-}" ] \
-  && [ -f "$FAKE_MV_FAIL_AFTER_FLAG" ] \
-  && [ -n "${FAKE_MV_FAILED_ONCE:-}" ] \
-  && [ ! -f "$FAKE_MV_FAILED_ONCE" ]; then
-  : > "$FAKE_MV_FAILED_ONCE"
+if [ -n "\${FAKE_MV_FAIL_AFTER_FLAG:-}" ] \\
+  && [ -f "\$FAKE_MV_FAIL_AFTER_FLAG" ] \\
+  && [ -n "\${FAKE_MV_FAILED_ONCE:-}" ] \\
+  && [ ! -f "\$FAKE_MV_FAILED_ONCE" ]; then
+  : > "\$FAKE_MV_FAILED_ONCE"
   exit 2
 fi
-exec /bin/mv "$@"
+exec '$real_mv' "\$@"
 SH
   chmod +x "$fakebin/mv"
   printf 'FMX_PAIRING_TOKEN=tok-fu\n' > "$home/.env"

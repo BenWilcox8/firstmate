@@ -75,6 +75,10 @@ mkdir -p "$STATE"
 . "$SCRIPT_DIR/fm-x-lib.sh"
 # shellcheck source=bin/fm-check-lib.sh
 . "$SCRIPT_DIR/fm-check-lib.sh"
+# Shared agent-axi herdr-layout wiring (drift probe for the heartbeat below);
+# a definitive no-op on any non-herdr home or without agent-axi.
+# shellcheck source=bin/fm-herdr-layout-lib.sh
+. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
 # Parent-owned secondmate missed-report guards: durable pending-reply
 # expectations created by fm-send on marked secondmate requests. The tick is
 # cheap when no records exist and never scrapes secondmate conversation.
@@ -621,6 +625,29 @@ heartbeat_scan_finds_actionable() {
   return 1
 }
 
+# Herdr layout-drift surfacing (spec agent-axi/v1, phase 1). agent-axi owns the
+# slot ledger and converges the live workspace, but the watcher must never mutate
+# geometry on its own cadence, so the heartbeat only PREVIEWS drift with the
+# read-only `layout --repair --dry-run` (fm_herdr_layout_drift) and surfaces it as
+# a heartbeat wake for firstmate to heal. A no-op on any non-herdr home or without
+# agent-axi. Deduped against .herdr-layout-drift-surfaced so a persistent drift is
+# woken once, not every heartbeat (a healed or newly-shaped drift re-fires).
+_HERDR_DRIFT_MARKER="$STATE/.herdr-layout-drift-surfaced"
+
+# 0 when the live herdr layout has drifted AND that drift signature has not
+# already been surfaced; sets _HERDR_DRIFT_PENDING to the fresh signature so the
+# caller records it only after enqueuing the wake (enqueue-before-suppress).
+heartbeat_finds_herdr_layout_drift() {
+  local sig surfaced
+  _HERDR_DRIFT_PENDING=""
+  sig=$(fm_herdr_layout_drift 2>/dev/null) || return 1
+  [ -n "$sig" ] || return 1
+  surfaced=$(cat "$_HERDR_DRIFT_MARKER" 2>/dev/null || true)
+  [ "$surfaced" = "$sig" ] && return 1
+  _HERDR_DRIFT_PENDING="$sig"
+  return 0
+}
+
 # event_wait_or_sleep: the terminal wait of each supervision cycle. For a home
 # with push-capable windows (herdr), it replaces the blind `sleep POLL` with a
 # bounded wait on the backend's native transition stream, so a crew going
@@ -1112,6 +1139,15 @@ EOF
       fm_wake_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced
+      wake "heartbeat"
+    elif heartbeat_finds_herdr_layout_drift; then
+      # The live herdr workspace has drifted from agent-axi's slot plan. Surface it
+      # as a heartbeat wake (firstmate heals with a full layout --repair); record
+      # the drift signature only AFTER enqueuing so a crash cannot suppress an
+      # un-surfaced drift (enqueue-before-suppress, as above).
+      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      touch "$STATE/.last-heartbeat"
+      printf '%s' "$_HERDR_DRIFT_PENDING" > "$_HERDR_DRIFT_MARKER"
       wake "heartbeat"
     else
       touch "$STATE/.last-heartbeat"

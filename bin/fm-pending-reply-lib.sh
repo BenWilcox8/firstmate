@@ -105,14 +105,27 @@ fm_pending_reply_path() {  # <state-dir> <corr_id>
 
 # Privacy-safe correlation id: 16 lowercase hex chars (64 bits of entropy).
 fm_pending_reply_new_id() {
-  local raw hex
+  local raw='' hex=''
+  # Primary: openssl (high entropy, widely available).
   if command -v openssl >/dev/null 2>&1; then
     raw=$(openssl rand -hex 8 2>/dev/null || true)
   fi
+  # First fallback: od from /dev/urandom (POSIX; available without openssl).
+  if [ -z "$raw" ] && [ -r /dev/urandom ] && command -v od >/dev/null 2>&1; then
+    raw=$(od -An -N8 -tx1 /dev/urandom 2>/dev/null | tr -cd 'a-f0-9' | cut -c1-16)
+  fi
+  # Last resort: hash of PID + time + entropy words.
   if [ -z "$raw" ]; then
-    raw=$(printf '%s' "$$-$(date +%s%N 2>/dev/null || date +%s)-$RANDOM$RANDOM" | cksum 2>/dev/null | awk '{print $1}')
-    hex=$(printf '%s' "$raw$RANDOM$RANDOM" | shasum -a 256 2>/dev/null | awk '{print $1}')
-    raw=${hex:0:16}
+    local seed
+    seed="$$-$(date +%s%N 2>/dev/null || date +%s)-$RANDOM$RANDOM"
+    if command -v sha256sum >/dev/null 2>&1; then
+      raw=$(printf '%s' "$seed" | sha256sum 2>/dev/null | awk '{print $1}')
+    elif command -v shasum >/dev/null 2>&1; then
+      raw=$(printf '%s' "$seed" | shasum -a 256 2>/dev/null | awk '{print $1}')
+    elif command -v cksum >/dev/null 2>&1; then
+      hex=$(printf '%x' "$(printf '%s' "$seed" | cksum 2>/dev/null | awk '{print $1}')" 2>/dev/null || true)
+      raw="$hex$hex$hex$hex"
+    fi
   fi
   printf '%s' "$(printf '%s' "$raw" | tr 'A-F' 'a-f' | tr -cd 'a-f0-9' | cut -c1-16)"
 }

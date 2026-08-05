@@ -617,6 +617,22 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable() {
   pass "fm-brief.sh: relative directory inputs ignore CDPATH, render stable absolute charter paths, or fail loudly"
 }
 
+test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
+  local home brief status=0
+  home="$TMP_ROOT/herdr-kind-home"
+  mkdir -p "$home/data"
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" herdr-scout firstmate --scout --herdr-lab >/dev/null 2>&1
+  brief="$home/data/herdr-scout/brief.md"
+  assert_grep "# Herdr isolation - HARD SAFETY CONTRACT" "$brief" \
+    "scout --herdr-lab brief missing the contract"
+
+  FM_HOME="$home" FM_SECONDMATE_CHARTER=ops "$ROOT/bin/fm-brief.sh" herdr-secondmate --secondmate firstmate --herdr-lab >/dev/null 2>&1 || status=$?
+  expect_code 1 "$status" "secondmate --herdr-lab must be rejected"
+  assert_absent "$home/data/herdr-secondmate/brief.md" \
+    "rejected secondmate --herdr-lab still wrote a brief"
+  pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
+}
+
 # Pin the captain decision (2026-07-27): crewmate briefs carry no dashboard signal
 # instructions; a crewmate reports through its status file and firstmate relays.
 # The dashboard-signals skill is the single owner of the spec-axi verb protocol,
@@ -624,9 +640,9 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable() {
 test_no_dashboard_signals_in_any_scaffold() {
   local home brief
   home="$TMP_ROOT/markers-home"
-  mkdir -p "$home/data"
+  write_registry "$home"
 
-  # Ship brief: verify no dashboard signal content regardless of delivery mode.
+  # Ship brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-ship some-proj --mode no-mistakes >/dev/null 2>&1
   brief="$home/data/markers-ship/brief.md"
   assert_no_grep "Dashboard signals" "$brief" \
@@ -646,8 +662,7 @@ test_no_dashboard_signals_in_any_scaffold() {
   assert_no_grep "%%dash-" "$brief" \
     "scout brief still carries a dashboard marker"
 
-  # Secondmate charter: supervisors do use spec-axi (via the dashboard-signals skill),
-  # but the scaffold itself must not carry the verb documentation as boilerplate.
+  # Secondmate charter.
   FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
     "$ROOT/bin/fm-brief.sh" markers-secondmate --secondmate --no-projects >/dev/null 2>&1
   brief="$home/data/markers-secondmate/brief.md"
@@ -659,22 +674,6 @@ test_no_dashboard_signals_in_any_scaffold() {
     "secondmate charter still carries a dashboard marker"
 
   pass "fm-brief.sh: no dashboard signal content in ship, scout, or secondmate scaffolds"
-}
-
-test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
-  local home brief status=0
-  home="$TMP_ROOT/herdr-kind-home"
-  mkdir -p "$home/data"
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" herdr-scout firstmate --scout --herdr-lab >/dev/null 2>&1
-  brief="$home/data/herdr-scout/brief.md"
-  assert_grep "# Herdr isolation - HARD SAFETY CONTRACT" "$brief" \
-    "scout --herdr-lab brief missing the contract"
-
-  FM_HOME="$home" FM_SECONDMATE_CHARTER=ops "$ROOT/bin/fm-brief.sh" herdr-secondmate --secondmate firstmate --herdr-lab >/dev/null 2>&1 || status=$?
-  expect_code 1 "$status" "secondmate --herdr-lab must be rejected"
-  assert_absent "$home/data/herdr-secondmate/brief.md" \
-    "rejected secondmate --herdr-lab still wrote a brief"
-  pass "fm-brief.sh: Herdr lab contract covers scouts and rejects secondmate misuse"
 }
 
 test_pause_verb_override_renders_all_brief_scaffolds() {
