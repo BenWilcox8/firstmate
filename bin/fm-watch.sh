@@ -26,7 +26,14 @@
 #                          human the wait is on. Only when neither absorb class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
-#                          both surfaced at once. A provably-working stale past the
+#                          both surfaced at once. A FINISHED line (done/failed)
+#                          already surfaced once (its mark_surfaced record
+#                          matches) is absorbed instead of re-fired while the
+#                          pane idles, so a parked crew escalates stale at most
+#                          once per distinct status line; an open needs-decision
+#                          or blocked line is never deduped that way, because
+#                          nothing re-raises it on a cadence.
+#                          A provably-working stale past the
 #                          wedge threshold also surfaces, with an "escalation N"
 #                          count in the reason; at FM_WEDGE_DEMAND_INSPECT_COUNT
 #                          consecutive escalations on the SAME pane, the reason
@@ -228,6 +235,60 @@ afk_present() { [ -e "$STATE/.afk" ]; }
 
 hash_pane() {
   if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi
+}
+
+# Volatile-footer normalization for staleness hashing. Harness TUIs redraw a
+# footer with ticking elapsed-time/token counters and rotating spinner glyphs
+# even while the agent sits idle, so hashing the raw capture makes every poll
+# look like fresh activity followed by fresh staleness and the same parked pane
+# re-fires stale wakes minutes apart. Collapse every digit run to a single 0
+# and drop the known spinner glyph rotations (claude's pulse set, the braille
+# spinner set, kimi's moon phases) before hashing, so a counter tick or spinner
+# turn is not activity.
+# A glyph this filter misses only restores the churny per-tick hash for that
+# harness - it can never mask a real content change - so the list stays small
+# and additive. LC_ALL=C keeps sed byte-oriented: the multibyte glyphs match as
+# literal byte sequences and raw captures with non-UTF-8 bytes cannot error.
+# The second and third expressions fold counter FORMAT transitions that digit
+# collapsing alone leaves behind: an elapsed counter grows units ("59s" ->
+# "1m 3s" -> "1h 2m 3s") and a token counter gains a decimal k suffix ("847"
+# -> "3.4k"), each of which would otherwise change the hash once per rollover.
+normalize_pane_volatiles() {
+  LC_ALL=C sed -E \
+    -e 's/[0-9]+/0/g' \
+    -e 's/0(\.0)+/0/g' \
+    -e 's/(0[hm][[:space:]]+)*0s/0s/g' \
+    -e 's/0k/0/g' \
+    -e 's/✢|✳|✶|✻|✽|·//g' \
+    -e 's/⠁|⠂|⠄|⡀|⢀|⠠|⠐|⠈|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏//g' \
+    -e 's/🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘//g'
+}
+
+# Lines of the captured tail treated as the harness footer. Every verified
+# harness renders its counters and spinner there, and window_is_busy already
+# reads the same bottom slice for its own indicator.
+PANE_FOOTER_LINES=${FM_PANE_FOOTER_LINES:-6}
+
+# Emit the hashing form of a captured tail: the footer normalized, everything
+# above it byte-exact. The capture is passed through byte-for-byte otherwise,
+# including a missing final newline, so the hash of an unchanged pane is the
+# same value it was before this split existed.
+# The split is the whole point. Digit collapsing over the WHOLE capture would
+# fold real progress output too - "Ran 12 tests, 0 failed" and "Ran 15 tests,
+# 3 failed" both become "Ran 0 tests, 0 failed", and a crew whose only visible
+# progress is a counter would read as idle and be surfaced as stale while it
+# worked. Confining the fold to the footer keeps the counter tick out of the
+# hash without buying it at the cost of blinding the watcher to real output.
+pane_hash_content() {  # <tail40>
+  local body=$1 total head_n
+  total=$(printf '%s' "$body" | grep -c '') || total=0
+  head_n=$((total - PANE_FOOTER_LINES))
+  if [ "$head_n" -le 0 ]; then
+    printf '%s' "$body" | normalize_pane_volatiles
+    return 0
+  fi
+  printf '%s' "$body" | head -n "$head_n"
+  printf '%s' "$body" | tail -n "+$((head_n + 1))" | normalize_pane_volatiles
 }
 
 # window_is_busy: 0 (busy) iff the task's harness is PROVABLY working, through
@@ -1375,7 +1436,7 @@ EOF
       continue
     fi
     tail40=$(fm_backend_capture "$(window_backend "$w")" "$w" 40 "$(window_label "$w")" 2>/dev/null) || continue
-    h=$(printf '%s' "$tail40" | hash_pane)
+    h=$(pane_hash_content "$tail40" | hash_pane)
     hf="$STATE/.hash-$key"
     cf="$STATE/.count-$key"
     sf="$STATE/.stale-$key"
@@ -1423,11 +1484,31 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            if crew_is_provably_working "$(window_to_task "$w" "$STATE")"; then
+            if crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
+            elif status_is_finished_outcome "$(last_status_line "$STATE/$task.status")" \
+              && [ "$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)" = "$(last_status_line "$STATE/$task.status")" ]; then
+              # This exact FINISHED line already woke firstmate once - the
+              # signal, stale, and heartbeat paths all record it through
+              # mark_surfaced. A parked pane drifting through residual hash
+              # changes (a footer format transition the normalization above
+              # cannot fold) must not re-fire the same terminal wake on every
+              # fresh hash; it stays absorbed until the status line itself
+              # changes, which resets this dedupe.
+              # The finished-outcome gate is what keeps this absorption safe.
+              # It is the one absorb class here with no bounded re-surface - the
+              # declared-pause classes have PAUSE_RESURFACE_SECS and the
+              # provably-working class has the wedge timer - so it is allowed
+              # only for a crew that is DONE. An open needs-decision or blocked
+              # line is a live call on firstmate that nothing else in this
+              # watcher re-raises on a cadence, so it keeps the surfacing path.
+              printf '%s' "$h" > "$sf"
+              rm -f "$ssf"
+              clear_write_tracking "$key"
+              triage_log "absorbed stale (finished status already surfaced): $w"
             else
               fm_wake_append stale "$w" "stale: $w" || exit 1
               printf '%s' "$h" > "$sf"

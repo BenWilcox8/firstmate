@@ -112,6 +112,22 @@ status_is_terminal_verb() {
   esac
 }
 
+# 0 if the given (last) status line's leading verb reports a FINISHED outcome
+# (done, failed) rather than an open call on firstmate (needs-decision, blocked).
+# Both halves are terminal verbs and both are captain-relevant, but only the
+# finished half is safe to dedupe against a record of having already surfaced:
+# an open decision or blocker is still waiting on somebody, so it must keep
+# every chance to surface (bin/fm-watch.sh's stale triage is the caller).
+status_is_finished_outcome() {  # <status-line>
+  local line=$1 verb
+  [ -n "$line" ] || return 1
+  verb=$(status_line_verb "$line")
+  case "$verb" in
+    done|failed) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # 0 if the given (last) status line matches a captain-relevant verb.
 # Verb-aware by default: terminal verbs always match; nonterminal progress verbs
 # (working, resolved, captain-held) and paused never match from free-text prose;

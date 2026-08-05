@@ -1119,6 +1119,236 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces() {
   pass "exited declared-pause and captain-held panes use bounded pause cadence while a live decision gate still surfaces once"
 }
 
+# Regression for the ticking-footer stale churn: an idle pane whose only
+# per-poll change is the harness footer's elapsed-time/token counters and
+# spinner glyph (including a unit-format rollover) must hash stably - one stale
+# surface, then quiet - while genuinely new pane content followed by silence
+# still fires a fresh stale on the normal cadence.
+# Each surfacing round is acknowledged before the next re-arm, so a re-armed
+# watcher's own resurface of unhandled durable work cannot be mistaken for the
+# footer re-firing a fresh stale.
+test_ticking_footer_only_change_is_idle() {
+  local dir state fakebin out capture_file statusf window pid wakes round
+  dir=$(make_case ticking-footer); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/tick.status"
+  window="test:fm-tick"
+  printf 'finished the refactor\n✻ Baking (12s | 847 tokens)\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\n' "$window" > "$state/tick.meta"
+  printf 'working: mid-task note\n' > "$statusf"
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-tick_status"
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+
+  # First sight: a not-provably-working non-terminal stale surfaces once.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "idle pane with a ticking footer did not surface its first stale"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "first footer stale wake missing: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the first footer stale"
+
+  # Footer-only tick: elapsed time rolls over to a new unit format, the token
+  # counter gains a k suffix, and the spinner glyph rotates. Same idle hash.
+  printf 'finished the refactor\n✽ Baking (1m 3s | 3.4k tokens)\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  # Three completed polls: the stale decision needs two consecutive identical
+  # hashes, so a watcher that reads the ticked footer as fresh activity gets
+  # its chance to re-fire before this phase can pass.
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "a footer-only tick re-fired a stale wake: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a footer-only tick printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "footer-only ticks changed the stale dedupe hash: $wakes wakes"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the footer-only absorb cycle"
+
+  # Genuinely new pane content followed by silence still fires a fresh stale.
+  printf 'finished the refactor\nwrote the report to data/report.md\n✻ Baking (13s | 901 tokens)\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "genuinely new content did not re-surface stale after silence"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "real-content stale wake missing: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 1 ] || fail "real content change did not fire exactly one more stale: $wakes wakes"
+  unset FM_FAKE_CREW_STATE
+  pass "footer-only ticks are idle; genuinely new content still fires stale on the normal cadence"
+}
+
+# Regression for the parked terminal-status churn: a pane whose task status
+# already escalated its terminal line once must not re-fire stale wakes while it
+# sits parked, even when residual pane drift keeps producing fresh hashes. A NEW
+# terminal line resets the dedupe and escalates.
+# Each surfacing round is acknowledged before the next re-arm, so a re-armed
+# watcher's own resurface of unhandled durable work cannot be mistaken for the
+# parked pane re-firing.
+test_terminal_parked_pane_escalates_stale_at_most_once() {
+  local dir state fakebin out capture_file statusf window pid wakes sig round
+  dir=$(make_case terminal-parked-once); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/parked.status"
+  window="test:fm-parked"
+  printf 'all done, parked\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/parked.meta"
+  printf 'done: ready in branch fm/parked\n' > "$statusf"
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-parked_status"
+  export FM_FAKE_CREW_STATE='state: stopped · source: pane · turn ended'
+
+  # First stale on the terminal status surfaces once and records it surfaced.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "parked terminal pane did not surface its first stale"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "first terminal stale wake missing: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the first parked terminal stale"
+
+  # The parked pane drifts to a fresh hash while the surfaced terminal line is
+  # unchanged: absorbed, never re-fired.
+  printf 'all done, parked\nsession idle banner redrawn\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  # Three completed polls: the stale decision needs two consecutive identical
+  # hashes, so a watcher that would re-fire the already-surfaced terminal line
+  # gets its chance before this phase can pass.
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "an already-surfaced terminal status re-fired stale on pane drift: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  reap "$pid"
+  [ ! -s "$out" ] || fail "an already-surfaced terminal status printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "parked terminal pane escalated stale $wakes more times (want none)"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the parked-drift absorb cycle"
+
+  # A NEW terminal line resets the dedupe: the next distinct stale escalates.
+  printf 'failed: rebase hit conflicts\n' >> "$statusf"
+  sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
+  printf 'all done, parked\nrebase conflict banner\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a NEW terminal line did not re-escalate stale"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "new-terminal stale wake missing: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 1 ] || fail "a new terminal line fired $wakes stale wakes (want exactly 1)"
+  unset FM_FAKE_CREW_STATE
+  pass "a parked terminal status escalates stale at most once until the status line itself changes"
+}
+
+# Regression for the cost of the footer normalization above: it collapses digit
+# runs, so applying it to the WHOLE capture would fold real progress output too
+# ("Ran 12 tests" and "Ran 15 tests" hash the same) and read an actively
+# progressing crew as an idle one. A crew whose only visible change is a counter
+# ABOVE the footer must keep producing a fresh hash on every poll and must never
+# reach the two-identical-hashes stale decision.
+test_progress_counters_above_the_footer_are_not_folded() {
+  local dir state fakebin out capture_file statusf window pid wakes n
+  dir=$(make_case body-progress); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/prog.status"
+  window="test:fm-prog"
+  printf 'window=%s\nkind=ship\nharness=claude\nbackend=tmux\n' "$window" > "$state/prog.meta"
+  printf 'working: running the suite\n' > "$statusf"
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-prog_status"
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+
+  # Each round advances only the counter on the FIRST line; the six footer lines
+  # below it never change, so the footer normalization has nothing to fold and
+  # the body must carry the difference on its own.
+  # Each round runs ONE poll and is then stopped. The interval is deliberately
+  # wider than the rest of this file's: the pane content is static within a
+  # round, so a third poll inside the same round would reach the
+  # two-identical-hashes stale decision on its own and report a folding failure
+  # that was really a slow reap. One poll per round is all this assertion needs.
+  for n in 12 15 23 41; do
+    {
+      printf 'Ran %s tests, 0 failed\n' "$n"
+      printf 'footer line a\nfooter line b\nfooter line c\n'
+      printf 'footer line d\nfooter line e\n'
+      printf '✻ Baking (12s | 847 tokens)\n'
+    } > "$capture_file"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+      FM_FAKE_TMUX_CURRENT_COMMAND=claude \
+      FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=3 FM_SIGNAL_GRACE=1 \
+      FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+    pid=$!
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "a changing progress counter above the footer was read as an idle pane (round $n): $(cat "$out")"
+    fi
+    reap "$pid"
+    ack_stopped_cycle "$state" || fail "could not acknowledge the progress round $n"
+  done
+  [ ! -s "$out" ] || fail "a progressing crew printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "a progressing crew was surfaced as stale $wakes times"
+  unset FM_FAKE_CREW_STATE
+  pass "a progress counter above the footer still changes the hash, so a working crew is not read as idle"
+}
+
+# The already-surfaced absorb above is deliberately unbounded - nothing re-raises
+# it on a cadence - so it is allowed only for a FINISHED outcome. An open
+# needs-decision is a live call on firstmate: it must keep surfacing on pane
+# drift exactly as it did before that absorb existed, or a lost wake would leave
+# the decision rotting invisibly.
+test_an_open_decision_is_never_deduped_by_the_finished_absorb() {
+  local dir state fakebin out capture_file statusf window pid wakes
+  dir=$(make_case open-decision-drift); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/decide.status"
+  window="test:fm-decide"
+  printf 'waiting on the captain\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/decide.meta"
+  printf 'needs-decision [key=db]: postgres or sqlite\n' > "$statusf"
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-decide_status"
+  export FM_FAKE_CREW_STATE='state: stopped · source: pane · turn ended'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "an open decision did not surface its first stale"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "first open-decision stale wake missing: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the first open-decision stale"
+
+  # Same open decision, drifted pane. The finished-outcome gate must keep this on
+  # the surfacing path rather than absorbing it the way a done/failed line is.
+  printf 'waiting on the captain\nidle banner redrawn\n' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "a drifted pane silenced an open decision instead of re-surfacing it"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "open-decision re-surface wake missing: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 1 ] || fail "the open decision re-surface queued $wakes wakes (want exactly 1)"
+  unset FM_FAKE_CREW_STATE
+  pass "an open decision keeps surfacing on pane drift; only a finished outcome is deduped"
+}
+
 test_secondmate_paused_resurfaces_in_normal_mode() {
   local dir state fakebin out capture_file statusf window key pane_hash sig pid back
   dir=$(make_case secondmate-paused-resurface); state="$dir/state"; fakebin="$dir/fakebin"
@@ -2648,6 +2878,10 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated
 test_nonterminal_stale_not_working_surfaced
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
+test_ticking_footer_only_change_is_idle
+test_terminal_parked_pane_escalates_stale_at_most_once
+test_progress_counters_above_the_footer_are_not_folded
+test_an_open_decision_is_never_deduped_by_the_finished_absorb
 test_secondmate_paused_resurfaces_in_normal_mode
 test_secondmate_captain_held_resurfaces_in_normal_mode
 test_secondmate_nonpaused_stale_remains_suppressed
