@@ -68,7 +68,7 @@ config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "de
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 11)
-config/specs  specs-skill activation pointer whose content is the absolute path to the local specs repo; LOCAL, gitignored; installer-provisioned, per-home; absent = no specs wiring; not inherited into secondmate homes (section 14)
+config/specs  Atlas repo pointer whose content is the absolute path to the local Atlas repo; LOCAL, gitignored; installer-provisioned, per-home; absent = no Atlas hook call at all; not inherited into secondmate homes; see docs/configuration.md "Atlas pointer (config/specs)"
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime firstmate itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), while herdr, zellij, orca, and cmux are experimental spawn backends (docs/herdr-backend.md, docs/zellij-backend.md, docs/orca-backend.md, docs/cmux-backend.md) - herdr and cmux can also be selected by runtime auto-detection, zellij and orca never are (always explicit), and codex-app is not accepted; see docs/codex-app-backend.md; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
 config/calm     Pi Calm presentation preference; LOCAL, gitignored, and not inherited; see docs/configuration.md "Pi Calm preference"
 config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see docs/configuration.md "Startup memory budget"
@@ -520,7 +520,6 @@ When a main-side thread such as a pending captain decision or relay reminder is 
 Captain calls discovered by investigations or visual reviews follow `captain-hold-lifecycle`, which owns their completion gate and recorded-answer rules.
 Update the backlog on every dispatch, completion, and decision for a work item.
 Re-evaluate queued work after every teardown and heartbeat, dispatching items only when dependencies and time gates have cleared.
-When the specs board is active, keep task ids in this backlog byte-identical to any `spec-axi` slice `--task` ids that reference them, so board slices always trace back to the queue.
 
 `.tasks.toml`, `docs/configuration.md`, and current `tasks-axi --help` own the backlog schema, compatibility, retention, and routine command syntax.
 Use compatible `tasks-axi` when the configured backend selects it and the documented manual path otherwise; keep only the configured recent Done entries.
@@ -576,9 +575,6 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `firstmate-codexapp` - load before coordinating a visible Codex Desktop thread, evaluating a Codex App backend request, or reconciling Codex Desktop host-tool smoke evidence for Firstmate work.
 - `firstmate-coding-guidelines` - load before changing firstmate's shared, tracked material, as defined by section 1's list, whether editing directly or briefing a crewmate for a firstmate-repo task.
 - `filesystem-map` - load before creating any skill, config, or agent-instruction file anywhere on this machine, or before moving, consolidating, or wiring up skills across the user level, firstmate, or a project; it owns the canonical layout and the where-does-it-go decision tree.
-- `specs` - when `config/specs` exists in this home, load before intake of captain-defined product work, and apply its board triggers at every lifecycle moment: spawn or promotion of a ship crewmate (`slice add`, `move in-progress`), crewmate `done` (`slice move review`), validation start (`slice move no-mistakes`), merge (`slice done --pr` or local `slice done`), all-shipped (`move done`), failure or abandonment (`slice block` + `note`), stalls (`block`/`unblock`), plan changes (`note`), and on every `specs-inbox` check wake (reconcile, never re-apply).
-- `spec-authoring` - when `config/specs` exists in this home, load when writing a new spec body; governs depth, `--review`, and `--skip-phases` at create time.
-- `spec-slicing` - when `config/specs` exists in this home, load before breaking an accepted spec into planned slices for dispatch.
 
 ## 15. Relay
 

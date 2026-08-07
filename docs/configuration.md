@@ -143,12 +143,10 @@ A Secondmate on a remote route is covered the same way: the primary resolves and
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
 
-## Specs board (config/specs)
+## Atlas pointer (config/specs)
 
-`config/specs` is the activation pointer for the specs skill set: a local, gitignored, per-home file whose content is the absolute path to the local specs repo.
+`config/specs` is a local, gitignored, per-home file whose content is the absolute path to the local Atlas repo.
 It is installer-provisioned rather than firstmate-written, and it is not propagated into secondmate homes.
-When the file is absent, there is no specs board wiring and the `specs`, `spec-authoring`, and `spec-slicing` skills are never loaded.
-When it is present, firstmate loads those skills at the trigger points named in [`AGENTS.md`](../AGENTS.md) section 13, which owns the lifecycle-moment map.
 
 The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atlas-hook.sh` resolves.
 That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.

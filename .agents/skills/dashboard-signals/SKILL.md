@@ -3,7 +3,7 @@ name: dashboard-signals
 description: >-
   Agent-only reference for signalling the captain's dashboard from a firstmate or secondmate session.
   Load at session start, and reload when an instruction-update nudge arrives.
-  Owns the four spec-axi signal verbs (ask/review/status/notif), the numbered-notification and %%dash-fin%% marker rules, and the hard ban on harness-native pickers for captain decisions.
+  Owns the four atlas-axi signal verbs (ask/review/status/notif), the numbered-notification and %%dash-fin%% marker rules, and the hard ban on harness-native pickers for captain decisions.
 user-invocable: false
 metadata:
   internal: true
@@ -20,20 +20,20 @@ The wire protocol, marker grammar, and dashboard-side rendering are owned by `/h
 
 ## Signal verbs
 
-`spec-axi` is on `PATH`.
+`atlas-axi` is on `PATH`; `spec-axi` remains a compatible alias for these verbs.
 Each verb prints one word on success except `ask`, which prints the notification number it raised (e.g. `asked n47`); note it and carry on.
 
-- `spec-axi ask "<question>"` - you are BLOCKED on a human decision and need the captain's answer.
+- `atlas-axi ask "<question>"` - you are BLOCKED on a human decision and need the captain's answer.
   Run it once per independent question.
   It prints the notification number it raised, e.g. `asked n47` - remember it.
-  When the decision is a pick from a few choices, offer them so the captain can tap one: `spec-axi ask "which db?" --options "postgres,mysql,sqlite"`.
+  When the decision is a pick from a few choices, offer them so the captain can tap one: `atlas-axi ask "which db?" --options "postgres,mysql,sqlite"`.
   Options are optional; omit them for a free-text question.
-- `spec-axi review "<concise summary>"` - you FINISHED something the captain should look at: work ready for review, a finished design, a completed investigation.
+- `atlas-axi review "<concise summary>"` - you FINISHED something the captain should look at: work ready for review, a finished design, a completed investigation.
   It is non-blocking, so move on immediately; the captain marks it reviewed when handled.
   Use this, not `ask`, whenever you are proceeding either way.
-- `spec-axi status "<2-6 words>"` - label the timeline when you start or finish a distinct phase of work.
+- `atlas-axi status "<2-6 words>"` - label the timeline when you start or finish a distinct phase of work.
   Once per phase is enough.
-- `spec-axi notif nNN` - read a notification by its number, whether yours or one you were pointed at.
+- `atlas-axi notif nNN` - read a notification by its number, whether yours or one you were pointed at.
   It prints the question/summary, who raised it, and whether the captain has answered and with what.
   Pass `--json` for the raw record.
 

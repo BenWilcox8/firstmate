@@ -670,8 +670,9 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
 
 # Pin the captain decision (2026-07-27): crewmate briefs carry no dashboard signal
 # instructions; a crewmate reports through its status file and firstmate relays.
-# The dashboard-signals skill is the single owner of the spec-axi verb protocol,
-# scoped to firstmate and secondmate sessions only.
+# The dashboard-signals skill is the single owner of the atlas-axi verb protocol
+# (spec-axi remains a compatible alias), scoped to firstmate and secondmate
+# sessions only.
 test_no_dashboard_signals_in_any_scaffold() {
   local home brief
   home="$TMP_ROOT/markers-home"
@@ -682,6 +683,8 @@ test_no_dashboard_signals_in_any_scaffold() {
   brief="$home/data/markers-ship/brief.md"
   assert_no_grep "Dashboard signals" "$brief" \
     "ship brief still carries the dashboard signals block"
+  assert_no_grep "atlas-axi" "$brief" \
+    "ship brief still carries an atlas-axi signal command"
   assert_no_grep "spec-axi" "$brief" \
     "ship brief still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
@@ -692,6 +695,8 @@ test_no_dashboard_signals_in_any_scaffold() {
   brief="$home/data/markers-scout/brief.md"
   assert_no_grep "Dashboard signals" "$brief" \
     "scout brief still carries the dashboard signals block"
+  assert_no_grep "atlas-axi" "$brief" \
+    "scout brief still carries an atlas-axi signal command"
   assert_no_grep "spec-axi" "$brief" \
     "scout brief still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
@@ -703,6 +708,8 @@ test_no_dashboard_signals_in_any_scaffold() {
   brief="$home/data/markers-secondmate/brief.md"
   assert_no_grep "Dashboard signals" "$brief" \
     "secondmate charter still carries the dashboard signals block"
+  assert_no_grep "atlas-axi" "$brief" \
+    "secondmate charter still carries an atlas-axi signal command"
   assert_no_grep "spec-axi" "$brief" \
     "secondmate charter still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \

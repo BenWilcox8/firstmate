@@ -43,9 +43,9 @@
 # Silence there is the design: a home without the Atlas wiring must behave exactly
 # as it did before this hook existed.
 #
-# The Atlas repo is resolved the way the rest of the specs wiring resolves it:
-# the content of <FM_HOME>/config/specs, an absolute path to the local specs repo
-# (docs/configuration.md "Specs board (config/specs)").
+# The Atlas repo is resolved from this home's own pointer:
+# the content of <FM_HOME>/config/specs, an absolute path to the local Atlas repo
+# (docs/configuration.md "Atlas pointer (config/specs)").
 #
 # FM_ATLAS_HOOK_TIMEOUT_SECS (default 20) bounds every single atlas-axi call when
 # `timeout` is available, so a wedged Atlas cannot stall a spawn, a merge, or a
