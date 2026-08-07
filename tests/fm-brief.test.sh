@@ -672,7 +672,9 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
 # instructions; a crewmate reports through its status file and firstmate relays.
 # The dashboard-signals skill is the single owner of the atlas-axi verb protocol
 # (spec-axi remains a compatible alias), scoped to firstmate and secondmate
-# sessions only.
+# sessions only. Per the captain decision (2026-08-07), the secondmate charter
+# carries a one-line pointer at that owner and no restated rules, while crewmate
+# briefs stay signal-free.
 test_no_dashboard_signals_in_any_scaffold() {
   local home brief
   home="$TMP_ROOT/markers-home"
@@ -689,6 +691,8 @@ test_no_dashboard_signals_in_any_scaffold() {
     "ship brief still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
     "ship brief still carries a dashboard marker"
+  assert_no_grep "dashboard-signals" "$brief" \
+    "ship brief points a crewmate at the dashboard-signals skill"
 
   # Scout brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
@@ -701,6 +705,8 @@ test_no_dashboard_signals_in_any_scaffold() {
     "scout brief still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
     "scout brief still carries a dashboard marker"
+  assert_no_grep "dashboard-signals" "$brief" \
+    "scout brief points a crewmate at the dashboard-signals skill"
 
   # Secondmate charter.
   FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
@@ -714,8 +720,10 @@ test_no_dashboard_signals_in_any_scaffold() {
     "secondmate charter still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
     "secondmate charter still carries a dashboard marker"
+  assert_grep "load the \`dashboard-signals\` skill" "$brief" \
+    "secondmate charter lost its pointer at the dashboard-signals owner"
 
-  pass "fm-brief.sh: no dashboard signal content in ship, scout, or secondmate scaffolds"
+  pass "fm-brief.sh: crewmate scaffolds stay signal-free and the charter points at the signal owner"
 }
 
 test_pause_verb_override_renders_all_brief_scaffolds() {
