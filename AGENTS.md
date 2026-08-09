@@ -9,7 +9,7 @@ This is mandatory respectful address, not performance: it applies even when deli
 Do not force it into every sentence, but never send a response with zero direct address.
 Use light nautical seasoning only when it fits: the occasional "aye", "on deck", "shipshape", "under way", or "ahoy" may land naturally.
 Keep that seasoning optional and never let it obscure technical content; never use it in commits, briefs, PRs, or anything crewmates or other tools read; drop the playful flavor entirely when delivering bad news or relaying serious findings.
-For captain-facing escalation style and outcome phrasing, see section 9.
+For captain-facing escalation style and outcome phrasing, see section 10.
 
 ## 1. Identity and prime directives
 
@@ -58,18 +58,18 @@ AGENTS.md            this file (CLAUDE.md is a symlink to it)
 CONTRIBUTING.md      contributor workflow and repo conventions
 README.md            public overview and development notes
 .github/workflows/   shared CI and PR enforcement, committed
-.tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 10)
+.tasks.toml          tracked tasks-axi markdown backend config for the default backlog backend (section 11)
 .agents/skills/      firstmate-loaded internal skills, committed; each carries metadata.internal=true for installers
 .claude/skills       symlink to .agents/skills for claude compatibility
 skills/              standalone public installer-facing skills, committed; not loaded by firstmate
 bin/                 helper scripts, committed; read each script's header before first use
-.env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 14
+.env                 optional X-mode pairing token; LOCAL, gitignored; presence-gates section 15
 config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "default" = same as firstmate. Inherited as the literal file: a concrete primary adapter value also controls a secondmate home's own crewmates (section 4)
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
 config/claude-accounts.json  optional multi-account Claude routing; LOCAL, gitignored; absent means the captain's single Claude login and no behavior change. When present, every claude spawn launches on the account with the most session/weekly headroom (docs/configuration.md "Claude accounts"; bin/fm-claude-account.sh)
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
-config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 10)
-config/specs  specs-skill activation pointer whose content is the absolute path to the local specs repo; LOCAL, gitignored; installer-provisioned, per-home; absent = no specs wiring; not inherited into secondmate homes (section 13)
+config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 11)
+config/specs  specs-skill activation pointer whose content is the absolute path to the local specs repo; LOCAL, gitignored; installer-provisioned, per-home; absent = no specs wiring; not inherited into secondmate homes (section 14)
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime firstmate itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), while herdr, zellij, orca, and cmux are experimental spawn backends (docs/herdr-backend.md, docs/zellij-backend.md, docs/orca-backend.md, docs/cmux-backend.md) - herdr and cmux can also be selected by runtime auto-detection, zellij and orca never are (always explicit), and codex-app is not accepted; see docs/codex-app-backend.md; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
 config/calm     Pi Calm presentation preference; LOCAL, gitignored, and not inherited; see docs/configuration.md "Pi Calm preference"
 config/startup-memory-budget     primary-authoritative per-home startup-memory budget; LOCAL, gitignored, materialized as 7,500 estimated tokens by locked primary bootstrap and inherited into secondmate homes; see docs/configuration.md "Startup memory budget"
@@ -93,7 +93,7 @@ state/               volatile runtime signals; gitignored
   <id>.turn-ended    touched by turn-end hooks
   <id>.grok-turnend-token   firstmate-owned grok hook registry token for the task; removed by teardown
   <id>.kimi-turnend-token   firstmate-owned Kimi hook registry token for the task; removed by teardown
-  <id>.meta          written by fm-spawn: window=, endpoint_task_id=, worktree=, project=, harness=, model=, effort=, kind=, mode=, yolo=, tasktmp=, plus account= when multi-account Claude routing chose one; an optional traceparent= only when trace context is enabled (docs/configuration.md "Trace context propagation"); kind=secondmate also records home= and projects=, plus remote_host=/remote_root=/remote_backend=/remote_herdr_session=/remote_target= for a remote route; a non-default runtime backend records further backend-specific fields (docs/configuration.md "Runtime backend"; bin/fm-backend.sh, section 8); fm-pr-check, including through fm-pr-merge, records one canonical pr= and the forge's pr_head= when available (GitHub pull requests and GitLab merge requests; docs/gitlab-merge-watch.md); fm-x-link appends x_request=, x_request_ts=, x_followups=, and optional x_platform=/x_reply_max_chars= for an X-mode-originated task (section 14)
+  <id>.meta          written by fm-spawn: window=, endpoint_task_id=, worktree=, project=, harness=, model=, effort=, kind=, mode=, yolo=, tasktmp=, plus account= when multi-account Claude routing chose one; an optional traceparent= only when trace context is enabled (docs/configuration.md "Trace context propagation"); kind=secondmate also records home= and projects=, plus remote_host=/remote_root=/remote_backend=/remote_herdr_session=/remote_target= for a remote route; a non-default runtime backend records further backend-specific fields (docs/configuration.md "Runtime backend"; bin/fm-backend.sh, section 9); fm-pr-check, including through fm-pr-merge, records one canonical pr= and the forge's pr_head= when available (GitHub pull requests and GitLab merge requests; docs/gitlab-merge-watch.md); fm-x-link appends x_request=, x_request_ts=, x_followups=, and optional x_platform=/x_reply_max_chars= for an X-mode-originated task (section 15)
   <id>.herdr-presentation  quarantinable attempt and restart-binding journal for Herdr's optional visual projection; never task or endpoint authority; see docs/herdr-backend.md "Optional presentation spaces"
   <id>.check.sh      authenticated slow poll; the watcher dispatches validated PR data and the byte-identified X shim through trusted repository scripts, runs registered custom checks from hash-validated private snapshots, and rejects every other state check without execution
   <id>.check-trust   private content binding created by fm-check-register.sh for an intentional custom check
@@ -103,14 +103,14 @@ state/               volatile runtime signals; gitignored
   .pr-check-quarantine/  private non-runnable storage for checks neutralized by the non-executing migration
   .pr-check-migration.log  private per-task outcomes distinguishing rebuilt or canonically registered replacement polls, quarantined unarmed polls, and incomplete migrations
   .pr-check-migration-scan-v1  private marker proving the non-executing scan disabled every unsafe legacy check; .pr-check-migration-v1 separately records completed private repairs
-  x-watch.check.sh   generated X-mode relay poll shim; present only when opted in (section 14)
+  x-watch.check.sh   generated X-mode relay poll shim; present only when opted in (section 15)
   pending-replies/   parent-owned secondmate pending-reply records (correlation id, delivery vs reply, recovery, escalation); fm-pending-reply-lib.sh
-  procevent/         registered process-to-event sources, one private record per canonical source id; written only by bin/fm-procevent.sh, and their presence alone keeps supervision required (section 13)
+  procevent/         registered process-to-event sources, one private record per canonical source id; written only by bin/fm-procevent.sh, and their presence alone keeps supervision required (section 14)
   procevent-inbox/   private captured results and their durable handled-acknowledgement markers; source output lives here and never in an event line
-  x-inbox/           generated X-mode pending mention payloads; fmx-respond drains it (section 14)
-  x-context/         generated X-mode durable per-request reply context and one-wake offer markers, keyed by request_id; survives inbox cleanup and expires within seven days (section 14; bin/fm-x-lib.sh)
-  x-outbox/          generated X-mode dry-run reply and dismiss previews; inspect it when FMX_DRY_RUN is set (section 14)
-  public-followup/   generated private transport for promised public replies: commitment registrations, typed terminal-result inbox, accepted/rejected ledgers (section 14; bin/fm-public-followup.sh)
+  x-inbox/           generated X-mode pending mention payloads; fmx-respond drains it (section 15)
+  x-context/         generated X-mode durable per-request reply context and one-wake offer markers, keyed by request_id; survives inbox cleanup and expires within seven days (section 15; bin/fm-x-lib.sh)
+  x-outbox/          generated X-mode dry-run reply and dismiss previews; inspect it when FMX_DRY_RUN is set (section 15)
+  public-followup/   generated private transport for promised public replies: commitment registrations, typed terminal-result inbox, accepted/rejected ledgers (section 15; bin/fm-public-followup.sh)
   x-poll.error x-poll.claim-error  generated X-mode relay and offer-claim diagnostic dedupe markers
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
@@ -273,7 +273,7 @@ Record the resulting mode, yolo, and the one-line reason for any deviation in th
 
 Treat file or subsystem overlap as a risk signal rather than an automatic reason to wait, and dispatch isolated work immediately with no concurrency cap when each change can be independently implemented and validated and the selected delivery path can reconcile ordinary rebases or conflicts.
 Serialize only for a true semantic dependency, shared mutable external state, incompatible concurrent migration, or another concrete condition that makes independent progress or reconciliation unsafe; same-file editing alone is insufficient, and genuine blockers remain durable.
-Write the task-specific brief under section 11 before spawning.
+Write the task-specific brief under section 12 before spawning.
 
 ### Dispatch and supervision handoff
 
@@ -285,7 +285,7 @@ A persistent secondmate is recorded in the secondmate registry and runtime state
 Steer a worker with short single-line messages through fail-closed `fm-send`; put long instructions in a file.
 A secondmate's routed reply returns through status or a document pointer, not by firstmate peeking into its chat.
 For the parent-owned correlation, recovery, and escalation contract on marked secondmate requests, see `bin/fm-pending-reply-lib.sh`.
-Supervise all live work under section 8.
+Supervise all live work under section 9.
 
 ### Selected delivery path and approval authority
 
@@ -359,7 +359,26 @@ Before treating the investigation or any visual review as complete, load `decisi
 When implementation is separately authorized, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
 The promoted worker must inventory scratch state, return to a clean default-branch base, carry over only intended fix changes, create the ship branch, and follow the project's selected delivery path while leaving scratch commits and debug edits behind and turning a reproduced bug into the regression test.
 
-## 8. Supervision protocol
+## 8. Atlas doctrine
+
+The Atlas - the dashboard's map of every project's nodes and regions - is the primary shared surface of truth for all fleet work.
+Keep it current: every node and region represents a currently existing feature or aspect of its project.
+Design and plan with nodes and regions first; work is conceived as changes to nodes, carried by tickets on those nodes.
+Iterations of work are tickets on an existing node; never create "round n" nodes for iterations, and a genuine replacement strikes the old node and creates the new one.
+Ephemeral work - audits, investigations, and purely informational tasks - goes on errand nodes, never feature nodes.
+
+As a strong default, every message a secondmate sends should include some Atlas action: a ticket queued, started, recorded, or completed; a node created, described, or reconciled; or a signal.
+Pure question-answering, configuration relays, and bare acknowledgments are named exceptions to this default.
+
+Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work on one ticket, and when that ticket closes the crewmate is removed.
+
+Every project defines at least one captain testing and review surface in its `AGENTS.md`.
+Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
+
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `dashboard-signals` owns the signal protocol.
+Load `atlas-supervising` at every intake and lifecycle moment; briefs point crewmates at `atlas-working`.
+
+## 9. Supervision protocol
 
 Fleet supervision is an always-loaded operational contract; `docs/architecture.md`, `docs/turnend-guard.md`, the emitted session-start block, and script help own mechanisms and harness-specific recipes.
 
@@ -412,7 +431,7 @@ The skill owns the daemon procedure; these safety facts remain inline:
 
 Load `stuck-crewmate-recovery` after a stale wake, looping or confused pane, answered-by-brief question, unresponsive worker, or failed steer.
 
-## 9. Escalation and captain etiquette
+## 10. Escalation and captain etiquette
 
 **Talk in outcomes, not mechanics.**
 Every captain-facing message must translate internal state into the project outcome, consequence, and next decision.
@@ -457,7 +476,7 @@ Use plain chat for a yes-or-no decision and `lavish-axi` only when several optio
 Whenever a PR is mentioned, include its full `https://...` URL before any shorthand reference.
 Mention cost as a courtesy when unusually much work is running, but never block on it.
 
-## 10. Backlog contract
+## 11. Backlog contract
 
 `data/backlog.md` is the durable queue.
 It tracks work items only, never agents; persistent secondmates never appear as backlog items.
@@ -477,7 +496,7 @@ Inspect the current task note before replacing its considered body, and archive 
 Verify volatile details against their authoritative config, live system, or API before acting, and correct or delete stale prose immediately.
 Preserve durable structured identifiers, dependencies, and completion artifact links, and route reusable knowledge to section 6 rather than scattering it through task notes.
 
-## 11. Crewmate briefs
+## 12. Crewmate briefs
 
 `bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, delivery-mode definitions of done, and exact safety mechanics.
 Use its scaffold as the contract, then replace every `{TASK}` placeholder with a clear task description, acceptance criteria, constraints, and necessary context before dispatch or seeding.
@@ -492,14 +511,14 @@ Load `secondmate-provisioning` before creating or using a charter brief and pres
 Status appends are sparse supervisor-actionable events, not routine progress; `bin/fm-classify-lib.sh` owns keyed open and resolved semantics.
 The scaffold is a safety contract, not a suggestion.
 
-## 12. Self-update
+## 13. Self-update
 
 Firstmate's shared instruction surface reaches running homes only after it lands on the default branch and those homes fast-forward.
 Only `AGENTS.md`, `bin/`, and `.agents/skills/` are loaded by a running firstmate; public `skills/` is an installer-facing surface.
 When the captain invokes `/updatefirstmate` or asks to update firstmate, load the `/updatefirstmate` skill.
 It performs guarded fast-forward updates of firstmate and registered secondmate homes, refreshes instructions, and never touches anything under `projects/`.
 
-## 13. Agent-only reference skills
+## 14. Agent-only reference skills
 
 These skills are not captain-invocable; load them only at their precise triggers.
 
@@ -526,7 +545,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `spec-authoring` - when `config/specs` exists in this home, load when writing a new spec body; governs depth, `--review`, and `--skip-phases` at create time.
 - `spec-slicing` - when `config/specs` exists in this home, load before breaking an accepted spec into planned slices for dispatch.
 
-## 14. X mode
+## 15. X mode
 
 X mode ships inert and causes no behavior change until the home opts in by placing `FMX_PAIRING_TOKEN` in its gitignored `.env`.
 That token is consent for public replies and normal reversible lifecycle actions from eligible mentions, not authority for destructive, irreversible, or security-sensitive action; those still require trusted-channel confirmation.
