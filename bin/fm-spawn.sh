@@ -38,15 +38,20 @@
 #   bin/fm-backend.sh's fm_backend_detect, with cmux fallback details in
 #   docs/cmux-backend.md),
 #   then tmux.
-#   --account <name> pins a claude-harness spawn to that exact configured Claude
-#   account, beating the headroom scoring. It is valid only when the resolved
-#   harness is claude and config/claude-accounts.json exists; bin/fm-claude-account.sh
-#   owns the accounts, the scoring, and the standing ceilings, and
-#   docs/configuration.md "Claude accounts" owns the schema. Without the flag, a
-#   claude spawn selects the account with the most headroom; with no accounts
-#   config the whole feature is inert and the launch keeps forwarding firstmate's
-#   own CLAUDE_CONFIG_DIR exactly as before. A selected account is recorded as
-#   account= in the task's meta; an unselected one writes no account= line.
+#   --account <pin> pins a claude-harness spawn to one exact Claude account that
+#   claude-swap (cswap) manages. The pin is a slot number, a cswap alias, or the
+#   email of the account. The flag is valid only when the resolved harness is
+#   claude. A pinned spawn starts through `cswap run <account> -- claude ...`,
+#   which is per-terminal. It does not switch the live login of the captain, and
+#   the agents that already run keep the account that they started on.
+#   Without the flag, a claude spawn uses the account that cswap has active, the
+#   same as a plain `claude` command, and it still forwards the
+#   CLAUDE_CONFIG_DIR of firstmate. bin/fm-cswap-lib.sh owns how cswap is called
+#   and how a pin resolves. docs/configuration.md "Claude accounts (cswap)" owns
+#   the operator story. A pinned account is recorded as account= in the meta of
+#   the task. An unpinned spawn writes no account= line. If a pin does not
+#   resolve, the spawn stops before it creates anything, so no agent ever starts
+#   on an unknown subscription.
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
 #   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
@@ -161,7 +166,7 @@
 # grok uses a firstmate-owned global hook under ${GROK_HOME:-$HOME/.grok}/hooks
 # plus a gitignored .fm-grok-turnend worktree pointer and a state token.
 # On success prints: spawned <id> harness=<name> [account=<name>] kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
-# account= appears only when multi-account Claude routing selected an account.
+# account= appears only when the spawn pinned a cswap-managed Claude account.
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
 # success line and state/<id>.meta omit them.
@@ -239,6 +244,8 @@ SUB_HOME_MARKER=".fm-secondmate-home"
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-cswap-lib.sh
+. "$SCRIPT_DIR/fm-cswap-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -929,6 +936,34 @@ launch_template() {
   esac
 }
 
+# Rewrite a claude launch command so that it runs as one exact cswap account.
+# `cswap run <account> -- <args>` sends everything after the `--` to claude
+# without a change, and then execs claude. The pane therefore runs claude
+# itself, with only the credential store of that account exchanged.
+#
+# The leading VAR=value words are environment prefixes, and they stay in front,
+# because they belong to the launch and not to the argument list of claude. The
+# first word after them is the executable, and it must be exactly claude. A pin
+# on any other executable is a claim that this script cannot keep, so the
+# function fails instead of a guess.
+claude_launch_via_cswap() {
+  local account=$1 launch=$2 prefix='' rest word
+  rest=$launch
+  while :; do
+    rest=${rest#"${rest%%[![:space:]]*}"}
+    word=${rest%%[[:space:]]*}
+    case "$word" in
+      [A-Za-z_]*=*) prefix="$prefix$word "; rest=${rest#"$word"} ;;
+      *) break ;;
+    esac
+  done
+  word=${rest%%[[:space:]]*}
+  [ -n "$word" ] || return 1
+  [ "$(basename "$word")" = claude ] || return 1
+  rest=${rest#"$word"}
+  printf '%s%s%s\n' "$prefix" "cswap run $(shell_quote "$account") --" "$rest"
+}
+
 case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     LAUNCH=$ARG3
@@ -977,38 +1012,27 @@ if [ "$HARNESS" = pi-signed ] && ! command -v pi-signed >/dev/null 2>&1; then
   exit 1
 fi
 
-# Multi-account Claude routing. bin/fm-claude-account.sh owns which accounts
-# exist, how their headroom is scored, and which one wins; this script only
-# consumes the answer. Resolving BEFORE any endpoint, worktree, or metadata is
-# created is deliberate: malformed account configuration must abort the spawn
-# while nothing has been created yet, never mid-launch. Exit status 3 means no
-# account config exists at all, which keeps the single-store path below exactly
-# as it behaved before this feature existed.
+# Claude account pins through claude-swap (cswap). cswap owns which accounts
+# exist and which one is live. This script only resolves the pin that it
+# received, and it sends the launch through the per-terminal path of cswap.
+# The resolution occurs BEFORE any endpoint, worktree, or metadata exists. This
+# order is deliberate, because an unknown account must stop the spawn while
+# nothing exists yet, and never in the middle of a launch. With no pin, nothing
+# resolves, and the launch stays byte-identical to a plain claude launch on the
+# account that cswap has active.
+ACCOUNT_NUMBER=
 ACCOUNT_NAME=
-ACCOUNT_DIR=
-if [ "$HARNESS" = claude ]; then
-  account_args=(select)
-  [ "$ACCOUNT_SET" -eq 0 ] || account_args+=(--account "$ACCOUNT_ARG")
-  if account_line=$("$SCRIPT_DIR/fm-claude-account.sh" "${account_args[@]}"); then
-    account_rc=0
-  else
-    account_rc=$?
+if [ "$HARNESS" = claude ] && [ "$ACCOUNT_SET" -eq 1 ]; then
+  if ! account_line=$(fm_cswap_resolve_account "$ACCOUNT_ARG"); then
+    echo "error: refusing to spawn $HARNESS on an unresolved Claude account" >&2
+    exit 1
   fi
-  case "$account_rc" in
-    0)
-      ACCOUNT_NAME=${account_line%%$'\t'*}
-      ACCOUNT_DIR=${account_line#*$'\t'}
-      if [ -z "$ACCOUNT_NAME" ] || [ -z "$ACCOUNT_DIR" ] || [ "$ACCOUNT_NAME" = "$ACCOUNT_DIR" ]; then
-        echo "error: claude account selection returned an unusable result: $account_line" >&2
-        exit 1
-      fi
-      ;;
-    3) ;;  # no accounts configured: stay on the pre-existing single-store path
-    *)
-      echo "error: refusing to spawn $HARNESS without a resolved Claude account" >&2
-      exit 1
-      ;;
-  esac
+  ACCOUNT_NUMBER=${account_line%% *}
+  ACCOUNT_NAME=${account_line#* }
+  if [ -z "$ACCOUNT_NUMBER" ] || [ -z "$ACCOUNT_NAME" ]; then
+    echo "error: claude account resolution returned an unusable result: $account_line" >&2
+    exit 1
+  fi
 elif [ "$ACCOUNT_SET" -eq 1 ]; then
   echo "error: --account applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
   exit 1
@@ -2215,8 +2239,8 @@ META_WINDOW=$T
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
-  # account= is written only when multi-account Claude routing actually chose one,
-  # so a home with no accounts config keeps byte-identical metadata.
+  # account= is written only when the spawn pinned a cswap account, so an
+  # unpinned spawn keeps byte-identical metadata.
   [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
   # atlas_ticket= is the durable record the merge and teardown hooks read back,
   # so the crew never types a ticket id and a closed-out task cannot lose its
@@ -2275,24 +2299,30 @@ LAUNCH=${LAUNCH//__PIEXT__/$sq_piext}
 LAUNCH=${LAUNCH//__PITURNEND__/$sq_piturnend}
 LAUNCH=${LAUNCH//__PIWATCH__/$sq_piwatch}
 LAUNCH=${LAUNCH//__OPINPUT__/$sq_opinput}
-# Crewmate panes are created by a long-lived tmux/herdr daemon that does not
-# inherit firstmate's current environment, so a bare `claude` in the pane falls
-# back to the default ~/.claude store even when firstmate itself runs under a
-# different CLAUDE_CONFIG_DIR (for example a work-vs-personal subscription split).
-# Precedence: the account chosen above wins, because it was selected for this
-# exact task's headroom; otherwise forward firstmate's own resolved store so the
-# crewmate uses the same credential/config firstmate is authenticated with. With
-# neither, an unset value is the single-store default and needs no prefix.
-CLAUDE_LAUNCH_CONFIG_DIR=
-if [ "$HARNESS" = claude ]; then
-  if [ -n "$ACCOUNT_DIR" ]; then
-    CLAUDE_LAUNCH_CONFIG_DIR=$ACCOUNT_DIR
-  else
+# A pinned account starts through the per-terminal path of cswap. cswap sets
+# the CLAUDE_CONFIG_DIR of that session and then execs claude. Firstmate must
+# therefore not set one too. A CLAUDE_CONFIG_DIR that is already set is a value
+# that cswap must override, and that override returns exactly the ambiguity
+# that the pin removes.
+if [ -n "$ACCOUNT_NUMBER" ]; then
+  LAUNCH=$(claude_launch_via_cswap "$ACCOUNT_NUMBER" "$LAUNCH") || {
+    echo "error: this claude launch command cannot be pinned to a Claude account" >&2
+    exit 1
+  }
+else
+  # Crewmate panes are created by a long-lived tmux/herdr daemon that does not
+  # inherit firstmate's current environment, so a bare `claude` in the pane falls
+  # back to the default store even when firstmate itself runs under a different
+  # CLAUDE_CONFIG_DIR. Forward firstmate's own resolved store so an unpinned
+  # crewmate uses the same credential/config firstmate is authenticated with; an
+  # unset value is the single-store default and needs no prefix.
+  CLAUDE_LAUNCH_CONFIG_DIR=
+  if [ "$HARNESS" = claude ]; then
     CLAUDE_LAUNCH_CONFIG_DIR=${CLAUDE_CONFIG_DIR:-}
   fi
-fi
-if [ -n "$CLAUDE_LAUNCH_CONFIG_DIR" ]; then
-  LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_LAUNCH_CONFIG_DIR") $LAUNCH"
+  if [ -n "$CLAUDE_LAUNCH_CONFIG_DIR" ]; then
+    LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_LAUNCH_CONFIG_DIR") $LAUNCH"
+  fi
 fi
 # Keep every firstmate-launched claude agent's session transcript, so the captain
 # can later resume it with `claude --resume <session-id>`. Claude Code exports

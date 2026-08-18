@@ -46,7 +46,8 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-remote-home-seed.sh` | Register and provision a whole secondmate home on an SSH-reachable host              |
 | `fm-remote-readiness-lib.sh` | Shared remote second-mate readiness gate: check and, when needed, repair then re-check through `fm-remote-doctor.sh` |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates on the resolved harness and runtime backend |
-| `fm-claude-account.sh`   | Score the captain's Claude accounts by session and weekly headroom and pick the one a claude spawn launches on |
+| `fm-cswap-lib.sh`        | Shared read-only access to claude-swap: bounded cswap calls and account-pin resolution |
+| `fm-cswap-rotate.sh`     | Run one claude-swap auto-rotation tick as a watcher check, reporting only a switch or a blocker |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |
 | `fm-backend-hometag-lib.sh` | Shared per-installation home-tag derivation for zellij tab and cmux workspace titles |
 | `fm-composer-lib.sh`     | Single fleet-wide owner of composer-content classification for all backends          |

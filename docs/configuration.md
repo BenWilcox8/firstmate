@@ -293,34 +293,82 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
-## Claude accounts (config/claude-accounts.json)
+## Claude accounts (cswap)
 
-`config/claude-accounts.json` is an optional local, gitignored file listing the Claude subscriptions this home may launch a claude-harness agent on.
-A captain holding more than one Claude account keeps each one in its own Claude config directory, and each directory carries its own independent session and weekly usage windows.
-With the file absent the whole feature is inert: a claude spawn behaves exactly as it did before multi-account routing existed.
-This section is the single owner of the schema; `bin/fm-claude-account.sh`'s header owns the selection mechanics, and `bin/fm-spawn.sh`'s header owns the `--account` flag and how the choice reaches the launch.
+A captain with more than one Claude subscription manages the accounts with [claude-swap](https://github.com/realiti4/claude-swap).
+Its command is `cswap`.
+cswap owns the accounts: which accounts exist, which one the default login is, how much each one has left, and how an agent runs as one exact account.
+Firstmate keeps no account registry of its own.
+Firstmate never switches the captain's live login.
 
-```json
-{
-  "accounts": [
-    { "name": "<stable short name>", "configDir": "<absolute path, or ~/ path, to that account's Claude config dir>" }
-  ]
-}
+To install cswap and register the accounts, do these steps:
+
+```
+uv tool install claude-swap
+cswap add --alias primary      # once per account, while logged in to that account
+cswap alias 2 parent           # an alias is optional, but it makes a pin readable
+cswap list                     # the accounts, their aliases, and each 5h/7d headroom
 ```
 
-`accounts` is required and needs at least one entry, and every entry needs both `name` and `configDir`.
-A name may use only letters, digits, dot, underscore, and dash, and names must be unique.
-A `configDir` may start with `~/` and must resolve to an existing directory.
-List the account that should serve as the fallback first: it is the one selected when no account's usage can be read at all.
-See [`docs/examples/claude-accounts.json`](examples/claude-accounts.json) for a starting point to copy into local `config/claude-accounts.json`.
+An account can be named by slot number, by alias, or by email.
 
-At each claude spawn, firstmate scores every configured account by the minimum `percentRemaining` across its session (`five_hour`) and weekly (`seven_day`) windows, read per account through `CLAUDE_CONFIG_DIR=<dir> quota-axi --provider claude --json`, and launches on the highest score.
-An account at or beyond 90% session used or 95% weekly used is ineligible while any eligible account exists; when every account breaches a ceiling the one with the most headroom is still used and a warning is printed.
-An account whose usage cannot be read is never chosen by score, and when no account can be read the first configured account is used with a warning.
-`fm-spawn.sh --account <name>` pins one exact account and skips scoring entirely.
-The selected account is recorded as `account=<name>` in that task's durable record and named on the spawn's success line; with no accounts config neither appears.
-Malformed configuration is never selected around: it aborts the spawn with the exact reason before any worker or record exists.
-Inspect the current picture at any time with `bin/fm-claude-account.sh score`.
+### Pin a spawn to one account
+
+`bin/fm-spawn.sh --account <pin>` pins one claude-harness spawn to one exact account.
+The `<pin>` value is a slot number, an alias, or the email of the account.
+The spawn starts through `cswap run <account> -- claude ...`, which gives that one agent its own credential store for the life of its terminal.
+This path is per-terminal.
+The default login of the captain does not change, and the agents that already run keep the account that they started on.
+If a pin does not resolve, the spawn stops before any worker, local copy, or record exists.
+A spawn never starts on an unknown subscription.
+The resolved account is recorded as `account=<name>` in the durable record of that task, and it is named on the success line of the spawn.
+
+Without `--account`, a claude spawn uses the account that cswap has active, the same as a plain `claude` command.
+Then no `account=` line is written.
+The header of `bin/fm-cswap-lib.sh` owns how firstmate calls cswap.
+The header of `bin/fm-spawn.sh` owns the flag.
+
+### Rotate before an account runs out
+
+`cswap auto` compares the active account against a threshold.
+The threshold is the percent used of the tightest window of that account.
+When the active account passes the threshold, cswap switches the live login.
+The threshold is stored in the settings of cswap, so there is one place to read it or to change it:
+
+```
+cswap config                              # the current threshold, cooldown, and strategy
+cswap config set autoswitch.threshold 90
+```
+
+Keep the threshold below the standing 95% usage ceiling of the captain, so that a rotation occurs before an account reaches that ceiling.
+The default threshold of cswap is 90, which obeys this rule.
+
+`bin/fm-cswap-rotate.sh` does one tick of that rotation as a watcher check.
+It prints one line for a switch, for an account fleet with no headroom left, for an account that left the rotation, and for a tick error.
+For all other results it prints nothing.
+An armed check is therefore silent while the active account has headroom.
+You can run the script by hand at any time.
+The `--dry-run` flag reports the result without a switch.
+
+To arm the check, write it for one long-lived task and register its bytes.
+This is the same two-step contract as every other custom check:
+
+```
+printf '#!/usr/bin/env bash\nexec %s/bin/fm-cswap-rotate.sh\n' "$FM_HOME" > "$FM_HOME/state/<id>.check.sh"
+chmod 0700 "$FM_HOME/state/<id>.check.sh"
+bin/fm-check-register.sh <id>
+```
+
+`FM_CSWAP_TIMEOUT` bounds the tick, with a default of 20 seconds.
+This bound must stay below the `FM_CHECK_TIMEOUT` value of the watcher.
+
+### Read the usage of each account
+
+cswap reads every managed account, not only the account that is logged in.
+Use `cswap list` for all accounts and `cswap status` for the active account.
+Both commands accept `--json` for machine-readable output.
+`quota-axi` reads the account whose credentials are live.
+`quota-axi` therefore answers "how much does this session have left", and cswap answers "how much does each subscription have left".
 
 ## Toolchain
 
