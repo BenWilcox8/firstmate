@@ -135,6 +135,11 @@ It is installer-provisioned rather than firstmate-written, and it is not propaga
 When the file is absent, there is no specs board wiring and the `specs`, `spec-authoring`, and `spec-slicing` skills are never loaded.
 When it is present, firstmate loads those skills at the trigger points named in [`AGENTS.md`](../AGENTS.md) section 13, which owns the lifecycle-moment map.
 
+The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atlas-hook.sh` resolves.
+That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.
+A home with no pointer, or a pointer to a directory holding no `atlas/`, makes no Atlas call at all and behaves exactly as it did before the hook existed.
+The hook's own header owns its verbs, its evidence arguments, and the best-effort contract that keeps a broken Atlas from ever failing the action that called it.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` keeps test evidence outside the repo and pins `commands.lint` to `bin/fm-lint.sh` so local lint matches CI.

@@ -29,6 +29,15 @@
 # declared scratch and the report at data/<task-id>/report.md is the work
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
+# Once every landed-work refusal has passed, and before any record is erased,
+# teardown discharges the task's recorded Atlas ticket (atlas_ticket= in its
+# meta): complete, release the node, and land it when no open ticket remains. A
+# scout lands its errand with the report path as the evidence. This is the point
+# where the fleet has already PROVED what the Atlas wants recorded, so --force
+# skips it entirely - a forced teardown may be discarding work and must not
+# record it as landed. The whole call goes through bin/fm-atlas-hook.sh, which
+# owns the best-effort contract and can never fail a teardown; a task with no
+# recorded ticket, or a home with no Atlas, makes no call at all.
 # Before destructive cleanup, teardown validates task check artifacts and any
 # matching quarantine entries as ordinary single-link files on the state
 # device. It refuses and preserves task state when that proof fails; otherwise
@@ -2119,8 +2128,34 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
-# Every landed/discard-work refusal above has now passed (or --force skipped
-# them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
+# Every landed/discard-work refusal above has now passed, so the work is PROVED
+# landed (a ship task's content reached the default branch or its PR merged; a
+# scout's report exists and its decision gate passed). This is the one moment in
+# the whole fleet where that proof and the task's records are both in hand, and
+# the records are about to be erased below, so the Atlas ticket is discharged
+# here. Skipped under --force, which proves nothing: a forced teardown may be
+# discarding work, and recording it as landed would put a false fact in a log
+# that replays forever. Best effort by contract: bin/fm-atlas-hook.sh never
+# fails a teardown.
+if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
+  if [ "$KIND" = scout ]; then
+    atlas_evidence="report at $DATA/$ID/report.md"
+    atlas_summary="Scout task $ID delivered its report; the errand is carried out."
+  elif [ -n "$PR_URL" ]; then
+    atlas_evidence="$PR_URL"
+    atlas_summary="Task $ID landed; cleanup verified the merged PR before removing the isolated copy."
+  else
+    atlas_evidence="task $ID landed on the project's default branch"
+    atlas_summary="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
+  fi
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" land "$ID" \
+    --actor fm-teardown \
+    --evidence "$atlas_evidence" \
+    --summary "$atlas_summary" || true
+fi
+
+# Fix 1 and Fix 2 (see script header) run here, unconditionally on
 # --force, and before ANY destructive step below - a still-parked run or a
 # leaked process can own live work in this exact worktree. Not for
 # kind=secondmate: a secondmate home's own runtime lifecycle is owned by the

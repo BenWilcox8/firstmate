@@ -7,6 +7,12 @@
 # Merge method defaults to --squash when the caller passes none of --squash,
 # --merge, --rebase, or --method after the optional -- separator. Extra args
 # must not include --repo or -R because the repository comes only from the URL.
+#
+# After the merge succeeds, the task's recorded Atlas ticket (atlas_ticket= in its
+# meta) is discharged with the PR URL as its evidence. That call goes through
+# bin/fm-atlas-hook.sh, which owns the best-effort contract and can never fail a
+# merge that has already happened; a task with no recorded ticket, or a home with
+# no Atlas, makes no call at all.
 # Usage: fm-pr-merge.sh <task-id> <pr-url> [-- <extra gh-axi pr merge args>]
 set -eu
 
@@ -14,6 +20,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
@@ -82,3 +89,13 @@ if ! caller_has_merge_method "$@"; then
 fi
 
 gh-axi pr merge "$PR_NUMBER" --repo "$PR_OWNER/$PR_REPO" "${merge_args[@]+"${merge_args[@]}"}" "$@"
+
+# The merge succeeded and this script is holding the PR URL that proves it, so
+# the task's recorded Atlas ticket is discharged here. Best effort by contract:
+# bin/fm-atlas-hook.sh never fails a merge that has already happened.
+FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+  "$SCRIPT_DIR/fm-atlas-hook.sh" complete "$ID" \
+  --actor fm-pr-merge \
+  --restage merge \
+  --evidence "$URL" \
+  --summary "Task $ID merged through $URL." || true

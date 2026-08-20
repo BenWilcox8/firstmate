@@ -9,6 +9,12 @@
 # auto-approves), and only as a clean fast-forward - it refuses a diverged branch
 # and tells you to have the crewmate rebase. See AGENTS.md prime directives,
 # project management, and task lifecycle.
+#
+# After the fast-forward succeeds, the task's recorded Atlas ticket (atlas_ticket=
+# in its meta) is discharged with the before..after range this script already
+# computed. That call goes through bin/fm-atlas-hook.sh, which owns the
+# best-effort contract and can never fail a merge that has already landed; a task
+# with no recorded ticket, or a home with no Atlas, makes no call at all.
 # Usage: fm-merge-local.sh <task-id>
 set -eu
 
@@ -16,6 +22,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 "$FM_ROOT/bin/fm-guard.sh" || true
 ID=${1:?usage: fm-merge-local.sh <task-id>}
 META="$STATE/$ID.meta"
@@ -66,3 +73,13 @@ before=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null
 after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
+
+# The merge is the proof, and this script is holding it. Discharge the task's
+# recorded Atlas ticket with the shas it already computed. Best effort by
+# contract: bin/fm-atlas-hook.sh never fails a merge that already landed.
+FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+  "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
+  --actor fm-merge-local \
+  --restage merge \
+  --evidence "$before..$after on $DEFAULT" \
+  --summary "Task $ID landed on local $DEFAULT as a fast-forward of $BRANCH." || true

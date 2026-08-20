@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -119,6 +119,16 @@
 #   secondmate receives the primary's read-only shared captain-preference file
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
 #   config reread generations because the new agent reads the converged files.
+#   --ticket <id> names the Atlas ticket this work discharges. It is OPTIONAL and
+#   there is no refuse-to-spawn gate: a spawn without it behaves exactly as before.
+#   The id is recorded as atlas_ticket= in the task's meta, which is what the
+#   merge and teardown hooks read back, so the crew never types a ticket id and a
+#   closed-out task cannot lose which ticket it discharged. After the worker is
+#   launched, the spawn tells the Atlas the ticket is being worked. That call is
+#   best effort through bin/fm-atlas-hook.sh and can never fail the spawn; a home
+#   with no Atlas wiring writes no atlas_ticket= line and makes no call at all.
+#   Refused for --secondmate (a persistent home is not a ticket's work) and for
+#   batch id=repo dispatch (one ticket belongs to one crewmate).
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
@@ -245,6 +255,7 @@ YOLO=
 TRACEPARENT_ARG=
 ACCOUNT_ARG=
 SESSION_NAME=
+TICKET=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -254,6 +265,7 @@ YOLO_SET=0
 TRACEPARENT_SET=0
 ACCOUNT_SET=0
 SESSION_NAME_SET=0
+TICKET_SET=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -271,6 +283,7 @@ for a in "$@"; do
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
       account) ACCOUNT_ARG=$a; ACCOUNT_SET=1 ;;
       session-name) SESSION_NAME=$a; SESSION_NAME_SET=1 ;;
+      ticket) TICKET=$a; TICKET_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -297,6 +310,8 @@ for a in "$@"; do
     --account=*) ACCOUNT_ARG=${a#--account=}; ACCOUNT_SET=1 ;;
     --session-name) want_value='session-name' ;;
     --session-name=*) SESSION_NAME=${a#--session-name=}; SESSION_NAME_SET=1 ;;
+    --ticket) want_value=ticket ;;
+    --ticket=*) TICKET=${a#--ticket=}; TICKET_SET=1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -310,6 +325,22 @@ done
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
 [ "$ACCOUNT_SET" -eq 0 ] || [ -n "$ACCOUNT_ARG" ] || { echo "error: --account requires a non-empty value" >&2; exit 1; }
 [ "$SESSION_NAME_SET" -eq 0 ] || [ -n "$SESSION_NAME" ] || { echo "error: --session-name requires a non-empty value" >&2; exit 1; }
+# --ticket is the ONE judgement no fleet event can supply: which Atlas node this
+# work belongs to. It stays optional; the closed character set keeps a malformed
+# id out of the task's durable metadata rather than out of the Atlas.
+if [ "$TICKET_SET" -eq 1 ]; then
+  [ -n "$TICKET" ] || { echo "error: --ticket requires a non-empty value" >&2; exit 1; }
+  case "$TICKET" in
+    *[!A-Za-z0-9._-]*)
+      echo "error: --ticket must be an Atlas ticket id such as c201 (letters, digits, dot, underscore, and dash only)" >&2
+      exit 1
+      ;;
+  esac
+  [ "$KIND" != secondmate ] || {
+    echo "error: --ticket applies to crewmate and scout spawns; a secondmate is a persistent home, not a ticket's work" >&2
+    exit 1
+  }
+fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -777,6 +808,12 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # pair falls through to its per-kind default (the task id) instead.
   if [ "$SESSION_NAME_SET" -eq 1 ]; then
     echo "error: --session-name is not supported for batch id=repo dispatch; each pair uses its task id as the session name. Spawn a per-name task individually." >&2
+    exit 1
+  fi
+  # --ticket is refused for the same reason: one Atlas ticket belongs to one
+  # crewmate, so a shared ticket across every pair would record the wrong holder.
+  if [ "$TICKET_SET" -eq 1 ]; then
+    echo "error: --ticket is not supported for batch id=repo dispatch; one Atlas ticket belongs to one crewmate. Spawn each ticketed task individually." >&2
     exit 1
   fi
   rc=0
@@ -2181,6 +2218,11 @@ META_WINDOW=$T
   # account= is written only when multi-account Claude routing actually chose one,
   # so a home with no accounts config keeps byte-identical metadata.
   [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
+  # atlas_ticket= is the durable record the merge and teardown hooks read back,
+  # so the crew never types a ticket id and a closed-out task cannot lose its
+  # ticket. Written only when --ticket was passed, so an Atlas-free home keeps
+  # byte-identical metadata.
+  [ -z "$TICKET" ] || echo "atlas_ticket=$TICKET"
   [ -z "$NAMEFLAG" ] || echo "session_name=$SESSION_NAME"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   # Default-off writes no traceparent= line (meta stays byte-identical).
@@ -2329,6 +2371,11 @@ if [ "$KIND" = secondmate ] && [ "${FM_SKIP_SECONDMATE_INHERIT:-0}" != 1 ]; then
     fi
   fi
 fi
+
+# The worker exists and holds the brief, so the Atlas can be told this ticket is
+# being worked. Best effort by contract: bin/fm-atlas-hook.sh never fails a spawn.
+FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+  "$FM_ROOT/bin/fm-atlas-hook.sh" start "$ID" --actor fm-spawn || true
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
