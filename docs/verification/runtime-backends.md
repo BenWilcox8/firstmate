@@ -166,7 +166,7 @@ Claude, Codex, OpenCode, Pi, pi-signed, Grok, and Kimi share that backend cleanu
 ## Herdr
 
 The compatibility floor is protocol 14.
-The presentation-projection suite's latest active verification uses Herdr 0.8.0 protocol 19 on macOS aarch64, every other section's latest uses Herdr 0.7.5 protocol 17 on macOS aarch64, and earlier 0.7.5 protocol-16, 0.7.4, protocol-14, and 0.7.3 evidence is retained where it defines current behavior or fallbacks.
+The target-format section's latest active verification uses Herdr 0.8.2 protocol 20 on NixOS Linux x86_64, the presentation-projection suite's uses Herdr 0.8.0 protocol 19 on macOS aarch64, every other section's uses Herdr 0.7.5 protocol 17 on macOS aarch64, and earlier 0.7.5 protocol-16, 0.7.4, protocol-14, and 0.7.3 evidence is retained where it defines current behavior or fallbacks.
 Protocol 17 keeps every protocol-16 feature gate satisfied; the event and workspace-move floors remain 16.
 
 Core read-only probes:
@@ -199,6 +199,34 @@ The CLI matrix was checked directly:
 
 All destructive verification used `bin/fm-herdr-lab.sh` with a non-default `fm-lab-` name and a byte-identical default-session tripwire.
 No ambient `herdr server stop` command is a supported test operation.
+
+### Target format on 0.8.2
+
+Checked 2026-08-20 against Herdr 0.8.2 protocol 20 on NixOS Linux x86_64, read-only, against a live session.
+
+```sh
+herdr --version
+herdr status --json | jq -c '{client:.client.protocol,server:.server.protocol}'
+herdr agent list | jq -c '[.result.agents[0] | {pane_id, tab_id, workspace_id}]'
+herdr agent get default:wJ:p3H; echo "rc=$?"
+herdr pane get default:wJ:p3H; echo "rc=$?"
+herdr agent get wJ:p3H | jq -c '.result.agent.pane_id'
+```
+
+```text
+herdr 0.8.2
+{"client":20,"server":20}
+[{"pane_id":"wJ:p3E","tab_id":"wJ:t1C","workspace_id":"wJ"}]
+{"error":{"code":"agent_not_found","message":"agent target default:wJ:p3H not found"},"id":"cli:agent:get"}
+rc=1
+{"error":{"code":"pane_not_found","message":"pane default:wJ:p3H not found"},"id":"cli:pane:get"}
+rc=1
+"wJ:p3H"
+```
+
+Ids are printed bare, a session-prefixed target is refused by both the agent and the pane verbs, and the bare id is accepted.
+The adapter sends the bare id and passes the session as `--session`, so a recorded `<session>:<pane-id>` target reaches its pane unchanged.
+[`../herdr-backend.md`](../herdr-backend.md) "Target format" owns the grammar; `tests/fm-backend-herdr.test.sh` and `tests/fm-send-strict.test.sh` own the portable regressions.
 
 ### Prune and respawn
 

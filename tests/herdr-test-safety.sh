@@ -33,6 +33,23 @@ herdr_forget_inherited_pane() {
   unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH HERDR_SESSION
 }
 
+# herdr_forget_inherited_home: drop the FM_HOME this test process inherited
+# from the terminal it was started in.
+#
+# bin/backends/herdr.sh derives a home's workspace LABEL from FM_HOME (the
+# primary is "firstmate", a seeded secondmate home is "2ndmate-<id>"). A suite
+# launched from inside a firstmate worker inherits that worker's FM_HOME, so
+# label-dependent assertions would then depend on which home started the run
+# instead of on what they assert. Unsetting it restores the adapter's own
+# documented fallback - the repo root, which carries no secondmate marker - so
+# the label is "firstmate" exactly as it is in CI.
+#
+# Call this in any suite that asserts on container placement or workspace
+# labels. A suite that means to exercise a specific home sets FM_HOME itself.
+herdr_forget_inherited_home() {
+  unset FM_HOME
+}
+
 herdr_refuse_if_default() { # <session>
   fm_herdr_lab_refuse_if_default "$1"
 }

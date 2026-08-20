@@ -353,9 +353,32 @@ herdr_tab_id=<tab-id>
 herdr_pane_id=<pane-id>
 ```
 
-A Herdr pane id contains a colon, so the adapter splits `window=` on the first colon only.
 The recorded pane is the operational fast path.
 Workspace and tab ids support verification and cleanup but are not inferred from mutable labels during normal operation.
+
+### Target format
+
+A Firstmate endpoint target is `<session>:<pane-id>`.
+The session is always the first field and the pane id is the whole remainder, so a pane id that holds its own colon stays intact.
+`fm_backend_herdr_parse_target` is the one owner of that split, and `fm_backend_herdr_bare_id` backstops any id passed to a verb.
+
+Herdr 0.8.2 accepts only the bare id.
+A session-prefixed target is refused with `pane <target> not found` or `agent target <target> not found`, and `agent list` and `pane list` print `pane_id` bare.
+No Herdr call receives a prefixed id, so a task recorded before 0.8.2 keeps working unchanged.
+No metadata is rewritten and no migration is required.
+
+A bare pane id, now the only form Herdr prints, carries no session.
+Two sessions can hold identically named panes, so the adapter never infers one from an id.
+`fm-send` resolves a bare id through this home's own metadata instead: an exact `herdr_pane_id` match names one recorded task and steers that task's recorded endpoint.
+A match whose record has no session or endpoint is refused, and so is a bare id this home does not record.
+
+| Target | Session | Pane id sent to Herdr |
+| --- | --- | --- |
+| `default:w1:p2` | `default` | `w1:p2` |
+| `fm-remote:w1:p2` | `fm-remote` | `w1:p2` |
+| `w1:p2` (recorded here) | from the record | `w1:p2` |
+| `w1:p2` (not recorded here) | refused | none |
+| `w1`, `default:`, `:w1:p2` | refused | none |
 
 ## Current transport behavior
 
@@ -372,6 +395,9 @@ Text is typed once; only Enter is retried.
 On an idle or done native baseline, submit confirmation waits for `working` or `blocked` across a bounded polling window.
 On an already active or unreadable baseline, it falls back to conservative composer clearance.
 A fully unreadable target stops retrying and reports unknown.
+An endpoint Herdr structurally refuses is reported differently: a `pane_not_found` or `agent_not_found` answer makes the submit report `target-missing`, and `fm-send` then says the endpoint is gone instead of reporting an unconfirmed delivery.
+The two failures call for opposite responses - reconcile the task, or wait and retry - so they must not share one message.
+Only that structural refusal earns the hard verdict; an unparseable answer stays unknown.
 The poll density bounds the residual possibility of an extremely fast complete turn; a missed transition can cause only a redundant Enter on an empty composer, never duplicate message text.
 
 `pane read --lines N` can return empty output when N is below the viewport height.
@@ -474,6 +500,7 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 
 ```sh
 tests/fm-backend-herdr.test.sh
+tests/fm-send-strict.test.sh
 tests/fm-backend-herdr-smoke.test.sh
 tests/fm-backend-herdr-prune-safety-e2e.test.sh
 tests/fm-backend-herdr-respawn-idem-e2e.test.sh

@@ -724,6 +724,8 @@ fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
 # fm_backend_send_text_submit: type text once, then submit and verify,
 # retrying only the submission (never retyping). Echoes the backend's
 # proof-carrying verdict; callers require exact empty for confirmed delivery.
+# A backend may also report target-missing when it proves the endpoint is gone;
+# an unrecognized verdict still fails safe as "not delivered".
 fm_backend_send_text_submit() {  # <backend> <target> <text> <retries> <enter-sleep> <settle> [expected-label]
   local backend=$1
   shift
@@ -838,9 +840,11 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
       ;;
     herdr)
       fm_backend_source herdr || return 1
-      session=${target%%:*}
-      pane=${target#*:}
-      [ -n "$session" ] && [ -n "$pane" ] && [ "$pane" != "$target" ] || return 1
+      # fm_backend_herdr_parse_target owns the session/bare-pane split, so a
+      # prefixed target and a bare 0.8.x pane id both resolve to the same pane.
+      fm_backend_herdr_parse_target "$target" || return 1
+      session=$FM_BACKEND_HERDR_SESSION
+      pane=$FM_BACKEND_HERDR_PANE
       # fm_backend_herdr_cli (not a raw HERDR_SESSION-only call): verified
       # empirically (docs/herdr-backend.md "Session targeting") that the bare
       # env var alone is NOT reliably honored once another herdr server is

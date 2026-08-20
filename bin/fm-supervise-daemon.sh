@@ -1165,6 +1165,12 @@ inject_msg() {  # <message> [state]
   if [ "$verdict" = empty ]; then
     return 0  # Backend confirmed the submit.
   fi
+  if [ "$verdict" = target-missing ]; then
+    # The backend proved the supervisor endpoint is gone. Nothing is sitting in
+    # a composer waiting to be submitted, and no retry can reach it.
+    log "inject failed: the supervisor endpoint is gone (verdict=$verdict); the text was never delivered"
+    return 1
+  fi
   log "inject failed: submit unconfirmed after $retries retries (verdict=$verdict, text may be in composer)"
   return 1
 }

@@ -14,7 +14,9 @@
 # retried (Enter only, never retyped) until the target backend confirms a
 # submit or reports an inconclusive send. If a swallowed Enter is positively
 # confirmed, fm-send exits NON-ZERO so the caller knows the steer did not land
-# instead of silently leaving an unsubmitted instruction.
+# instead of silently leaving an unsubmitted instruction. A backend that can
+# prove the endpoint itself is gone reports that separately, so a dead target
+# never wears the same words as an unconfirmed submit.
 # Submission dispatches through the target's recorded backend; the tmux adapter
 # shares its composer/submit core with the away-mode daemon via bin/fm-tmux-lib.sh.
 # Tune with FM_SEND_RETRIES (default 3) / FM_SEND_SLEEP (0.4).
@@ -177,12 +179,29 @@ fm_send_resolve_target() {  # <raw-target>
       ;;
   esac
 
+  # A bare herdr pane id, the only form herdr 0.8.2 prints, carries no session,
+  # and two sessions can hold identically named panes. This home's own metadata
+  # is the evidence that resolves it: an EXACT herdr_pane_id match names one
+  # recorded task, so use that task's recorded target rather than guessing a
+  # session or refusing an id the operator just read out of `herdr agent list`.
+  # A match with no recorded session or target is still a refusal - resolution
+  # comes from the record, never from the id's shape.
   pane_meta=$(fm_send_meta_for_key_value "$STATE" herdr_pane_id "$raw" 2>/dev/null || true)
   if [ -n "$pane_meta" ]; then
     session=$(fm_meta_get "$pane_meta" herdr_session)
     hint="${session:-<herdr-session>}:$raw"
     id=$(fm_send_id_from_meta "$pane_meta")
-    echo "error: target '$raw' matches herdr_pane_id in $pane_meta but is missing its herdr session prefix; expected <herdr-session>:<pane-id> such as '$hint' or use 'fm-$id' (tried meta=$STATE/$raw.meta; backend=herdr)" >&2
+    target=$(fm_backend_target_of_meta "$pane_meta")
+    backend=$(fm_backend_of_meta "$pane_meta")
+    if [ -n "$session" ] && [ -n "$target" ] && [ "$backend" = herdr ]; then
+      RESOLVED_TARGET=$target
+      TARGET_BACKEND=$backend
+      TARGET_META=$pane_meta
+      TARGET_HARNESS=$(fm_meta_get "$pane_meta" harness)
+      RESOLUTION_TRIED="bare herdr pane id '$raw' matched herdr_pane_id in $pane_meta; backend=herdr"
+      return 0
+    fi
+    echo "error: target '$raw' matches herdr_pane_id in $pane_meta but that record names no herdr session or endpoint to resolve it against; use '$hint' or 'fm-$id' (tried meta=$STATE/$raw.meta; backend=herdr)" >&2
     return 1
   fi
 
@@ -349,6 +368,16 @@ else
         fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
       fi
       echo "error: text not sent to $T ($TARGET_BACKEND send failed; tried $RESOLUTION_TRIED)" >&2
+      exit 1
+      ;;
+    target-missing)
+      # The backend proved the endpoint itself is gone. Say so instead of
+      # reporting an unconfirmed delivery, which reads as a timing miss and
+      # invites a resend against an endpoint that no longer exists.
+      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
+        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
+      fi
+      echo "error: text not sent to $T ($TARGET_BACKEND reports that endpoint is gone - no such pane, or no agent is registered in it; tried $RESOLUTION_TRIED). Do not resend to this target; reconcile the task's endpoint first." >&2
       exit 1
       ;;
     *)

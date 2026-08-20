@@ -21,6 +21,10 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 # developer's own terminal would make the adapter resolve a launcher that this
 # fake never models. The launcher cases below set HERDR_PANE_ID themselves.
 herdr_forget_inherited_pane
+# This suite asserts on workspace labels, which the adapter derives from
+# FM_HOME. An inherited one makes those assertions depend on which home
+# launched the run.
+herdr_forget_inherited_home
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
@@ -2274,6 +2278,60 @@ test_parse_target() {
   pass "fm_backend_herdr_parse_target: splits '<session>:<pane_id>' on the FIRST colon (pane_id itself contains one)"
 }
 
+# The session is always the first field, whatever shape the pane id has. A
+# synthetic single-field pane id and a real two-field one must split alike, so
+# no rule about pane-id shape can creep back in.
+test_parse_target_splits_every_pane_id_shape() {
+  ( . "$ROOT/bin/backends/herdr.sh"
+    check() {  # <target> <expected-session> <expected-pane>
+      fm_backend_herdr_parse_target "$1" \
+        || { echo "refused a resolvable target: $1" >&2; return 1; }
+      [ "$FM_BACKEND_HERDR_SESSION" = "$2" ] \
+        || { echo "$1: session '$FM_BACKEND_HERDR_SESSION' != '$2'" >&2; return 1; }
+      [ "$FM_BACKEND_HERDR_PANE" = "$3" ] \
+        || { echo "$1: pane '$FM_BACKEND_HERDR_PANE' != '$3'" >&2; return 1; }
+    }
+    check "default:w1:p2" default "w1:p2" || exit 1
+    check "default:wJ:p3E" default "wJ:p3E" || exit 1
+    check "default:p-old" default "p-old" || exit 1
+    check "fm-lab-herdr-e2e-9:w1P:p2" fm-lab-herdr-e2e-9 "w1P:p2" || exit 1
+    check "2ndmate.osg:w1:p2" 2ndmate.osg "w1:p2" || exit 1
+  ) || fail "fm_backend_herdr_parse_target did not split every live target form on its first colon"
+  pass "fm_backend_herdr_parse_target: the session is the first field for every pane-id shape, real or synthetic"
+}
+
+# A target with no session field is not resolvable here: two herdr sessions can
+# hold identically named panes, so guessing one would steer the wrong agent.
+test_parse_target_refuses_unresolvable_targets() {
+  ( . "$ROOT/bin/backends/herdr.sh"
+    for bad in "" "w1" "default:" ":w1:p2"; do
+      if fm_backend_herdr_parse_target "$bad"; then
+        echo "accepted unresolvable target: '$bad'" >&2
+        exit 1
+      fi
+    done
+  ) || fail "fm_backend_herdr_parse_target accepted a target it cannot resolve to a session and a pane id"
+  pass "fm_backend_herdr_parse_target: refuses a target with no resolvable session and pane id instead of guessing"
+}
+
+# herdr 0.8.2 refuses a session-prefixed id, so a caller that hands a whole
+# target where an id belongs must still reach the pane. Already-bare ids, of
+# every shape, must pass through untouched.
+test_bare_id_strips_only_a_session_prefix() {
+  ( . "$ROOT/bin/backends/herdr.sh"
+    check() { # <input> <expected>
+      local got; got=$(fm_backend_herdr_bare_id "$1")
+      [ "$got" = "$2" ] || { echo "bare_id('$1') = '$got', want '$2'" >&2; return 1; }
+    }
+    check "default:w1:p2" "w1:p2" || exit 1
+    check "w1:p2" "w1:p2" || exit 1
+    check "w1:t2" "w1:t2" || exit 1
+    check "p-old" "p-old" || exit 1
+    check "default:p-old" "default:p-old" || exit 1
+  ) || fail "fm_backend_herdr_bare_id did not strip exactly a session prefix"
+  pass "fm_backend_herdr_bare_id: drops a session prefix, leaves every already-bare id untouched"
+}
+
 test_normalize_key() {
   ( . "$ROOT/bin/backends/herdr.sh"
     [ "$(fm_backend_herdr_normalize_key Enter)" = enter ] || exit 1
@@ -3040,6 +3098,65 @@ test_send_text_submit_unknown_on_capture_failure() {
   enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
   [ "$enter_count" -eq 1 ] || fail "send_text_submit must never retry past an unreadable target (that is a hard I/O failure, not a timing race), sent $enter_count Enter(s)"
   pass "fm_backend_herdr_send_text_submit: reports 'unknown' when the post-Enter agent-get read fails (never retries past an unreadable target)"
+}
+
+# --- send_text_submit: hard target failure vs unconfirmed submit -------------
+# herdr answers a gone pane with pane_not_found and an agent-less pane with
+# agent_not_found. Both mean the steer cannot land at all, which is a different
+# fact from "the text went in but no turn was seen". They used to be reported
+# with the same words as the benign queued-mid-turn miss, so a supervisor could
+# not tell a dead endpoint from a timing race.
+
+test_send_text_submit_reports_target_missing_when_pane_is_gone() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-pane-gone"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  # 1: send-text fails (the pane is gone)
+  # 2: pane get -> pane_not_found (the structural proof)
+  printf '1\n' > "$resp/1.exit"
+  printf '{"error":{"code":"pane_not_found","message":"pane w1:p2 not found"}}\n' > "$resp/2.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "x" 2 0.01 0.01' "$ROOT" )
+  [ "$out" = target-missing ] || fail "send_text_submit should report target-missing when herdr says the pane is gone, got '$out'"
+  pass "fm_backend_herdr_send_text_submit: reports 'target-missing' when herdr answers pane_not_found"
+}
+
+test_send_text_submit_reports_target_missing_when_no_agent_is_registered() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-agent-gone"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  # 1: send-text ok
+  # 2: agent get baseline -> agent_not_found (no agent in the pane)
+  # 3: send-keys enter
+  # 4: agent get -> agent_not_found again, so nothing confirms
+  # 5: pane get -> the pane itself IS there
+  # 6: agent get -> agent_not_found: proof the endpoint holds no agent
+  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/2.out"
+  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
+  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/5.out"
+  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "x" 1 0.01 0.01' "$ROOT" )
+  [ "$out" = target-missing ] || fail "send_text_submit should report target-missing when the pane holds no registered agent, got '$out'"
+  pass "fm_backend_herdr_send_text_submit: reports 'target-missing' when herdr answers agent_not_found for a live pane"
+}
+
+# The hard verdict must stay reserved for herdr's own structural refusal: an
+# unreadable answer is still just an unconfirmed submit, never a dead endpoint.
+test_send_text_submit_keeps_unknown_when_the_target_is_merely_unreadable() {
+  local dir log resp fb out
+  dir="$TMP_ROOT/submit-unreadable"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  # 1: send-text ok  2: baseline idle  3: enter  4: unreadable agent get
+  # 5: pane get succeeds (the pane is right there)  6: garbled agent get
+  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/2.out"
+  printf 'not json at all\n' > "$resp/4.out"
+  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/5.out"
+  printf 'not json at all\n' > "$resp/6.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "x" 1 0.01 0.01' "$ROOT" )
+  [ "$out" = unknown ] || fail "an unreadable target must stay 'unknown', not be reported as a gone endpoint, got '$out'"
+  pass "fm_backend_herdr_send_text_submit: an unreadable target stays 'unknown' and is never called a gone endpoint"
 }
 
 # --- fm-backend.sh dispatch wiring -------------------------------------------
@@ -3848,6 +3965,9 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
 test_parse_target
+test_parse_target_splits_every_pane_id_shape
+test_parse_target_refuses_unresolvable_targets
+test_bare_id_strips_only_a_session_prefix
 test_normalize_key
 test_capture_calls_pane_read
 test_capture_works_around_small_lines_bug
@@ -3896,6 +4016,9 @@ test_composer_state_guard_still_refuses_real_pending_text_after_submit_confirmat
 test_send_text_submit_slow_transition_within_one_enter_needs_no_extra_enter
 test_send_text_submit_send_failed
 test_send_text_submit_unknown_on_capture_failure
+test_send_text_submit_reports_target_missing_when_pane_is_gone
+test_send_text_submit_reports_target_missing_when_no_agent_is_registered
+test_send_text_submit_keeps_unknown_when_the_target_is_merely_unreadable
 test_dispatch_routes_herdr_backend
 test_dispatch_busy_state_unknown_for_tmux
 test_dispatch_composer_state_routes_by_backend

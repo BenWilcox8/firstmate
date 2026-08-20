@@ -40,14 +40,17 @@
 # pane-death path, with the exact pre-close tab restore as the backstop and a
 # refusal to close the active tab itself.
 #
-# Target string shape: "<herdr-session>:<pane-id>", e.g. "default:w1:p2" (the
-# pane id itself contains a colon; the session is always the FIRST field, the
-# remainder is the whole pane id - fm_backend_herdr_parse_target splits on the
-# first colon only). This is the value stored in a herdr task's meta window=
-# field and is what fm_backend_resolve_selector already returns unchanged for
-# exact task-id, legacy fm-<id>, and explicit backend-target forms (that
-# function has no herdr-specific logic; it just returns meta's window=
-# verbatim).
+# Target string shape: "<herdr-session>:<pane-id>", e.g. "default:w1:p2". This
+# is the value stored in a herdr task's meta window= field and is what
+# fm_backend_resolve_selector already returns unchanged for exact task-id,
+# legacy fm-<id>, and explicit backend-target forms (that function has no
+# herdr-specific logic; it just returns meta's window= verbatim).
+# The session is always the FIRST field and the remainder is the whole pane id;
+# fm_backend_herdr_parse_target is the ONE owner of that split, and
+# fm_backend_herdr_bare_id backstops any id handed to a verb. herdr 0.8.2
+# refuses a session-prefixed id, so no prefix may reach the CLI.
+# docs/herdr-backend.md "Target format" owns the grammar and where a bare pane
+# id, the only form 0.8.2 prints, is resolved back to its session.
 #
 # Authoritative task recovery/orphan discovery (ids may not deterministically match live state
 # after a server restart in a differently-configured session; see the
@@ -1613,7 +1616,8 @@ fm_backend_herdr_container_ensure() {  # <cwd-for-a-fresh-workspace> [<launcher-
 # fm_backend_herdr_pane_presence_state: classify one exact pane get response
 # as dead|present|unknown from its JSON body, never from process exit status.
 fm_backend_herdr_pane_presence_state() {  # <session> <pane_id>
-  local session=$1 pane_id=$2 out code pid
+  local session=$1 pane_id out code pid
+  pane_id=$(fm_backend_herdr_bare_id "$2")
   out=$(fm_backend_herdr_cli "$session" pane get "$pane_id" 2>&1)
   code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
   if [ -n "$code" ]; then
@@ -1679,7 +1683,8 @@ fm_backend_herdr_explicit_close_pane_confirmed() {  # <session> <pane_id>
 #              refusal here, never toward closing - this is the conservative
 #              backstop the husk check depends on.
 fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
-  local session=$1 pane_id=$2 out code presence status
+  local session=$1 pane_id out code presence status
+  pane_id=$(fm_backend_herdr_bare_id "$2")
   presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane_id")
   if [ "$presence" != present ]; then
     case "$presence" in
@@ -2311,9 +2316,35 @@ fm_backend_herdr_projection_endpoint_matches_journal() {  # <session> <workspace
   [ "$matches" = "$workspace_id" ]
 }
 
-# fm_backend_herdr_parse_target: split "<session>:<pane_id>" (pane_id itself
-# contains a colon, e.g. "w1:p2") on the FIRST colon only. Sets
-# FM_BACKEND_HERDR_SESSION and FM_BACKEND_HERDR_PANE for the caller.
+# fm_backend_herdr_bare_id: print the id herdr's pane/tab/agent verbs accept.
+#
+# herdr 0.8.2 refuses a session-prefixed id outright (`agent target
+# default:w1:p2 not found`, `pane default:w1:p2 not found`) and prints every id
+# bare, so a prefixed id must never reach a verb. A firstmate endpoint target
+# carries the session plus a pane id that itself holds a colon, giving at least
+# two; a bare pane or tab id holds at most one. Dropping the first field only at
+# two or more leaves every already-bare id untouched, so this is a backstop for
+# a caller that passes a whole target where an id belongs, never a re-split of
+# the target - fm_backend_herdr_parse_target owns that.
+fm_backend_herdr_bare_id() {  # <id>
+  local id=$1 rest=${1#*:}
+  case "$rest" in
+    *:*) printf '%s' "$rest" ;;
+    *) printf '%s' "$id" ;;
+  esac
+}
+
+# fm_backend_herdr_parse_target: split "<session>:<pane_id>" on the FIRST colon
+# only, so a pane id that contains its own colon (w1:p2) stays whole. Sets
+# FM_BACKEND_HERDR_SESSION and FM_BACKEND_HERDR_PANE for the caller, and is the
+# one owner of that split.
+#
+# The session is always the first field. Nothing infers a session from a pane id
+# alone: two herdr sessions can hold identically named panes, so a target with
+# no session is ambiguous and belongs to a caller that has the evidence to
+# resolve it (bin/fm-send.sh resolves a bare pane id through this home's own
+# recorded metadata). Guessing here would send a steer to whichever session the
+# guess named.
 fm_backend_herdr_parse_target() {  # <target>
   local target=$1
   FM_BACKEND_HERDR_SESSION=${target%%:*}
@@ -2570,8 +2601,9 @@ EOF
 }
 
 fm_backend_herdr_agent_identity_raw() {  # <session> <pane> -> <agent>\t<status>
-  local out
-  out=$(fm_backend_herdr_cli "$1" agent get "$2" 2>/dev/null) || return 1
+  local out pane
+  pane=$(fm_backend_herdr_bare_id "$2")
+  out=$(fm_backend_herdr_cli "$1" agent get "$pane" 2>/dev/null) || return 1
   printf '%s' "$out" | jq -r '[.result.agent.agent // "", .result.agent.agent_status // ""] | @tsv' 2>/dev/null
 }
 
@@ -2677,6 +2709,19 @@ EOF
   fm_composer_classify_content "$bordered" "$stripped" "$FM_BACKEND_HERDR_IDLE_RE"
 }
 
+# fm_backend_herdr_target_gone: true when herdr's own structured response says
+# the target cannot be reached - its pane is gone (pane_not_found) or no agent
+# is registered in it (agent_not_found). Anything else, including an
+# unparseable answer, is NOT reported gone: only a structural refusal earns the
+# hard verdict, so an unreadable server never gets described as a dead pane.
+# Read-only, and only ever consulted on a path that already failed.
+fm_backend_herdr_target_gone() {  # <session> <pane_id>
+  case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
+    dead|no-agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_herdr_send_text_submit: type <text> into <target> once (raw,
 # unsubmitted, via send_literal), then submit with a named Enter key, retried
 # (Enter only, never retyped) until herdr's NATIVE agent-state (agent get)
@@ -2734,14 +2779,27 @@ EOF
 #     re-invokes this function from scratch with the same text after seeing
 #     an error, which is a human/escalation decision, not an automatic
 #     retry).
-# Echoes empty|pending|unknown|send-failed, a subset of the proof-carrying
-# submit vocabulary. Empty means confirmed submitted for every backend; how
-# each backend confirms it is an internal decision, and herdr's is no longer
-# literally "the composer read empty".
+# Hard target failure (added after herdr 0.8.2): an endpoint whose pane is gone,
+# or whose pane holds no registered agent, cannot be reached at all. That is not
+# the same fact as "the text went in but the submit was not confirmed", and it
+# used to reach the caller wearing the same words. fm_backend_herdr_target_gone
+# reads herdr's own structured refusal, so the two failures now carry different
+# verdicts and fm-send can name the real cause.
+# Echoes empty|pending|unknown|target-missing|send-failed, a subset of the
+# proof-carrying submit vocabulary. Empty means confirmed submitted for every
+# backend; how each backend confirms it is an internal decision, and herdr's is
+# no longer literally "the composer read empty".
 fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep> <settle>
   local target=$1 text=$2 retries=$3 sleep_s=$4 settle=$5 i=0 verdict baseline confirm_sleep
   fm_backend_herdr_parse_target "$target" || { printf 'unknown'; return 0; }
-  fm_backend_herdr_send_literal "$target" "$text" || { printf 'send-failed'; return 0; }
+  fm_backend_herdr_send_literal "$target" "$text" || {
+    if fm_backend_herdr_target_gone "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"; then
+      printf 'target-missing'
+    else
+      printf 'send-failed'
+    fi
+    return 0
+  }
   sleep "$settle"
   baseline=$(fm_backend_herdr_classify_submit_agent_status \
     "$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")")
@@ -2758,7 +2816,16 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
     case "$verdict" in
       busy) printf 'empty'; return 0 ;;
       empty) printf 'empty'; return 0 ;;
-      unknown) printf 'unknown'; return 0 ;;
+      unknown)
+        # Not one confirmation read landed. Ask once whether the target is
+        # structurally gone before calling this an unconfirmed submit.
+        if fm_backend_herdr_target_gone "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE"; then
+          printf 'target-missing'
+        else
+          printf 'unknown'
+        fi
+        return 0
+        ;;
     esac
     i=$((i + 1))
     [ "$i" -lt "$retries" ] || { printf 'pending'; return 0; }
@@ -2840,9 +2907,10 @@ fm_backend_herdr_kill_serialized() {  # <session> <pane>
 # teardown_herdr_close_once), which is the focus-safe path for the common close.
 fm_backend_herdr_kill() {  # <target> [<zellij_tab_id-ignored> <fm-label>]
   local target=$1 label=${3:-} task_id session
-  if fm_backend_herdr_axi_available && [ -n "$label" ]; then
+  if fm_backend_herdr_axi_available && [ -n "$label" ] \
+    && fm_backend_herdr_parse_target "$target"; then
     task_id=${label#fm-}
-    session=${target%%:*}
+    session=$FM_BACKEND_HERDR_SESSION
     "$FM_BACKEND_HERDR_AXI_BIN" teardown "$task_id" --session "$session" >/dev/null 2>&1 || true
   fi
   fm_backend_herdr_target_ready "$target" || return 0
@@ -2897,7 +2965,8 @@ fm_backend_herdr_classify_submit_agent_status() {  # <raw-agent_status>
 # successful send-text), so re-checking server liveness on every poll would
 # only add latency without adding safety.
 fm_backend_herdr_agent_status_raw() {  # <session> <pane_id>
-  local session=$1 pane_id=$2 out
+  local session=$1 pane_id out
+  pane_id=$(fm_backend_herdr_bare_id "$2")
   out=$(fm_backend_herdr_cli "$session" agent get "$pane_id" 2>/dev/null) || { printf ''; return 0; }
   printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null
 }
@@ -3207,15 +3276,13 @@ fm_backend_herdr_wait_transition() {  # <session> <timeout_secs> <state_dir> <pa
   sock=$(fm_backend_herdr_socket_path "$session")
   [ -n "$sock" ] || return 2
 
-  # Map each window to its herdr pane id (strip the leading "<session>:").
+  # Map each window to its BARE herdr pane id through the target owner, so a
+  # window recorded either way subscribes to the pane it names.
   local w pane_id
   local pane_ids=()
   for w in "${windows[@]}"; do
-    pane_id=${w#*:}
-    if [ -z "$pane_id" ] || [ "$pane_id" = "$w" ]; then
-      continue
-    fi
-    pane_ids+=("$pane_id")
+    fm_backend_herdr_parse_target "$w" || continue
+    pane_ids+=("$FM_BACKEND_HERDR_PANE")
   done
   [ "${#pane_ids[@]}" -gt 0 ] || return 2
 
@@ -3253,10 +3320,8 @@ fm_backend_herdr_wait_transition() {  # <session> <timeout_secs> <state_dir> <pa
   # marker here too.
   if [ "$rc" -ne 2 ]; then
     for w in "${windows[@]}"; do
-      pane_id=${w#*:}
-      if [ -z "$pane_id" ] || [ "$pane_id" = "$w" ]; then
-        continue
-      fi
+      fm_backend_herdr_parse_target "$w" || continue
+      pane_id=$FM_BACKEND_HERDR_PANE
       raw=$(fm_backend_herdr_agent_status_raw "$session" "$pane_id")
       [ -n "$raw" ] || continue
       record=$(fm_backend_herdr_normalize_event "$pane_id" "" "$raw" "")
