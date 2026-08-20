@@ -2294,6 +2294,24 @@ fi
 if [ -n "$CLAUDE_LAUNCH_CONFIG_DIR" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_LAUNCH_CONFIG_DIR") $LAUNCH"
 fi
+# Keep every firstmate-launched claude agent's session transcript, so the captain
+# can later resume it with `claude --resume <session-id>`. Claude Code exports
+# CLAUDE_CODE_CHILD_SESSION=1 into the shells it spawns; when a pane daemon was
+# itself started from inside a claude session, every pane it later creates
+# inherits that marker and the claude CLI launched there turns transcript saving
+# OFF ("Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION marker",
+# verified end to end on Claude Code 2.1.237). CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1
+# is the vendor's own advertised remedy and is checked ahead of every other
+# condition, so it alone is decisive; stripping the inherited marker also removes
+# the trigger and is kept as the second line of defense. The harness-adapters
+# skill owns the full detection rule, including the tmux-global-environment
+# forgiveness that makes a naive repro look healthy. Applying it here rather than
+# inside launch_template covers every backend and the raw-launch escape hatch
+# alike, because the pane shell's environment is contaminated before the launch
+# command ever runs.
+if [ "$HARNESS" = claude ]; then
+  LAUNCH="env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 $LAUNCH"
+fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   sq_primary_home=$(shell_quote "$FM_HOME")

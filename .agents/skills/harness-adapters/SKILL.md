@@ -187,6 +187,17 @@ Claude renders a predicted-next-prompt suggestion as dim/faint text inside an ot
 A plain `tmux capture-pane` cannot tell that ghost text apart from typed text.
 Firstmate launches every claude crewmate and secondmate with `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false`, scoped to firstmate-launched agents through `bin/fm-spawn.sh`, so it never touches the captain's global config.
 The CLI's `--prompt-suggestions` flag is print/SDK-mode only and does not suppress the interactive composer ghost text, verified empirically on v2.1.186.
+
+**Session-persistence fact (verified 2026-08-20, Claude Code 2.1.237).**
+Firstmate launches every claude agent behind `env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, so the captain can resume any spawned agent later with `claude --resume <session-id>`.
+Claude Code exports `CLAUDE_CODE_CHILD_SESSION=1` into the shells it spawns.
+A pane daemon that was itself started from inside a claude session passes that marker to every pane it later creates, and an interactive claude launched there writes no transcript at all, showing "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION marker" in its footer.
+The suppression needs the marker, an interactive session, and the marker to be absent from tmux's GLOBAL environment: claude treats a marker that `tmux show-environment -g CLAUDE_CODE_CHILD_SESSION` reports as ambient contamination and keeps saving.
+That forgiveness is why the symptom shows on panes whose daemon exports no tmux global marker while a hand-made tmux repro can look healthy, and why a repro must clear the global variable first.
+`CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` is checked before every other condition, so it alone is decisive; stripping the inherited marker also removes the trigger and is kept as the second line of defense.
+Print mode (`--print`) always writes a transcript and therefore cannot reproduce or verify this - use a real interactive session.
+`bin/fm-spawn.sh` adds the prefix once for the resolved claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
+`tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake claude in a contaminated environment.
 As defense in depth for any pane that flag cannot reach, including the captain's own firstmate composer that away-mode reads, the shared `fm_composer_strip_ghost` extractor in `bin/fm-composer-lib.sh` removes dim/faint SGR 2 ghost runs before pending-input classification on both ANSI-capable readers (tmux and herdr).
 Its broader dark-TRUECOLOR placeholder handling and dark-theme tradeoff are documented in `docs/herdr-backend.md` "Composer and injection safety", with active captures in `docs/verification/runtime-backends.md`.
 That styled capture is internal to the boolean detector only.

@@ -140,7 +140,10 @@ test_no_profile_keeps_claude_profile_defaults() {
   # (AGENTS.md task lifecycle / spawn), so claude receives --name '<id>'; the
   # brief still goes through the canonical operational-input launch encoder, and
   # the rest of the launch is unchanged by the absent --model/--effort flags.
-  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  # The leading env prefix is the claude session-persistence fix that every
+  # firstmate-launched claude agent carries; it is owned by
+  # tests/fm-spawn-claude-persistence.test.sh.
+  expected="env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
   [ "$launch" = "$expected" ] || fail "no-profile claude launch changed or did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   pass "no --model/--effort records defaults, keeps the default --name, and types the claude launch instructions"
 }

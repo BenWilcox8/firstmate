@@ -19,6 +19,13 @@ ACCOUNT="$ROOT/bin/fm-claude-account.sh"
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-claude-account)
 
+# Every firstmate-launched claude agent carries the session-persistence env fix
+# ahead of any other launch prefix, so a pane shell that inherited Claude Code's
+# CLAUDE_CODE_CHILD_SESSION marker cannot turn the crewmate's transcript off.
+# The account assertions below pin the selected config dir relative to it;
+# tests/fm-spawn-claude-persistence.test.sh owns the fix itself.
+CLAUDE_PERSIST_PREFIX="env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1"
+
 # --- fixtures ---------------------------------------------------------------
 
 # A fake quota-axi that answers from a fixture directory keyed by the account's
@@ -390,7 +397,7 @@ run_spawn() {
     CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
     FM_TEST_QUOTA_FIXTURES="$fixtures" \
     FM_FAKE_LAUNCH_LOG="$launchlog" PATH="$fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+    "$SPAWN" "$@" --mode no-mistakes --yolo off 2>&1
 }
 
 test_spawn_without_accounts_config_is_unchanged() {
@@ -403,7 +410,7 @@ test_spawn_without_accounts_config_is_unchanged() {
   status=$?
   expect_code 0 "$status" "a claude spawn with no accounts config should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  expected="CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
+  expected="$CLAUDE_PERSIST_PREFIX CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
   [ "$launch" = "$expected" ] || fail "no accounts config changed the launch command"$'\n'"expected: $expected"$'\n'"actual:   $launch"
   grep -q '^account=' "$HOME_DIR/state/$id.meta" && fail "no accounts config still recorded an account"
   assert_contains "$out" "spawned $id harness=claude kind=ship" "the spawn line gained an account with no config"
@@ -424,7 +431,7 @@ test_spawn_selects_the_fresher_account() {
   expect_code 0 "$status" "a claude spawn with accounts configured should succeed"
   launch=$(cat "$LAUNCH_LOG")
   case "$launch" in
-    "CLAUDE_CONFIG_DIR='$DIR_FRESH' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude "*) ;;
+    "$CLAUDE_PERSIST_PREFIX CLAUDE_CONFIG_DIR='$DIR_FRESH' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude "*) ;;
     *) fail "the selected account did not reach the launch command: $launch" ;;
   esac
   assert_grep "account=fresh" "$HOME_DIR/state/$id.meta" "the selected account was not recorded"
@@ -447,7 +454,7 @@ test_spawn_account_override_beats_scoring() {
   expect_code 0 "$status" "an explicit account spawn should succeed"
   launch=$(cat "$LAUNCH_LOG")
   case "$launch" in
-    "CLAUDE_CONFIG_DIR='$DIR_SPENT' "*) ;;
+    "$CLAUDE_PERSIST_PREFIX CLAUDE_CONFIG_DIR='$DIR_SPENT' "*) ;;
     *) fail "the explicit account did not reach the launch command: $launch" ;;
   esac
   assert_grep "account=spent" "$HOME_DIR/state/$id.meta" "the explicit account was not recorded"
@@ -471,7 +478,7 @@ test_batch_spawn_forwards_the_shared_account() {
   status=$?
   expect_code 0 "$status" "a batch spawn with a shared account should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  [ "$(grep -c "CLAUDE_CONFIG_DIR='$DIR_SPENT' " <<<"$launch")" -eq 2 ] \
+  [ "$(grep -c "$CLAUDE_PERSIST_PREFIX CLAUDE_CONFIG_DIR='$DIR_SPENT' " <<<"$launch")" -eq 2 ] \
     || fail "the shared account did not reach both batch launches: $launch"
   assert_grep "account=spent" "$HOME_DIR/state/$first.meta" "the first batch task lost the shared account"
   assert_grep "account=spent" "$HOME_DIR/state/$second.meta" "the second batch task lost the shared account"
@@ -492,7 +499,7 @@ test_spawn_account_beats_the_inherited_config_dir() {
   expect_code 0 "$status" "a spawn with both an account and an inherited store should succeed"
   launch=$(cat "$LAUNCH_LOG")
   case "$launch" in
-    "CLAUDE_CONFIG_DIR='$DIR_FRESH' "*) ;;
+    "$CLAUDE_PERSIST_PREFIX CLAUDE_CONFIG_DIR='$DIR_FRESH' "*) ;;
     *) fail "the selected account did not beat firstmate's own store: $launch" ;;
   esac
   pass "a selected account beats firstmate's own inherited config dir"
@@ -543,7 +550,7 @@ test_spawn_degrades_to_the_first_account_when_quota_is_unreadable() {
   expect_code 0 "$status" "unreadable quota should still spawn"
   launch=$(cat "$LAUNCH_LOG")
   case "$launch" in
-    "CLAUDE_CONFIG_DIR='$DIR_SPENT' "*) ;;
+    "$CLAUDE_PERSIST_PREFIX CLAUDE_CONFIG_DIR='$DIR_SPENT' "*) ;;
     *) fail "the spawn did not fall back to the first configured account: $launch" ;;
   esac
   assert_contains "$out" "no Claude account usage could be read" "the degraded spawn printed no warning"
