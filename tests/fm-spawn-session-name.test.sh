@@ -92,6 +92,13 @@ run_spawn() {
     "$SPAWN" "$@" 2>&1
 }
 
+# Ship spawns carry an explicit delivery contract (AGENTS.md section 7); this
+# suite is about session naming, so its ship cases pass a fixed valid one.
+# Scout and secondmate spawns resolve their own contract and must not receive it.
+run_ship_spawn() {
+  run_spawn "$@" --mode no-mistakes --yolo off
+}
+
 read_case_record() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR LAUNCH_LOG <<EOF
 $1
@@ -110,7 +117,7 @@ test_claude_explicit_session_name_threads_name_flag() {
   rec=$(make_spawn_case session-explicit claude "$id")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
   status=$?
   expect_code 0 "$status" "claude spawn with an explicit session name should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
@@ -127,7 +134,7 @@ test_crewmate_default_name_is_task_id() {
   rec=$(make_spawn_case session-crew-default claude "$id")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "claude crewmate spawn without a session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
@@ -182,7 +189,7 @@ test_unsupported_harness_omits_name_flag_and_meta() {
 
   # Default (no flag): codex has no verified session-name flag, so no --name is
   # passed and no session_name= is recorded.
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "codex spawn without a session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
@@ -191,7 +198,7 @@ test_unsupported_harness_omits_name_flag_and_meta() {
 
   # Explicit --session-name on codex: still no --name, still no session_name=, and
   # the launch is byte-identical to the no-flag codex launch above.
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "ignored name")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "ignored name")
   status=$?
   expect_code 0 "$status" "codex spawn with an ignored session name should still succeed"
   launch_named=$(cat "$LAUNCH_LOG")
@@ -211,7 +218,7 @@ test_quoting_safety_spaces_and_single_quotes() {
   rec=$(make_spawn_case session-quote claude "$id")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
   status=$?
   expect_code 0 "$status" "claude spawn with a quote-laden session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
@@ -231,7 +238,7 @@ test_quoting_safety_ampersand() {
   rec=$(make_spawn_case session-amp claude "$id")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "$name")
   status=$?
   expect_code 0 "$status" "claude spawn with an ampersand session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
@@ -250,7 +257,7 @@ test_batch_refuses_session_name() {
   rec=$(make_spawn_case session-batch claude "$id1" "$id2")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
     "$id1=$PROJ_DIR" "$id2=$PROJ_DIR" --session-name "shared name")
   status=$?
   expect_code 1 "$status" "batch dispatch with --session-name should be refused"
@@ -271,7 +278,7 @@ test_raw_launch_command_omits_name_flag_and_meta() {
   # the command has no __NAMEFLAG__ placeholder, so no --name may be injected and
   # no session_name= may be recorded.
   # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
   status=$?
   expect_code 0 "$status" "raw launch command spawn should succeed"
   launch=$(cat "$LAUNCH_LOG")
@@ -287,7 +294,7 @@ test_empty_session_name_rejected() {
   rec=$(make_spawn_case session-empty claude "$id")
   read_case_record "$rec"
 
-  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name=)
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name=)
   status=$?
   expect_code 1 "$status" "an empty --session-name value should be rejected"
   assert_contains "$out" "--session-name requires a non-empty value" "empty session name was not rejected with the expected error"
