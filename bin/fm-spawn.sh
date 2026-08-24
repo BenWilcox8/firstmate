@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--ultracode] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--ultracode] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--ultracode] [--session-name <text>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -68,6 +68,20 @@
 #   the task. An unpinned spawn writes no account= line. If a pin does not
 #   resolve, the spawn stops before it creates anything, so no agent ever starts
 #   on an unknown subscription.
+#   --ultracode starts a claude worker in Claude Code's durable ultracode
+#   session mode. The mode has no CLI flag: it is read from an "ultracode": true
+#   key in the .claude/settings.local.json of the directory claude launches in,
+#   so the spawn merges that key into the task worktree's file before launch and
+#   records ultracode=on in the task meta. The key is merged, never written over
+#   the top of the file, because the same file carries this task's turn-end and
+#   busy-state hooks. The mode selects xhigh effort itself and adds the dynamic
+#   workflow tooling, so pass no --effort alongside it. The flag is claude-only
+#   and a spawn that resolved any other harness refuses it before an endpoint, a
+#   worktree, or task metadata exists.
+#   The settings key is the vendor's own contract, so it is version-scoped:
+#   verified against Claude Code 2.1.241, where a merged file carrying this key
+#   beside the busy-state hooks boots the session with the "ultracode - xhigh
+#   effort + dynamic workflows" banner. Re-check it after a Claude Code upgrade.
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
 #   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
@@ -324,6 +338,7 @@ MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
 ACCOUNT_SET=0
+ULTRACODE=0
 SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
@@ -352,6 +367,7 @@ for a in "$@"; do
   fi
   case "$a" in
     --scout) KIND=scout; KIND_SET=1 ;;
+    --ultracode) ULTRACODE=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
     --harness) want_value=harness ;;
@@ -954,6 +970,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
+  [ "$ULTRACODE" -eq 0 ] || shared_args+=(--ultracode)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1411,6 +1428,16 @@ case "$HARNESS" in
     fi
     ;;
 esac
+
+# Ultracode is a claude-only session mode, and the refusal sits here with the
+# account resolution above for the same reason: nothing exists yet. A spawn that
+# resolved another harness stops while it still has no endpoint, no worktree, and
+# no task metadata, rather than launching a worker that silently lacks the mode
+# the caller asked for.
+if [ "$ULTRACODE" -eq 1 ] && [ "$HARNESS" != claude ]; then
+  echo "error: --ultracode applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
+  exit 1
+fi
 
 # config/secondmate-harness may carry optional model/effort tokens alongside the
 # harness ("<harness> [<model>] [<effort>]"). They apply only when this is a
@@ -2782,6 +2809,57 @@ EOF
   esac
 fi
 
+# Ultracode mode is carried by a top-level "ultracode": true key in the
+# .claude/settings.local.json of the directory claude launches in. This runs
+# AFTER the per-harness hook install above, and merges rather than writes, so the
+# busy-state and turn-end hooks the claude branch just wrote survive intact; a
+# secondmate home, which installs no worktree hooks, takes the same path and gets
+# the key on its own.
+#
+# The merge is deliberately narrow rather than a general JSON rewrite, because
+# fm-spawn depends on no JSON tool (jq is optional for this home). It replaces
+# any top-level ultracode entry the file already carried, so a respawn onto the
+# same worktree stays idempotent, and inserts the key into the object otherwise.
+# A file with no object to merge into stops the spawn rather than leaving behind
+# something claude would reject.
+ultracode_settings_merge() {
+  local file=$1 merged
+  if [ ! -s "$file" ]; then
+    printf '{"ultracode":true}\n' > "$file" || return 1
+    return 0
+  fi
+  merged=$(awk '
+    { s = s $0 "\n" }
+    END {
+      gsub(/"ultracode"[ \t\r\n]*:[ \t\r\n]*(true|false)/, "", s)
+      gsub(/,[ \t\r\n]*,/, ",", s)
+      gsub(/\{[ \t\r\n]*,/, "{", s)
+      gsub(/,[ \t\r\n]*\}/, "}", s)
+      open = index(s, "{")
+      if (open == 0) { exit 3 }
+      head = substr(s, 1, open)
+      tail = substr(s, open + 1)
+      rest = tail
+      gsub(/[ \t\r\n]/, "", rest)
+      sep = (rest == "" || substr(rest, 1, 1) == "}") ? "" : ","
+      printf "%s\"ultracode\":true%s%s", head, sep, tail
+    }
+  ' "$file") || return 1
+  [ -n "$merged" ] || return 1
+  printf '%s\n' "$merged" > "$file" || return 1
+}
+if [ "$ULTRACODE" -eq 1 ]; then
+  mkdir -p "$WT/.claude" || {
+    echo "error: could not create $WT/.claude for the ultracode session setting" >&2
+    exit 1
+  }
+  ultracode_settings_merge "$WT/.claude/settings.local.json" || {
+    echo "error: could not merge the ultracode session setting into $WT/.claude/settings.local.json" >&2
+    exit 1
+  }
+  exclude_path '.claude/settings.local.json'
+fi
+
 # Delivery posture recorded in meta so fm-teardown's safety check and the
 # validate/merge stages can branch on it. A ship task carries the explicit
 # per-task decision validated above; a secondmate's posture is fixed; a scout
@@ -2882,6 +2960,9 @@ preserve_relaunch_meta() {
   # account= is written only when the spawn pinned a cswap account, so an
   # unpinned spawn keeps byte-identical metadata.
   [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
+  # ultracode= is written only for an ultracode spawn, so an ordinary spawn keeps
+  # byte-identical metadata.
+  [ "$ULTRACODE" -eq 0 ] || echo "ultracode=on"
   # atlas_ticket= is the durable record the merge and teardown hooks read back,
   # so the crew never types a ticket id and a closed-out task cannot lose its
   # ticket. Written only when --ticket was passed, so an Atlas-free home keeps

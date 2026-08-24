@@ -328,6 +328,10 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
+`bin/fm-spawn.sh --ultracode` is a further launch axis that no dispatch profile carries: it starts a claude worker in Claude Code's durable ultracode session mode.
+The flag merges an `"ultracode": true` key into the task worktree's `.claude/settings.local.json` before launch and records `ultracode=on` in the task meta, and a spawn that resolved any other harness refuses it.
+The mode selects xhigh effort itself, so pass no profile effort beside it; `bin/fm-spawn.sh`'s header owns the exact mechanics.
+
 ## Claude accounts (cswap)
 
 A captain with more than one Claude subscription manages the accounts with [claude-swap](https://github.com/realiti4/claude-swap).
