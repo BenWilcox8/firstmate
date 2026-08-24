@@ -14,6 +14,12 @@
 # reports what it read out of the worktree, which is what proves the composed
 # spawn really delivers the mode.
 #
+# A spawn always hands the merge fm-spawn's own freshly written hook file, so a
+# test that seeds operator content into the worktree first proves nothing: the
+# hook write clobbers it before the merge runs. The reachable hazard is instead
+# the hook COMMANDS, which embed this task's real paths and id inside JSON string
+# values, so one test drives a path carrying JSON punctuation through a spawn.
+#
 # Like the persistence suite, everything runs against a fake tmux pane and a real
 # isolated git worktree, so no harness is ever started.
 set -u
@@ -34,8 +40,16 @@ case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
 case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  display-message)
+    case "$*" in
+      *"#{pane_current_command}"*) printf '%s\n' "${FM_FAKE_TMUX_CURRENT_COMMAND:-firstmate}"; exit 0 ;;
+    esac
+    printf 'firstmate\n'; exit 0
+    ;;
+  list-windows)
+    [ -z "${FM_FAKE_TMUX_WINDOWS:-}" ] || printf '%s\n' "$FM_FAKE_TMUX_WINDOWS"
+    exit 0
+    ;;
   has-session|new-session|new-window|kill-window) exit 0 ;;
   send-keys)
     if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
@@ -226,28 +240,6 @@ test_a_spawn_without_the_flag_is_untouched() {
   pass "a claude spawn without --ultracode carries no ultracode key and no ultracode meta line"
 }
 
-# The mode is durable session state, so a respawn onto the same worktree must
-# converge rather than accumulate. This drives the case that a hand-injected key
-# (the documented pre-flag workaround) already sits in the file.
-test_a_preexisting_ultracode_key_is_replaced_not_duplicated() {
-  local rec id status file count
-  id=ultra-again-u5
-  rec=$(make_spawn_case ultra-again claude "$id")
-  read_case_record "$rec"
-
-  mkdir -p "$WT_DIR/.claude"
-  printf '{"ultracode": false, "permissions": {"allow": ["Bash"]}}\n' > "$WT_DIR/$SETTINGS_REL"
-
-  run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --ultracode >/dev/null
-  status=$?
-  expect_code 0 "$status" "a claude --ultracode spawn over an existing settings file should succeed"
-  file="$WT_DIR/$SETTINGS_REL"
-  assert_ultracode_settings "$WT_DIR" "the ultracode spawn over an existing settings file"
-  count=$(grep -o '"ultracode"' "$file" | wc -l | tr -d '[:space:]')
-  [ "$count" = "1" ] \
-    || fail "the merge left $count ultracode keys in $SETTINGS_REL: $(cat "$file")"
-  pass "an existing ultracode value is replaced rather than duplicated"
-}
 
 # The assertions above pin the produced file. This one runs the spawn's own
 # launch command against a fake claude that reads the settings out of the
@@ -302,12 +294,10 @@ make_seeded_secondmate_home() {
   printf 'charter for %s\n' "$id" > "$home/data/charter.md"
 }
 
-# The flag is scoped by harness, not by kind, so the other two claude kinds must
-# get the mode too. A secondmate is the interesting one: its home installs no
-# worktree hooks, so it exercises the create half of the merge while the ship and
-# scout cases exercise the merge half.
-test_scout_and_secondmate_kinds_get_the_mode() {
-  local rec id sm status
+# The flag is scoped by harness and by kind, so the one other kind it accepts
+# must get the mode too.
+test_a_scout_spawn_gets_the_mode() {
+  local rec id status
   id=ultra-scout-u7
   rec=$(make_spawn_case ultra-scout claude "$id")
   read_case_record "$rec"
@@ -317,26 +307,139 @@ test_scout_and_secondmate_kinds_get_the_mode() {
   assert_ultracode_settings "$WT_DIR" "the claude ultracode scout spawn"
   [ "$(meta_line "$HOME_DIR" ultracode "$id")" = "ultracode=on" ] \
     || fail "meta did not record ultracode=on for the scout"
+  pass "a claude scout spawn carries the ultracode mode"
+}
 
-  id=ultra-sm-u8
-  rec=$(make_spawn_case ultra-sm claude "$id")
+
+
+# The merge only ever meets one file in practice: the hook settings the claude
+# branch wrote moments earlier. That file is not inert JSON - every hook command
+# is a string holding this task's real worktree path, state path, and id. A path
+# carrying JSON punctuation therefore puts that punctuation INSIDE a string
+# value, which is precisely what a text-level merge cannot tell apart from
+# structure. This drives that case end to end rather than reasoning about it.
+test_the_merge_does_not_rewrite_paths_inside_hook_commands() {
+  local rec id status file stop punct_home
+  id=ultra-punct-u9
+  rec=$(make_spawn_case ultra-punct claude "$id")
+  read_case_record "$rec"
+  # The home PATH carries the sequences a text-level merge collapses. fm-spawn
+  # embeds that path in every hook command, so this puts the punctuation inside
+  # a JSON string value, where it must survive untouched.
+  punct_home="$CASE_DIR/home{,}a, }b"
+  cp -r "$HOME_DIR" "$punct_home"
+
+  run_ship_spawn "$punct_home" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --ultracode >/dev/null
+  status=$?
+  expect_code 0 "$status" "a spawn whose hook paths carry JSON punctuation should succeed"
+  file="$WT_DIR/$SETTINGS_REL"
+  assert_ultracode_settings "$WT_DIR" "the spawn whose hook paths carry JSON punctuation"
+  stop=$(read_settings_field "$file" 'doc.hooks.Stop[0].hooks[0].command')
+  assert_contains "$stop" '{,}' "the merge collapsed a brace-comma sequence inside a hook command"
+  assert_contains "$stop" ', }' "the merge collapsed a comma-brace sequence inside a hook command"
+  assert_contains "$stop" "$id.turn-ended" "the merge broke the Stop turn-end touch"
+  pass "the merge leaves JSON punctuation inside hook command strings untouched"
+}
+
+# The two refusals that keep the flag honest rather than harness-scoped: a
+# secondmate home outlives the spawn, and an explicit effort would pin the very
+# level the mode exists to raise.
+test_secondmate_and_effort_refuse_the_flag() {
+  local rec id sm out status
+  id=ultra-smrefuse-u12
+  rec=$(make_spawn_case ultra-smrefuse claude "$id")
   read_case_record "$rec"
   sm="$CASE_DIR/secondmate-home"
   make_seeded_secondmate_home "$sm" "$id"
-  run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate --ultracode >/dev/null
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$sm" --secondmate --ultracode)
   status=$?
-  expect_code 0 "$status" "a claude secondmate --ultracode spawn should succeed"
-  assert_ultracode_settings "$sm" "the claude ultracode secondmate spawn"
+  expect_code 1 "$status" "a secondmate --ultracode spawn should be refused"
+  assert_contains "$out" "--ultracode applies only to task worktrees" \
+    "the secondmate refusal did not name the task-worktree rule"
+  [ ! -e "$sm/$SETTINGS_REL" ] \
+    || fail "the refused secondmate spawn still wrote settings into the persistent home"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] \
+    || fail "the refused secondmate spawn left task metadata behind"
+
+  id=ultra-effrefuse-u13
+  rec=$(make_spawn_case ultra-effrefuse claude "$id")
+  read_case_record "$rec"
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --ultracode --effort low)
+  status=$?
+  expect_code 1 "$status" "an --ultracode --effort spawn should be refused"
+  assert_contains "$out" "--ultracode selects xhigh effort itself" \
+    "the effort refusal did not explain the conflict"
+  [ ! -e "$WT_DIR/$SETTINGS_REL" ] \
+    || fail "the refused effort spawn still wrote worktree settings"
+  pass "a secondmate spawn and an explicit effort each refuse --ultracode before anything exists"
+}
+
+# A switch that silently becomes a positional is a spawn that quietly runs
+# without the mode the caller asked for.
+test_ultracode_with_a_value_is_rejected() {
+  local rec id out status
+  id=ultra-value-u14
+  rec=$(make_spawn_case ultra-value claude "$id")
+  read_case_record "$rec"
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --ultracode=true)
+  status=$?
+  expect_code 1 "$status" "--ultracode=true should be rejected"
+  assert_contains "$out" "--ultracode is a switch and takes no value" \
+    "the rejection did not explain that --ultracode takes no value"
+  pass "--ultracode with a value is rejected instead of being read as a positional"
+}
+
+# A relaunch replaces the agent in place, and fm-control passes no --ultracode.
+# The relaunch path also retires this task's claude wiring and rewrites the
+# settings file the mode key lives in, so the replacement worker genuinely starts
+# without the mode. The record must follow: an ultracode= line preserved from the
+# retired incarnation would assert a mode the running worker does not have, which
+# is the exact half-application this flag was built to make impossible.
+test_a_relaunch_drops_the_mode_from_the_worktree_and_the_record() {
+  local rec id status file value relaunch_out window
+  id=ultra-relaunch-u10
+  rec=$(make_spawn_case ultra-relaunch claude "$id")
+  read_case_record "$rec"
+
+  run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --ultracode >/dev/null
+  status=$?
+  expect_code 0 "$status" "the seeding claude --ultracode spawn should succeed"
+  assert_ultracode_settings "$WT_DIR" "the seeding ultracode spawn"
   [ "$(meta_line "$HOME_DIR" ultracode "$id")" = "ultracode=on" ] \
-    || fail "meta did not record ultracode=on for the secondmate"
-  pass "claude scout and secondmate spawns both carry the ultracode mode"
+    || fail "the seeding spawn did not record ultracode=on for $id"
+
+  # The relaunch path reads the recorded endpoint, so the fake pane must be
+  # visible and agent-free for it: exactly the state fm-control leaves behind
+  # after it stops the old agent.
+  window=$(meta_line "$HOME_DIR" window "$id"); window=${window#window=}
+  export FM_FAKE_TMUX_WINDOWS="${window#*:}" FM_FAKE_TMUX_CURRENT_COMMAND=zsh
+
+  relaunch_out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" --relaunch --harness claude)
+  status=$?
+  expect_code 0 "$status" "the relaunch should succeed: $relaunch_out"
+
+  file="$WT_DIR/$SETTINGS_REL"
+  [ -f "$file" ] || fail "the relaunch left no $SETTINGS_REL to check"
+  value=$(read_settings_field "$file" 'doc.ultracode === undefined ? "absent" : String(doc.ultracode)') \
+    || fail "the relaunch left a $SETTINGS_REL that is not parseable JSON: $(cat "$file")"
+  [ "$value" = absent ] \
+    || fail "the relaunch kept an ultracode key in $SETTINGS_REL (got '$value')"
+  [ -z "$(meta_line "$HOME_DIR" ultracode "$id")" ] \
+    || fail "the relaunch preserved '$(meta_line "$HOME_DIR" ultracode "$id")' while the worktree lost the mode"
+  unset FM_FAKE_TMUX_WINDOWS FM_FAKE_TMUX_CURRENT_COMMAND
+  pass "a relaunch drops the mode from the worktree and stops the record claiming it"
 }
 test_claude_ship_spawn_gets_the_mode_and_records_it
 test_the_mode_key_merges_with_the_claude_hooks
 test_non_claude_ultracode_spawn_refuses_before_anything_exists
 test_a_spawn_without_the_flag_is_untouched
-test_a_preexisting_ultracode_key_is_replaced_not_duplicated
-test_scout_and_secondmate_kinds_get_the_mode
+test_a_scout_spawn_gets_the_mode
+test_the_merge_does_not_rewrite_paths_inside_hook_commands
+test_secondmate_and_effort_refuse_the_flag
+test_ultracode_with_a_value_is_rejected
+test_a_relaunch_drops_the_mode_from_the_worktree_and_the_record
 test_the_composed_launch_reaches_claude_with_the_mode_on
 
 printf '# all fm-spawn-ultracode tests passed\n'

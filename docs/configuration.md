@@ -329,8 +329,11 @@ While the file remains present, no crewmate or scout spawn may proceed without a
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
 `bin/fm-spawn.sh --ultracode` is a further launch axis that no dispatch profile carries: it starts a claude worker in Claude Code's durable ultracode session mode.
-The flag merges an `"ultracode": true` key into the task worktree's `.claude/settings.local.json` before launch and records `ultracode=on` in the task meta, and a spawn that resolved any other harness refuses it.
-The mode selects xhigh effort itself, so pass no profile effort beside it; `bin/fm-spawn.sh`'s header owns the exact mechanics.
+The flag merges an `"ultracode": true` key into the task worktree's `.claude/settings.local.json` before launch and records `ultracode=on` in the task meta.
+It refuses on any other harness, when node is absent, on a secondmate spawn, and alongside `--effort`, because the mode selects xhigh effort itself.
+Claude Code also requires dynamic workflows to be enabled and an xhigh-capable model before it applies the mode, and neither condition is visible to the spawn; `bin/fm-spawn.sh`'s header owns the exact mechanics.
+A relaunch does not carry the mode: it rewrites the settings file the key lives in and passes no `--ultracode`, so both the key and the `ultracode=on` record are dropped and the replacement worker is described accurately.
+Ask for the mode again with a fresh spawn.
 
 ## Claude accounts (cswap)
 
