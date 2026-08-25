@@ -10,7 +10,9 @@
 #                                        [--actor <name>]
 #
 #   start     tells the Atlas the task's recorded ticket is now being worked by
-#             this task's crew: `ticket start <c> --to fm-<task-id> --task <task-id>`.
+#             this task's crew: `ticket start <c> --to <holder> --task <task-id>`,
+#             where <holder> is fm-<task-id> when the id lacks the prefix, or
+#             <task-id> itself when it already starts with fm-.
 #   complete  discharges the ticket after a merge: it restages the ticket's node
 #             when --restage names a stage and the ticket is still started, then
 #             `ticket complete <c> --evidence ... --summary ...`. A ticket that is
