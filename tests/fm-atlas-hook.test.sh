@@ -12,6 +12,7 @@
 #     (c) no atlas_ticket= in the meta -> no call at all, silent, exit 0
 #     (c2) a path-escaping task id     -> refused before any call, exit 0
 #     (d) start   -> ticket start --to fm-<id> --task <id>, stamped --by
+#     (d2) start with fm-prefixed id -> holder is the id as-is, no fm-fm- doubling
 #     (e) complete on a started ticket -> restage, then ticket complete
 #     (f) complete on a completed one  -> no second completion
 #     (g) land with no open ticket     -> complete, release, land
@@ -231,6 +232,30 @@ test_start_records_the_holder() {
   atlas_log_has "$home" 'by=fm-spawn' "start: the calling script was not stamped as the author"
   atlas_log_has "$home" "repo=$home/specs" "start: the Atlas repo from config/specs was not used"
   pass "start tells the Atlas the recorded ticket is being worked by this task's crew"
+}
+
+# --- (d2) start with an already-prefixed task id ----------------------------
+
+test_start_prefixed_id_no_double_prefix() {
+  local home rc
+  home=$(make_home start-prefixed)
+  fm_write_meta "$home/state/fm-upstream-m1.meta" \
+    "window=firstmate:fm-upstream-m1" \
+    "worktree=$home/wt" \
+    "project=$home/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "atlas_ticket=c7"
+  set +e
+  run_hook "$home" start fm-upstream-m1 --actor fm-spawn >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "start-prefixed: the hook must exit 0"
+  atlas_log_has "$home" 'ticket start c7 --to fm-upstream-m1 --task fm-upstream-m1' \
+    "start-prefixed: a prefixed task id must not be doubled to fm-fm-upstream-m1"
+  atlas_log_lacks "$home" 'fm-fm-upstream-m1' \
+    "start-prefixed: the holder must not carry a doubled fm-fm- prefix"
+  pass "start with an fm-prefixed task id records the holder as the id itself, no doubling"
 }
 
 # --- (e)(f) complete --------------------------------------------------------
@@ -672,6 +697,7 @@ test_spawn_refuses_bad_ticket_uses() {
 test_silent_skips
 test_unusable_task_id_is_refused
 test_start_records_the_holder
+test_start_prefixed_id_no_double_prefix
 test_complete_restages_then_completes
 test_complete_leaves_a_completed_ticket_alone
 test_land_completes_releases_and_lands

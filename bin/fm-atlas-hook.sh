@@ -157,7 +157,7 @@ node_has_open_ticket() {
 }
 
 hook_start() {
-  atlas_axi_call "ticket start" ticket start "$TICKET" --to "fm-$ID" --task "$ID" >/dev/null
+  atlas_axi_call "ticket start" ticket start "$TICKET" --to "$HOLDER" --task "$ID" >/dev/null
 }
 
 hook_complete() {
@@ -197,6 +197,11 @@ run_hook() {
     ''|-*|.*|*[!A-Za-z0-9._-]*) warn "$VERB called with an unusable task id"; return 0 ;;
   esac
   shift
+
+  case "$ID" in
+    fm-*) HOLDER=$ID ;;
+    *)    HOLDER="fm-$ID" ;;
+  esac
 
   ACTOR=fm-atlas-hook
   EVIDENCE=
