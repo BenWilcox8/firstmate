@@ -925,10 +925,12 @@ else
     target-missing)
       # The backend proved the endpoint itself is gone. Say so instead of
       # reporting an unconfirmed delivery, which reads as a timing miss and
-      # invites a resend against an endpoint that no longer exists.
-      if [ "$PENDING_REPLY_CREATED" = 1 ] && [ -n "$PENDING_REPLY_CORR" ]; then
-        fm_pending_reply_discard_undelivered "$STATE" "$PENDING_REPLY_CORR" || true
-      fi
+      # invites a resend against an endpoint that no longer exists. A proven
+      # rejection also resets a reused correlation to known-undelivered, so the
+      # documented recovery resend stays possible after the endpoint is
+      # reconciled - the same cleanup the sibling proven-failure arms use.
+      fm_send_known_undelivered_cleanup || \
+        echo "error: known-undelivered pending-reply state could not be reset for $TARGET_TASK_ID" >&2
       echo "error: text not sent to $T ($TARGET_BACKEND reports that endpoint is gone - no such pane, or no agent is registered in it; tried $RESOLUTION_TRIED). Do not resend to this target; reconcile the task's endpoint first." >&2
       exit 1
       ;;
