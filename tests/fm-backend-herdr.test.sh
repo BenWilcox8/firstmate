@@ -3612,15 +3612,16 @@ test_send_text_submit_reports_target_missing_when_no_agent_is_registered() {
   local dir log resp fb out
   dir="$TMP_ROOT/submit-agent-gone"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   # 1: send-text ok
-  # 2: agent get baseline -> agent_not_found (no agent in the pane)
-  # 3: send-keys enter
-  # 4: agent get -> agent_not_found again, so nothing confirms
-  # 5: pane get -> the pane itself IS there
-  # 6: agent get -> agent_not_found: proof the endpoint holds no agent
+  # 2: agent get baseline -> agent_not_found (no agent in the pane, so the
+  #    baseline is not legibly idle and the flow takes the footer branch)
+  # 3: pane read (footer baseline) -> empty, no busy signal
+  # 4: send-keys enter
+  # 5: pane read ansi (composer) -> empty, nothing confirms
+  # 6: pane get -> the pane itself IS there
+  # 7: agent get -> agent_not_found: proof the endpoint holds no agent
   printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/2.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/4.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/5.out"
-  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/6.out"
+  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/6.out"
+  printf '{"error":{"code":"agent_not_found","message":"agent target w1:p2 not found"}}\n' > "$resp/7.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "x" 1 0.01 0.01' "$ROOT" )
@@ -3639,6 +3640,7 @@ test_send_text_submit_keeps_unknown_when_the_target_is_merely_unreadable() {
   printf 'not json at all\n' > "$resp/4.out"
   printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/5.out"
   printf 'not json at all\n' > "$resp/6.out"
+  # (call 3 is the enter send-keys; its output is ignored)
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "x" 1 0.01 0.01' "$ROOT" )

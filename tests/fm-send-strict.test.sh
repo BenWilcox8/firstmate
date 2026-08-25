@@ -231,8 +231,10 @@ test_fm_prefixed_herdr_session_is_an_explicit_target() {
 # herdr 0.8.2 refuses a session-prefixed agent or pane target outright, so a
 # steer to a task whose meta still records "window=default:<ws>:<pane>" must
 # reach the CLI as the bare pane id. No meta is rewritten to make this work.
+# A task-addressed text steer rides the durable inbox plane, so the guard is
+# asserted on the doorbell the terminal receives and on the durable record.
 test_herdr_prefixed_meta_window_reaches_the_bare_pane() {
-  local dir fb home err herdr_log rc got
+  local dir fb home err herdr_log rc got body
   dir="$TMP_ROOT/herdr-prefixed-meta"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); home=$(setup_home herdrmeta); err="$dir/send.err"; herdr_log="$dir/herdr.log"
   : > "$herdr_log"
@@ -242,17 +244,25 @@ test_herdr_prefixed_meta_window_reaches_the_bare_pane() {
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 \
     "$SEND" steer-ok "hello captain" >/dev/null 2>"$err"; rc=$?
   expect_code 0 "$rc" "a steer to a herdr task with a session-prefixed meta window should land"$'\n'"$(cat "$err")"
+  [ -f "$home/state/steer-ok.inbox/001.msg" ] \
+    || fail "the steer was not durably recorded in the task inbox"
+  body=$(bash -c '. "$1"; fm_task_inbox_body "$2"' _ "$ROOT/bin/fm-task-inbox-lib.sh" "$home/state/steer-ok.inbox/001.msg")
+  [ "$body" = "hello captain" ] || fail "the recorded steer body differs: $body"
   got=$(cat "$herdr_log")
-  assert_contains "$got" "pane send-text wB:p2 hello captain --session default" "the steer did not type into the bare pane id"
-  assert_contains "$got" "pane send-keys wB:p2 enter --session default" "the steer did not submit against the bare pane id"
+  assert_contains "$got" "pane send-text wB:p2 " "the doorbell did not type into the bare pane id"
+  assert_contains "$got" "--session default" "the doorbell did not carry the recorded session as herdr's own flag"
+  assert_contains "$got" "pane send-keys wB:p2 enter --session default" "the doorbell did not submit against the bare pane id"
   assert_no_grep 'default:wB:p2' "$herdr_log" "a session-prefixed target reached the herdr CLI, which 0.8.2 rejects"
-  pass "fm-send strict: a session-prefixed herdr meta window steers the bare pane id 0.8.2 accepts"
+  pass "fm-send strict: a session-prefixed herdr meta window rings the bare pane id 0.8.2 accepts"
 }
 
 # A gone endpoint and an unconfirmed submit used to read identically. They call
-# for opposite responses - reconcile the task versus wait or retry - so the
-# error must name which one happened.
-test_herdr_gone_endpoint_is_named_not_reported_as_unconfirmed() {
+# for opposite responses, so no message may wear the wrong words. On the inbox
+# plane the durable record is the delivery: a gone pane fails only the
+# best-effort doorbell, the send exits 0, and the watcher's re-ring ladder owns
+# the endpoint from there. The adapter-level target-missing verdict stays
+# pinned by tests/fm-backend-herdr.test.sh for the typed plane.
+test_herdr_gone_endpoint_steer_stays_durably_recorded() {
   local dir fb home err herdr_log rc got
   dir="$TMP_ROOT/herdr-gone"; mkdir -p "$dir"
   fb=$(make_stubs "$dir"); home=$(setup_home herdrgone); err="$dir/send.err"; herdr_log="$dir/herdr.log"
@@ -263,12 +273,13 @@ test_herdr_gone_endpoint_is_named_not_reported_as_unconfirmed() {
   PATH="$fb:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" FM_HERDR_LOG="$herdr_log" FM_SEND_SETTLE=0 \
     FM_FAKE_HERDR_GONE_PANE=wB:p9 \
     "$SEND" steer-gone "hello captain" >/dev/null 2>"$err"; rc=$?
-  [ "$rc" -ne 0 ] || fail "a steer to a gone herdr endpoint must fail"
+  expect_code 0 "$rc" "a durably recorded steer must not fail on a doorbell the watcher re-rings"$'\n'"$(cat "$err")"
+  [ -f "$home/state/steer-gone.inbox/001.msg" ] \
+    || fail "the steer to the gone endpoint was not durably recorded"
   got=$(cat "$err")
-  assert_contains "$got" "endpoint is gone" "the failure did not name the gone endpoint as the cause"
-  assert_contains "$got" "no such pane" "the failure did not say what herdr reported"
   assert_not_contains "$got" "delivery unconfirmed" "a gone endpoint must not be reported as an unconfirmed delivery"
-  pass "fm-send strict: a gone herdr endpoint is named as gone, never as an unconfirmed submit"
+  assert_no_grep 'default:wB:p9' "$herdr_log" "a session-prefixed target reached the herdr CLI, which 0.8.2 rejects"
+  pass "fm-send strict: a steer to a gone herdr endpoint stays durably recorded for the watcher, never a false unconfirmed-delivery report"
 }
 
 test_healthy_fm_id_send_still_works() {
@@ -327,5 +338,5 @@ test_bare_herdr_pane_id_without_a_recorded_session_fails
 test_unmatched_single_colon_target_must_exist
 test_fm_prefixed_herdr_session_is_an_explicit_target
 test_herdr_prefixed_meta_window_reaches_the_bare_pane
-test_herdr_gone_endpoint_is_named_not_reported_as_unconfirmed
+test_herdr_gone_endpoint_steer_stays_durably_recorded
 test_healthy_fm_id_send_still_works
