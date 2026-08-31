@@ -22,6 +22,23 @@ set -u
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-claude-persistence)
 
+make_spawn_pi_probe() {
+  local fakebin=$1 tool=$2
+  cat > "$fakebin/$tool" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${1:-}" = --help ]; then
+  if [ "${FM_FAKE_PI_VERSION:-0.84.0}" = 0.82.0 ]; then
+    printf '%s\n' 'Pi 0.82.0' 'Options: --help'
+  else
+    printf '%s\n' "Pi ${FM_FAKE_PI_VERSION:-0.84.0}" 'Options: --help --tui-mode <mode>'
+  fi
+fi
+exit 0
+SH
+  chmod +x "$fakebin/$tool"
+}
+
 make_spawn_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -52,6 +69,8 @@ exit 0
 SH
   chmod +x "$fakebin/tmux"
   fm_fake_exit0 "$fakebin" treehouse
+  make_spawn_pi_probe "$fakebin" pi
+  make_spawn_pi_probe "$fakebin" pi-signed
   printf '%s\n' "$fakebin"
 }
 
