@@ -154,6 +154,10 @@ mkdir -p "$STATE"
 # other library happens to pull the owner in.
 # shellcheck source=bin/fm-ping-lib.sh
 . "$SCRIPT_DIR/fm-ping-lib.sh"
+# The .hash-<key> marker's single derivation, shared by the stale path that
+# writes it and the turn-end churn proof that reads it back.
+# shellcheck source=bin/fm-pane-hash-lib.sh
+. "$SCRIPT_DIR/fm-pane-hash-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -265,64 +269,6 @@ _event_cap_fails=0
 # every wake) and let the daemon classify - never absorb here, or the daemon's
 # digest/injection layer would never see the wake.
 afk_present() { [ -e "$STATE/.afk" ]; }
-
-hash_pane() {
-  if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi
-}
-
-# Volatile-footer normalization for staleness hashing. Harness TUIs redraw a
-# footer with ticking elapsed-time/token counters and rotating spinner glyphs
-# even while the agent sits idle, so hashing the raw capture makes every poll
-# look like fresh activity followed by fresh staleness and the same parked pane
-# re-fires stale wakes minutes apart. Collapse every digit run to a single 0
-# and drop the known spinner glyph rotations (claude's pulse set, the braille
-# spinner set, kimi's moon phases) before hashing, so a counter tick or spinner
-# turn is not activity.
-# A glyph this filter misses only restores the churny per-tick hash for that
-# harness - it can never mask a real content change - so the list stays small
-# and additive. LC_ALL=C keeps sed byte-oriented: the multibyte glyphs match as
-# literal byte sequences and raw captures with non-UTF-8 bytes cannot error.
-# The second and third expressions fold counter FORMAT transitions that digit
-# collapsing alone leaves behind: an elapsed counter grows units ("59s" ->
-# "1m 3s" -> "1h 2m 3s") and a token counter gains a decimal k suffix ("847"
-# -> "3.4k"), each of which would otherwise change the hash once per rollover.
-normalize_pane_volatiles() {
-  LC_ALL=C sed -E \
-    -e 's/[0-9]+/0/g' \
-    -e 's/0(\.0)+/0/g' \
-    -e 's/(0[hm][[:space:]]+)*0s/0s/g' \
-    -e 's/0k/0/g' \
-    -e 's/✢|✳|✶|✻|✽|·//g' \
-    -e 's/⠁|⠂|⠄|⡀|⢀|⠠|⠐|⠈|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏//g' \
-    -e 's/🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘//g'
-}
-
-# Lines of the captured tail treated as the harness footer. Every verified
-# harness renders its counters and spinner there, and window_is_busy already
-# reads the same bottom slice for its own indicator.
-PANE_FOOTER_LINES=${FM_PANE_FOOTER_LINES:-6}
-
-# Emit the hashing form of a captured tail: the footer normalized, everything
-# above it byte-exact. The capture is passed through byte-for-byte otherwise,
-# including a missing final newline, so the hash of an unchanged pane is the
-# same value it was before this split existed.
-# The split is the whole point. Digit collapsing over the WHOLE capture would
-# fold real progress output too - "Ran 12 tests, 0 failed" and "Ran 15 tests,
-# 3 failed" both become "Ran 0 tests, 0 failed", and a crew whose only visible
-# progress is a counter would read as idle and be surfaced as stale while it
-# worked. Confining the fold to the footer keeps the counter tick out of the
-# hash without buying it at the cost of blinding the watcher to real output.
-pane_hash_content() {  # <tail40>
-  local body=$1 total head_n
-  total=$(printf '%s' "$body" | grep -c '') || total=0
-  head_n=$((total - PANE_FOOTER_LINES))
-  if [ "$head_n" -le 0 ]; then
-    printf '%s' "$body" | normalize_pane_volatiles
-    return 0
-  fi
-  printf '%s' "$body" | head -n "$head_n"
-  printf '%s' "$body" | tail -n "+$((head_n + 1))" | normalize_pane_volatiles
-}
 
 # window_is_busy: 0 (busy) iff the task's harness is PROVABLY working, through
 # the semantic busy-state contract (bin/fm-busy-lib.sh). Only an exact busy
@@ -615,7 +561,7 @@ signal_turnend_panes_churned() {  # <file> ...
     [[ $prev =~ ^[0-9a-f]{32}$ ]] || return 1
     now=$(fm_backend_capture "$backend" "$w" 40 "$label" 2>/dev/null) || return 1
     [ -n "$now" ] || return 1
-    [ "$(printf '%s' "$now" | hash_pane)" != "$prev" ] || return 1
+    [ "$(pane_hash_content "$now" | hash_pane)" != "$prev" ] || return 1
     churned_keys+=("$key")
   done
   # Enforce the deferral bound BEFORE any .stale- state is touched, so a wake that
