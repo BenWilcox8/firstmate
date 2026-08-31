@@ -209,7 +209,7 @@ Routing precedence is an explicit per-task captain override, then the best-fit c
 Firstmate alone resolves a matched profile array, at that intake, from current quota evidence; no script, producer, or crewmate selects for it.
 Preserve malformed profile configuration as an actionable error rather than selecting around it.
 When every candidate is tight, preserve the captain's strongest-reasoning class rather than silently downgrading it solely to conserve quota; stop and report the tight choice if that class cannot proceed.
-Load `quota-array-dispatch` before choosing among a matched profile array; that skill is the single owner of the selection procedure, including how quota is read, how every candidate is accounted for, eligibility, ranking, and ties.
+Load `quota-array-dispatch` before choosing among a matched profile array; that skill is the single owner of the selection procedure, including how quota is read, how every candidate is accounted for, eligibility, runway feasibility, ranking, and ties.
 The generic effort fallback and its precedence are owned by `harness-adapters`: explicit captain and standing configured effort win; otherwise use low for well-understood explicit work, xhigh for ambiguous investigation or design, intermediate levels proportionally, and never max without explicit captain preference.
 Do not add model-specific versions of that policy.
 

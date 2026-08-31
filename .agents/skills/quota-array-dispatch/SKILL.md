@@ -13,10 +13,10 @@ metadata:
 # quota-array-dispatch
 
 This skill is the single owner of the completion-aware profile-array selection procedure: reading quota, accounting for every candidate, eligibility, ranking, runway feasibility, and ties.
-`AGENTS.md` section 4 keeps only what an unloaded session still needs: the intake boundary that reserves this decision to firstmate, the load trigger, the malformed-config stop, and the strongest-reasoning-class safety rule.
-Where the malformed-config stop and the strongest-reasoning-class rule apply inside the procedure below, this skill points at that boundary instead of restating it.
+`AGENTS.md` section 4 keeps only what an unloaded session still needs: the intake boundary that reserves this decision to firstmate, the load trigger, and a one-line reinforcement of the malformed-config stop and the strongest-reasoning-class rule.
+This procedure stays self-sufficient and states both of those rules where they apply, because the reader may be running with the skill alone.
 `harness-adapters` owns harness verification, model/provider discovery, and effort fallback.
-`quota-axi` remains data-only: it publishes `spendPriority` as a comparable scalar and never recommends, selects, ranks, or infers a route.
+`quota-axi` remains data-only: it owns how model or product windows relate to bounding account windows, publishes `spendPriority` as a comparable scalar, and never recommends, selects, ranks, or infers a route.
 Do not add a daemon, opaque composite score, routing wrapper, hard-coded model-specific policy, or producer-side route recommendation.
 Deterministic shell owns only schema, configuration, and version validation plus concrete spawn safeguards; every model-to-provider, provider-to-credential, and quota-applicability relation is yours to establish transparently and to show your evidence for.
 
@@ -76,13 +76,15 @@ It takes no harness, model, or provider and returns a fact, not a route: only `a
 Never launch a vendor CLI yourself, and never probe a credential store the candidate does not use.
 Grok prepaid `credits` are unrelated to paid-window headroom; never read them as exhaustion.
 
-Malformed configuration stops the intake under `AGENTS.md` section 4; it is never a candidate to rank around.
+Never infer a credential store, provider family, or quota mapping from a harness, model, or source name.
+
+Malformed configuration is an actionable error that stops the intake, not a candidate to rank around.
 
 ### 2. Reasoning-class fit
 
 Keep only candidates that meet the required reasoning class for this task (a simple bug fix versus very-difficult design).
 Never use `spendPriority` or remaining quota to silently replace that class.
-When every remaining candidate is tight, `AGENTS.md` section 4's strongest-reasoning-class rule decides the outcome.
+When every remaining candidate is tight, dispatch inside the strongest-reasoning class if one of those candidates can proceed, or stop and report that the strongest-class choice cannot proceed rather than downgrading it to spend or conserve quota.
 
 ### 3. Runway feasibility floor
 
@@ -101,7 +103,7 @@ Rank only from comparable known scalars.
 Never treat absent, `unknown`, or unmeasurable `spendPriority` as zero or as healthy; `0` means exact utilization, a different claim from unknown.
 An unknown `spendPriority` keeps the candidate eligible with disclosed uncertainty.
 Prefer known viable evidence when otherwise comparable.
-After the permitted TOON-to-JSON fallback, escalate to Firstmate instead of routing if no candidate can be ranked or runway uncertainty prevents proving the feasibility floor for any candidate that could be selected.
+After the permitted TOON-to-JSON fallback, stop and report the blocker to the captain instead of routing if no candidate can be ranked or runway uncertainty prevents proving the feasibility floor for any candidate that could be selected.
 Never resolve that terminal uncertainty by treating unknown as healthy or by choosing arbitrarily.
 Show the scalar or the literal `unknown` in the rationale; do not hide it in a score.
 
@@ -109,11 +111,10 @@ Do not compare headroom against runway by hand.
 Do not use pace or signed reserve as a later tie-break layer.
 Do not read `aheadWindowIds`, `behindWindowIds`, `onPaceWindowIds`, `limitingWindowIds`, or other window-id lists to reconstruct what `spendPriority` already computed.
 
-A genuine tie is firstmate's own call and never a captain question, because routing between two candidates the evidence rates equally is internal dispatch mechanics.
-Break it on stated evidence, in this order: fewer disclosed unknowns, then longer known runway, then the stronger reasoning class inside the required one.
-When those are equal too, the candidates are interchangeable on all available evidence: select either and record in the rationale that the tie was broken arbitrarily on equal evidence.
-Do not present array order, harness name, or another arbitrary identity ordering as the reason.
-This is not the unrankable case above: escalate only when no candidate can be ranked or no feasibility floor can be proved, never for a tie between ranked candidates.
+A genuine tie between ranked candidates is firstmate's own call, never a captain question: the candidates already passed every gate, so the choice changes nothing the captain decides.
+Resolve it with the known-viable preference stated above, and add no further quota layer to rank around `spendPriority`.
+When that preference is equal too, the candidates are interchangeable on all available evidence: select either and say exactly that in the rationale, rather than presenting array order, harness name, or another identity ordering as evidence.
+This is not the unrankable case above, which stops and escalates; a tie between ranked candidates never does.
 Report duplicate concrete profiles as a configuration error.
 
 Account for every candidate visibly before selecting or escalating, naming its catalog evidence, provider relation, applicable quota and authentication facts, remaining uncertainty, fit and reasoning class, `spendPriority`, and runway-versus-horizon result.
