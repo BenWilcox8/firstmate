@@ -153,7 +153,7 @@ CHANGED_DEFAULT_TIMEOUT_SECS=900
 
 # How many separate-runner shards the portable serial remainder splits into.
 # One owner: CI lane names carry this count and are refused when they disagree.
-PORTABLE_SERIAL_SHARDS=4
+PORTABLE_SERIAL_SHARDS=5
 
 # Balance hint for a portable-serial script with no measured duration, close to
 # the measured per-script mean so a newly added test neither starves nor
@@ -519,7 +519,7 @@ tests/fm-bearings-board-render.test.sh 2247
 tests/fm-bearings-board.test.sh 4076
 tests/fm-bearings-snapshot.test.sh 54860
 tests/fm-bootstrap-network-parallel.test.sh 8036
-tests/fm-bootstrap.test.sh 24372
+tests/fm-bootstrap.test.sh 62000
 tests/fm-branch-supervision.test.sh 5314
 tests/fm-busy-adapter-wiring.test.sh 17292
 tests/fm-busy-state.test.sh 2601
@@ -532,12 +532,12 @@ tests/fm-cmux-claude-composer-live-e2e.test.sh 21
 tests/fm-codex-continuity-live-e2e.test.sh 14
 tests/fm-composer-matrix-live-e2e.test.sh 17
 tests/fm-control-relaunch.test.sh 37037
-tests/fm-control.test.sh 36384
+tests/fm-control.test.sh 52000
 tests/fm-cswap.test.sh 1242
 tests/fm-cursor-harness.test.sh 30084
 tests/fm-cursor-primary-live-e2e.test.sh 15
 tests/fm-cursor-primary.test.sh 53452
-tests/fm-daemon.test.sh 23127
+tests/fm-daemon.test.sh 52000
 tests/fm-documentation-audiences.test.sh 729
 tests/fm-extension-binding.test.sh 6060
 tests/fm-fleet-snapshot-view.test.sh 6495
@@ -556,7 +556,7 @@ tests/fm-herdr-layout-lib.test.sh 178
 tests/fm-herdr-session-cleanup.test.sh 6082
 tests/fm-herdr-submit-confirm-live-e2e.test.sh 17
 tests/fm-herdr-version-floor-live-e2e.test.sh 21
-tests/fm-home-summary-refresh.test.sh 31522
+tests/fm-home-summary-refresh.test.sh 55000
 tests/fm-inactive-reconcile.test.sh 40626
 tests/fm-kimi-harness.test.sh 17442
 tests/fm-lint-workflows.test.sh 676
@@ -584,8 +584,8 @@ tests/fm-remote-doctor.test.sh 3648
 tests/fm-remote-entrypoint.test.sh 90
 tests/fm-remote-job-orphan-reap.test.sh 2919
 tests/fm-remote-job.test.sh 54672
-tests/fm-remote-reply.test.sh 99540
-tests/fm-remote-secondmate-lifecycle-e2e.test.sh 154117
+tests/fm-remote-reply.test.sh 47000
+tests/fm-remote-secondmate-lifecycle-e2e.test.sh 212000
 tests/fm-remote-secondmate-parent-binding.test.sh 28176
 tests/fm-remote-secondmate-trace-context.test.sh 47140
 tests/fm-remote-transport-lanes.test.sh 61422
@@ -593,7 +593,7 @@ tests/fm-secondmate-harness.test.sh 134732
 tests/fm-secondmate-lifecycle-e2e.test.sh 6627
 tests/fm-secondmate-liveness.test.sh 17477
 tests/fm-secondmate-reconcile.test.sh 59530
-tests/fm-secondmate-safety.test.sh 50041
+tests/fm-secondmate-safety.test.sh 150000
 tests/fm-secondmate-sync.test.sh 12931
 tests/fm-send-inbox-doorbell-live-e2e.test.sh 20
 tests/fm-send-inbox.test.sh 35318
@@ -609,8 +609,9 @@ tests/fm-sessionstart-nudge.test.sh 64371
 tests/fm-shared-captain-inheritance.test.sh 5092
 tests/fm-spawn-claude-persistence.test.sh 19092
 tests/fm-spawn-dispatch-profile.test.sh 72221
-tests/fm-spawn-pool-base-freshen.test.sh 40412
+tests/fm-spawn-pool-base-freshen.test.sh 68000
 tests/fm-spawn-session-name.test.sh 20066
+tests/fm-spawn-ticket-warning.test.sh 11000
 tests/fm-spawn-ultracode.test.sh 19367
 tests/fm-spawn-worktree-settle.test.sh 5425
 tests/fm-startup-memory-budget.test.sh 6647
@@ -629,20 +630,20 @@ tests/fm-test-isolation-proof.test.sh 2405
 tests/fm-tmux-agent-liveness.test.sh 1780
 tests/fm-tool-update-check.test.sh 12229
 tests/fm-trace-context-lib.test.sh 161
-tests/fm-trace-context-spawn.test.sh 43744
+tests/fm-trace-context-spawn.test.sh 79000
 tests/fm-turnend-guard.test.sh 41017
 tests/fm-update.test.sh 4871
 tests/fm-vendor-auth-probe.test.sh 43246
 tests/fm-voice-relay.test.sh 28410
 tests/fm-wake-daemon-lifecycle-e2e.test.sh 7003
-tests/fm-wake-drain-open-decisions-cursor.test.sh 13415
+tests/fm-wake-drain-open-decisions-cursor.test.sh 20000
 tests/fm-wake-drain-open-decisions.test.sh 5720
 tests/fm-wake-drain-unread-status.test.sh 33755
 tests/fm-wake-queue.test.sh 48773
 tests/fm-watch-arm.test.sh 52597
 tests/fm-watch-checkpoint.test.sh 4952
 tests/fm-watch-recovery-loop.test.sh 58087
-tests/fm-watch-triage.test.sh 292620
+tests/fm-watch-triage.test.sh 306000
 tests/fm-watcher-lock.test.sh 69754
 EOF
 }
