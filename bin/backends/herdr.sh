@@ -1914,14 +1914,23 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
   esac
 }
 
+# fm_backend_herdr_tab_is_husk: true (0) only for the two conservative husk
+# states (dead, no-agent) fm_backend_herdr_pane_agent_state can positively
+# confirm; live and unknown both refuse (1), so an inconclusive read never
+# licenses closing anything. Restored-layout recovery depends on this
+# fail-safe-toward-refusal behavior.
+fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
+  case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
+    dead|no-agent) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_herdr_agent_state: recovery-grade state for the same session-start
 # sweep as the tmux classifier. It reuses fm_backend_herdr_pane_agent_state
 # rather than creating a second Herdr state machine: a structurally gone pane is
 # `missing`, a confirmed agent-less pane is `dead`, a registered agent is
 # `alive`, and an unexpected or failed API read is `unreadable`.
-# (fm_backend_herdr_tab_is_husk, the old boolean view of that same classifier,
-# was deleted with the bash placement logic agent-axi now owns -
-# docs/herdr-backend.md "Delegation architecture".)
 fm_backend_herdr_agent_state() {  # <target>
   local target=$1
   fm_backend_herdr_parse_target "$target" || { printf 'unreadable'; return 0; }
@@ -2027,13 +2036,13 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
 # because agent-axi now owns it (docs/herdr-backend.md "Delegation architecture").
 #
 # The native branch below is the MINIMAL fallback for a host without agent-axi:
-# one plain tab per task in the home's own workspace, no split layout.
-# Split layouts and husk convergence for multi-agent fleets REQUIRE agent-axi
-# (docs/herdr-backend.md "Native fallback contract"). Herdr does not enforce
-# label uniqueness (verified: two tabs may share a label), so the fallback
-# checks same-labeled tabs individually: a tab whose pane has no registered
-# agent (a restored-layout husk) is closed and replaced; a tab whose pane
-# hosts a live agent is refused.
+# one plain tab per task in the home's own workspace, no split layout. Split
+# layouts REQUIRE agent-axi (docs/herdr-backend.md "Native fallback contract").
+# Herdr does not enforce label uniqueness (verified: two tabs may share a label),
+# so the fallback checks for same-labeled duplicates: live-agent duplicates are
+# refused; husks (dead pane or no registered agent - the restored-layout shape)
+# are close-and-replaced by creating the new tab FIRST then closing the husk tab,
+# so the workspace never drops to zero tabs during the transition.
 #
 # --no-focus: verified tab create never focuses by default regardless of sibling
 # tabs, so this is defense in depth rather than a behavior change.
@@ -2050,7 +2059,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
     return
   fi
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs out tab_id pane_id dup_tab_id dup_pane_id dup_state
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -2058,24 +2067,19 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
+  dup_tab_ids=""
   if [ -n "$dup_tabs" ]; then
-    while IFS= read -r dup_tab_id; do
-      [ -n "$dup_tab_id" ] || continue
-      dup_pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup_tab_id") || {
-        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session); the native fallback does not reap husks - close it manually or install agent-axi" >&2
+    while IFS= read -r dup; do
+      [ -n "$dup" ] || continue
+      dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
+      if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
+        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
         return 1
-      }
-      [ -n "$dup_pane_id" ] || {
-        echo "error: herdr tab '$label' already exists in workspace $wsid (session $session); the native fallback does not reap husks - close it manually or install agent-axi" >&2
-        return 1
-      }
-      dup_state=$(fm_backend_herdr_pane_agent_state "$session" "$dup_pane_id")
-      case "$dup_state" in
-        no-agent|dead) fm_backend_herdr_cli "$session" pane close "$dup_pane_id" >/dev/null 2>&1 || true ;;
-        *) echo "error: herdr tab '$label' already exists in workspace $wsid (session $session); the native fallback does not reap husks - close it manually or install agent-axi" >&2
-           return 1 ;;
-      esac
-    done <<< "$dup_tabs"
+      fi
+      dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
+    done <<EOF
+$dup_tabs
+EOF
   fi
   out=$(fm_backend_herdr_cli "$session" tab create --workspace "$wsid" --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   tab_id=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
@@ -2083,6 +2087,29 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
   if [ -z "$tab_id" ] || [ -z "$pane_id" ]; then
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
+  fi
+  if [ -n "$dup_tab_ids" ]; then
+    while IFS= read -r dup; do
+      [ -n "$dup" ] || continue
+      fm_backend_herdr_cli "$session" tab close "$dup" >/dev/null 2>&1 || true
+    done <<EOF
+$dup_tab_ids
+EOF
+    list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
+      echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2
+      return 1
+    }
+    if ! printf '%s' "$list" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
+      echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
+      return 1
+    fi
+    remaining_dup_tabs=$(printf '%s' "$list" | jq -r --arg want "$label" --arg replacement "$tab_id" \
+      '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
+    remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
+    if [ -n "$remaining_dup_tabs" ]; then
+      echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
+      return 1
+    fi
   fi
   [ -z "$seeded_tab_id" ] || fm_backend_herdr_workspace_prune_seeded_default_tab "$session" "$wsid" "$seeded_tab_id"
   printf '%s %s' "$tab_id" "$pane_id"
