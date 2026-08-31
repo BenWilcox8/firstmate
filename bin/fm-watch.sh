@@ -972,6 +972,22 @@ clear_pause_tracking() {  # <window-key>
   rm -f "$STATE/.stale-$key" "$STATE/.stale-since-$key" "$STATE/.wedge-escalations-$key"
 }
 
+# 0 when <task>'s status log holds no still-live actionable event past the byte
+# offset this watcher has already classified - that is, the FINISHED line at its
+# end has already woken firstmate once. This asks the span classifier that owns
+# the marker (fm-classify-lib.sh) rather than comparing the marker's bytes to a
+# status line: the marker records a classified POSITION, not the line that was
+# escalated, so a byte comparison would silently never match. Only the
+# classifier's explicit "no actionable event in this span" verdict (exit 1)
+# absorbs; an unreadable or racing log (exit 2) surfaces, because absorbing on a
+# failed read is exactly the silent swallow this predicate must not introduce.
+stale_finished_already_surfaced() {  # <task>
+  local task=$1 rc=0
+  status_span_first_actionable_record "$STATE/$task.status" "$(hb_surfaced_offset "$task")" \
+    >/dev/null 2>&1 || rc=$?
+  [ "$rc" -eq 1 ]
+}
+
 # Reconcile a declared pause or captain-held status with authoritative crew state.
 # After fm-crew-state has fallen back to stopped or unknown, paused classification is
 # recovered only for a confidently dead ordinary crew, or for a secondmate, whose
@@ -1891,8 +1907,8 @@ EOF
               clear_write_tracking "$key"
               triage_log "absorbed stale (provably working, overriding a stale captain-relevant status): $w"
             elif status_is_finished_outcome "$(last_status_line "$STATE/$task.status")" \
-              && [ "$(cat "$(_hb_surfaced_path "$task")" 2>/dev/null || true)" = "$(last_status_line "$STATE/$task.status")" ]; then
-              # This exact FINISHED line already woke firstmate once - the
+              && stale_finished_already_surfaced "$task"; then
+              # This FINISHED line already woke firstmate once - the
               # signal, stale, and heartbeat paths all record it through
               # mark_surfaced. A parked pane drifting through residual hash
               # changes (a footer format transition the normalization above
