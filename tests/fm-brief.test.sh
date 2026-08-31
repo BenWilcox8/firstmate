@@ -847,8 +847,79 @@ test_crewmate_identity_disambiguation() {
   pass "fm-brief.sh: ship and scout scaffolds carry the crewmate identity disambiguation sentence"
 }
 
+
+# Byte-identity goldens for every generated scaffold variant. The scaffold text is
+# a contract crewmates read, so a refactor of how fm-brief.sh assembles it must not
+# move a single byte. Each golden is the generated brief with the two absolute
+# paths that legitimately vary (the firstmate home and the repo root) replaced by
+# stable placeholders, so the comparison stays exact everywhere it runs.
+# Intentional prose changes refresh the goldens with
+# `FM_BRIEF_GOLDEN_REFRESH=1 tests/fm-brief.test.sh`, which makes the deliberate
+# edit visible in the diff instead of silently absorbing it.
+BRIEF_GOLDEN_DIR="$ROOT/tests/assets/fm-brief-goldens"
+
+# brief_golden_variants prints "<name> <arg>..." per scaffold variant. The task id
+# is the variant name, so rendered paths differ per variant and no golden can
+# accidentally satisfy another variant's comparison.
+brief_golden_variants() {
+  cat <<'VARIANTS'
+ship-no-mistakes some-proj --mode no-mistakes
+ship-direct-pr some-proj --mode direct-PR
+ship-local-only some-proj --mode local-only
+ship-herdr-lab some-proj --mode no-mistakes --herdr-lab
+scout some-proj --scout
+scout-herdr-lab some-proj --scout --herdr-lab
+secondmate --secondmate alpha-proj beta-proj
+secondmate-no-projects --secondmate --no-projects
+VARIANTS
+}
+
+# brief_render_normalized <home> <name> <arg>... writes the generated brief to
+# stdout with the home and repo root paths replaced by placeholders.
+brief_render_normalized() {
+  local home=$1 name=$2 brief
+  shift 2
+  FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+    "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
+    || fail "fm-brief.sh failed to scaffold golden variant $name"
+  brief="$home/data/$name/brief.md"
+  [ -f "$brief" ] || fail "golden variant $name produced no brief"
+  sed -e "s#$home#%FM_HOME%#g" -e "s#$ROOT#%FM_ROOT%#g" "$brief"
+}
+
+test_generated_scaffold_bytes_are_unchanged() {
+  local home name args rendered golden refreshed=0
+  home="$TMP_ROOT/goldens"
+  mkdir -p "$home/data" "$home/state"
+  if [ -n "${FM_BRIEF_GOLDEN_REFRESH:-}" ]; then
+    mkdir -p "$BRIEF_GOLDEN_DIR"
+    refreshed=1
+  fi
+
+  while read -r name args; do
+    [ -n "$name" ] || continue
+    rendered="$TMP_ROOT/$name.rendered"
+    # shellcheck disable=SC2086 # The variant argument list is deliberately split.
+    brief_render_normalized "$home" "$name" $args > "$rendered"
+    golden="$BRIEF_GOLDEN_DIR/$name.md"
+    if [ "$refreshed" -eq 1 ]; then
+      cp "$rendered" "$golden"
+      continue
+    fi
+    assert_present "$golden" "missing scaffold golden for variant $name"
+    cmp -s "$golden" "$rendered" \
+      || fail "generated $name brief changed bytes: $(diff -u "$golden" "$rendered" | head -40)"
+  done < <(brief_golden_variants)
+
+  if [ "$refreshed" -eq 1 ]; then
+    pass "fm-brief.sh: refreshed scaffold goldens (FM_BRIEF_GOLDEN_REFRESH)"
+  else
+    pass "fm-brief.sh: every generated scaffold variant is byte-identical to its golden"
+  fi
+}
 test_script_parses
 test_no_heredoc_in_command_substitution
+test_generated_scaffold_bytes_are_unchanged
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
 test_ship_mode_is_required_and_closed_set
