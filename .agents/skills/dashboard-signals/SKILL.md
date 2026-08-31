@@ -3,7 +3,7 @@ name: dashboard-signals
 description: >-
   Agent-only reference for signalling the captain's dashboard from a firstmate or secondmate session.
   Load at session start, and reload when an instruction-update nudge arrives.
-  Owns the four atlas-axi signal verbs (ask/review/status/notif), the numbered-notification and %%dash-fin%% marker rules, and the hard ban on harness-native pickers for captain decisions.
+  Owns the four atlas-axi signal verbs (ask/review/status/notif), the routine-wake close-out command that ends a wake turn instead of a chat line, the numbered-notification and %%dash-fin%% marker rules, and the hard ban on harness-native pickers for captain decisions.
 user-invocable: false
 metadata:
   internal: true
@@ -36,6 +36,24 @@ Each verb prints one word on success except `ask`, which prints the notification
 - `atlas-axi notif nNN` - read a notification by its number, whether yours or one you were pointed at.
   It prints the question/summary, who raised it, and whether the captain has answered and with what.
   Pass `--json` for the raw record.
+
+## Routine wake close-out
+
+Most wakes need no narration: a watcher nudge, a turn-end check, a heartbeat, a scheduled or self-set check-in, a steer you simply carried out.
+End that turn with the close-out command and nothing else:
+
+    bin/fm-ping-ack.sh --origin script|agent [--wake <key>] [--note "<short>"]
+
+`--origin` says who caused the wake and is never inferred: `script` for a mechanism (a watcher nudge, a turn-end check, a heartbeat, a scheduled check-in), `agent` for a person or agent (a supervisor steer, a worker escalation, a routed reply).
+The command refuses without it, because a guessed origin mis-files the wake on the captain's dashboard.
+`--note` is optional and holds a handful of words, not a sentence of narration.
+The command prints the `%%dash-ping: <origin>%%` marker and records the close-out durably; the dashboard folds it under its own type so the captain's timeline shows work rather than acknowledgements.
+
+Only ROUTINE acknowledgements move to the command.
+A real finding, a decision, a failure, a blocker, or anything the captain must act on is still written in prose and still goes through the verbs above.
+When you are unsure whether a wake is routine, it is not.
+
+The close-out replaces the chat line, never firstmate's durable wake acknowledgement: the queue is still acknowledged exactly as the drain prints it.
 
 ## Marker rules
 

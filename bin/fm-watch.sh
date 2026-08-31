@@ -14,7 +14,11 @@
 # on every wake. Printed reason lines:
 #   signal: <file>...      status/turn-end signals, surfaced when a listed status
 #                          has a captain-relevant verb OR a no-verb signal's crew
-#                          is not provably working, unless afk is active
+#                          is not provably working, unless afk is active. A record
+#                          keyed on a <task>.status file also carries the
+#                          agent-origin close-out marker, because a worker wrote
+#                          that file; a <task>.turn-ended record carries none,
+#                          because a hook did (bin/fm-ping-lib.sh owns the marker)
 #   stale: <window>        a provably-working stale is ALWAYS absorbed (with a wedge
 #                          timer) regardless of what the status log says - an active
 #                          run-step or busy pane outranks even a captain-relevant log
@@ -128,6 +132,12 @@ mkdir -p "$STATE"
 # gate and the wake emission (inbox_steer_check below).
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
+# The routine-wake close-out contract, sourced directly rather than through the
+# inbox library above: this watcher stamps the origin marker on the wake it
+# authors for a worker status escalation, and that must not depend on which
+# other library happens to pull the owner in.
+# shellcheck source=bin/fm-ping-lib.sh
+. "$SCRIPT_DIR/fm-ping-lib.sh"
 
 WATCH_LOCK="$STATE/.watch.lock"
 WATCH_PATH="$SCRIPT_DIR/fm-watch.sh"
@@ -826,6 +836,26 @@ scan_signals() {
   return 0
 }
 
+# The wake payload for one changed signal file. A <task>.status file is
+# written by the WORKER itself - a worker escalating to firstmate - so its
+# record carries the agent-origin close-out marker (bin/fm-ping-lib.sh owns the
+# grammar). Without it the wake reaches firstmate with no trace of who caused
+# it, and a worker escalation is indistinguishable on the dashboard from a
+# turn-end hook firing. A <task>.turn-ended marker is written by a hook, not by
+# an agent, so it is deliberately left unstamped rather than mislabelled.
+signal_payload() {  # <changed-file> <reason>
+  local f=$1 reason=$2 marker
+  case "$f" in
+    *.status)
+      marker=$(fm_ping_marker agent) || { printf '%s' "$reason"; return 0; }
+      printf '%s %s' "$reason" "$marker"
+      ;;
+    *)
+      printf '%s' "$reason"
+      ;;
+  esac
+}
+
 # Deliver a durably queued process-event result to firstmate. Publication is
 # owned by bin/fm-procevent.sh - by the runner at capture time and by reconcile's
 # re-announcement - so this decides only whether a queued check record has been
@@ -1387,7 +1417,7 @@ EOF
     if afk_present || signal_reason_is_actionable $files || ! signal_crew_provably_working $files; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
-        fm_wake_append signal "$(basename "$f")" "$reason" || exit 1
+        fm_wake_append signal "$(basename "$f")" "$(signal_payload "$f" "$reason")" || exit 1
       done <<EOF
 $pending
 EOF
