@@ -63,6 +63,11 @@ If an addition needs more than a few lines of conditional detail (detail that ma
 A skill's cost is paid only by the sessions that actually load it.
 When in doubt, write the fact into the skill or doc first by patching that owner's existing language, and add only the one-line trigger to `AGENTS.md`.
 
+That discipline is enforced, not just asked for.
+`AGENTS.md` has a tracked token ceiling in `.agentsmd-ceiling`, and `bin/fm-agentsmd-ceiling.sh check` fails CI naming the overage when the file passes it.
+When your change trips that check, the first move is this decision tree, not a larger ceiling; raising the ceiling is a deliberate, reviewed edit in the same pull request.
+The shipped ceiling equals the current size of `AGENTS.md`, so any net addition trips it.
+
 ## Trigger hygiene
 
 A new skill is dead weight if nothing loads it.
