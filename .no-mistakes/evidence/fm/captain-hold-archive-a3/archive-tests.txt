@@ -1,0 +1,3 @@
+ok - an archived captain call still verifies and completes
+ok - an unresolvable inventory entry aborts with its own diagnostic
+ok - an archived call with no recorded answer fails the gate and refuses a rewrite
