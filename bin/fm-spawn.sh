@@ -1087,6 +1087,17 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+# Atlas doctrine (AGENTS.md section 8): on a home wired to an Atlas, work is
+# carried by a ticket on a node. Forgetting --ticket is otherwise invisible until
+# the next audit, so say it once at dispatch. Advisory only - it never blocks a
+# spawn, and a home with no Atlas pointer is silent exactly as before. Placed
+# after the batch block on purpose: each batch pair re-enters here and warns for
+# itself rather than the parent warning once for the whole batch.
+if [ "$RELAUNCH" -eq 0 ] && [ -z "$TICKET" ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+  && [ -n "$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)" ]; then
+  echo "warning: $ID is being dispatched without --ticket; Atlas doctrine (AGENTS.md section 8) carries work on a ticket, so this task will not appear on the map" >&2
+fi
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
     echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
