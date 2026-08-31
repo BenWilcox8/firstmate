@@ -1,0 +1,25 @@
+# Focused churn regression test results
+# Change: fm/pane-hash-unify-h5 (410faf7)
+# Tests: the two new footer-tick regression tests in tests/fm-watch-triage.test.sh
+
+Test 1: test_turn_ended_footer_tick_only_surfaced
+Result: ok - a bare turn-end whose pane only ticked its footer counters still surfaces
+
+Test 2: test_turn_ended_content_change_under_ticking_footer_absorbed
+Result: ok - a bare turn-end from a pane that rendered new content under a ticking footer is absorbed
+
+# Also verified backward-compatible tests still pass:
+ok - a bare turn-end from a pane that churned since the previous poll is absorbed
+ok - a bare turn-end from a pane unchanged since the previous poll still surfaces
+ok - a bare turn-end backed by a malformed prior hash surfaces
+
+# hash_pane_text produces identical output to old hash_text for fixture text (no volatile chars):
+hash_pane_text("idle prompt") = 5816476965a38b26673e6b520073dcb1
+raw md5("idle prompt")        = 5816476965a38b26673e6b520073dcb1
+
+# Background full suite (40 of 61 tests completed before 180s timeout):
+# Both new tests passed at positions 20 and 21 in the ordered list.
+
+# wake-queue tests using renamed hash_pane_text:
+ok - stale wake is queued before suppressor state is advanced
+ok - a not-provably-working stale wake is queued before its suppressor is advanced
