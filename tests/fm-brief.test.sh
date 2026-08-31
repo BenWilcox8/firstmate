@@ -879,21 +879,41 @@ secondmate-no-projects --secondmate --no-projects
 VARIANTS
 }
 
+# The same three brief kinds again under a configured pause verb, because that
+# override reaches every kind's status protocol and byte-identity has to hold
+# for the rendered verb, not only for the default.
+brief_golden_paused_verb_variants() {
+  cat <<'VARIANTS'
+paused-verb-ship some-proj --mode no-mistakes
+paused-verb-scout some-proj --scout
+paused-verb-secondmate --secondmate alpha-proj
+VARIANTS
+}
+
 # brief_render_normalized <home> <name> <arg>... writes the generated brief to
 # stdout with the home and repo root paths replaced by placeholders.
 brief_render_normalized() {
   local home=$1 name=$2 brief
   shift 2
-  FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
-    "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
-    || fail "fm-brief.sh failed to scaffold golden variant $name"
+  # An empty BRIEF_GOLDEN_PAUSED_VERB leaves the override unset, so the default
+  # matrix renders the scaffold's own default verb.
+  if [ -n "${BRIEF_GOLDEN_PAUSED_VERB:-}" ]; then
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+      FM_CLASSIFY_PAUSED_VERB="$BRIEF_GOLDEN_PAUSED_VERB" \
+      "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
+      || fail "fm-brief.sh failed to scaffold golden variant $name"
+  else
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+      "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
+      || fail "fm-brief.sh failed to scaffold golden variant $name"
+  fi
   brief="$home/data/$name/brief.md"
   [ -f "$brief" ] || fail "golden variant $name produced no brief"
   sed -e "s#$home#%FM_HOME%#g" -e "s#$ROOT#%FM_ROOT%#g" "$brief"
 }
 
 test_generated_scaffold_bytes_are_unchanged() {
-  local home name args rendered golden refreshed=0
+  local home name args rendered golden refreshed=0 BRIEF_GOLDEN_PAUSED_VERB=""
   home="$TMP_ROOT/goldens"
   mkdir -p "$home/data" "$home/state"
   if [ -n "${FM_BRIEF_GOLDEN_REFRESH:-}" ]; then
@@ -903,6 +923,11 @@ test_generated_scaffold_bytes_are_unchanged() {
 
   while read -r name args; do
     [ -n "$name" ] || continue
+    # The paused-verb matrix is the same kinds again under a configured verb.
+    case "$name" in
+      paused-verb-*) BRIEF_GOLDEN_PAUSED_VERB=awaiting ;;
+      *)             BRIEF_GOLDEN_PAUSED_VERB="" ;;
+    esac
     rendered="$TMP_ROOT/$name.rendered"
     # shellcheck disable=SC2086 # The variant argument list is deliberately split.
     brief_render_normalized "$home" "$name" $args > "$rendered"
@@ -914,7 +939,7 @@ test_generated_scaffold_bytes_are_unchanged() {
     assert_present "$golden" "missing scaffold golden for variant $name"
     cmp -s "$golden" "$rendered" \
       || fail "generated $name brief changed bytes: $(diff -u "$golden" "$rendered" | head -40)"
-  done < <(brief_golden_variants)
+  done < <(brief_golden_variants; brief_golden_paused_verb_variants)
 
   if [ "$refreshed" -eq 1 ]; then
     pass "fm-brief.sh: refreshed scaffold goldens (FM_BRIEF_GOLDEN_REFRESH)"
