@@ -1,0 +1,14 @@
+=== fm-agentsmd-skill-triggers.test.sh ===
+ok - all 18 AGENTS.md section 13 skill triggers resolve to a readable repo skill
+
+=== fm-harness-adapter-references.test.sh ===
+ok - harness adapter routing artifact is normalized and every target is readable
+
+=== fm-agentsmd-ceiling.test.sh ===
+ok - usage dispatch prints the whole header and refuses unknown input
+ok - read prints the tracked ceiling and refuses an absent one
+ok - the ceiling parser rejects ambiguous and unsafe values
+ok - check passes at the ceiling and fails naming the overage
+ok - check is the default verb and report accounts for AGENTS.md
+ok - an unreadable AGENTS.md fails as a configuration error
+# all fm-agentsmd-ceiling tests passed
