@@ -403,8 +403,10 @@ Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work o
 Every project defines at least one captain testing and review surface in its `AGENTS.md`.
 Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
 
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `firstmate-signalling` routes to `dashboard-signals`, which owns the signal protocol.
-Load `atlas-supervising` at every intake and lifecycle moment; briefs point crewmates at `atlas-working`.
+This doctrine binds only a home with an Atlas pointer (`config/specs`), and a home without one owes the Atlas nothing.
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the ticket procedure, `firstmate-signalling` owns the signal protocol, and `atlas-firstmate-bridge` owns how all three compose with this file.
+Load `atlas-supervising` and `atlas-firstmate-bridge` at every intake and lifecycle moment, and write the `atlas-working` pointer into a ticketed crewmate's brief by hand, because no scaffold carries it.
+A ticket's ready flag authorizes dispatch timing only, so section 7 intake and hard rule 2 are unchanged by it.
 
 ## 8. Supervision protocol
 
@@ -560,6 +562,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `quota-array-dispatch` - load before choosing among a matched crew-dispatch profile array from current quota-axi default TOON.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
+- `atlas-firstmate-bridge` - load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and this file appear to disagree.
 - `firstmate-signalling` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
 - `herdr-pane-management` - load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 - `project-management` - load before adding, creating, removing, or initializing a project.
