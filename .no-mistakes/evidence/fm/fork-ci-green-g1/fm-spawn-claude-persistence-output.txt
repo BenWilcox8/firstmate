@@ -1,0 +1,7 @@
+ok - a claude crewmate launches with session persistence forced and the inherited marker stripped
+ok - a claude scout launches with session persistence forced
+ok - a claude secondmate launches with session persistence forced
+ok - the persistence prefix composes with the claude config-dir prefix
+ok - codex, opencode, pi, and grok launches carry no claude persistence prefix
+ok - running the composed claude launch clears the inherited marker and forces persistence
+# all fm-spawn-claude-persistence tests passed

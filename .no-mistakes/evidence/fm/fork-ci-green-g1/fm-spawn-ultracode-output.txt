@@ -1,0 +1,11 @@
+ok - a claude ultracode spawn carries ultracode:true into the worktree and ultracode=on into meta
+ok - the ultracode key merges into the claude hook settings without dropping a hook
+ok - codex, opencode, pi, and grok refuse --ultracode before an endpoint, worktree, or meta exists
+ok - a claude spawn without --ultracode carries no ultracode key and no ultracode meta line
+ok - a claude scout spawn carries the ultracode mode
+ok - the merge leaves JSON punctuation inside hook command strings untouched
+ok - a secondmate spawn and an explicit effort each refuse --ultracode before anything exists
+ok - --ultracode with a value is rejected instead of being read as a positional
+ok - a relaunch drops the mode from the worktree and stops the record claiming it
+ok - running the composed launch reaches claude with the ultracode session mode on
+# all fm-spawn-ultracode tests passed
