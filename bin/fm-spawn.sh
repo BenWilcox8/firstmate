@@ -1519,6 +1519,8 @@ elif [ "$ACCOUNT_SET" -eq 1 ]; then
   echo "error: --account applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
   exit 1
 fi
+
+
 # Ultracode is a claude-only session mode, and the refusals sit here with the
 # account resolution above for the same reason: nothing exists yet. A spawn that
 # cannot deliver the mode stops while it still has no endpoint, no worktree, and

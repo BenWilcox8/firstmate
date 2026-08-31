@@ -103,7 +103,7 @@ test_stale_enqueue_before_suppressor() {
   printf 'done: ready in branch fm/stale\n' > "$state/stale.status"
   prime_status_seen "$state" "$state/stale.status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle prompt")
+  pane_hash=$(hash_pane_text "idle prompt")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
@@ -135,7 +135,7 @@ test_not_working_stale_enqueue_before_suppressor() {
   printf 'working: implementing\n' > "$state/stopped.status"
   prime_status_seen "$state" "$state/stopped.status"
   key=$(printf '%s' "$window" | tr ':/.' '___')
-  pane_hash=$(hash_text "idle prompt, finished")
+  pane_hash=$(hash_pane_text "idle prompt, finished")
   printf '%s' "$pane_hash" > "$state/.hash-$key"
   printf '1\n' > "$state/.count-$key"
   # NOT provably working: no running pipeline, idle pane. (make_case installed the

@@ -321,12 +321,15 @@ is_live_non_zombie() {
   return 0
 }
 
-hash_text() {
-  if command -v md5 >/dev/null 2>&1; then
-    printf '%s' "$1" | md5 -q
-  else
-    printf '%s' "$1" | md5sum | cut -d' ' -f1
-  fi
+# The watcher's own .hash-<key> derivation, taken from its one owner rather than
+# mirrored here, so a fixture marker is the exact value the watcher would have
+# written for that pane content. A fixture that derives it any other way tests
+# the fixture's arithmetic instead of the watcher's.
+# shellcheck source=bin/fm-pane-hash-lib.sh
+. "$ROOT/bin/fm-pane-hash-lib.sh"
+
+hash_pane_text() {  # <pane-capture>
+  pane_hash_content "$1" | hash_pane
 }
 
 dead_pid() {
