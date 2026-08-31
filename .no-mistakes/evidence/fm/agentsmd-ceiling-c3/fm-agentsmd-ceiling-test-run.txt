@@ -1,0 +1,7 @@
+ok - usage dispatch prints the whole header and refuses unknown input
+ok - read prints the tracked ceiling and refuses an absent one
+ok - the ceiling parser rejects ambiguous and unsafe values
+ok - check passes at the ceiling and fails naming the overage
+ok - check is the default verb and report accounts for AGENTS.md
+ok - an unreadable AGENTS.md fails as a configuration error
+# all fm-agentsmd-ceiling tests passed

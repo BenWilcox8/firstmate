@@ -1,0 +1,5 @@
+estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate
+ceiling_tokens=24764
+file=AGENTS.md bytes=74291 estimated_tokens=24764
+ceiling_status=within-ceiling
+headroom_tokens=0
