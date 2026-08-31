@@ -3,7 +3,7 @@ name: firstmate-signalling
 description: >-
   Agent-only reference for the firstmate-side delta on top of the dashboard-owned `dashboard-signals` skill.
   Load at session start in every firstmate and secondmate session, and reload when an instruction-update nudge arrives.
-  Owns the routine-wake close-out command that ends a wake turn instead of a chat line, the crewmate exclusion, and the one-ask-per-decision routing rule between a secondmate and the main firstmate.
+  Owns the routine-wake close-out command that ends a wake turn instead of a chat line, the crewmate escalation rule that keeps signal instructions out of ship and scout briefs, and the one-ask-per-decision routing rule between a secondmate and the main firstmate.
 user-invocable: false
 metadata:
   internal: true
