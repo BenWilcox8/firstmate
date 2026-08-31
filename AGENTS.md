@@ -391,9 +391,6 @@ The promoted worker must inventory scratch state, return to a clean default-bran
 
 The Atlas - the dashboard's map of every project's nodes and regions - is the primary shared surface of truth for all fleet work.
 Keep it current: every node and region represents a currently existing feature or aspect of its project.
-Design and plan with nodes and regions first; work is conceived as changes to nodes, carried by tickets on those nodes.
-Iterations of work are tickets on an existing node; never create "round n" nodes for iterations, and a genuine replacement strikes the old node and creates the new one.
-Ephemeral work - audits, investigations, and purely informational tasks - goes on errand nodes, never feature nodes.
 
 As a strong default, every message a secondmate sends should include some Atlas action: a ticket queued, started, recorded, or completed; a node created, described, or reconciled; or a signal.
 Pure question-answering, configuration relays, and bare acknowledgments are named exceptions to this default.
@@ -403,10 +400,8 @@ Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work o
 Every project defines at least one captain testing and review surface in its `AGENTS.md`.
 Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
 
-This doctrine binds only a home with an Atlas pointer (`config/specs`), and a home without one owes the Atlas nothing.
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the ticket procedure, `firstmate-signalling` owns the signal protocol, and `atlas-firstmate-bridge` owns how all three compose with this file.
-Load `atlas-supervising` and `atlas-firstmate-bridge` at every intake and lifecycle moment, and write the `atlas-working` pointer into a ticketed crewmate's brief by hand, because no scaffold carries it.
-A ticket's ready flag authorizes dispatch timing only, so section 7 intake and hard rule 2 are unchanged by it.
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the ticket procedure, `firstmate-signalling` owns the signal protocol, and `atlas-firstmate-bridge` owns how they compose with this file.
+Load `atlas-supervising` and `atlas-firstmate-bridge` at every intake and lifecycle moment; both apply only in a home with an Atlas pointer (`config/specs`).
 
 ## 8. Supervision protocol
 

@@ -34,6 +34,17 @@ An Atlas ticket describes what to build and what a supervisor can pick up unaske
 It never grants authority this repo withholds.
 Where a ticket field and a hard rule disagree, the hard rule binds, and the ticket field is a planning value that firstmate translates.
 
+## Node hygiene
+
+Design and plan with nodes and regions first.
+Work is conceived as changes to nodes, carried by tickets on those nodes.
+These rules moved here from AGENTS.md so an agent holding only repo-tracked material still has them.
+
+An iteration of existing work is a new ticket on the existing node.
+Never create a "round 2" or "v2" node for an iteration.
+A genuine replacement strikes the old node and creates the new one.
+Ephemeral work, such as an audit, an investigation, or a purely informational task, goes on an errand node and never on a feature node.
+
 ## Dispatch order
 
 A ready ticket is a work-next row, not a dispatch.
