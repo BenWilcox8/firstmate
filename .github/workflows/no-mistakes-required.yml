@@ -1,21 +1,28 @@
 name: Require no-mistakes
-run-name: "PR #${{ github.event.pull_request.number }} body compliance - ${{ github.event.action }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
+run-name: "PR #${{ github.event.pull_request.number || inputs.pr_number }} body compliance - ${{ github.event.action || 'manual' }} - event ${{ github.run_number }} (run ${{ github.run_id }})"
 
 on:
   pull_request:
     types: [opened, edited, synchronize, reopened]
     branches:
       - main
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'PR number to verify (use when the edited event did not fire after a push)'
+        required: true
+        type: string
 
 permissions:
   contents: read
+  pull-requests: read
 
 # GitHub concurrency groups retain at most one pending run, replacing older
 # pending runs even when cancel-in-progress is false. Give body-bearing events
 # an immutable per-event group so first-time-fork approvals can never collapse
 # opened/edited checks. Keep synchronize/reopened coalescing as before.
 concurrency:
-  group: no-mistakes-required-${{ github.event.pull_request.number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited') && github.run_id || 'head-change' }}
+  group: no-mistakes-required-${{ github.event.pull_request.number || inputs.pr_number }}-${{ (github.event.action == 'opened' || github.event.action == 'edited' || github.event_name == 'workflow_dispatch') && github.run_id || 'head-change' }}
   cancel-in-progress: true
 
 jobs:
@@ -23,8 +30,27 @@ jobs:
     name: PR must be raised via no-mistakes
     runs-on: ubuntu-latest
     if: >-
-      github.event.pull_request.user.login != 'github-actions[bot]' &&
-      github.event.pull_request.user.login != 'dependabot[bot]'
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.user.login != 'github-actions[bot]' &&
+      github.event.pull_request.user.login != 'dependabot[bot]')
     steps:
+      - name: Fetch current PR body from API
+        # The synchronize event fires before the no-mistakes PR step can update
+        # the PR body. Pre-populating PR_BODY and PR_HEAD_SHA from the API here
+        # makes re-runs and workflow_dispatch trigger reads resilient to that
+        # race condition.
+        run: |
+          PR_NUM="${{ github.event.pull_request.number || inputs.pr_number }}"
+          PR_HEAD=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUM" --jq '.head.sha')
+          PR_BODY=$(gh api "repos/${{ github.repository }}/pulls/$PR_NUM" --jq '.body')
+          {
+            echo "PR_HEAD_SHA=$PR_HEAD"
+            echo "PR_BODY<<NM_BODY_EOF"
+            printf '%s' "$PR_BODY"
+            echo ""
+            echo "NM_BODY_EOF"
+          } >> "$GITHUB_ENV"
+        env:
+          GH_TOKEN: ${{ github.token }}
       - name: Verify no-mistakes signature and pipeline attestation
         uses: kunchenguid/no-mistakes/.github/actions/require-no-mistakes@32d396ac0f29135daf7fcb9964aba9d5f4e796d6 # post-v1.57.1, untagged (action added in #819)
