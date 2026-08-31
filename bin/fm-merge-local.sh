@@ -10,11 +10,14 @@
 # and tells you to have the crewmate rebase. See AGENTS.md prime directives,
 # project management, and task lifecycle.
 #
-# After the fast-forward succeeds, the task's recorded Atlas ticket (atlas_ticket=
-# in its meta) is discharged with the before..after range this script already
-# computed. That call goes through bin/fm-atlas-hook.sh, which owns the
-# best-effort contract and can never fail a merge that has already landed; a task
-# with no recorded ticket, or a home with no Atlas, makes no call at all.
+# After the fast-forward succeeds, the landing is recorded in the task's own
+# metadata as merged_local=<before>..<after>, so cleanup can tell landed work
+# from a leg that produced nothing without depending on the Atlas being up.
+# The task's recorded Atlas ticket (atlas_ticket= in its meta) is discharged
+# with the before..after range this script already computed. That call goes
+# through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
+# never fail a merge that has already landed; a task with no recorded ticket, or
+# a home with no Atlas, makes no call at all.
 # Usage: fm-merge-local.sh <task-id>
 set -eu
 
@@ -27,6 +30,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # Role partition: landing local-only work is MAIN-owned; the Pi supervision
 # branch reports readiness and never lands (contract: bin/fm-lease-lib.sh;
 # no-op in homes without a branch actor).
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 fm_lease_forbid_branch "local-only landing (fm-merge-local)"
@@ -80,9 +85,28 @@ git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null
 after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
 
-# The merge is the proof, and this script is holding it. Discharge the task's
-# recorded Atlas ticket with the shas it already computed. Best effort by
-# contract: bin/fm-atlas-hook.sh never fails a merge that already landed.
+# The fast-forward is the proof, and this script is holding it. Record it in the
+# task's own metadata FIRST, as merged_local=<before>..<after>: a landing whose
+# only record is an Atlas call would be invisible to cleanup whenever that
+# best-effort call missed, and cleanup would then read a branch the default
+# branch already contains as a leg that produced nothing.
+MERGED_LOCAL_LOCK=$(fm_meta_lock_path "$META") || {
+  echo "error: could not resolve the task metadata lock for $ID" >&2
+  exit 1
+}
+fm_lock_acquire_wait "$MERGED_LOCAL_LOCK"
+if ! grep -q '^merged_local=' "$META" 2>/dev/null; then
+  printf 'merged_local=%s..%s\n' "$before" "$after" >> "$META" || {
+    fm_lock_release "$MERGED_LOCAL_LOCK"
+    echo "error: could not record the local landing in $META" >&2
+    exit 1
+  }
+fi
+fm_lock_release "$MERGED_LOCAL_LOCK"
+
+# Discharge the task's recorded Atlas ticket with the shas it already computed.
+# Best effort by contract: bin/fm-atlas-hook.sh never fails a merge that already
+# landed.
 FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-merge-local \

@@ -933,6 +933,7 @@ spawn_abort_cleanup() {
             echo "effort=${EFFORT:-default}"
             [ -z "${ACCOUNT_NAME:-}" ] || echo "account=$ACCOUNT_NAME"
             echo "backend=orca"
+            [ -z "${TICKET:-}" ] || echo "atlas_ticket=$TICKET"
             echo "orca_worktree_id=$ORCA_WORKTREE_ID"
             [ -z "${ORCA_TERMINAL:-}" ] || echo "terminal=$ORCA_TERMINAL"
           } > "$SPAWN_META_TMP" 2>/dev/null \

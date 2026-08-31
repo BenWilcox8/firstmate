@@ -30,7 +30,13 @@
 #     (p) fm-merge-local discharges the ticket with its own before..after range
 #     (q) fm-pr-merge discharges the ticket with the PR URL
 #     (r) fm-teardown completes, releases, and lands after proving the landing
-#     (s) fm-teardown --force records nothing, because it proves nothing
+#     (s) fm-teardown --force records nothing when it is discarding real work
+#     (v) abort returns a dead dispatch's ticket to the queue, and demands a reason
+#     (w) state reads the recorded ticket's state back, silently or not at all
+#     (x) fm-teardown aborts a leg that produced nothing, forced or not
+#     (y) fm-teardown never aborts a ticket a merge or crewmate already closed,
+#         and never reads a landed fast-forward as an empty leg
+#     (z) fm-merge-local records the landing in the task's own record
 #   Flag validation
 #     (t) --ticket refused for --secondmate and for batch id=repo dispatch
 #     (u) a malformed --ticket is refused before the spawn starts
@@ -320,6 +326,55 @@ test_land_holds_back_while_a_ticket_is_open() {
   pass "land releases the node but leaves it unlanded while another ticket is still open"
 }
 
+# --- (v)(w) abort and state ------------------------------------------------
+
+test_abort_returns_the_ticket_to_the_queue() {
+  local home rc
+  home=$(make_home abort-started)
+  set +e
+  run_hook "$home" abort task-a1 --actor fm-teardown \
+    --reason 'the dispatch died before producing work' >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "abort: the hook must exit 0"
+  atlas_log_has "$home" 'ticket abort c7 the dispatch died before producing work' \
+    "abort: the ticket was not returned to the queue with the reason that killed the dispatch"
+  atlas_log_lacks "$home" 'ticket complete' \
+    "abort: a dispatch that produced nothing must never be recorded as completed"
+  atlas_log_lacks "$home" 'land n42' \
+    "abort: a dispatch that produced nothing must never land its node"
+  pass "abort returns the ticket to the queue with the reason, and claims nothing about the work"
+}
+
+test_abort_demands_a_reason() {
+  local home rc out
+  home=$(make_home abort-no-reason)
+  set +e
+  out=$(run_hook "$home" abort task-a1 --actor fm-teardown 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "abort: a missing reason must not fail the caller"
+  assert_contains "$out" 'atlas-hook: abort called for task-a1 with no --reason' \
+    "abort: a reasonless abort was not refused"
+  atlas_log_empty "$home" "abort: no Atlas call may be made without a reason"
+  pass "abort refuses without the reason the act is made of"
+}
+
+test_state_reports_the_recorded_ticket_state() {
+  local home out
+  home=$(make_home state-started)
+  out=$(run_hook "$home" state task-a1 2>/dev/null)
+  [ "$out" = started ] || fail "state: expected 'started', got: $out"
+  home=$(make_home state-completed c7 completed)
+  out=$(run_hook "$home" state task-a1 2>/dev/null)
+  [ "$out" = completed ] || fail "state: expected 'completed', got: $out"
+  home=$(make_home state-unwired)
+  rm -f "$home/config/specs"
+  out=$(run_hook "$home" state task-a1 2>/dev/null)
+  [ -z "$out" ] || fail "state: an unwired home must print nothing, got: $out"
+  pass "state reads back the recorded ticket's state, and prints nothing when there is none"
+}
+
 # --- (i)(j) a broken Atlas never blocks -------------------------------------
 
 test_failing_atlas_warns_once_and_exits_zero() {
@@ -406,6 +461,29 @@ test_merge_local_discharges_the_ticket() {
   grep -F 'ticket complete c7' "$home/atlas.log" | grep -Eq '\.\.[0-9a-f]+ on (main|master)' \
     || fail "merge-local: the evidence did not carry the before..after range this script computed"$'\n'"$(cat "$home/atlas.log")"
   pass "fm-merge-local discharges the task's ticket with the shas it already computed"
+}
+
+# The local landing has to survive an Atlas that was unreachable at merge time,
+# because cleanup later reads a fast-forwarded branch as indistinguishable from
+# a leg that never committed unless the task's own record says otherwise.
+test_merge_local_records_the_landing_in_the_task_record() {
+  local home rc
+  home=$(make_merge_local_case merge-local-record atlas_ticket=c7)
+  set +e
+  FM_FAKE_ATLAS_FAIL=1 run_merge_local "$home" >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "merge-local: the merge must succeed even with a broken Atlas"
+  assert_grep 'merged_local=' "$home/state/task-a1.meta" \
+    "merge-local: the local landing was not recorded in the task's own record"
+  grep -E '^merged_local=[0-9a-f]+\.\.[0-9a-f]+$' "$home/state/task-a1.meta" >/dev/null \
+    || fail "merge-local: the recorded landing is not a before..after range"$'\n'"$(cat "$home/state/task-a1.meta")"
+  set +e
+  FM_FAKE_ATLAS_FAIL=1 run_merge_local "$home" >/dev/null 2>&1
+  set -e
+  [ "$(grep -c '^merged_local=' "$home/state/task-a1.meta")" = 1 ] \
+    || fail "merge-local: a re-run duplicated the landing record"
+  pass "fm-merge-local records the local landing in the task's own record, Atlas or no Atlas"
 }
 
 test_merge_local_survives_a_broken_atlas() {
@@ -502,19 +580,22 @@ test_pr_merge_survives_a_broken_atlas() {
   pass "fm-pr-merge still merges and exits 0 when the Atlas is broken"
 }
 
-# --- (m)(r)(s) fm-teardown --------------------------------------------------
+# --- (m)(r)(s)(x)(y) fm-teardown ------------------------------------------
 
-# A local-only ship task whose branch carries nothing the default branch does
-# not already have, so teardown's landed-work proof passes with no remote at
-# all. That proof is exactly the precondition the Atlas close-out rides on.
+# A ship task whose leg PRODUCED work and pushed it, so teardown's landed-work
+# proof passes on real commits rather than vacuously. That proof is exactly the
+# precondition the Atlas close-out rides on.
 make_teardown_case() {  # <name> [meta-lines...]
   local home wt
   home=$(make_home "$1")
   shift
   wt="$home/wt"
   fm_fake_exit0 "$home/fakebin" tmux treehouse no-mistakes gh
-  fm_git_init_commit "$home/project"
-  git -C "$home/project" worktree add --quiet -b fm/task-a1 "$wt"
+  fm_git_worktree "$home/project" "$wt" fm/task-a1
+  printf 'the work this leg produced\n' > "$wt/feature.txt"
+  git -C "$wt" add feature.txt
+  git -C "$wt" commit -qm 'the leg produced this'
+  git -C "$wt" push -q origin fm/task-a1
   fm_write_meta "$home/state/task-a1.meta" \
     "window=firstmate:fm-task-a1" \
     "endpoint_task_id=task-a1" \
@@ -571,6 +652,108 @@ test_teardown_force_records_nothing() {
   atlas_log_empty "$home" \
     "forced teardown: a discard proves nothing and must not be recorded as landed"
   pass "a forced teardown records nothing, because it has proved nothing"
+}
+
+# A leg that produced NOTHING: the same shape, minus the work commit. Its
+# landed-work proof passes vacuously - there is nothing to fail - which is
+# exactly the case that must never be recorded as shipped ground.
+make_teardown_empty_case() {  # <name> [meta-lines...]
+  local home wt
+  home=$(make_home "$1")
+  shift
+  wt="$home/wt"
+  fm_fake_exit0 "$home/fakebin" tmux treehouse no-mistakes gh
+  fm_git_worktree "$home/project" "$wt" fm/task-a1
+  fm_write_meta "$home/state/task-a1.meta" \
+    "window=firstmate:fm-task-a1" \
+    "endpoint_task_id=task-a1" \
+    "worktree=$wt" \
+    "project=$home/project" \
+    "kind=ship" \
+    "mode=local-only" \
+    "$@"
+  printf 'working: launched\n' > "$home/state/task-a1.status"
+  printf '%s\n' "$home"
+}
+
+test_teardown_aborts_a_leg_that_produced_nothing() {
+  local home rc
+  home=$(make_teardown_empty_case teardown-empty atlas_ticket=c7)
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "empty leg: cleanup must succeed"
+  atlas_log_has "$home" 'ticket abort c7' \
+    "empty leg: the ticket was not returned to the queue"
+  atlas_log_has "$home" 'with no work produced' \
+    "empty leg: the abort did not say what killed the dispatch"
+  atlas_log_lacks "$home" 'ticket complete' \
+    "empty leg: a dispatch that produced nothing must never be completed"
+  atlas_log_lacks "$home" 'land n42' \
+    "empty leg: a dispatch that produced nothing must never land its node"
+  pass "cleanup of a leg that produced nothing aborts the ticket instead of claiming it landed"
+}
+
+test_teardown_force_aborts_a_killed_dispatch() {
+  local home rc
+  home=$(make_teardown_empty_case teardown-killed atlas_ticket=c7)
+  set +e
+  run_teardown "$home" --force >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "killed dispatch: cleanup must succeed"
+  atlas_log_has "$home" 'ticket abort c7' \
+    "killed dispatch: a spawn that died with no work must return its ticket to the queue"
+  atlas_log_lacks "$home" 'ticket complete' \
+    "killed dispatch: a killed dispatch must never be recorded as completed"
+  pass "a forced cleanup of a killed dispatch that produced nothing aborts its ticket with the reason"
+}
+
+test_teardown_aborts_an_empty_leg_whose_ticket_is_queued() {
+  local home
+  home=$(make_teardown_empty_case teardown-queued atlas_ticket=c7)
+  printf '%s\n' '{"change":{"id":"c7","state":"queued","node":"n42","nodePath":"demo/thing"}}' \
+    > "$home/ticket.json"
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  set -e
+  atlas_log_lacks "$home" 'ticket complete' \
+    "queued ticket: an empty leg must never be completed just because nobody started its ticket"
+  atlas_log_lacks "$home" 'land n42' \
+    "queued ticket: an empty leg must never land its node"
+  atlas_log_has "$home" 'ticket abort c7' \
+    "queued ticket: the empty leg was not recorded as a dead dispatch"
+  pass "an empty leg whose ticket was never started is aborted, never completed and landed"
+}
+
+test_teardown_lands_local_work_the_default_branch_already_holds() {
+  local home
+  home=$(make_teardown_empty_case teardown-ff atlas_ticket=c7 "merged_local=aaaaaaa..bbbbbbb")
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  set -e
+  atlas_log_lacks "$home" 'ticket abort' \
+    "landed local work: a fast-forward the default branch already holds must not read as an empty leg"
+  atlas_log_has "$home" 'ticket complete c7' "landed local work: the ticket was not completed"
+  atlas_log_has "$home" 'release n42' "landed local work: the node was not released"
+  atlas_log_has "$home" 'land n42' "landed local work: the node was not landed"
+  pass "work that landed as a fast-forward still completes, on its own record rather than on the Atlas"
+}
+
+test_teardown_leaves_an_already_discharged_ticket_alone() {
+  local home
+  home=$(make_teardown_empty_case teardown-discharged atlas_ticket=c7)
+  printf '%s\n' '{"change":{"id":"c7","state":"completed","node":"n42","nodePath":"demo/thing"}}' \
+    > "$home/ticket.json"
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  set -e
+  atlas_log_lacks "$home" 'ticket abort' \
+    "discharged ticket: work a merge already closed out must never be re-queued as a dead dispatch"
+  atlas_log_has "$home" 'release n42' "discharged ticket: the node was not released"
+  atlas_log_has "$home" 'land n42' "discharged ticket: the node was not landed"
+  pass "cleanup never aborts a ticket a crewmate or a merge already discharged"
 }
 
 test_teardown_survives_a_broken_atlas() {
@@ -736,14 +919,23 @@ test_complete_restages_then_completes
 test_complete_leaves_a_completed_ticket_alone
 test_land_completes_releases_and_lands
 test_land_holds_back_while_a_ticket_is_open
+test_abort_returns_the_ticket_to_the_queue
+test_abort_demands_a_reason
+test_state_reports_the_recorded_ticket_state
 test_failing_atlas_warns_once_and_exits_zero
 test_hanging_atlas_is_bounded_by_the_timeout
 test_merge_local_discharges_the_ticket
+test_merge_local_records_the_landing_in_the_task_record
 test_merge_local_survives_a_broken_atlas
 test_pr_merge_discharges_the_ticket
 test_pr_merge_survives_a_broken_atlas
 test_teardown_closes_out_the_ticket
 test_teardown_force_records_nothing
+test_teardown_aborts_a_leg_that_produced_nothing
+test_teardown_force_aborts_a_killed_dispatch
+test_teardown_aborts_an_empty_leg_whose_ticket_is_queued
+test_teardown_lands_local_work_the_default_branch_already_holds
+test_teardown_leaves_an_already_discharged_ticket_alone
 test_teardown_survives_a_broken_atlas
 test_spawn_ticket_is_recorded_and_started
 test_spawn_survives_a_broken_atlas

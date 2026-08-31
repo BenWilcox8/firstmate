@@ -127,7 +127,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-merge-outcome-lib.sh` | Publish a confirmed merge's durable, role-routed supervision outcome                 |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode, and write the ship instructions carrying that mode's definition of done |
 | `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, require completed scout deliverables, retire secondmate homes |
-| `fm-atlas-hook.sh`       | Record an Atlas ticket lifecycle fact at spawn, merge, and teardown; answer `wired` queries that report whether this home has an Atlas pointer |
+| `fm-atlas-hook.sh`       | Record an Atlas ticket lifecycle event as a best-effort side effect of spawn, merge, or teardown - complete or land for proved work, abort for an empty leg; answer `wired` queries that report whether this home has an Atlas pointer |
 | `fm-harness.sh`          | Detect the running harness and resolve crew or secondmate harness, model, and effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
 | `fm-x-lib.sh`            | Shared Relay config, relay, and reply-threading helpers                              |

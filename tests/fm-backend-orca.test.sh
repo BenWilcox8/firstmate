@@ -487,6 +487,39 @@ test_spawn_preserves_orca_metadata_when_pathless_worktree_cleanup_fails() {
   pass "fm-spawn.sh --backend orca: preserves metadata when pathless cleanup fails"
 }
 
+# A spawn that dies leaves the recovery record a later cleanup works from, and
+# that cleanup discharges the Atlas ticket. A record that dropped the ticket link
+# would strand the started ticket on the map with no leg and no way to return it
+# to the queue.
+test_spawn_recovery_metadata_keeps_the_atlas_ticket() {
+  local proj data state config id out status
+  id="orcaticketz7"
+  proj="$TMP_ROOT/ticket-cleanup-project"
+  data="$TMP_ROOT/ticket-cleanup-data"
+  state="$TMP_ROOT/ticket-cleanup-state"
+  config="$TMP_ROOT/ticket-cleanup-config"
+  fm_git_init_commit "$proj"
+  mkdir -p "$data/$id" "$state" "$config"
+  printf 'brief\n' > "$data/$id/brief.md"
+  touch "$state/.last-watcher-beat"
+  orca_case ticket-cleanup-fail
+  printf '1\n' > "$RESP/1.exit"
+  printf '{"ok":true,"result":{"repo":{"id":"repo-ticket-cleanup"}}}\n' > "$RESP/2.out"
+  printf '{"ok":true,"result":{"worktree":{"id":"wt-ticket-cleanup"}}}\n' > "$RESP/3.out"
+  printf '{"ok":false,"error":{"code":"worktree_not_removed","message":"worktree not removed"}}\n' > "$RESP/4.out"
+  printf '{"ok":false,"error":{"code":"worktree_not_removed","message":"worktree not removed"}}\n' > "$RESP/5.out"
+  out=$( PATH="$FB:$PATH" FM_ORCA_LOG="$LOG" FM_ORCA_RESPONSES="$RESP" \
+    FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$state" FM_DATA_OVERRIDE="$data" FM_CONFIG_OVERRIDE="$config" \
+    FM_PROJECTS_OVERRIDE="$TMP_ROOT/unused-projects" FM_SPAWN_NO_GUARD=1 \
+    "$ROOT/bin/fm-spawn.sh" "$id" "$proj" claude --mode no-mistakes --yolo off --backend orca --ticket c9 2>&1 )
+  status=$?
+  [ "$status" -ne 0 ] || fail "Orca spawn should fail when path parsing and cleanup fail"$'\n'"$out"
+  assert_present "$state/$id.meta" "failed cleanup should preserve metadata"
+  assert_grep "atlas_ticket=c9" "$state/$id.meta" \
+    "the preserved recovery record dropped the Atlas ticket the later cleanup discharges"
+  pass "fm-spawn.sh --backend orca: a preserved recovery record keeps the task's Atlas ticket"
+}
+
 test_spawn_writes_orca_metadata_and_launches_harness() {
   local proj wt data state config id out log
   id="orcaspawnz1"
@@ -1331,6 +1364,7 @@ test_json_get_ignores_undocumented_terminal_id_shapes
 test_worktree_and_terminal_helpers_parse_json
 test_worktree_create_removes_worktree_when_path_missing
 test_spawn_preserves_orca_metadata_when_pathless_worktree_cleanup_fails
+test_spawn_recovery_metadata_keeps_the_atlas_ticket
 test_spawn_writes_orca_metadata_and_launches_harness
 test_spawn_refuses_orca_secondmate_before_home_mutation
 test_spawn_refuses_orca_when_runtime_not_ready
