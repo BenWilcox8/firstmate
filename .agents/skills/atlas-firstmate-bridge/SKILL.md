@@ -1,7 +1,7 @@
 ---
 name: atlas-firstmate-bridge
 description: >-
-  Agent-only reference for composing the Atlas ticket doctrine with this file's own contract.
+  Agent-only reference for composing the Atlas ticket doctrine with the AGENTS.md contract.
   Load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
   Owns the dispatch order, the merge-kind mapping, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, and the ledger that names one owner for every known contradiction between the two surfaces.
 user-invocable: false
@@ -42,7 +42,8 @@ Dispatch in this exact order, and treat any shortcut as a refusal to dispatch at
 1. Read the ready row and resolve intake under AGENTS.md section 7: project, secondmate route, ship or scout, delivery mode, and `yolo` posture.
    The ticket supplies none of these.
 2. File the backlog work item in this home.
-   `bin/fm-spawn.sh` refuses a task with no backlog item, so a missing item stops the dispatch at the gate.
+   Where the backlog transition gate applies, `bin/fm-spawn.sh` refuses a task with no dispatchable item, so a missing item stops the dispatch before any record exists.
+   A manual-backend home gets no such refusal and still owes the item, because AGENTS.md section 10 keeps filing with the supervisor either way.
 3. Write the brief, then run `bin/fm-spawn.sh ... --ticket <c7>`.
    The spawn validates isolation, records the task, and commits the backlog transition first.
 4. The spawn itself calls `bin/fm-atlas-hook.sh start`, which issues `atlas-axi ticket start`.
@@ -127,7 +128,7 @@ Do this in the same turn as the forced teardown, because nothing later will remi
 ## Duties this doctrine places on the home
 
 - Register the dashboard repo (`agent-dashboard`) in `data/projects.md`.
-  Three loaded skills and the Atlas store documentation live there, and an unregistered clone is invisible to fleet sync and to `/updatefirstmate`.
+  The Atlas operating skills and the Atlas store documentation live there, and an unregistered clone is invisible to fleet sync and to `/updatefirstmate`.
 - Write the `atlas-working` pointer and the ticket id into a ticketed crewmate's brief by hand.
   No brief scaffold carries Atlas content, and `tests/fm-brief.test.sh` keeps the generated scaffolds signal-free on purpose.
   A crewmate that is never told to read `atlas-working` cannot walk the stages its ticket declares.
