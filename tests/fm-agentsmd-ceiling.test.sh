@@ -139,19 +139,36 @@ test_absent_agents_md_is_an_error_not_a_pass() {
   assert_contains "$out" 'AGENTS.md' "absent AGENTS.md was not named"
   pass "an unreadable AGENTS.md fails as a configuration error"
 }
+test_usage_dispatch_prints_the_whole_header_and_refuses_unknown_input() {
+  local dir="$TMP_ROOT/usage" out rc
+  make_repo "$dir" 300 100
+  out=$(run_ceiling "$dir" --help)
+  # The usage text is sliced out of the header comment by line number, so it
+  # drifts silently when the header grows.  Pin both ends of that slice.
+  assert_contains "$out" 'Hold AGENTS.md under its tracked token ceiling.' "--help omitted the header's first line"
+  assert_contains "$out" 'command never reads, writes, or repairs the startup-memory budget.' "--help omitted the header's last line"
+  assert_contains "$out" 'fm-agentsmd-ceiling.sh report' "--help omitted a verb"
+  case "$out" in
+    *'set -eu'*) fail "--help printed past the end of the header comment" ;;
+  esac
 
-test_the_repo_ships_a_ceiling_that_its_own_agents_md_satisfies() {
-  local out
-  out=$("$ROOT/bin/fm-agentsmd-ceiling.sh" check 2>&1) \
-    || fail "the tracked repo AGENTS.md exceeds its own tracked ceiling: $out"
-  pass "this repo's tracked AGENTS.md is within its tracked ceiling"
+  for arg in bogus 'read extra' 'report extra' 'check extra'; do
+    set +e
+    # shellcheck disable=SC2086 # Deliberate word splitting to pass extra arguments.
+    out=$(run_ceiling "$dir" $arg)
+    rc=$?
+    set -e
+    expect_code 2 "$rc" "'$arg' should be refused as usage"
+    assert_contains "$out" 'Usage:' "'$arg' did not print usage"
+  done
+  pass "usage dispatch prints the whole header and refuses unknown input"
 }
 
+test_usage_dispatch_prints_the_whole_header_and_refuses_unknown_input
 test_read_prints_the_tracked_ceiling
 test_parser_rejects_ambiguous_and_unsafe_ceilings
 test_check_passes_under_the_ceiling_and_names_the_overage
 test_check_is_the_default_verb_and_report_accounts_for_the_file
 test_absent_agents_md_is_an_error_not_a_pass
-test_the_repo_ships_a_ceiling_that_its_own_agents_md_satisfies
 
 echo '# all fm-agentsmd-ceiling tests passed'

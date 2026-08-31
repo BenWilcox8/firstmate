@@ -58,6 +58,7 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
 - `AGENTS.md` has a tracked token ceiling in `.agentsmd-ceiling`, enforced by `bin/fm-agentsmd-ceiling.sh check` in the CI repo-invariants job.
   Every session of every fleet member pays for that file, so a change that pushes it over the ceiling fails CI naming the overage.
   Route the new detail to a skill or doc with the `firstmate-coding-guidelines` knowledge-placement tree, or raise the ceiling deliberately in the same pull request.
+  The shipped ceiling equals the current size of `AGENTS.md`, so there is no headroom: it holds the file where it is until an agreed number replaces it.
 - In Markdown, put each full sentence on its own line.
 - `README.md` stays a concise overview plus pointers: it never carries a wall of inline detail.
   Route detail to the most specific `docs/` file (architecture, configuration, or a backend guide) and link to it instead.

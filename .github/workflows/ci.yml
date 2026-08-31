@@ -407,7 +407,17 @@ jobs:
           cmp -s CLAUDE.md "$tmp" || { echo "::error::CLAUDE.md must be the canonical @AGENTS.md pointer"; exit 1; }
           [ "$(readlink .claude/skills)" = "../.agents/skills" ] || { echo "::error::.claude/skills must be a symlink to ../.agents/skills"; exit 1; }
       - name: AGENTS.md must stay within its tracked token ceiling
-        run: bin/fm-agentsmd-ceiling.sh check
+        run: |
+          set -eu
+          # The script separates "over the ceiling" (1) from "could not
+          # establish the ceiling or read AGENTS.md" (2). Keep that distinction
+          # in the job's exit status, and let its own stderr name the cause.
+          status=0
+          bin/fm-agentsmd-ceiling.sh check || status=$?
+          if [ "$status" -ne 0 ]; then
+            echo "::error::AGENTS.md failed its token-ceiling check; see the reason above"
+            exit "$status"
+          fi
       - name: Personal fleet paths must not be tracked
         run: |
           set -eu

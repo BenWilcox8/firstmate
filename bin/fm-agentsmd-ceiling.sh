@@ -18,6 +18,11 @@
 # AGENTS.md is loaded by every session of every fleet member, so growth is a
 # fleet-wide cost; this check turns that growth into a decision.
 #
+# The shipped ceiling is the file's own current size, so it has no headroom on
+# purpose: it holds AGENTS.md where it is until the captain sets the real
+# number.  Until then every net addition fails this check by design, and the
+# answer is normally to move the detail, not to raise the number.
+#
 # The estimate and the ceiling parser are reused from
 # bin/fm-startup-memory-budget-lib.sh, which stays the owner of both.  This
 # command never reads, writes, or repairs the startup-memory budget.
@@ -34,7 +39,7 @@ AGENTS_MD_PATH="$FM_ROOT/AGENTS.md"
 . "$SCRIPT_DIR/fm-startup-memory-budget-lib.sh"
 
 usage() {
-  sed -n '2,23{s/^# \{0,1\}//;p;}' "$0"
+  sed -n '2,28{s/^# \{0,1\}//;p;}' "$0"
 }
 
 print_error() {
