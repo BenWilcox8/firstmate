@@ -904,6 +904,7 @@ brief_render_normalized() {
       || fail "fm-brief.sh failed to scaffold golden variant $name"
   else
     FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+      FM_CLASSIFY_PAUSED_VERB="" \
       "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
       || fail "fm-brief.sh failed to scaffold golden variant $name"
   fi
