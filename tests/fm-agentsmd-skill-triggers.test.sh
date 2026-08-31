@@ -6,6 +6,12 @@
 # pins that direction only - every registered trigger resolves to a readable
 # repo skill - and deliberately not the reverse, because a deprecated redirect
 # stub is allowed to exist with no trigger of its own.
+#
+# The registry is an owned text contract, not incidental source: section 13 is
+# the declared list of load triggers every session reads, so this test parses it
+# into a list of names and resolves each one, rather than asserting that any
+# particular sentence appears anywhere. tests/fm-harness-adapter-references.test.sh
+# validates the harness router's own reference artifact the same way.
 set -u
 
 # shellcheck source=tests/lib.sh
