@@ -8,6 +8,8 @@
 #                                            [--restage <stage>] [--actor <name>]
 #        fm-atlas-hook.sh land <task-id> --evidence <text> [--summary <text>]
 #                                        [--actor <name>]
+#        fm-atlas-hook.sh abort <task-id> --reason <text> [--actor <name>]
+#        fm-atlas-hook.sh state <task-id>
 #        fm-atlas-hook.sh wired
 #
 #   start     tells the Atlas the task's recorded ticket is now being worked by
@@ -22,6 +24,15 @@
 #             `land <node> --evidence ...` when no open ticket remains on that
 #             node. It is the teardown hook, called only where teardown has
 #             already proved the work landed.
+#   abort     is the discharge for a leg that produced NOTHING: `ticket abort <c>
+#             "<reason>"` returns the ticket to the queue with the reason on its
+#             record and releases the node, so a dispatch that died is never
+#             recorded as work that shipped. Complete and land stay reserved for
+#             proved work. Re-running it on an already queued ticket is a no-op.
+#   state     prints the recorded ticket's state (queued, started, completed,
+#             abandoned) and nothing else, so a caller can tell a leg nobody
+#             discharged from one a crewmate or a merge already closed. Read-only:
+#             it prints nothing at all on any skip or failure.
 #
 #   wired     is the read-only query the rest of the fleet uses to ask whether
 #             this home is wired to an Atlas at all. It prints the resolved repo
@@ -30,6 +41,7 @@
 #             the never-blocks contract below holds here too.
 #
 #   --evidence is what proves the work (a merge range, a PR URL, a report path).
+#   --reason   is what killed the dispatch, and abort refuses without it.
 #   --summary  defaults to a short generated line naming the task and the actor.
 #   --actor    is stamped as the Atlas `by:` author, so the log says which fleet
 #              script wrote the entry. Defaults to fm-atlas-hook.
@@ -165,6 +177,19 @@ node_has_open_ticket() {
   esac
 }
 
+# The dispatch died and produced nothing, so the ticket goes back to the queue
+# with the reason on it. The act releases the node itself, and it is a no-op on
+# a ticket that is already queued, so a cleanup may run it as often as it likes.
+hook_abort() {
+  atlas_axi_call "ticket abort" ticket abort "$TICKET" "$REASON" >/dev/null
+}
+
+# Read-only, and silent on every skip: the caller wants a state or nothing.
+hook_state() {
+  ticket_read >/dev/null 2>&1 || return 0
+  [ -z "$TICKET_STATE" ] || printf '%s\n' "$TICKET_STATE"
+}
+
 hook_start() {
   atlas_axi_call "ticket start" ticket start "$TICKET" --to "$HOLDER" --task "$ID" >/dev/null
 }
@@ -199,7 +224,7 @@ run_hook() {
       atlas_repo || return 0
       return 0
       ;;
-    start|complete|land) ;;
+    start|complete|land|abort|state) ;;
     '') warn "no hook verb given"; return 0 ;;
     *) warn "unknown hook verb $VERB"; return 0 ;;
   esac
@@ -223,6 +248,7 @@ run_hook() {
   EVIDENCE=
   SUMMARY=
   RESTAGE=
+  REASON=
   for a in "$@"; do
     if [ -n "$want_value" ]; then
       case "$want_value" in
@@ -230,6 +256,7 @@ run_hook() {
         evidence) EVIDENCE=$a ;;
         summary) SUMMARY=$a ;;
         restage) RESTAGE=$a ;;
+        reason) REASON=$a ;;
       esac
       want_value=
       continue
@@ -243,16 +270,28 @@ run_hook() {
       --summary=*) SUMMARY=${a#--summary=} ;;
       --restage) want_value=restage ;;
       --restage=*) RESTAGE=${a#--restage=} ;;
+      --reason) want_value=reason ;;
+      --reason=*) REASON=${a#--reason=} ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done
   [ -z "$want_value" ] || { warn "$VERB called with a valueless --$want_value"; return 0; }
   [ -n "$ACTOR" ] || ACTOR=fm-atlas-hook
 
-  if [ "$VERB" != start ] && [ -z "$EVIDENCE" ]; then
-    warn "$VERB called for $ID with no --evidence"
-    return 0
-  fi
+  case "$VERB" in
+    complete|land)
+      if [ -z "$EVIDENCE" ]; then
+        warn "$VERB called for $ID with no --evidence"
+        return 0
+      fi
+      ;;
+    abort)
+      if [ -z "$REASON" ]; then
+        warn "abort called for $ID with no --reason"
+        return 0
+      fi
+      ;;
+  esac
   [ -n "$SUMMARY" ] || SUMMARY="Task $ID closed out by $ACTOR."
 
   # Silent skips: nothing here is a failure, it is a home with no Atlas to write.
@@ -269,6 +308,8 @@ run_hook() {
     start) hook_start ;;
     complete) hook_complete ;;
     land) hook_land ;;
+    abort) hook_abort ;;
+    state) hook_state ;;
   esac
 }
 

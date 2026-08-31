@@ -46,13 +46,17 @@
 # unresolved-decision completion gate verifies its captain-held inventory.
 # Once every landed-work refusal has passed, and before any record is erased,
 # teardown discharges the task's recorded Atlas ticket (atlas_ticket= in its
-# meta): complete, release the node, and land it when no open ticket remains. A
-# scout lands its errand with the report path as the evidence. This is the point
-# where the fleet has already PROVED what the Atlas wants recorded, so --force
-# skips it entirely - a forced teardown may be discarding work and must not
-# record it as landed. The whole call goes through bin/fm-atlas-hook.sh, which
-# owns the best-effort contract and can never fail a teardown; a task with no
-# recorded ticket, or a home with no Atlas, makes no call at all.
+# meta). A leg that produced work is discharged as landed: complete, release the
+# node, and land it when no open ticket remains, with a scout landing its errand
+# on the report path as the evidence. A leg that produced NOTHING passes those
+# refusals vacuously, so it is discharged the other way: the still-started ticket
+# is aborted back to the queue with the reason that killed the dispatch, and the
+# node is released with it. That abort is the one discharge --force can also
+# make, because an empty leg needs no proof; a forced teardown that is discarding
+# real work still records nothing, since it may not claim a landing it has not
+# proved. The whole call goes through bin/fm-atlas-hook.sh, which owns the
+# best-effort contract and can never fail a teardown; a task with no recorded
+# ticket, or a home with no Atlas, makes no call at all.
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
@@ -1494,6 +1498,33 @@ validate_worktree_teardown_safety() {
   fi
 }
 
+# Did this task's leg produce ANYTHING? The Atlas close-out below turns on this:
+# a cleanup whose landed-work test passes vacuously - there is no work, so
+# nothing can fail it - would otherwise close the ticket on generic evidence and
+# record ground nobody ever built.
+# Only a positive proof of emptiness answers no. Anything this cannot read
+# counts as work, because "the dispatch produced nothing" must never be the
+# answer to a question cleanup could not ask.
+teardown_leg_produced_work() {  # 0 = work, 1 = provably nothing
+  local dirty_raw dirty base unique
+  [ -z "$PR_URL" ] || return 0
+  if [ "$KIND" = scout ]; then
+    [ -s "$DATA/$ID/report.md" ] || return 1
+    return 0
+  fi
+  [ -d "$WT" ] || return 0
+  git -C "$WT" rev-parse --git-dir >/dev/null 2>&1 || return 0
+  dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null) || return 0
+  # The same harness leftovers the landed-work check ignores: a worker that died
+  # having written only its own harness directory produced nothing.
+  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' | head -1 || true)
+  [ -z "$dirty" ] || return 0
+  base=$(default_branch) || return 0
+  unique=$(git -C "$WT" log --oneline -1 HEAD --not "$base" -- 2>/dev/null) || return 0
+  [ -z "$unique" ] || return 0
+  return 1
+}
+
 # Fix 1 (see script header): does the active-or-most-recent no-mistakes run in
 # worktree $1 belong to THIS task, and is it parked at a gate awaiting an agent
 # that is about to be removed? Prints nothing; returns 0 only on a genuine
@@ -2695,16 +2726,43 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
-# Every landed/discard-work refusal above has now passed, so the work is PROVED
-# landed (a ship task's content reached the default branch or its PR merged; a
-# scout's report exists and its decision gate passed). This is the one moment in
-# the whole fleet where that proof and the task's records are both in hand, and
-# the records are about to be erased below, so the Atlas ticket is discharged
-# here. Skipped under --force, which proves nothing: a forced teardown may be
-# discarding work, and recording it as landed would put a false fact in a log
-# that replays forever. Best effort by contract: bin/fm-atlas-hook.sh never
-# fails a teardown.
-if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
+# Every landed/discard-work refusal above has now passed, so a leg that produced
+# work has PROVED it landed (a ship task's content reached the default branch or
+# its PR merged; a scout's report exists and its decision gate passed). This is
+# the one moment in the whole fleet where that proof and the task's records are
+# both in hand, and the records are about to be erased below, so the Atlas ticket
+# is discharged here.
+#
+# A leg that produced NOTHING passes those refusals vacuously, and complete/land
+# would then record ground nobody built, so it takes the other discharge: the
+# ticket is aborted back to the queue with the reason that killed the dispatch,
+# and the node is released with it. That is the honest close for a killed
+# dispatch, and it is the one a forced cleanup can also make - forcing proves
+# nothing about work, but an empty leg needs no proof. A forced teardown that IS
+# discarding work still records nothing at all, exactly as before, because
+# recording it as landed would put a false fact in a log that replays forever.
+# A ticket a crewmate or a merge already discharged is never re-queued as a dead
+# dispatch: only a still-started ticket is aborted.
+# Best effort by contract: bin/fm-atlas-hook.sh never fails a teardown.
+atlas_hook() {  # <hook args...>
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" "$@" || true
+}
+
+atlas_unproved=0
+if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
+  [ "$(atlas_hook state "$ID")" != started ] || atlas_unproved=1
+fi
+
+if [ "$atlas_unproved" = 1 ]; then
+  if [ "$KIND" = scout ]; then
+    atlas_reason="Scout task $ID was cleaned up with no work produced: no report was delivered."
+  else
+    atlas_reason="Task $ID was cleaned up with no work produced: nothing committed, pushed or reported."
+  fi
+  [ "$FORCE" != "--force" ] || atlas_reason="$atlas_reason The cleanup was forced."
+  atlas_hook abort "$ID" --actor fm-teardown --reason "$atlas_reason"
+elif [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
   if [ "$KIND" = scout ]; then
     atlas_evidence="report at $DATA/$ID/report.md"
     atlas_summary="Scout task $ID delivered its report; the errand is carried out."
@@ -2715,11 +2773,10 @@ if [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
     atlas_evidence="task $ID landed on the project's default branch"
     atlas_summary="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
   fi
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$FM_ROOT/bin/fm-atlas-hook.sh" land "$ID" \
+  atlas_hook land "$ID" \
     --actor fm-teardown \
     --evidence "$atlas_evidence" \
-    --summary "$atlas_summary" || true
+    --summary "$atlas_summary"
 fi
 
 # A Herdr close may reposition shared workspace order, so the whole
