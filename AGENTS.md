@@ -194,7 +194,7 @@ A silent bootstrap section needs no action; for any printed actionable diagnosti
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `secondmate-provisioning` owns startup secondmate sync, liveness, and inherited local-material convergence.
 
-Load `dashboard-signals` at session start and again whenever an instruction-update nudge arrives; it owns how this session signals the captain's dashboard.
+Load `firstmate-signalling` at session start and again whenever an instruction-update nudge arrives; it carries the firstmate delta and points at the skill that owns the signal protocol.
 If this home's runtime backend is herdr, also load `herdr-pane-management`.
 
 ## 4. Harness and runtime dispatch
@@ -403,7 +403,7 @@ Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work o
 Every project defines at least one captain testing and review surface in its `AGENTS.md`.
 Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
 
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `dashboard-signals` owns the signal protocol.
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `firstmate-signalling` routes to the skill that owns the signal protocol.
 Load `atlas-supervising` at every intake and lifecycle moment; briefs point crewmates at `atlas-working`.
 
 ## 8. Supervision protocol
@@ -437,7 +437,7 @@ When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`
 
 A secondmate's idle endpoint is healthy, and parent supervision relies on its routed status rather than treating a quiet pane as stale.
 Waiting on a healthy supervision cycle is silent; empty polls, elapsed time, and no-change updates are not captain-facing progress.
-End a routine wake-handling turn with `bin/fm-ping-ack.sh` instead of a chat line, and keep prose for findings, decisions, and failures; `dashboard-signals` owns that close-out contract.
+End a routine wake-handling turn with `bin/fm-ping-ack.sh` instead of a chat line, and keep prose for findings, decisions, and failures; `firstmate-signalling` owns that close-out contract.
 Never broadly kill watchers, especially never `pkill -f bin/fm-watch.sh`, because that can kill sibling firstmate homes.
 A forced repair must use the home-scoped owner path emitted by supervision instructions.
 
@@ -560,7 +560,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `quota-array-dispatch` - load before choosing among a matched crew-dispatch profile array from current quota-axi default TOON.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
-- `dashboard-signals` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
+- `firstmate-signalling` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
 - `herdr-pane-management` - load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 - `project-management` - load before adding, creating, removing, or initializing a project.
   Cloning or registering a project is add intake and uses the same trigger.
