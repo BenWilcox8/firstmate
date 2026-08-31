@@ -16,15 +16,18 @@ The captain watches this session on a dashboard rather than reading the raw pane
 The signal protocol itself is owned by the `dashboard-signals` skill, which the agent-dashboard project installs at the user level.
 Load that skill for the verbs (`atlas-axi ask`, `review`, `status`, `notif`), the option-list rule, the `%%dash-fin%%` and `%%dash-ans%%` marker grammar, the answer loop, the ban on harness-native pickers, and what to do when a signal fails.
 Nothing here restates it.
-If that skill is not installed in this home, `atlas-axi --help` is the protocol source of last resort, and the rules below still apply.
+The verbs ship from the same project as that skill, so a home without it has no dashboard to signal; the rules below still apply to everything else.
 
 This skill owns only what is true of firstmate sessions and nothing else.
 
-## Scope: firstmate and secondmate sessions only
+## Crewmates escalate instead of asking
 
-Crewmates are deliberately out of scope by captain decision (2026-07-27).
-A crewmate reports through its status file and firstmate relays, so the crewmate scaffold carries no dashboard instructions.
-Never add signal instructions to a ship or scout brief.
+The owner already reserves `ask` and `review` for firstmates and secondmates, and already lets any agent label its own phases.
+This is the firstmate side of that boundary, and it does not narrow what the owner grants.
+
+A crewmate reports to firstmate through its status file and firstmate relays, by captain decision (2026-07-27).
+So the crewmate scaffold carries no dashboard instructions at all: never add signal instructions to a ship or scout brief.
+A crewmate that needs the captain raises it with firstmate, which decides whether to signal.
 
 ## Routine wake close-out
 

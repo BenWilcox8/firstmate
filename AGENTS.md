@@ -194,7 +194,7 @@ A silent bootstrap section needs no action; for any printed actionable diagnosti
 `BOOTSTRAP_INFO:` lines are completed no-action facts and do not require loading a skill.
 `secondmate-provisioning` owns startup secondmate sync, liveness, and inherited local-material convergence.
 
-Load `firstmate-signalling` at session start and again whenever an instruction-update nudge arrives; it carries the firstmate delta and points at the skill that owns the signal protocol.
+Load `firstmate-signalling` at session start and again whenever an instruction-update nudge arrives; it carries the firstmate delta and points at `dashboard-signals`, which owns the signal protocol.
 If this home's runtime backend is herdr, also load `herdr-pane-management`.
 
 ## 4. Harness and runtime dispatch
@@ -403,7 +403,7 @@ Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work o
 Every project defines at least one captain testing and review surface in its `AGENTS.md`.
 Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
 
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `firstmate-signalling` routes to the skill that owns the signal protocol.
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `firstmate-signalling` routes to `dashboard-signals`, which owns the signal protocol.
 Load `atlas-supervising` at every intake and lifecycle moment; briefs point crewmates at `atlas-working`.
 
 ## 8. Supervision protocol
