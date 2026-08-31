@@ -702,7 +702,33 @@ test_spawn_refuses_bad_ticket_uses() {
   pass "--ticket is refused when malformed, on a secondmate, and across a batch"
 }
 
+# `wired` is the read-only home query fm-spawn's ticket-less warning branches on,
+# so it must answer the pointer alone: the repo path when the home is wired,
+# nothing at all when it is not, and never a task-scoped call.
+test_wired_reports_the_home_pointer() {
+  local home out
+
+  home=$(make_home wired-yes)
+  out=$(run_hook "$home" wired)
+  assert_contains "$out" "$home/specs" "wired did not print the resolved Atlas repo for a wired home"
+  atlas_log_empty "$home" "wired must be a pure query and call the Atlas for nothing"
+
+  # Same home with its pointer removed: the query goes quiet rather than failing.
+  rm -f "$home/config/specs"
+  out=$(run_hook "$home" wired)
+  [ -z "$out" ] || fail "wired must print nothing for a home with no Atlas pointer; got '$out'"
+
+  # A pointer to a directory holding no atlas/ is not wiring either.
+  mkdir -p "$home/not-an-atlas"
+  printf '%s\n' "$home/not-an-atlas" > "$home/config/specs"
+  out=$(run_hook "$home" wired)
+  [ -z "$out" ] || fail "a pointer with no atlas/ must not read as wired; got '$out'"
+
+  pass "wired answers the home's Atlas pointer and calls nothing"
+}
+
 test_silent_skips
+test_wired_reports_the_home_pointer
 test_unusable_task_id_is_refused
 test_start_records_the_holder
 test_start_prefixed_id_no_double_prefix

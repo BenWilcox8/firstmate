@@ -8,6 +8,7 @@
 #                                            [--restage <stage>] [--actor <name>]
 #        fm-atlas-hook.sh land <task-id> --evidence <text> [--summary <text>]
 #                                        [--actor <name>]
+#        fm-atlas-hook.sh wired
 #
 #   start     tells the Atlas the task's recorded ticket is now being worked by
 #             this task's crew: `ticket start <c> --to <holder> --task <task-id>`,
@@ -21,6 +22,12 @@
 #             `land <node> --evidence ...` when no open ticket remains on that
 #             node. It is the teardown hook, called only where teardown has
 #             already proved the work landed.
+#
+#   wired     is the read-only query the rest of the fleet uses to ask whether
+#             this home is wired to an Atlas at all. It prints the resolved repo
+#             path when it is, prints nothing when it is not, and takes no task
+#             id. Callers branch on empty output, never on an exit status, so
+#             the never-blocks contract below holds here too.
 #
 #   --evidence is what proves the work (a merge range, a PR URL, a report path).
 #   --summary  defaults to a short generated line naming the task and the actor.
@@ -185,6 +192,13 @@ run_hook() {
 
   VERB=${1:-}
   case "$VERB" in
+    # Answered before anything task-scoped: wired asks about the HOME, so it
+    # neither takes nor validates a task id.
+    wired)
+      [ "$#" -eq 1 ] || { warn "wired takes no arguments"; return 0; }
+      atlas_repo || return 0
+      return 0
+      ;;
     start|complete|land) ;;
     '') warn "no hook verb given"; return 0 ;;
     *) warn "unknown hook verb $VERB"; return 0 ;;
