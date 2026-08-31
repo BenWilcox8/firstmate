@@ -80,6 +80,8 @@ esac
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-brief-blocks-lib.sh
+. "$SCRIPT_DIR/fm-brief-blocks-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
 resolve_directory_input() {
@@ -184,6 +186,10 @@ shell_quote() {
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
 
+# The status protocol and the shared States line come from their single owner,
+# bin/fm-brief-blocks-lib.sh, so one wording fix reaches every scaffold kind.
+STATES_LINE=$(fm_brief_states_line "$PAUSED_VERB")
+
 # The receive-and-ack half of the steering-inbox contract, included in every
 # scaffold kind. The record format, doorbell line, and re-ring ladder are
 # owned by bin/fm-task-inbox-lib.sh; the doorbell itself is self-describing,
@@ -259,7 +265,7 @@ $INBOX_SECTION
 Handle routine work yourself.
 Report only true captain-relevant outcomes or a declared external wait by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
+$STATES_LINE
 Use \`$PAUSED_VERB: {why}\` (distinct from \`blocked:\`) only when your domain is deliberately idling on a known external wait you expect to clear on its own; use \`blocked:\` when you are stuck and need firstmate to act.
 Use this only for material phase changes, a captain decision, a real blocker, a failure, work ready for review, or work you landed.
 Work you landed includes a merge you performed yourself under standing merge authority and one the captain merged on the forge: under that authority nothing is ever \"ready for review\", so a landed merge that goes unreported reaches the captain as silence.
@@ -323,6 +329,7 @@ HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
 
 if [ "$KIND" = scout ]; then
+WORKER_RULES=$(fm_brief_worker_rules scout "$PAUSED_VERB" "$STATUS_FILE") || exit 1
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs.
@@ -342,24 +349,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes firstmate, so report sparingly: only phase changes a supervisor
-   would act on and the needs-decision/blocked/paused/done/failed states. No step-by-step
-   FYI progress lines; firstmate reads your pane for that.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
-   known external wait you expect to clear on its own (an upstream release, a rate-limit reset):
-   firstmate then leaves your idle pane alone and rechecks it on a long cadence instead of
-   treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
-6. If a decision belongs to a human (product choices, destructive actions),
-   append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
-   A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+$WORKER_RULES
 
 $INBOX_SECTION
 
@@ -396,6 +386,7 @@ case "$MODE" in
     ;;
 esac
 DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
+WORKER_RULES=$(fm_brief_worker_rules ship "$PAUSED_VERB" "$STATUS_FILE") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
@@ -419,27 +410,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes firstmate, so report sparingly: only phase changes a supervisor
-   would act on (setup done, bug reproduced, fix implemented, validation passed) and the
-   needs-decision/blocked/paused/done/failed states. No step-by-step FYI progress lines;
-   firstmate reads your pane for that.
-   A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
-   turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
-   known external wait you expect to clear on its own (an upstream release, a rate-limit reset,
-   a scheduled window): firstmate then leaves your idle pane alone and rechecks it on a long
-   cadence instead of treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
-6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
-   append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
-   A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+$WORKER_RULES
 
 $INBOX_SECTION
 
