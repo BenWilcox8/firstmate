@@ -28,7 +28,9 @@
 #             "<reason>"` returns the ticket to the queue with the reason on its
 #             record and releases the node, so a dispatch that died is never
 #             recorded as work that shipped. Complete and land stay reserved for
-#             proved work. Re-running it on an already queued ticket is a no-op.
+#             proved work. The store itself refuses a completed or abandoned
+#             ticket and treats an already queued one as a no-op, so a cleanup
+#             may run this as often as it likes.
 #   state     prints the recorded ticket's state (queued, started, completed,
 #             abandoned) and nothing else, so a caller can tell a leg nobody
 #             discharged from one a crewmate or a merge already closed. Read-only:

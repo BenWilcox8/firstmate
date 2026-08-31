@@ -1432,6 +1432,12 @@ teardown_treehouse_return() {
   return 1
 }
 
+# The untracked leftovers a harness writes into every task worktree. They are
+# not work: both the landed-work refusal and the produced-work proof below read
+# past them, and one owner keeps a harness added to one from going unseen by the
+# other.
+TEARDOWN_HARNESS_LEFTOVERS='^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)'
+
 validate_worktree_teardown_safety() {
   local dirty_raw dirty unpushed_raw unpushed DEFAULT unmerged_raw unmerged branch
   [ -d "$WT" ] || return 0
@@ -1448,7 +1454,7 @@ validate_worktree_teardown_safety() {
     echo "Restore the git index state, or get the captain's explicit OK to discard, then --force." >&2
     return 1
   fi
-  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' | head -1 || true)
+  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE "$TEARDOWN_HARNESS_LEFTOVERS" | head -1 || true)
 
   if ! unpushed_raw=$(git -C "$WT" log --oneline HEAD --not --remotes -- 2>/dev/null); then
     if worktree_safety_blocked_by_lock "commits not on a remote"; then
@@ -1502,23 +1508,34 @@ validate_worktree_teardown_safety() {
 # a cleanup whose landed-work test passes vacuously - there is no work, so
 # nothing can fail it - would otherwise close the ticket on generic evidence and
 # record ground nobody ever built.
-# Only a positive proof of emptiness answers no. Anything this cannot read
-# counts as work, because "the dispatch produced nothing" must never be the
-# answer to a question cleanup could not ask.
+# Only a positive proof of emptiness answers no. Every signal below is a reason
+# to say work, and anything this cannot read is one too, because "the dispatch
+# produced nothing" must never be the answer to a question cleanup could not ask.
+# Comparing the branch against the default branch is NOT sufficient on its own:
+# work that landed as a fast-forward leaves the default branch containing every
+# commit the branch has, which reads exactly like a leg that never committed.
+# The durable landing records (pr= and merged_local=) and the pushed branch are
+# what separate those two, and none of them depends on the Atlas being reachable.
 teardown_leg_produced_work() {  # 0 = work, 1 = provably nothing
-  local dirty_raw dirty base unique
+  local dirty_raw dirty base unique branch remote
   [ -z "$PR_URL" ] || return 0
+  [ -z "$(meta_value "$META" merged_local)" ] || return 0
   if [ "$KIND" = scout ]; then
-    [ -s "$DATA/$ID/report.md" ] || return 1
-    return 0
+    [ ! -f "$DATA/$ID/report.md" ] || return 0
+    return 1
   fi
   [ -d "$WT" ] || return 0
   git -C "$WT" rev-parse --git-dir >/dev/null 2>&1 || return 0
   dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null) || return 0
-  # The same harness leftovers the landed-work check ignores: a worker that died
-  # having written only its own harness directory produced nothing.
-  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE '^\?\? (\.claude/|\.fm-(grok|kimi)-turnend$)' | head -1 || true)
+  dirty=$(printf '%s\n' "$dirty_raw" | grep -vE "$TEARDOWN_HARNESS_LEFTOVERS" | head -1 || true)
   [ -z "$dirty" ] || return 0
+  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null) || return 0
+  [ -n "$branch" ] && [ "$branch" != HEAD ] || return 0
+  # A branch that reached a remote carries work whatever the default branch now
+  # contains, and a leg that produced nothing never pushed one.
+  for remote in $(git -C "$WT" remote 2>/dev/null); do
+    ! git -C "$WT" show-ref --verify --quiet "refs/remotes/$remote/$branch" || return 0
+  done
   base=$(default_branch) || return 0
   unique=$(git -C "$WT" log --oneline -1 HEAD --not "$base" -- 2>/dev/null) || return 0
   [ -z "$unique" ] || return 0
@@ -2751,12 +2768,19 @@ atlas_hook() {  # <hook args...>
 
 atlas_unproved=0
 if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
-  [ "$(atlas_hook state "$ID")" != started ] || atlas_unproved=1
+  # A ticket a crewmate or a merge already discharged is never re-queued as a
+  # dead dispatch. Every other answer - started, queued, or a state cleanup
+  # could not read - takes the abort, because abort claims nothing about work
+  # while complete and land would claim a landing that never happened.
+  case "$(atlas_hook state "$ID")" in
+    completed|abandoned) ;;
+    *) atlas_unproved=1 ;;
+  esac
 fi
 
 if [ "$atlas_unproved" = 1 ]; then
   if [ "$KIND" = scout ]; then
-    atlas_reason="Scout task $ID was cleaned up with no work produced: no report was delivered."
+    atlas_reason="Scout task $ID was cleaned up with no work produced: no report was written."
   else
     atlas_reason="Task $ID was cleaned up with no work produced: nothing committed, pushed or reported."
   fi

@@ -34,7 +34,9 @@
 #     (v) abort returns a dead dispatch's ticket to the queue, and demands a reason
 #     (w) state reads the recorded ticket's state back, silently or not at all
 #     (x) fm-teardown aborts a leg that produced nothing, forced or not
-#     (y) fm-teardown never aborts a ticket a merge or crewmate already closed
+#     (y) fm-teardown never aborts a ticket a merge or crewmate already closed,
+#         and never reads a landed fast-forward as an empty leg
+#     (z) fm-merge-local records the landing in the task's own record
 #   Flag validation
 #     (t) --ticket refused for --secondmate and for batch id=repo dispatch
 #     (u) a malformed --ticket is refused before the spawn starts
@@ -461,6 +463,29 @@ test_merge_local_discharges_the_ticket() {
   pass "fm-merge-local discharges the task's ticket with the shas it already computed"
 }
 
+# The local landing has to survive an Atlas that was unreachable at merge time,
+# because cleanup later reads a fast-forwarded branch as indistinguishable from
+# a leg that never committed unless the task's own record says otherwise.
+test_merge_local_records_the_landing_in_the_task_record() {
+  local home rc
+  home=$(make_merge_local_case merge-local-record atlas_ticket=c7)
+  set +e
+  FM_FAKE_ATLAS_FAIL=1 run_merge_local "$home" >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "merge-local: the merge must succeed even with a broken Atlas"
+  assert_grep 'merged_local=' "$home/state/task-a1.meta" \
+    "merge-local: the local landing was not recorded in the task's own record"
+  grep -E '^merged_local=[0-9a-f]+\.\.[0-9a-f]+$' "$home/state/task-a1.meta" >/dev/null \
+    || fail "merge-local: the recorded landing is not a before..after range"$'\n'"$(cat "$home/state/task-a1.meta")"
+  set +e
+  FM_FAKE_ATLAS_FAIL=1 run_merge_local "$home" >/dev/null 2>&1
+  set -e
+  [ "$(grep -c '^merged_local=' "$home/state/task-a1.meta")" = 1 ] \
+    || fail "merge-local: a re-run duplicated the landing record"
+  pass "fm-merge-local records the local landing in the task's own record, Atlas or no Atlas"
+}
+
 test_merge_local_survives_a_broken_atlas() {
   local home rc out before after
   home=$(make_merge_local_case merge-local-broken atlas_ticket=c7)
@@ -685,6 +710,37 @@ test_teardown_force_aborts_a_killed_dispatch() {
   pass "a forced cleanup of a killed dispatch that produced nothing aborts its ticket with the reason"
 }
 
+test_teardown_aborts_an_empty_leg_whose_ticket_is_queued() {
+  local home
+  home=$(make_teardown_empty_case teardown-queued atlas_ticket=c7)
+  printf '%s\n' '{"change":{"id":"c7","state":"queued","node":"n42","nodePath":"demo/thing"}}' \
+    > "$home/ticket.json"
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  set -e
+  atlas_log_lacks "$home" 'ticket complete' \
+    "queued ticket: an empty leg must never be completed just because nobody started its ticket"
+  atlas_log_lacks "$home" 'land n42' \
+    "queued ticket: an empty leg must never land its node"
+  atlas_log_has "$home" 'ticket abort c7' \
+    "queued ticket: the empty leg was not recorded as a dead dispatch"
+  pass "an empty leg whose ticket was never started is aborted, never completed and landed"
+}
+
+test_teardown_lands_local_work_the_default_branch_already_holds() {
+  local home
+  home=$(make_teardown_empty_case teardown-ff atlas_ticket=c7 "merged_local=aaaaaaa..bbbbbbb")
+  set +e
+  run_teardown "$home" >/dev/null 2>&1
+  set -e
+  atlas_log_lacks "$home" 'ticket abort' \
+    "landed local work: a fast-forward the default branch already holds must not read as an empty leg"
+  atlas_log_has "$home" 'ticket complete c7' "landed local work: the ticket was not completed"
+  atlas_log_has "$home" 'release n42' "landed local work: the node was not released"
+  atlas_log_has "$home" 'land n42' "landed local work: the node was not landed"
+  pass "work that landed as a fast-forward still completes, on its own record rather than on the Atlas"
+}
+
 test_teardown_leaves_an_already_discharged_ticket_alone() {
   local home
   home=$(make_teardown_empty_case teardown-discharged atlas_ticket=c7)
@@ -869,6 +925,7 @@ test_state_reports_the_recorded_ticket_state
 test_failing_atlas_warns_once_and_exits_zero
 test_hanging_atlas_is_bounded_by_the_timeout
 test_merge_local_discharges_the_ticket
+test_merge_local_records_the_landing_in_the_task_record
 test_merge_local_survives_a_broken_atlas
 test_pr_merge_discharges_the_ticket
 test_pr_merge_survives_a_broken_atlas
@@ -876,6 +933,8 @@ test_teardown_closes_out_the_ticket
 test_teardown_force_records_nothing
 test_teardown_aborts_a_leg_that_produced_nothing
 test_teardown_force_aborts_a_killed_dispatch
+test_teardown_aborts_an_empty_leg_whose_ticket_is_queued
+test_teardown_lands_local_work_the_default_branch_already_holds
 test_teardown_leaves_an_already_discharged_ticket_alone
 test_teardown_survives_a_broken_atlas
 test_spawn_ticket_is_recorded_and_started
