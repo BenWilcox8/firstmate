@@ -3038,7 +3038,7 @@ test_afk_busy_declared_pause_hands_off_plain_stale() {
 # way the normal-mode absorber does, so lifting the declaration later starts the
 # wedge path from a fresh timer rather than resuming a stale count.
 test_afk_busy_declared_pause_ticking_pane_hands_off_once() {
-  local dir state fakebin out drain_out window key sig pid statusf ticks round prev_hash cur_hash prev_ticks
+  local dir state fakebin out drain_out window key sig pid statusf ticks round prev_hash cur_hash prev_ticks hash_wait
   dir=$(make_case afk-busy-declared-pause-ticking); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; window="test:fm-afk-ticking-scout"
   statusf="$state/afk-ticking-scout.status"; ticks="$dir/ticks"
@@ -3052,6 +3052,12 @@ case "${1:-}" in
   capture-pane)
     n=$(( $(cat "$FM_FAKE_TMUX_TICKS" 2>/dev/null || echo 0) + 1 ))
     echo "$n" > "$FM_FAKE_TMUX_TICKS"
+    # The first line is BODY (above the normalized footer window), hashed
+    # byte-exact by pane_hash_content, so its per-capture tick makes every poll
+    # land on the changed-hash branch. A footer-only tick would not: the
+    # watcher's volatile-footer normalization folds digit runs, so a one-line
+    # capture hashes identically on every poll however its counters move.
+    printf 'transcript output tick-%d\nout\nout\nout\nout\nout\n' "$n"
     printf 'Working... (%d.%ds) lavish-axi poll' "$(( 7200 + n ))" "$(( n % 10 ))"
     exit 0 ;;
   display-message)
@@ -3100,12 +3106,22 @@ SH
   ack_stopped_cycle "$state" || fail "could not acknowledge the ticking declared-pause handoff"
 
   # Rounds 2-6: five consecutive re-arms on the same standing declaration. Every
-  # capture renders a new footer, so every poll lands on the changed-hash branch -
-  # the exact shape a hash-keyed one-shot re-fires on. Each round proves the pane
-  # really moved before it asserts silence, so the case cannot go vacuous.
+  # capture renders a new body line, so every poll lands on the changed-hash
+  # branch - the exact shape a hash-keyed one-shot re-fires on. Each round proves
+  # the pane really moved before it asserts silence, so the case cannot go vacuous.
   round=2
   while [ "$round" -le 6 ]; do
+    # Wait (bounded) for a non-empty hash before recording prev_hash: a reap
+    # that lands mid-write can leave .hash-$key empty with no future writer,
+    # and an empty prev_hash makes the changed-hash assertion below vacuous.
+    hash_wait=0
     prev_hash=$(cat "$state/.hash-$key" 2>/dev/null || true)
+    while [ -z "$prev_hash" ] && [ "$hash_wait" -lt 100 ]; do
+      sleep 0.05
+      prev_hash=$(cat "$state/.hash-$key" 2>/dev/null || true)
+      hash_wait=$((hash_wait + 1))
+    done
+    [ -n "$prev_hash" ] || fail "re-arm $round found no recorded pane hash from the round before"
     prev_ticks=$(cat "$ticks" 2>/dev/null || echo 0)
     : > "$out"
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_TICKS="$ticks" \

@@ -1455,7 +1455,7 @@ test_rechain_delivers_second_post_on_same_thread() {
   [ "$(followup_posts "$log")" = 1 ] || fail "expected the investigation post"
 
   out=$(FAKE_CURL_LOG="$log" run_pf "$parent" rechain public-final-b --from public-final-a \
-    --work-home main --work-id ship-b --expected pr-merged) \
+    --work-home main --work-id ship-b --expected pr-merged 2>&1) \
     || fail "rechain failed: $out"
   assert_contains "$out" "retired public-final-a reason=handed on to public-final-b" \
     "rechain must retire the source loop"
