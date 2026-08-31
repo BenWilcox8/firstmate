@@ -391,9 +391,6 @@ The promoted worker must inventory scratch state, return to a clean default-bran
 
 The Atlas - the dashboard's map of every project's nodes and regions - is the primary shared surface of truth for all fleet work.
 Keep it current: every node and region represents a currently existing feature or aspect of its project.
-Design and plan with nodes and regions first; work is conceived as changes to nodes, carried by tickets on those nodes.
-Iterations of work are tickets on an existing node; never create "round n" nodes for iterations, and a genuine replacement strikes the old node and creates the new one.
-Ephemeral work - audits, investigations, and purely informational tasks - goes on errand nodes, never feature nodes.
 
 As a strong default, every message a secondmate sends should include some Atlas action: a ticket queued, started, recorded, or completed; a node created, described, or reconciled; or a signal.
 Pure question-answering, configuration relays, and bare acknowledgments are named exceptions to this default.
@@ -403,8 +400,8 @@ Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work o
 Every project defines at least one captain testing and review surface in its `AGENTS.md`.
 Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
 
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the operating procedure; `firstmate-signalling` routes to `dashboard-signals`, which owns the signal protocol.
-Load `atlas-supervising` at every intake and lifecycle moment; briefs point crewmates at `atlas-working`.
+`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the ticket procedure, `firstmate-signalling` owns the signal protocol, and `atlas-firstmate-bridge` owns how they compose with this file.
+Load `atlas-supervising` and `atlas-firstmate-bridge` at every intake and lifecycle moment; both apply only in a home with an Atlas pointer (`config/specs`).
 
 ## 8. Supervision protocol
 
@@ -560,6 +557,7 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `quota-array-dispatch` - load before choosing among a matched crew-dispatch profile array from current quota-axi default TOON.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
+- `atlas-firstmate-bridge` - load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and this file appear to disagree.
 - `firstmate-signalling` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
 - `herdr-pane-management` - load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 - `project-management` - load before adding, creating, removing, or initializing a project.
