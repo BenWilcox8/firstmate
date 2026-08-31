@@ -3038,7 +3038,7 @@ test_afk_busy_declared_pause_hands_off_plain_stale() {
 # way the normal-mode absorber does, so lifting the declaration later starts the
 # wedge path from a fresh timer rather than resuming a stale count.
 test_afk_busy_declared_pause_ticking_pane_hands_off_once() {
-  local dir state fakebin out drain_out window key sig pid statusf ticks round prev_hash cur_hash prev_ticks stable_a stable_b
+  local dir state fakebin out drain_out window key sig pid statusf ticks round prev_hash cur_hash prev_ticks hash_wait
   dir=$(make_case afk-busy-declared-pause-ticking); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; drain_out="$dir/drain.out"; window="test:fm-afk-ticking-scout"
   statusf="$state/afk-ticking-scout.status"; ticks="$dir/ticks"
@@ -3111,15 +3111,17 @@ SH
   # the pane really moved before it asserts silence, so the case cannot go vacuous.
   round=2
   while [ "$round" -le 6 ]; do
-    # Wait for a non-empty stable hash before recording prev_hash; a write that
-    # races the previous round's reap can otherwise leave a torn or empty read.
-    stable_a=''; stable_b='x'
-    while [ -z "$stable_a" ] || [ "$stable_a" != "$stable_b" ]; do
-      stable_a=$(cat "$state/.hash-$key" 2>/dev/null || true)
+    # Wait (bounded) for a non-empty hash before recording prev_hash: a reap
+    # that lands mid-write can leave .hash-$key empty with no future writer,
+    # and an empty prev_hash makes the changed-hash assertion below vacuous.
+    hash_wait=0
+    prev_hash=$(cat "$state/.hash-$key" 2>/dev/null || true)
+    while [ -z "$prev_hash" ] && [ "$hash_wait" -lt 100 ]; do
       sleep 0.05
-      stable_b=$(cat "$state/.hash-$key" 2>/dev/null || true)
+      prev_hash=$(cat "$state/.hash-$key" 2>/dev/null || true)
+      hash_wait=$((hash_wait + 1))
     done
-    prev_hash=$stable_a
+    [ -n "$prev_hash" ] || fail "re-arm $round found no recorded pane hash from the round before"
     prev_ticks=$(cat "$ticks" 2>/dev/null || echo 0)
     : > "$out"
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_TICKS="$ticks" \
