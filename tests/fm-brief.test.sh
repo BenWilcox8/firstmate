@@ -820,6 +820,29 @@ test_scout_and_secondmate_scaffold() {
   pass "fm-brief: scout and secondmate code paths still scaffold well-formed briefs"
 }
 
+test_crewmate_identity_disambiguation() {
+  local home brief status
+  home="$TMP_ROOT/identity-home"
+  write_registry "$home"
+  local sentence="If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs."
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" identity-ship-a1 some-proj --mode no-mistakes >/dev/null 2>&1; status=$?
+  expect_code 0 "$status" "ship brief scaffold exited non-zero"
+  brief="$home/data/identity-ship-a1/brief.md"
+  assert_present "$brief" "ship brief was not scaffolded"
+  assert_grep "$sentence" "$brief" \
+    "ship brief is missing the crewmate identity disambiguation sentence"
+
+  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" identity-scout-a1 some-proj --scout >/dev/null 2>&1; status=$?
+  expect_code 0 "$status" "scout brief scaffold exited non-zero"
+  brief="$home/data/identity-scout-a1/brief.md"
+  assert_present "$brief" "scout brief was not scaffolded"
+  assert_grep "$sentence" "$brief" \
+    "scout brief is missing the crewmate identity disambiguation sentence"
+
+  pass "fm-brief.sh: ship and scout scaffolds carry the crewmate identity disambiguation sentence"
+}
+
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_help_includes_entire_header
@@ -842,3 +865,4 @@ test_secondmate_directory_paths_are_absolute_and_output_is_stable
 test_pause_verb_override_renders_all_brief_scaffolds
 test_scout_and_secondmate_load_decision_hold_policy
 test_scout_and_secondmate_scaffold
+test_crewmate_identity_disambiguation
