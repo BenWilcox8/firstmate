@@ -42,6 +42,7 @@ FM_PING_SCHEMA='fm-ping-ack.v1'
 FM_PING_RECORD_BASENAME='ping-acks.log'
 # Advisory: the dashboard renders a close-out as one folded line, so a longer
 # note is warned about by bin/fm-ping-ack.sh and still recorded.
+# shellcheck disable=SC2034 # Read by bin/fm-ping-ack.sh's warning, not this lib.
 FM_PING_NOTE_SOFT_MAX=120
 # Hard bound, refused rather than truncated: a close-out note is a handful of
 # words by contract, and holding the whole record well inside one small append
