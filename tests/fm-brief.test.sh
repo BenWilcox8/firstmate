@@ -27,11 +27,13 @@ mkdir -p "$BRIEF_HOME/data"
 # is a weak guard on its own; test_no_heredoc_in_command_substitution and the
 # macos-stock-bash CI job carry the real cross-version enforcement.
 test_script_parses() {
-  local out rc
-  out=$(bash -n "$ROOT/bin/fm-brief.sh" 2>&1); rc=$?
-  expect_code 0 "$rc" "bash -n bin/fm-brief.sh must parse cleanly (got: $out)"
-  [ -z "$out" ] || fail "bash -n bin/fm-brief.sh emitted unexpected output: $out"
-  pass "fm-brief.sh: bash -n succeeds"
+  local script out rc
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+    out=$(bash -n "$ROOT/$script" 2>&1); rc=$?
+    expect_code 0 "$rc" "bash -n $script must parse cleanly (got: $out)"
+    [ -z "$out" ] || fail "bash -n $script emitted unexpected output: $out"
+  done
+  pass "fm-brief.sh: the scaffold script and its blocks owner both pass bash -n"
 }
 
 # Structural class guard (issues #166, #958, #1069): never build a variable by
@@ -53,9 +55,12 @@ test_no_heredoc_in_command_substitution() {
   fi
   no_heredoc_in_command_substitution "$safe" \
     || fail "structural guard treated heredoc body prose as shell structure"
-  no_heredoc_in_command_substitution "$ROOT/bin/fm-brief.sh" \
-    || fail "fm-brief.sh wraps a heredoc in a command substitution (breaks Bash 3.2 parsing)"
-  pass "fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)"
+  local script
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+    no_heredoc_in_command_substitution "$ROOT/$script" \
+      || fail "$script wraps a heredoc in a command substitution (breaks Bash 3.2 parsing)"
+  done
+  pass "fm-brief.sh: no scaffold heredoc is nested inside a command substitution (Bash 3.2 parse-safe)"
 }
 
 no_heredoc_in_command_substitution() {
@@ -917,9 +922,25 @@ test_generated_scaffold_bytes_are_unchanged() {
     pass "fm-brief.sh: every generated scaffold variant is byte-identical to its golden"
   fi
 }
+
+# The renderer refuses an unknown brief kind rather than silently emitting the
+# wrong worker contract, the same boundary fm_dod_block holds for a delivery mode.
+test_worker_rules_refuse_an_unknown_brief_kind() {
+  local out status
+  out=$(
+    # shellcheck source=bin/fm-brief-blocks-lib.sh
+    . "$ROOT/bin/fm-brief-blocks-lib.sh"
+    fm_brief_worker_rules secondmate paused "'/tmp/x.status'" 2>&1
+  ); status=$?
+  expect_code 1 "$status" "fm_brief_worker_rules must refuse an unknown brief kind"
+  assert_contains "$out" "unknown brief kind 'secondmate'" \
+    "fm_brief_worker_rules did not name the refused brief kind"
+  pass "fm-brief-blocks-lib.sh: an unknown brief kind is refused, not rendered"
+}
 test_script_parses
 test_no_heredoc_in_command_substitution
 test_generated_scaffold_bytes_are_unchanged
+test_worker_rules_refuse_an_unknown_brief_kind
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
 test_ship_mode_is_required_and_closed_set

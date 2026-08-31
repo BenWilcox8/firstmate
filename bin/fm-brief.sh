@@ -186,8 +186,10 @@ shell_quote() {
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
 
-# The status protocol and the shared States line come from their single owner,
-# bin/fm-brief-blocks-lib.sh, so one wording fix reaches every scaffold kind.
+# The States line every scaffold kind carries comes from its single owner,
+# bin/fm-brief-blocks-lib.sh. A secondmate charter renders it on its own, around
+# its own escalation contract; a ship or scout brief receives it inside the
+# rules 4-7 block that same owner renders.
 STATES_LINE=$(fm_brief_states_line "$PAUSED_VERB")
 
 # The receive-and-ack half of the steering-inbox contract, included in every
