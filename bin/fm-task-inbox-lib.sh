@@ -71,6 +71,10 @@ _FM_TASK_INBOX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_FM_TASK_INBOX_LIB_DIR/fm-wake-lib.sh"
 # shellcheck source=/dev/null
 . "$_FM_TASK_INBOX_LIB_DIR/fm-backend.sh"
+# The routine-wake close-out contract: the doorbell carries its agent-origin
+# marker rather than restating the grammar.
+# shellcheck source=bin/fm-ping-lib.sh
+. "$_FM_TASK_INBOX_LIB_DIR/fm-ping-lib.sh"
 
 FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
@@ -248,11 +252,16 @@ fm_task_inbox_body() {  # <record-path>
 # The constant self-describing doorbell line for the inbox containing a record.
 # Self-describing on purpose: a worker whose brief predates the inbox contract
 # still receives the complete instruction in the line itself.
+# It ends with the agent-origin close-out marker (bin/fm-ping-lib.sh owns that
+# grammar): a steer is authored by a supervisor, not by a mechanism, and this
+# line is the only trace of that origin the worker ever sees. Carrying the
+# marker in the line keeps the origin true through any rewording of the
+# instruction around it.
 fm_task_inbox_doorbell_line() {  # <record-path>
   local dir=${1%/*} abs
   abs=$(cd "$dir" 2>/dev/null && pwd) || abs=$dir
-  printf 'Firstmate instruction waiting: list %s/*.msg and, in numeric order, read and act on each, then mv each handled file to %s/handled/.' \
-    "$abs" "$abs"
+  printf 'Firstmate instruction waiting: list %s/*.msg and, in numeric order, read and act on each, then mv each handled file to %s/handled/. %s' \
+    "$abs" "$abs" "$(fm_ping_marker agent)"
 }
 
 # Ring the doorbell, best-effort: one advisory composer pre-check, then the
