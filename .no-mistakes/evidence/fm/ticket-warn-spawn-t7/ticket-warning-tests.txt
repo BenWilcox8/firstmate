@@ -1,0 +1,5 @@
+ok - a ticket-less ship spawn on an Atlas-wired home warns once and still spawns
+ok - a ticket-less scout spawn on an Atlas-wired home warns
+ok - a ticketed spawn on an Atlas-wired home is silent
+ok - a home with no Atlas pointer never warns
+ok - a secondmate spawn is never warned about

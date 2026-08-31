@@ -1,0 +1,22 @@
+ok - the hook is a silent no-op with no Atlas pointer, no atlas-axi, or no recorded ticket
+ok - wired answers the home's Atlas pointer and calls nothing
+ok - a task id that could escape this home's records is refused before any Atlas call
+ok - start tells the Atlas the recorded ticket is being worked by this task's crew
+ok - start with an fm-prefixed task id records the holder as the id itself, no doubling
+ok - complete restages the node and discharges the ticket with the caller's evidence
+ok - complete is a no-op on a ticket the crewmate already completed
+ok - land completes the ticket, releases the node, and lands it when nothing else is open
+ok - land releases the node but leaves it unlanded while another ticket is still open
+ok - a failing Atlas produces one warning line and never a non-zero exit
+ok - a wedged Atlas is bounded by the hook timeout instead of stalling the caller
+ok - fm-merge-local discharges the task's ticket with the shas it already computed
+ok - fm-merge-local still merges and exits 0 when the Atlas is broken
+ok - fm-pr-merge discharges the task's ticket with the PR URL it already holds
+ok - fm-pr-merge still merges and exits 0 when the Atlas is broken
+ok - fm-teardown closes out the ticket at the point it has already proved the landing
+ok - a forced teardown records nothing, because it has proved nothing
+ok - fm-teardown still tears the task down and exits 0 when the Atlas is broken
+ok - a spawn with --ticket records the ticket and tells the Atlas its crew is working it
+ok - fm-spawn still launches the worker and records the ticket when the Atlas is broken
+ok - a spawn without --ticket is unchanged: no recorded ticket and no Atlas call
+ok - --ticket is refused when malformed, on a secondmate, and across a batch
