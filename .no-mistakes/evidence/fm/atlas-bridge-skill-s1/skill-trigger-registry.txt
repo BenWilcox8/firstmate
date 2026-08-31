@@ -1,0 +1,1 @@
+ok - all 18 AGENTS.md section 13 skill triggers resolve to a readable repo skill
