@@ -1,0 +1,11 @@
+running: test_turn_ended_churning_pane_absorbed ... /tmp/targeted-churn-test.sh: line 87: reap: command not found
+PASS
+running: test_turn_ended_footer_tick_only_surfaced ... PASS
+running: test_turn_ended_content_change_under_ticking_footer_absorbed ... /tmp/targeted-churn-test.sh: line 150: reap: command not found
+PASS
+
+--- result: 3 passed, 0 failed ---
+grep: /tmp/fm-targeted-churn-test.mdgG0a/turn-ended-content-under-footer/state/codexrendered.meta: No such file or directory
+touch: cannot touch '/tmp/fm-targeted-churn-test.mdgG0a/turn-ended-content-under-footer/state/.last-heartbeat': No such file or directory
+/home/ben/.no-mistakes/worktrees/3665d600861c/01M1BRJA7C68SKYG4EM0DCEVS3/bin/fm-watch.sh: line 2063: /tmp/fm-targeted-churn-test.mdgG0a/turn-ended-content-under-footer/state/.heartbeat-streak: No such file or directory
+/home/ben/.no-mistakes/worktrees/3665d600861c/01M1BRJA7C68SKYG4EM0DCEVS3/bin/fm-push-transition-lib.sh: line 78: /tmp/fm-targeted-churn-test.mdgG0a/turn-ended-content-under-footer/state/.watch-triage.log: No such file or directory
