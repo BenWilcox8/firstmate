@@ -483,6 +483,50 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/paused-verb-scout.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/paused-verb-secondmate.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/paused-verb-ship.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/scout-herdr-lab.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/scout.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/secondmate-no-projects.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/secondmate.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/ship-direct-pr.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/ship-herdr-lab.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/ship-local-only.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "tests/assets/fm-brief-goldens/ship-no-mistakes.md",
+      "audience": "maintainer-verification"
     }
   ]
 }

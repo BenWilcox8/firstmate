@@ -27,11 +27,13 @@ mkdir -p "$BRIEF_HOME/data"
 # is a weak guard on its own; test_no_heredoc_in_command_substitution and the
 # macos-stock-bash CI job carry the real cross-version enforcement.
 test_script_parses() {
-  local out rc
-  out=$(bash -n "$ROOT/bin/fm-brief.sh" 2>&1); rc=$?
-  expect_code 0 "$rc" "bash -n bin/fm-brief.sh must parse cleanly (got: $out)"
-  [ -z "$out" ] || fail "bash -n bin/fm-brief.sh emitted unexpected output: $out"
-  pass "fm-brief.sh: bash -n succeeds"
+  local script out rc
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+    out=$(bash -n "$ROOT/$script" 2>&1); rc=$?
+    expect_code 0 "$rc" "bash -n $script must parse cleanly (got: $out)"
+    [ -z "$out" ] || fail "bash -n $script emitted unexpected output: $out"
+  done
+  pass "fm-brief.sh: the scaffold script and its blocks owner both pass bash -n"
 }
 
 # Structural class guard (issues #166, #958, #1069): never build a variable by
@@ -53,9 +55,12 @@ test_no_heredoc_in_command_substitution() {
   fi
   no_heredoc_in_command_substitution "$safe" \
     || fail "structural guard treated heredoc body prose as shell structure"
-  no_heredoc_in_command_substitution "$ROOT/bin/fm-brief.sh" \
-    || fail "fm-brief.sh wraps a heredoc in a command substitution (breaks Bash 3.2 parsing)"
-  pass "fm-brief.sh: no heredoc is nested inside a command substitution (Bash 3.2 parse-safe)"
+  local script
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+    no_heredoc_in_command_substitution "$ROOT/$script" \
+      || fail "$script wraps a heredoc in a command substitution (breaks Bash 3.2 parsing)"
+  done
+  pass "fm-brief.sh: no scaffold heredoc is nested inside a command substitution (Bash 3.2 parse-safe)"
 }
 
 no_heredoc_in_command_substitution() {
@@ -847,8 +852,121 @@ test_crewmate_identity_disambiguation() {
   pass "fm-brief.sh: ship and scout scaffolds carry the crewmate identity disambiguation sentence"
 }
 
+
+# Byte-identity goldens for every generated scaffold variant. The scaffold text is
+# a contract crewmates read, so a refactor of how fm-brief.sh assembles it must not
+# move a single byte. Each golden is the generated brief with the two absolute
+# paths that legitimately vary (the firstmate home and the repo root) replaced by
+# stable placeholders, so the comparison stays exact everywhere it runs.
+# Intentional prose changes refresh the goldens with
+# `FM_BRIEF_GOLDEN_REFRESH=1 tests/fm-brief.test.sh`, which makes the deliberate
+# edit visible in the diff instead of silently absorbing it.
+BRIEF_GOLDEN_DIR="$ROOT/tests/assets/fm-brief-goldens"
+
+# brief_golden_variants prints "<name> <arg>..." per scaffold variant. The task id
+# is the variant name, so rendered paths differ per variant and no golden can
+# accidentally satisfy another variant's comparison.
+brief_golden_variants() {
+  cat <<'VARIANTS'
+ship-no-mistakes some-proj --mode no-mistakes
+ship-direct-pr some-proj --mode direct-PR
+ship-local-only some-proj --mode local-only
+ship-herdr-lab some-proj --mode no-mistakes --herdr-lab
+scout some-proj --scout
+scout-herdr-lab some-proj --scout --herdr-lab
+secondmate --secondmate alpha-proj beta-proj
+secondmate-no-projects --secondmate --no-projects
+VARIANTS
+}
+
+# The same three brief kinds again under a configured pause verb, because that
+# override reaches every kind's status protocol and byte-identity has to hold
+# for the rendered verb, not only for the default.
+brief_golden_paused_verb_variants() {
+  cat <<'VARIANTS'
+paused-verb-ship some-proj --mode no-mistakes
+paused-verb-scout some-proj --scout
+paused-verb-secondmate --secondmate alpha-proj
+VARIANTS
+}
+
+# brief_render_normalized <home> <name> <arg>... writes the generated brief to
+# stdout with the home and repo root paths replaced by placeholders.
+brief_render_normalized() {
+  local home=$1 name=$2 brief
+  shift 2
+  # An empty BRIEF_GOLDEN_PAUSED_VERB leaves the override unset, so the default
+  # matrix renders the scaffold's own default verb.
+  if [ -n "${BRIEF_GOLDEN_PAUSED_VERB:-}" ]; then
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+      FM_CLASSIFY_PAUSED_VERB="$BRIEF_GOLDEN_PAUSED_VERB" \
+      "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
+      || fail "fm-brief.sh failed to scaffold golden variant $name"
+  else
+    FM_HOME="$home" FM_SECONDMATE_CHARTER='golden charter' FM_SECONDMATE_SCOPE='golden scope' \
+      FM_CLASSIFY_PAUSED_VERB="" \
+      "$ROOT/bin/fm-brief.sh" "$name" "$@" >/dev/null 2>&1 \
+      || fail "fm-brief.sh failed to scaffold golden variant $name"
+  fi
+  brief="$home/data/$name/brief.md"
+  [ -f "$brief" ] || fail "golden variant $name produced no brief"
+  sed -e "s#$home#%FM_HOME%#g" -e "s#$ROOT#%FM_ROOT%#g" "$brief"
+}
+
+test_generated_scaffold_bytes_are_unchanged() {
+  local home name args rendered golden refreshed=0 BRIEF_GOLDEN_PAUSED_VERB=""
+  home="$TMP_ROOT/goldens"
+  mkdir -p "$home/data" "$home/state"
+  if [ -n "${FM_BRIEF_GOLDEN_REFRESH:-}" ]; then
+    mkdir -p "$BRIEF_GOLDEN_DIR"
+    refreshed=1
+  fi
+
+  while read -r name args; do
+    [ -n "$name" ] || continue
+    # The paused-verb matrix is the same kinds again under a configured verb.
+    case "$name" in
+      paused-verb-*) BRIEF_GOLDEN_PAUSED_VERB=awaiting ;;
+      *)             BRIEF_GOLDEN_PAUSED_VERB="" ;;
+    esac
+    rendered="$TMP_ROOT/$name.rendered"
+    # shellcheck disable=SC2086 # The variant argument list is deliberately split.
+    brief_render_normalized "$home" "$name" $args > "$rendered"
+    golden="$BRIEF_GOLDEN_DIR/$name.md"
+    if [ "$refreshed" -eq 1 ]; then
+      cp "$rendered" "$golden"
+      continue
+    fi
+    assert_present "$golden" "missing scaffold golden for variant $name"
+    cmp -s "$golden" "$rendered" \
+      || fail "generated $name brief changed bytes: $(diff -u "$golden" "$rendered" | head -40)"
+  done < <(brief_golden_variants; brief_golden_paused_verb_variants)
+
+  if [ "$refreshed" -eq 1 ]; then
+    pass "fm-brief.sh: refreshed scaffold goldens (FM_BRIEF_GOLDEN_REFRESH)"
+  else
+    pass "fm-brief.sh: every generated scaffold variant is byte-identical to its golden"
+  fi
+}
+
+# The renderer refuses an unknown brief kind rather than silently emitting the
+# wrong worker contract, the same boundary fm_dod_block holds for a delivery mode.
+test_worker_rules_refuse_an_unknown_brief_kind() {
+  local out status
+  out=$(
+    # shellcheck source=bin/fm-brief-blocks-lib.sh
+    . "$ROOT/bin/fm-brief-blocks-lib.sh"
+    fm_brief_worker_rules secondmate paused "'/tmp/x.status'" 2>&1
+  ); status=$?
+  expect_code 1 "$status" "fm_brief_worker_rules must refuse an unknown brief kind"
+  assert_contains "$out" "unknown brief kind 'secondmate'" \
+    "fm_brief_worker_rules did not name the refused brief kind"
+  pass "fm-brief-blocks-lib.sh: an unknown brief kind is refused, not rendered"
+}
 test_script_parses
 test_no_heredoc_in_command_substitution
+test_generated_scaffold_bytes_are_unchanged
+test_worker_rules_refuse_an_unknown_brief_kind
 test_help_includes_entire_header
 test_ship_modes_generate_clean_briefs
 test_ship_mode_is_required_and_closed_set
