@@ -133,10 +133,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/dashboard-signals/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/decision-hold-lifecycle/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -158,6 +154,10 @@
     },
     {
       "path": ".agents/skills/firstmate-orca/SKILL.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": ".agents/skills/firstmate-signalling/SKILL.md",
       "audience": "agent-runtime"
     },
     {

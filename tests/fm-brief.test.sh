@@ -685,11 +685,11 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
 
 # Pin the captain decision (2026-07-27): crewmate briefs carry no dashboard signal
 # instructions; a crewmate reports through its status file and firstmate relays.
-# The dashboard-signals skill is the single owner of the atlas-axi verb protocol
-# (spec-axi remains a compatible alias), scoped to firstmate and secondmate
-# sessions only. Per the captain decision (2026-08-07), the secondmate charter
-# carries a one-line pointer at that owner and no restated rules, while crewmate
-# briefs stay signal-free.
+# The dashboard-owned dashboard-signals skill is the single owner of the atlas-axi
+# verb protocol (spec-axi remains a compatible alias); firstmate-signalling carries
+# only the firstmate-and-secondmate delta and points at that owner. Per the captain
+# decision (2026-08-07), the secondmate charter carries a one-line pointer at the
+# signal skill and no restated rules, while crewmate briefs stay signal-free.
 test_no_dashboard_signals_in_any_scaffold() {
   local home brief
   home="$TMP_ROOT/markers-home"
@@ -708,6 +708,8 @@ test_no_dashboard_signals_in_any_scaffold() {
     "ship brief still carries a dashboard marker"
   assert_no_grep "dashboard-signals" "$brief" \
     "ship brief points a crewmate at the dashboard-signals skill"
+  assert_no_grep "firstmate-signalling" "$brief" \
+    "ship brief points a crewmate at the firstmate-signalling skill"
 
   # Scout brief.
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" markers-scout some-proj --scout >/dev/null 2>&1
@@ -722,6 +724,8 @@ test_no_dashboard_signals_in_any_scaffold() {
     "scout brief still carries a dashboard marker"
   assert_no_grep "dashboard-signals" "$brief" \
     "scout brief points a crewmate at the dashboard-signals skill"
+  assert_no_grep "firstmate-signalling" "$brief" \
+    "scout brief points a crewmate at the firstmate-signalling skill"
 
   # Secondmate charter.
   FM_HOME="$home" FM_SECONDMATE_CHARTER='ops' \
@@ -735,8 +739,8 @@ test_no_dashboard_signals_in_any_scaffold() {
     "secondmate charter still carries a spec-axi signal command"
   assert_no_grep "%%dash-" "$brief" \
     "secondmate charter still carries a dashboard marker"
-  assert_grep "load the \`dashboard-signals\` skill" "$brief" \
-    "secondmate charter lost its pointer at the dashboard-signals owner"
+  assert_grep "load the \`firstmate-signalling\` skill" "$brief" \
+    "secondmate charter lost its pointer at the signal skill"
 
   pass "fm-brief.sh: crewmate scaffolds stay signal-free and the charter points at the signal owner"
 }
