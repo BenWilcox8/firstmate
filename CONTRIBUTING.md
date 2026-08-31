@@ -55,6 +55,9 @@ See the [no-mistakes quick start](https://kunchenguid.github.io/no-mistakes/star
 - Harness-adapter ownership spans detection in `bin/fm-harness.sh`, launch and hook mechanics in `bin/fm-spawn.sh`, semantic busy sources and trust gates in `bin/fm-busy-lib.sh`, delivery-only rendered guards in `bin/fm-composer-lib.sh`, cleanup in `bin/fm-teardown.sh`, and facts in the skill tree rooted at `.agents/skills/harness-adapters/SKILL.md`; the `firstmate-coding-guidelines` skill owns the validation policy for checks that depend on those harnesses.
 - Changes to runtime session backends (`bin/fm-backend.sh`, `bin/backends/`, and the scripts that dispatch through them) keep current setup and limits in the relevant backend guide and active empirical evidence in [`docs/verification/runtime-backends.md`](docs/verification/runtime-backends.md).
 - [`docs/documentation-audiences.md`](docs/documentation-audiences.md) and its machine-consumed inventory own prose classification; run `bin/fm-doc-audience-check.sh` after documentation changes.
+- `AGENTS.md` has a tracked token ceiling in `.agentsmd-ceiling`, enforced by `bin/fm-agentsmd-ceiling.sh check` in the CI repo-invariants job.
+  Every session of every fleet member pays for that file, so a change that pushes it over the ceiling fails CI naming the overage.
+  Route the new detail to a skill or doc with the `firstmate-coding-guidelines` knowledge-placement tree, or raise the ceiling deliberately in the same pull request.
 - In Markdown, put each full sentence on its own line.
 - `README.md` stays a concise overview plus pointers: it never carries a wall of inline detail.
   Route detail to the most specific `docs/` file (architecture, configuration, or a backend guide) and link to it instead.
