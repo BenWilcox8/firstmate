@@ -249,16 +249,10 @@ test_handled_mv_dedups_by_sequence() {
 test_concurrent_writers_never_clobber() {
   local state i pids=() count
   state="$TMP_ROOT/race/state"; mkdir -p "$state"
-  # Each inbox_lib call is a new bash subprocess that sources multiple files.
-  # On a loaded CI runner, startup latency can exceed the default 5-second lock
-  # timeout. Raise the timeout so CI runner variance does not cause spurious
-  # lock-acquisition failures.
-  export FM_TASK_INBOX_LOCK_WAIT_SECS=30
   for i in 1 2 3 4 5 6; do
     inbox_lib "$state" fm_task_inbox_write "$state" t1 "steer number $i" >/dev/null &
     pids+=($!)
   done
-  unset FM_TASK_INBOX_LOCK_WAIT_SECS
   for i in "${pids[@]}"; do
     wait "$i" || fail "a concurrent inbox write failed"
   done
