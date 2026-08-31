@@ -437,8 +437,16 @@ make_pr_merge_case() {  # <name> [meta-lines...]
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 exit 0
 SH
+  # fm-pr-merge reads the live outcome back after gh-axi returns and refuses
+  # any merge it cannot prove, so the fake forge has to answer that read.
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
+case "${1:-} ${2:-}" in
+  "api graphql")
+    printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main'
+    ;;
+esac
 exit 0
 SH
   chmod +x "$fakebin/gh-axi" "$fakebin/gh"
