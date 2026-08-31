@@ -1,0 +1,39 @@
+quota-skill-move: test transcript
+Branch: fm/quota-skill-move-q1
+Target commit: 56d88044c99a0a20226d079356c823efe561f6ed
+Changed files: AGENTS.md, .agents/skills/quota-array-dispatch/SKILL.md
+
+=== fm-lint.sh ===
+fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
+fm-lint.sh: full ShellCheck extended analysis enabled
+fm-lint.sh: no changed lint targets
+fm-lint-workflows.sh: actionlint 1.7.12 (pinned 1.7.12)
+fm-lint-workflows.sh: 3 workflow files valid
+
+=== fm-lint.test.sh ===
+27 tests, all ok
+
+=== fm-lint-workflows.test.sh ===
+ok - fm-lint-workflows.sh pins an explicit actionlint version (1.7.12)
+ok - current .github/workflows YAML files parse
+ok - column-0 heredoc workflow fails validation with a clear error
+ok - valid fixture workflow passes
+ok - empty workflows directory fails closed
+ok - explicit malformed workflow path fails validation
+ok - non-mapping workflow YAML root fails
+ok - missing actionlint fails closed
+ok - fm-lint-workflows.sh refuses to lint under a non-pinned actionlint version
+ok - actionlint installer retries a transient download failure
+
+=== fm-quota-array-dispatch-live-e2e.test.sh ===
+skip: set FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E=1 to run the credentialed Pi dispatch-selection regression
+(pi binary found; test is credential-gated and runs in CI only)
+
+=== fm-documentation-audiences.test.sh ===
+not ok - repository documentation audience check failed
+(python3 not on this machine; per user intent this check must pass in CI, expected skip locally)
+
+=== Summary ===
+All locally runnable tests pass.
+Two checks are environment-gated: the credentialed Pi live E2E and the python3 doc-audience check.
+Both are confirmed to run in CI per the intent constraints.
