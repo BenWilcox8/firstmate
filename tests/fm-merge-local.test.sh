@@ -106,12 +106,6 @@ test_yolo_missing_refuses_safe_default() {
 test_yolo_on_allows_merge() {
   local dir rc
   dir=$(make_case yolo-on-proceeds on)
-  local proj
-  proj="$dir/project"
-  local default_branch
-  default_branch=$(git -C "$proj" symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null \
-    | sed 's|^origin/||' || echo "main")
-
   set +e
   run_merge_local "$dir" task-x1 > "$dir/stdout" 2> "$dir/stderr"
   rc=$?
