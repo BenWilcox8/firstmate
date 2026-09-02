@@ -1580,13 +1580,7 @@ home_summary_refresh_detached() {
 }
 
 # Machine housekeeping the supervision cadence already owns: headless browser
-# chains left behind by dead agent sessions accumulate until they swamp the box
-# (2026-08-18: about fifty nine-day-old processes, roughly 11 GB resident, load
-# at 80, swapping). bin/fm-browser-reap.sh owns the whole ownership rule and its
-# own machine-wide lock, so concurrent homes serialize and this only decides how
-# often to ask. Detached because a reap waits out its own TERM-to-KILL grace,
-# and never a wake source: the sweep's record is its log, not firstmate's
-# attention.
+# chains left behind by dead agent sessions accumulate until they swamp the box.
 BROWSER_REAP_PID=
 browser_reap_detached() {
   if [ -n "$BROWSER_REAP_PID" ]; then
@@ -1599,6 +1593,33 @@ browser_reap_detached() {
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-browser-reap.sh" </dev/null >/dev/null 2>&1 &
   BROWSER_REAP_PID=$!
+}
+
+RECONCILE_REQUEST_PID=
+reconcile_requests_pending() {
+  local request
+  [ -d "$STATE/reconcile-notify" ] && [ ! -L "$STATE/reconcile-notify" ] || return 1
+  for request in \
+    "$STATE/reconcile-notify"/.processing-request-*.json \
+    "$STATE/reconcile-notify"/request-*.json; do
+    [ -f "$request" ] && [ ! -L "$request" ] && return 0
+  done
+  return 1
+}
+
+reconcile_requests_detached() {
+  if [ -n "$RECONCILE_REQUEST_PID" ]; then
+    if kill -0 "$RECONCILE_REQUEST_PID" 2>/dev/null; then
+      return 0
+    fi
+    if ! wait "$RECONCILE_REQUEST_PID" 2>/dev/null; then
+      triage_log "secondmate reconcile notify request deferred"
+    fi
+    RECONCILE_REQUEST_PID=
+  fi
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-secondmate-reconcile.sh" process-requests </dev/null >/dev/null 2>&1 &
+  RECONCILE_REQUEST_PID=$!
 }
 
 watcher_cleanup() {
@@ -1699,15 +1720,18 @@ while :; do
     home_summary_refresh_detached
   fi
 
-  # Orphaned-browser sweep, on its own slow cadence. Time-based via
-  # .last-browser-reap mtime so the cadence survives watcher restarts, and the
-  # marker is stamped before the sweep so a long reap cannot queue a second one.
-  # An interval of 0 turns the sweep off: it is the one thing in this loop that
-  # reaches outside this home, so it needs a switch that is not a code edit.
+  # Orphaned-browser sweep, on its own slow cadence.
   if [ "$BROWSER_REAP_INTERVAL" -gt 0 ] \
     && [ "$(age_of "$STATE/.last-browser-reap")" -ge "$BROWSER_REAP_INTERVAL" ]; then
     touch "$STATE/.last-browser-reap"
     browser_reap_detached
+  fi
+
+  # Bearings publishes reconcile asks as local one-shot request files and
+  # returns before any mate delivery. Supervision owns their later delivery;
+  # a skipped or failed request remains durable for another poll.
+  if reconcile_requests_pending; then
+    reconcile_requests_detached
   fi
 
   # Parent-owned secondmate pending-reply reconciliation: resolve correlated
