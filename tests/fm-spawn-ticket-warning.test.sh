@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# Behavior tests for fm-spawn.sh's ticket-less dispatch warning (AGENTS.md
-# section 8, Atlas doctrine).
+# Behavior tests for fm-spawn.sh's ticket-less dispatch warning (Atlas doctrine).
 #
 # An Atlas-wired home carries work on tickets, so a ship or scout spawn that
 # names no ticket is a doctrine miss the supervisor should see AT DISPATCH
