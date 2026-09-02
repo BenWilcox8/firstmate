@@ -102,7 +102,8 @@ make_case() {
     "worktree=$case_dir/wt" \
     "project=$case_dir/project" \
     "kind=ship" \
-    "mode=no-mistakes"
+    "mode=no-mistakes" \
+    "yolo=on"
   printf '%s\n' \
     'state=MERGED' \
     'merged=true' \
@@ -2072,6 +2073,123 @@ test_secondmate_without_parent_binding_is_loud() {
   pass "a secondmate home that cannot report upward says so instead of merging in silence"
 }
 
+test_yolo_off_refuses_before_forge_call() {
+  local case_dir rc
+  case_dir=$(make_case yolo-off-refuses)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=fm-task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/100 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "yolo-off-refuses: merge should be refused when yolo=off"
+  assert_grep 'merge refused for task task-x1' "$case_dir/stderr" \
+    "yolo-off-refuses: refusal did not name the task id"
+  assert_grep 'yolo=off' "$case_dir/stderr" \
+    "yolo-off-refuses: refusal did not name the yolo value found"
+  assert_grep 'captain-authorized' "$case_dir/stderr" \
+    "yolo-off-refuses: refusal did not name the override flag"
+  [ ! -s "$case_dir/gh-axi.log" ] \
+    || fail "yolo-off-refuses: gh-axi was invoked despite a yolo=off refusal"
+  pass "fm-pr-merge refuses before the forge call when yolo=off"
+}
+
+test_yolo_missing_refuses_before_forge_call() {
+  local case_dir rc
+  case_dir=$(make_case yolo-missing-refuses)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+  # Override meta to omit yolo= so the safe-default path is exercised.
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=fm-task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/101 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "yolo-missing-refuses: merge should be refused when yolo= is absent"
+  assert_grep 'merge refused for task task-x1' "$case_dir/stderr" \
+    "yolo-missing-refuses: refusal did not name the task id"
+  assert_grep 'yolo=<missing>' "$case_dir/stderr" \
+    "yolo-missing-refuses: refusal did not identify the missing field"
+  [ ! -s "$case_dir/gh-axi.log" ] \
+    || fail "yolo-missing-refuses: gh-axi was invoked despite a missing-yolo refusal"
+  pass "fm-pr-merge treats a missing yolo= field as yolo=off (safe default)"
+}
+
+test_yolo_on_allows_merge() {
+  local case_dir rc
+  case_dir=$(make_case yolo-on-proceeds)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" cccccccccccccccccccccccccccccccccccccccc
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=fm-task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=on"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/102 \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "yolo-on-proceeds: merge should succeed when yolo=on"
+  assert_grep 'pr merge 102 --repo example/repo --squash' "$case_dir/gh-axi.log" \
+    "yolo-on-proceeds: the forge call was not reached despite yolo=on"
+  pass "fm-pr-merge proceeds when the task meta has yolo=on"
+}
+
+test_captain_authorized_overrides_yolo_off() {
+  local case_dir rc
+  case_dir=$(make_case captain-authorized-override)
+  mkdir -p "$case_dir/wt"
+  add_gh_mocks "$case_dir" dddddddddddddddddddddddddddddddddddddddd
+  fm_write_meta "$case_dir/state/task-x1.meta" \
+    "window=fm-task-x1" \
+    "worktree=$case_dir/wt" \
+    "project=$case_dir/project" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off"
+  : > "$case_dir/gh-axi.log"
+
+  set +e
+  run_pr_merge "$case_dir" task-x1 https://github.com/example/repo/pull/103 \
+    --captain-authorized \
+    > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 0 "$rc" "captain-authorized-override: merge should succeed with --captain-authorized even when yolo=off"
+  assert_grep 'pr merge 103 --repo example/repo --squash' "$case_dir/gh-axi.log" \
+    "captain-authorized-override: the forge call was not reached despite --captain-authorized"
+  assert_no_grep 'captain-authorized' "$case_dir/gh-axi.log" \
+    "captain-authorized-override: --captain-authorized was forwarded to the forge CLI"
+  pass "fm-pr-merge passes through --captain-authorized as the yolo=off override"
+}
+
 test_github_zero_exit_queue_required_refuses_with_exact_retry
 test_github_closed_unqueued_outcome_omits_retry_flags
 test_github_agreeing_queue_rules_keep_retry_guidance
@@ -2133,3 +2251,7 @@ test_queued_github_merge_leaves_the_poll_armed
 test_distinct_merged_prs_keep_distinct_wakes
 test_uncommitted_marker_retry_is_never_silent
 test_secondmate_without_parent_binding_is_loud
+test_yolo_off_refuses_before_forge_call
+test_yolo_missing_refuses_before_forge_call
+test_yolo_on_allows_merge
+test_captain_authorized_overrides_yolo_off

@@ -69,7 +69,12 @@
 # destination, normal-case deduplication, and at-least-once recovery.
 # A landed merge whose outcome cannot be written is reported loudly rather than
 # misreported as a failed merge.
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [-- <extra forge merge args>]
+# Merge authority: reads yolo= from the task's state/<id>.meta at entry and
+# refuses when the value is off or the field is absent (safe default). Pass
+# --captain-authorized before the optional -- separator to override the guard
+# with an explicit current captain merge instruction; the flag is never
+# forwarded to the forge CLI.
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized] [-- <extra forge merge args>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -108,6 +113,14 @@ PR_NUMBER=$FM_PR_NUMBER
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
 shift 2
+# --captain-authorized: explicit current captain merge instruction; passes
+# through the yolo= guard below. Required when yolo=off (the safe default).
+# Never forward this flag to the forge CLI.
+CAPTAIN_AUTHORIZED=false
+if [ "${1:-}" = "--captain-authorized" ]; then
+  CAPTAIN_AUTHORIZED=true
+  shift
+fi
 [ "${1:-}" = "--" ] && shift
 
 caller_has_merge_method() {
@@ -200,6 +213,20 @@ META="$STATE/$ID.meta"
 if [ ! -f "$META" ] || [ -L "$META" ]; then
   echo "error: task metadata is unavailable" >&2
   exit 1
+fi
+
+# Merge-authority guard: refuse unless yolo=on is recorded in the task meta or
+# the caller supplied --captain-authorized (a current, explicit captain merge
+# word). A missing yolo= field is treated as yolo=off (safe default). This
+# enforces the AGENTS.md merge-authority contract at the tool boundary so a
+# confused worker cannot merge an unauthorized PR.
+if [ "$CAPTAIN_AUTHORIZED" != true ]; then
+  YOLO_VAL=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
+  if [ "$YOLO_VAL" != on ]; then
+    printf 'error: merge refused for task %s: yolo=%s (expected on or --captain-authorized for an explicit captain merge instruction)\n' \
+      "$ID" "${YOLO_VAL:-<missing>}" >&2
+    exit 1
+  fi
 fi
 
 # Reading the merge request state needs both tools. Report them together and
