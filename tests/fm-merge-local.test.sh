@@ -55,8 +55,10 @@ run_merge_local() {
 }
 
 test_yolo_off_refuses_before_git() {
-  local dir rc
+  local dir rc before after proj
   dir=$(make_case yolo-off-refuses off)
+  proj="$dir/project"
+  before=$(git -C "$proj" rev-parse --short main 2>/dev/null || git -C "$proj" rev-parse --short master 2>/dev/null)
 
   set +e
   run_merge_local "$dir" task-x1 > "$dir/stdout" 2> "$dir/stderr"
@@ -71,9 +73,6 @@ test_yolo_off_refuses_before_git() {
   assert_grep 'captain-authorized' "$dir/stderr" \
     "yolo-off: refusal did not name the override flag"
   # The fast-forward must not have happened.
-  local before after proj
-  proj="$dir/project"
-  before=$(git -C "$proj" rev-parse --short main 2>/dev/null || git -C "$proj" rev-parse --short master 2>/dev/null)
   after=$(git -C "$proj" rev-parse --short main 2>/dev/null || git -C "$proj" rev-parse --short master 2>/dev/null)
   [ "$before" = "$after" ] \
     || fail "yolo-off: the fast-forward ran despite the refusal"
