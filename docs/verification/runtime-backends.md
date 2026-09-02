@@ -169,7 +169,7 @@ Both recorded runtime identities now classify the exact `pi-launcher` foreground
 
 Backend applicability was reviewed across every spawn adapter.
 Tmux needs the exact `pi-launcher`, `pi-signed`, `pi`, and `Pi` process identities for recovery-grade liveness.
-Herdr combines two stable native pane and registry reads with Herdr process information and an operating-system process-tree sample; a Pi process launched through Node or Python is recognized from its arguments, not just its executable name.
+Herdr uses native registered-agent state and needs no process-name branch.
 Zellij has no verified recovery-grade agent process probe, while Orca and cmux do not support secondmate spawns, so those three retain their existing generic ordinary-launch semantics without a new liveness matcher.
 
 The current classifier matrix and its refresh guard are recorded in [Composer classification matrix](#composer-classification-matrix), with portable shape coverage in `tests/fm-composer-lib.test.sh` and `tests/fm-composer-ghost.test.sh`.
@@ -267,7 +267,7 @@ This guard is the refresh command after any harness upgrade; it spends a small n
 ## Herdr
 
 The compatibility floor is protocol 14.
-The target-format section's latest active verification uses Herdr 0.8.2 protocol 20 on NixOS Linux x86_64; the submit-confirmation and presentation-projection sections' use Herdr 0.8.0 protocol 19 on macOS aarch64; the rest of the real-Herdr lane rests on Herdr 0.7.4 protocol 16 and Herdr 0.7.5 protocol 17 on macOS aarch64, and earlier protocol-16, protocol-14, and 0.7.3 evidence is retained where it defines current behavior or fallbacks.
+The whole real-Herdr lane's latest active verification uses both Herdr 0.7.4 protocol 16 and Herdr 0.8.0 protocol 19 on macOS aarch64, while focused Herdr 0.7.5 protocol 17, earlier protocol-16, protocol-14, and 0.7.3 evidence is retained where it defines current behavior or fallbacks.
 Protocol 17 keeps every protocol-16 feature gate satisfied; the event and workspace-move floors remain 16.
 Default-on presentation projection has its own floor at Herdr 0.8.0, protocol 19, verified below.
 
@@ -302,34 +302,6 @@ The CLI matrix was checked directly:
 All destructive verification used `bin/fm-herdr-lab.sh` with a non-default `fm-lab-` name and a byte-identical default-session tripwire.
 No ambient `herdr server stop` command is a supported test operation.
 
-### Target format on 0.8.2
-
-Checked 2026-08-20 against Herdr 0.8.2 protocol 20 on NixOS Linux x86_64, read-only, against a live session.
-
-```sh
-herdr --version
-herdr status --json | jq -c '{client:.client.protocol,server:.server.protocol}'
-herdr agent list | jq -c '[.result.agents[0] | {pane_id, tab_id, workspace_id}]'
-herdr agent get default:wJ:p3H; echo "rc=$?"
-herdr pane get default:wJ:p3H; echo "rc=$?"
-herdr agent get wJ:p3H | jq -c '.result.agent.pane_id'
-```
-
-```text
-herdr 0.8.2
-{"client":20,"server":20}
-[{"pane_id":"wJ:p3E","tab_id":"wJ:t1C","workspace_id":"wJ"}]
-{"error":{"code":"agent_not_found","message":"agent target default:wJ:p3H not found"},"id":"cli:agent:get"}
-rc=1
-{"error":{"code":"pane_not_found","message":"pane default:wJ:p3H not found"},"id":"cli:pane:get"}
-rc=1
-"wJ:p3H"
-```
-
-Ids are printed bare, a session-prefixed target is refused by both the agent and the pane verbs, and the bare id is accepted.
-The adapter sends the bare id and passes the session as `--session`, so a recorded `<session>:<pane-id>` target reaches its pane unchanged.
-[`../herdr-backend.md`](../herdr-backend.md) "Target format" owns the grammar; `tests/fm-backend-herdr.test.sh` and `tests/fm-send-strict.test.sh` own the portable regressions.
-
 ### Submit confirmation
 
 Measured 2026-08-19 against Herdr 0.8.0 and Claude Code 2.1.236 in an isolated `fm-lab-` session.
@@ -337,7 +309,6 @@ Measured 2026-08-19 against Herdr 0.8.0 and Claude Code 2.1.236 in an isolated `
 `herdr agent get` reported `agent_status=idle` on every sample across a landed one-word turn and an 8-second `sleep` tool call, while the pane rendered `Pontificating…` then `Sock-hopping… (11s · ↓ 234 tokens)`.
 `fm_backend_herdr_send_text_submit` therefore cannot treat native idle as proof of a swallow.
 The portable regressions in `tests/fm-backend-herdr.test.sh` and `tests/fm-composer-lib.test.sh` pin the verdicts: native idle plus a cleared composer is delivery, proven pending plus idle is a swallow, and proven pending plus a generating busy signal is a queued Enter.
-That generating signal is read at the verdict rather than gated on the pre-Enter baseline, so a mid-turn pane whose native read is `working`, stale, or unreadable still reaches its rendered busy footer; `tests/fm-send-busy-doorbell.test.sh` pins that end to end through `bin/fm-send.sh` for both herdr and tmux.
 Refresh the live Claude proof with:
 
 ```sh
@@ -368,7 +339,7 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
   tests/fm-backend-herdr-respawn-idem-e2e.test.sh
 ```
 
-Observed guarantee: a restored shell-only tab was replaced create-before-close, while an active Pi process caused refusal.
+Observed guarantee: a restored no-agent tab was replaced create-before-close, while a registered live agent caused refusal.
 
 ### Launcher workspace placement
 
@@ -664,15 +635,13 @@ Polling remained active and is covered as the fallback for capability, connect, 
 
 ### Agent lifecycle control
 
-Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)).
-The portable regression `tests/fm-backend-herdr-recovery-state.test.sh` covers stale hooks, nested shells, Treehouse brokers, recognized foreground agents including interpreter-backed Pi, ambiguity, and identity races.
-The real-Herdr guard is:
+Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary; reverified 2026-08-08 on Herdr 0.8.0, and first measured 2026-08-02 on Herdr 0.7.5 with identical results:
 
 ```sh
 tests/fm-control-herdr-smoke.test.sh
 ```
 
-Historical lifecycle verification was first measured on 2026-08-02 with Herdr 0.7.5 and reverified on 2026-08-08 with Herdr 0.8.0:
+Observed output:
 
 ```text
 ok - real herdr: exit on a pane with no registered agent is idempotent success
@@ -682,11 +651,8 @@ ok - real herdr: no control verb removed the endpoint or the task's local copy
 ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
 ```
 
-At those versions, the registry read through `herdr pane report-agent` was the source `fm_backend_herdr_agent_state` classified, so registering and not registering an agent on a plain shell pane exercised the lifecycle gate without launching a real agent.
-It requires stable lifecycle-registry reads and a stable exact foreground-process tree; hook status alone is not process proof.
-It proves that a stale hook over a childless shell is agent-free, while an active Pi process remains protected from lifecycle control.
-The guard runs in a guarded private lab session and skips when Herdr, `jq`, or the lab helper is unavailable.
-Run it after every Herdr upgrade to refresh this record.
+The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on, with no real agent launched.
+That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
 ### Away-mode transport
 
@@ -1010,7 +976,7 @@ FM_HARNESS_LIVENESS_DRIFT=1 bin/fm-test-run.sh tests/fm-harness-liveness-drift-l
 
 ## Pi supervision branch
 
-The supervision-branch extension (`.pi/extensions/fm-branch-supervision.ts`, [docs/pi-supervision-branch.md](../pi-supervision-branch.md)) builds its persistent second session through the Pi SDK surface: `createAgentSession` (including its `model`, `modelRuntime`, and `thinkingLevel` options), `DefaultResourceLoader` with `extensionFactories`, `SessionManager`, `createBashToolDefinition` with a `spawnHook`, `sendCustomMessage`, the `before_provider_request` hook, the command context's model registry for picker candidates, a fresh `ModelRuntime` for isolated-branch resolution, and Pi's own `getSupportedThinkingLevels`/`clampThinkingLevel` plus its `getThinkingLevel` and `thinking_level_select` extension surface for effort.
+The supervision-branch extension (`.pi/extensions/fm-branch-supervision.ts`, [docs/pi-supervision-branch.md](../pi-supervision-branch.md)) builds its persistent second session through the Pi SDK surface: `createAgentSession` (including its `model`, `modelRuntime`, and `thinkingLevel` options), `DefaultResourceLoader` with `extensionFactories`, `SessionManager`, `createBashToolDefinition` with a `spawnHook`, `sendCustomMessage` for routine notes, `appendEntry` and `registerEntryRenderer` for captain outcomes, the `before_provider_request` hook, the command context's model registry for picker candidates, a fresh `ModelRuntime` for isolated-branch resolution, and Pi's own `getSupportedThinkingLevels`/`clampThinkingLevel` plus its `getThinkingLevel` and `thinking_level_select` extension surface for effort.
 In TUI mode, its `/supervision-model` model list is drawn with Pi's own `SelectList`, `Input`, `fuzzyFilter`, and `DynamicBorder` through the extension context's `ui.custom` surface, which is what bounds and searches a long catalog.
 
 Evidence produced 2026-08-25 on macOS 26.5.2 arm64, Node v24.13.1:
@@ -1028,8 +994,9 @@ Evidence produced 2026-08-25 on macOS 26.5.2 arm64, Node v24.13.1:
   That case imports the real `SelectList`, `Input`, `fuzzyFilter`, and `DynamicBorder`, renders a 42-row catalog through the real `SelectList` at the visible bound the extension asks for, and fails naming the installed version if Pi stops exporting a primitive or stops bounding what it renders; it skips when no npm package is installed, and the portable stubbed cases in the same file hold the ordering, search, and branch-only-pin behavior everywhere.
 - Strict typecheck: `tests/fm-pi-primary-types.test.sh` printed `ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.81.1` with the branch extension and its imported libraries included.
   This typecheck is also the enforcement for the extension's declared effort vocabulary: its bidirectional assertion against Pi's own `getThinkingLevel` return type fails the moment Pi adds or removes a thinking level, so the runtime list used to reject an unrecognized hand-edited pin cannot drift into a stale Firstmate catalog.
-- Custom-message provider conversion: on 2026-08-26, `FM_PI_BRANCH_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-pi-branch-live-e2e.test.sh` against installed `@earendil-works/pi-coding-agent` 0.84.1 printed `ok - real Pi SDK 0.84.1 delivers a custom message to the provider as user text carrying only content, so the captain outcome's typed envelope is what reaches the model`.
+- Historical custom-message provider conversion: on 2026-08-26, `FM_PI_BRANCH_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-pi-branch-live-e2e.test.sh` against installed `@earendil-works/pi-coding-agent` 0.84.1 printed `ok - real Pi SDK 0.84.1 delivers a custom message to the provider as user text carrying only content, so the captain outcome's typed envelope is what reaches the model`.
   The guard passes a typed captain outcome and a plain rendered routine note through Pi's exported `convertToLlm`, proves that `customType` and `display` are not model-visible identity, and classifies the resulting provider text with `bin/fm-operational-input.sh`.
+  This evidence explains the superseded model-relay path but is no longer the captain-delivery contract.
 
 ### 2026-08-28 Pi 0.84.4 SDK compatibility refresh
 
@@ -1052,25 +1019,56 @@ FM_TEST_END 2026-08-29T01:01:01Z tests/fm-pi-branch-live-e2e.test.sh exit=0 dura
 
 The focused extension suite also exercised the installed Pi 0.84.4 picker and outcome-renderer consumers; [`calm-mode-feasibility.md`](../calm-mode-feasibility.md#2026-08-28-pi-0844-outcome-renderer-compatibility-verification) owns the version-scoped renderer evidence.
 
-### 2026-09-08 Pi 0.85.1 routine-note rendering
+### 2026-08-29 deterministic captain-outcome delivery
 
-The credential-free live guard ran against `@earendil-works/pi-coding-agent` 0.85.1.
-It used an isolated home and made no provider call.
+The credential-free live guard, focused extension suite, store suite, and strict typecheck were run against the locally installed `@earendil-works/pi-coding-agent` 0.84.3 package.
+No model was selected or prompted, no provider call was made, and the active Pi session was not changed.
 
 ```sh
+bin/fm-test-run.sh tests/fm-pi-branch-extension.test.sh
+bin/fm-test-run.sh tests/fm-branch-supervision.test.sh
 npm exec --yes --package=typescript@5.9.3 -- bash tests/fm-pi-primary-types.test.sh
-FM_PI_BRANCH_LIVE_E2E=1 bash tests/fm-pi-branch-live-e2e.test.sh
+FM_PI_BRANCH_LIVE_E2E=1 bin/fm-test-run.sh tests/fm-pi-branch-live-e2e.test.sh
 ```
 
 ```text
-ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.85.1
-ok - real Pi SDK 0.85.1 accepts the branch session construction and preserves an unpromptable wake
-ok - real Pi SDK 0.85.1 applies an explicit branch model on create and over a reopened session's recorded model
-ok - real Pi SDK 0.85.1 reports its own supported effort levels and applies an explicit branch effort over a reopened session's recorded level
-ok - real Pi SDK 0.85.1 delivers a custom message to the provider as user text carrying only content, so the captain outcome's typed envelope is what reaches the model
+ok - captain outcomes are exact and exactly once across crash, reload, busy main, compaction, and an unrelated assistant response
+ok - startup replay cannot advance the cursor across an unrendered captain outcome
+ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.84.3
+ok - real Pi SDK 0.84.3 immediately renders appendEntry in the active transcript, persists it across reopen, and excludes it from model context
 ```
 
-The guard also rendered new and restored routine notes through the registered renderer.
+The live probe loads the extension through Pi's real resource loader and AgentSession, subscribes a stock InteractiveMode, verifies `ExtensionAPI.appendEntry` synchronously inserts the exact registered custom row into its active chat once, reopens the resulting session file to verify exact structured data, and verifies the entry is absent from `buildSessionContext().messages`.
+The focused regression recreates the incident topology with stale compaction framing and an immediately preceding unrelated assistant response, then covers idle and busy delivery, cold startup with late fleet-lock acquisition, the crash boundary after entry persistence but before cursor advancement, and repeated reload without duplication.
+
+### 2026-09-01 sequence-keyed captain-outcome processing
+
+The focused extension suite, store suite, strict typecheck, and credential-free live guard were run against a locally installed `@earendil-works/pi-coding-agent` 0.84.4 package selected with `FM_PI_PACKAGE_DIR`, on macOS 26.5.0 arm64, Node v24.13.1.
+No model was selected or prompted, no provider call was made, and the active Pi session was not changed.
+
+```sh
+FM_PI_PACKAGE_DIR=<pi-0.84.4 package> bin/fm-test-run.sh tests/fm-pi-branch-extension.test.sh
+bin/fm-test-run.sh tests/fm-branch-supervision.test.sh
+FM_PI_PACKAGE_DIR=<pi-0.84.4 package> npm exec --yes --package=typescript@5.9.3 -- bash tests/fm-pi-primary-types.test.sh
+FM_PI_BRANCH_LIVE_E2E=1 FM_PI_PACKAGE_DIR=<pi-0.84.4 package> bin/fm-test-run.sh tests/fm-pi-branch-live-e2e.test.sh
+```
+
+```text
+ok - a captain outcome reaches main's model as one typed, sequence-keyed processing request while routine notes stay plain
+ok - a captain outcome opens one sequence-keyed processing turn, survives empty and unrelated answers, is re-presented at run end and session start, and closes only on its acknowledgement
+ok - the processed marker is sequence-bound, never ahead of the read cursor, never backwards, and migrates delivered history once
+ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.84.4
+ok - real Pi SDK 0.84.4 immediately renders appendEntry in the active transcript, persists it across reopen, and excludes it from model context
+```
+
+The focused regression recreates the two 2026-08-31 incident shapes against the real store scripts: a delivered decision outcome whose processing turn returns an empty assistant message, and one whose turn repeats an unrelated prior answer.
+In both, the processed marker holds, the same sequence is presented again at the run boundary and after a session replacement, the triggered-turn budget gives way to a next-prompt copy without duplicates, and only `fm_branch_processed` with the presented sequence closes the outcome; a routine outcome never enters the path, and delivered history from before the marker existed is migrated once rather than re-presented.
+On this machine the globally installed npm package is 0.81.1, whose stock `ToolExecutionComponent` rendering differs from the 0.84 line and fails the suite's first rendering-consumer case before any delivery case runs, which is why `FM_PI_PACKAGE_DIR` points at the 0.84.4 install above.
+
+### 2026-09-08 Pi 0.85.1 routine-note rendering
+
+The credential-free live guard ran against `@earendil-works/pi-coding-agent` 0.85.1 in an isolated home with no provider call.
+It rendered new and restored routine notes through the registered renderer.
 Without `config/routine-supervision-notes`, Pi showed the note.
 With `on`, Pi returned an empty component while its message delivery data stayed unchanged.
 
