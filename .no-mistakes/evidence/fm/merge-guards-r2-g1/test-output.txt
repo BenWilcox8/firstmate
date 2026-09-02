@@ -1,0 +1,17 @@
+=== fm-merge-local tests (all 4 cases) ===
+ok - fm-merge-local refuses before any git operation when yolo=off
+ok - fm-merge-local treats a missing yolo= field as yolo=off (safe default)
+ok - fm-merge-local proceeds when the task meta has yolo=on
+ok - fm-merge-local passes through --captain-authorized as the yolo=off override
+
+=== fm-wake-drain tests (all 4 cases) ===
+ok - non-Pi drain presents all wake rows without producing .main-eligible-rows
+ok - non-Pi drain never writes .main-eligible-rows
+ok - Pi drain writes .main-eligible-rows when branch-session/ is present
+ok - non-Pi ack removes handled rows through the cutoff without a claim file
+
+=== fm-pr-merge yolo/captain tests (from full suite run) ===
+ok - fm-pr-merge refuses before the forge call when yolo=off
+ok - fm-pr-merge treats a missing yolo= field as yolo=off (safe default)
+ok - fm-pr-merge proceeds when the task meta has yolo=on
+ok - fm-pr-merge passes through --captain-authorized as the yolo=off override
