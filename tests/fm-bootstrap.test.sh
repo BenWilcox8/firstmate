@@ -1151,13 +1151,14 @@ ROWS
 test_startup_memory_budget_check() {
   local home out
 
-  # Over-budget: two data files together exceed the configured budget.
-  # Budget = 10 tokens; each 20-byte file = ceil(20/3) = 7 tokens; total = 14 > 10.
+  # Over-budget: all three data files together exceed the configured budget.
+  # Budget = 10 tokens; each 20-byte file = ceil(20/3) = 7 tokens; total = 21 > 10.
   home="$TMP_ROOT/budget-over"
   mkdir -p "$home/config" "$home/data"
   printf '%s\n' 10 > "$home/config/startup-memory-budget"
   head -c 20 /dev/zero | tr '\0' 'a' > "$home/data/captain.md"
   head -c 20 /dev/zero | tr '\0' 'b' > "$home/data/captain-shared.md"
+  head -c 20 /dev/zero | tr '\0' 'c' > "$home/data/learnings.md"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
     FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
     "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null \
@@ -1167,13 +1168,14 @@ test_startup_memory_budget_check() {
   printf '%s\n' "$out" | grep -q "exceeds" \
     || fail "over-budget STARTUP_MEMORY_BUDGET: line did not say 'exceeds'; got: $out"
 
-  # Within-budget: two small files stay inside the configured budget.
-  # Budget = 7500 tokens; each 10-byte file = ceil(10/3) = 4 tokens; total = 8 << 7500.
+  # Within-budget: all three small files stay inside the configured budget.
+  # Budget = 7500 tokens; each 10-byte file = ceil(10/3) = 4 tokens; total = 12 << 7500.
   home="$TMP_ROOT/budget-within"
   mkdir -p "$home/config" "$home/data"
   printf '%s\n' 7500 > "$home/config/startup-memory-budget"
   head -c 10 /dev/zero | tr '\0' 'a' > "$home/data/captain.md"
   head -c 10 /dev/zero | tr '\0' 'b' > "$home/data/captain-shared.md"
+  head -c 10 /dev/zero | tr '\0' 'c' > "$home/data/learnings.md"
   out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
     FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
     "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null \
