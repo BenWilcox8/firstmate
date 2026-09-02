@@ -248,6 +248,8 @@ The stable local estimate is `ceil(UTF-8 bytes / 3)` per file, a conservative po
 An inherited `data/captain-shared.md` counts in a secondmate's total but remains primary-owned and read-only there.
 The internal [`/stow` skill](../.agents/skills/stow/SKILL.md) owns curation and its automatic secondmate cascade, which accounts every home against this same per-home allowance separately rather than against a fleet total.
 The helper's header owns exact parsing, publication, and report output mechanics.
+Bootstrap emits a `STARTUP_MEMORY_BUDGET:` diagnostic line at every session start when the combined total of the three files exceeds the configured budget, naming the total, the budget, and the per-file breakdown; the line is silent when the total is within budget.
+The [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) skill is the response owner for that line.
 
 ## Stow pass horizon (config/stow-pass-horizon)
 

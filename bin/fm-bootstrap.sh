@@ -9,6 +9,7 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
+#                 "STARTUP_MEMORY_BUDGET: startup memory <N> estimated tokens exceeds <M> token budget (<breakdown>)",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
@@ -1323,6 +1324,24 @@ startup_memory_budget_setup() {
   fi
 }
 
+startup_memory_budget_check() {
+  # Detect-only: reads the materialized budget and measures the three startup
+  # memory files.  Returns silently when the config is unreadable (the mutating
+  # phase already reported that) or when the total is within budget.
+  local budget total=0 file tokens summary="" sep=""
+  budget=$(fm_startup_memory_budget_read "$CONFIG") || return 0
+  for file in captain.md captain-shared.md learnings.md; do
+    fm_startup_memory_measure_file "$DATA/$file" >/dev/null || return 0
+    tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
+    total=$((total + tokens))
+    summary="${summary}${sep}data/$file ${tokens}"
+    sep=" + "
+  done
+  if ! fm_startup_memory_decimal_le "$total" "$budget"; then
+    echo "STARTUP_MEMORY_BUDGET: startup memory ${total} estimated tokens exceeds ${budget} token budget (${summary})"
+  fi
+}
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -1462,6 +1481,7 @@ detect_local_config() {
     echo "BOOTSTRAP_INFO: tasks-axi available"
   fi
   detect_home_summary_publication
+  startup_memory_budget_check
 }
 
 # This home's ledger publication is deliberately best-effort: every lifecycle
