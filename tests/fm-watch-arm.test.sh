@@ -814,15 +814,11 @@ test_downtime_marker_does_not_follow_symlink() {
 # the Herdr and the tmux reference backend, while a cycle that queued nothing
 # still fails exactly as loudly as before.
 #
-# The failing shape is driven through the push escalation and the stalled
-# secondmate check rather than the signal batch, because those are the wake kinds
-# whose cycle does further work that can fail AFTER the queue append: inside the
-# signal branch nothing between the append and the reason line can fail in
-# process, so a batch is lost there only to process death or a dead stdout, which
-# no portable test can force without a race. The guarantee is enforced where every
-# kind shares it - the queue append that records the reason, and the one cycle
-# close that resolves against it - so the batch's own end-to-end case below is its
-# delivered path.
+# Read the herdr fixtures for what they are. Only the push case actually runs
+# herdr adapter code, because the push wait is the last statement of the poll
+# loop and every earlier branch exits first; the other cases run in a
+# herdr-backed home to pin that the shared close behaves identically there, which
+# is the tmux-parity criterion.
 
 # Install a fake `herdr` CLI beside the case's other fakes and record <task> as a
 # herdr-backed pane, so the cycle runs the push-capable terminal wait instead of
@@ -927,6 +923,63 @@ test_herdr_cycle_reports_its_delivered_signal_batch() {
   pass "watch-arm: a herdr cycle that delivers a signal batch ends naming that batch"
 }
 
+test_signal_batch_lost_notification_is_still_named() {
+  local dir state fakebin armout armerr i watcher
+  dir=$(make_herdr_backed_case herdr-batch-lost-notification demo)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+  armerr="$dir/arm.err"
+
+  printf 'done: fixture finished\n' > "$state/demo.status"
+  : > "$state/demo.turn-ended"
+  # A barrier the cycle reaches AFTER it has queued the whole batch and BEFORE it
+  # prints the reason: the classification marker it writes next is a fifo with no
+  # reader, so the open blocks there. That parks the cycle in exactly the window
+  # this change exists for - the batch is durably the supervisor's, the reason
+  # line has not been written - with no timing race to lose.
+  mkfifo "$state/.hb-surfaced-demo" || fail "could not create the post-queue barrier"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=10 \
+    env FM_BACKEND_HERDR_EVENTS_FORCE=1 \
+    FM_BACKEND_HERDR_EVENT_READER="$fakebin/herdr-reader" \
+    "$WATCH_ARM" > "$armout" 2> "$armerr" &
+  ARM_PID=$!
+  # Wait for the cycle to have RECORDED the delivery, not merely appended the
+  # first row: the record is written just after the append, and killing between
+  # the two would be a test race rather than the condition under test.
+  i=0
+  while [ "$i" -lt 600 ]; do
+    grep -q 'demo.status' "$state/.watch-deliveries.log" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -q 'demo.status' "$state/.watch-deliveries.log" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the cycle never recorded its delivered batch"; }
+  grep -q 'demo.status' "$state/.wake-queue" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the batch never reached the durable queue"; }
+  ! grep -q '^signal:' "$armout" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the cycle printed its reason, so the barrier did not hold"; }
+
+  watcher=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  [ -n "$watcher" ] || { kill "$ARM_PID" 2>/dev/null; fail "no watcher held the lock"; }
+  kill -TERM "$watcher" 2>/dev/null || true
+  wait "$ARM_PID"
+  ARM_STATUS=$?
+
+  grep -q '^signal:.*demo.status' "$armout" \
+    || fail "the delivered batch was not named after its notification was lost: $(cat "$armout")"
+  ! grep -qF 'watcher: FAILED' "$armout" \
+    || fail "a delivered batch still ended in a failure line: $(cat "$armout")"
+  expect_code 0 "$ARM_STATUS" "a cycle whose batch was delivered must close successfully"
+  grep -qF 'after delivering its wake' "$armerr" \
+    || fail "the abnormal end was not named alongside the delivered batch: $(cat "$armerr")"
+  grep -q 'reason=nonzero-exit-delivered-wake' "$state/.watch-cycle-exits.log" \
+    || fail "the delivered-batch close was not classified in the lifecycle ledger"
+  pass "watch-arm: a signal batch whose reason line never reached the arm is still named"
+}
+
 test_herdr_push_cycle_names_the_wake_it_queued() {
   local dir state fakebin armout
   command -v jq >/dev/null 2>&1 || {
@@ -1026,3 +1079,4 @@ test_herdr_cycle_reports_its_delivered_signal_batch
 test_herdr_push_cycle_names_the_wake_it_queued
 test_reference_backend_names_the_wake_it_queued
 test_cycle_that_queued_nothing_still_fails_loudly
+test_signal_batch_lost_notification_is_still_named

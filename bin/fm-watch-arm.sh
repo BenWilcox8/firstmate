@@ -459,6 +459,19 @@ fi
 # wake exit propagates out so the harness re-notifies firstmate.
 child=
 child_out=
+child_err=
+# The watcher writes its own diagnostics to stderr (an unclaimable lock, an
+# unsafe recovery marker, a failed observation), so a cycle that ended for a
+# named cause says so THERE, never in the stdout this arm classifies. Keep that
+# stream: releasing it unread is what turns "the watcher refused for a reason"
+# into a bare exit code.
+release_child_diagnostics() {
+  [ -n "$child_err" ] || return 0
+  [ ! -s "$child_err" ] || cat "$child_err" >&2
+  rm -f "$child_err" 2>/dev/null || true
+  child_err=
+}
+
 cleanup_child() {
   if [ -n "$child" ] && fm_pid_alive "$child"; then
     kill -TERM "$child" 2>/dev/null || true
@@ -466,6 +479,7 @@ cleanup_child() {
   if [ -n "$child_out" ]; then
     rm -f "$child_out" 2>/dev/null || true
   fi
+  release_child_diagnostics
 }
 
 # shellcheck disable=SC2329 # Invoked indirectly by the signal traps below.
@@ -489,7 +503,17 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
   echo "watcher: FAILED - no live watcher with a fresh beacon"
   exit 1
 }
-if [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
+# Captured separately, never merged into the classified stdout: a diagnostic
+# line that happened to start with a wake prefix would otherwise be read as a
+# delivered reason.
+child_err=$(mktemp "$STATE/.watch-arm-diag.XXXXXX") || child_err=
+if [ -n "$child_err" ]; then
+  if [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
+    FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" >"$child_out" 2>"$child_err" &
+  else
+    "$WATCH" >"$child_out" 2>"$child_err" &
+  fi
+elif [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
   FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" >"$child_out" &
 else
   "$WATCH" >"$child_out" &
@@ -505,6 +529,7 @@ owned_child_finished() {
     reason_type=$(watch_output_reason_type "$child_out")
     cycle_log_append "$rc" "$signal" "$reason_type" none
     print_watch_output "$child_out"
+    release_child_diagnostics
     rm -f "$child_out" 2>/dev/null || true
     child=
     child_out=
@@ -515,6 +540,7 @@ owned_child_finished() {
     if wait_for_healthy_successor; then
       cycle_log_append "$rc" "$signal" unexpected-clean-exit "attached:$HEALTHY_PID"
       print_watch_output "$child_out"
+      release_child_diagnostics
       rm -f "$child_out" 2>/dev/null || true
       child=
       child_out=
@@ -525,6 +551,7 @@ owned_child_finished() {
       return $?
     fi
     print_watch_output "$child_out"
+    release_child_diagnostics
     rm -f "$child_out" 2>/dev/null || true
     child=
     child_out=
@@ -538,20 +565,24 @@ owned_child_finished() {
 
   reason_type="nonzero-exit"
   [ "$signal" = none ] || reason_type="signal-exit"
-  # A watcher that named its own failure on stdout is taken at its word. When it
-  # named nothing, the cycle is resolved against the delivery ledger exactly as a
-  # clean close is: a cycle that queued a wake and then died - the push-capable
-  # shape where backend bookkeeping fails after the append, or a torn-down
-  # process tree - delivered that wake, and reporting no actionable reason would
-  # strand it in the queue while the supervising session ends blind.
-  delivered=
-  if ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null; then
-    delivered=$(resolve_delivered_reason) || delivered=
-  fi
+  # A cycle that queued a wake and then died - the push-capable shape where
+  # backend bookkeeping fails after the append, a torn-down process tree, an
+  # unwritable stdout - delivered that wake, and reporting no actionable reason
+  # would strand it in the queue while the supervising session ends blind. So the
+  # ledger is consulted here exactly as it is on a clean close. The delivery does
+  # NOT excuse the abnormal end: this close still names its own cause on stderr,
+  # alongside whatever the watcher itself said there, so a cycle that keeps dying
+  # after delivering stays visible instead of reading as a healthy wake.
+  delivered=$(resolve_delivered_reason) || delivered=
   if [ -n "$delivered" ]; then
     cycle_log_append "$rc" "$signal" "$reason_type-delivered-wake" none
     print_watch_output "$child_out"
-    printf '%s\n' "$delivered"
+    # The watcher may have printed the reason and then died before exiting 0.
+    # Report the wake once: a second copy becomes a duplicate line in the rewake
+    # banner every arm-output consumer composes.
+    watch_output_has_wake "$child_out" || printf '%s\n' "$delivered"
+    release_child_diagnostics
+    echo "watcher: cycle exited $rc after delivering its wake" >&2
     rm -f "$child_out" 2>/dev/null || true
     child=
     child_out=
@@ -559,6 +590,7 @@ owned_child_finished() {
   fi
   cycle_log_append "$rc" "$signal" "$reason_type" none
   print_watch_output "$child_out"
+  release_child_diagnostics
   if ! grep -q '^watcher: FAILED' "$child_out" 2>/dev/null; then
     echo "watcher: FAILED - watcher cycle exited $rc without an actionable reason"
   fi

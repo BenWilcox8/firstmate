@@ -1202,6 +1202,10 @@ procevent_surface_queued() {
     return 0
   fi
   reason="check: process-event result captured:$PROCEVENT_SURFACED"
+  # These rows were queued durably by bin/fm-procevent.sh, not by this cycle, so
+  # record the delivery here for the same reason wake_queue_append does: the wake
+  # is already the supervisor's whether or not this cycle prints it.
+  watch_delivery_publish "$reason" || true
   # shellcheck disable=SC2034 # Consumed by wake() in the separately linted transition owner.
   FM_WAKE_POST_OUTPUT_ACTION=procevent_surface_after_output
   wake "$reason"
@@ -1722,6 +1726,9 @@ while :; do
   if inactive_out=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" scan 2>/dev/null); then
     if [ -n "$inactive_out" ]; then
+      # Queued durably by the reconcile subprocess above, so the delivery is
+      # already true before this cycle prints anything (see wake_queue_append).
+      watch_delivery_publish "check: inactive-outcome" || true
       wake "check: inactive-outcome"
     fi
   else
