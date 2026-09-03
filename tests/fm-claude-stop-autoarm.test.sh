@@ -1142,6 +1142,54 @@ test_active_in_marked_secondmate_home() {
   pass "auto-arm: active in a marked secondmate home"
 }
 
+# The one case that runs the REAL arm and a REAL watcher rather than an arm
+# fixture, because the auto-arm's claim is only as good as the reason line the
+# arm actually produces. The watcher queues a durable check for a stalled
+# secondmate wake loop and then fails its receipt bookkeeping and exits nonzero
+# before it can print that reason - the shape a push-capable (herdr) home hits
+# whenever a cycle ends after the queue append. The hook must claim that as an
+# ordinary wake, not as a broken supervision mechanism.
+make_real_arm_dir() {  # <dir> -> echoes dir
+  local dir=$1 mate_home
+  mkdir -p "$dir/state"
+  git init -q "$dir"
+  git -C "$dir" commit -q --allow-empty -m init
+  : > "$dir/AGENTS.md"
+  cp -R "$ROOT/bin/." "$dir/bin/"
+  mate_home="$dir/mate1-home"
+  mkdir -p "$mate_home/state"
+  printf 'mate1\n' > "$mate_home/.fm-secondmate-home"
+  printf '%s\t1\tsignal\tx.status\tsignal: stalled row\n' "$(( $(date +%s) - 5000 ))" \
+    > "$mate_home/state/.wake-queue"
+  cat > "$dir/state/mate1.meta" <<META
+kind=secondmate
+home=$mate_home
+window=fmsess:p9
+backend=herdr
+META
+  : > "$dir/state/.secondmate-wake-stall-receipts"
+  printf '%s\n' "$dir"
+}
+
+test_real_arm_close_after_a_queued_wake_claims_continuity() {
+  local dir out status
+  dir=$(make_real_arm_dir "$TMP_ROOT/real-arm-queued-wake")
+  out=$(FM_POLL=3 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    run_autoarm "$dir" 2>&1); status=$?
+  grep -q 'secondmate-wake-loop-mate1' "$dir/state/.wake-queue" \
+    || fail "the watcher queued no wake, so this case proves nothing: $out"
+  expect_code 2 "$status" "a cycle that queued a wake must rewake the session"
+  assert_contains "$out" "firstmate watcher wake" \
+    "the hook must claim a queued wake as an ordinary supervision event"
+  assert_contains "$out" "check: secondmate wake-loop stalled" \
+    "the rewake banner must name the wake the cycle queued"
+  [ ! -e "$dir/state/.claude-autoarm-failure-notified" ] \
+    || fail "a delivered wake was reported as a broken auto-arm mechanism"
+  [ "$(epoch_outcome "$dir")" = rewake ] \
+    || fail "the epoch ledger did not record the claim as a rewake"
+  pass "auto-arm: a real cycle that queued its wake is claimed as continuity, not a failure"
+}
+
 test_fm_lock_status_still_works_with_shared_lib() {
   local out
   out=$(FM_HOME="$TMP_ROOT/lock-status-home" bash "$ROOT/bin/fm-lock.sh" status 2>&1)
@@ -1188,3 +1236,4 @@ test_need_vanished_mid_cycle_closes_quietly
 test_afk_mid_cycle_suppresses_rewake
 test_active_in_marked_secondmate_home
 test_fm_lock_status_still_works_with_shared_lib
+test_real_arm_close_after_a_queued_wake_claims_continuity

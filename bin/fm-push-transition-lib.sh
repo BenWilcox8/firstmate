@@ -25,6 +25,10 @@ FM_WAKE_POST_OUTPUT_ACTION=
 FM_WATCH_DELIVERED_REASON=
 FM_WATCH_DELIVERY_PID=
 FM_WATCH_DELIVERY_IDENTITY=
+# The reason this cycle has already written to the delivery ledger. A batch
+# queues one durable row per file but delivers ONE reason, so this keeps the
+# ledger to a single record per delivered reason instead of one per row.
+FM_WATCH_PUBLISHED_REASON=
 WATCH_DELIVERY_LOG="$STATE/.watch-deliveries.log"
 WATCH_DELIVERY_LOCK="$STATE/.watch-deliveries.lock"
 WATCH_DELIVERY_MAX_BYTES=${FM_WATCH_DELIVERY_MAX_BYTES:-65536}
@@ -44,16 +48,19 @@ watch_delivery_publish() {
   local reason=$1 i size tmp raw
   [ -n "$FM_WATCH_DELIVERY_PID" ] || return 0
   [ -n "$FM_WATCH_DELIVERY_IDENTITY" ] || return 0
+  [ "$reason" != "$FM_WATCH_PUBLISHED_REASON" ] || return 0
   i=0
   while ! fm_lock_try_acquire "$WATCH_DELIVERY_LOCK"; do
     [ "$i" -lt 20 ] || return 0
     sleep 0.02
     i=$((i + 1))
   done
-  printf '%s\t%s\t%s\n' \
+  if printf '%s\t%s\t%s\n' \
     "$FM_WATCH_DELIVERY_PID" \
     "$(watch_delivery_clean_identity "$FM_WATCH_DELIVERY_IDENTITY")" \
-    "$(watch_delivery_clean_reason "$reason")" >> "$WATCH_DELIVERY_LOG" 2>/dev/null || true
+    "$(watch_delivery_clean_reason "$reason")" >> "$WATCH_DELIVERY_LOG" 2>/dev/null; then
+    FM_WATCH_PUBLISHED_REASON=$reason
+  fi
   size=$(wc -c < "$WATCH_DELIVERY_LOG" 2>/dev/null | tr -d '[:space:]')
   case "$size" in
     ''|*[!0-9]*) ;;
@@ -70,6 +77,29 @@ watch_delivery_publish() {
       ;;
   esac
   fm_lock_release "$WATCH_DELIVERY_LOCK"
+}
+
+# The single owner of "this cycle has an actionable reason". Every watcher wake
+# is queued through here, on every backend, so the reason becomes durable at the
+# moment it becomes true rather than as a side effect of the stdout write in
+# wake() below.
+#
+# The queued row IS the delivery: once it is on the durable queue, the next drain
+# hands it to the supervising session whether or not this cycle survives long
+# enough to print its reason line. Publishing at queue time is what lets
+# bin/fm-watch-arm.sh close such a cycle by naming that wake instead of the bare
+# no-reason failure. Without it the reason was recorded only after a successful
+# echo, so every cycle that queued a wake and then ended - a push-capable cycle
+# whose backend bookkeeping failed after the queue append, a torn-down process
+# tree, an unwritable stdout - was reported as having delivered nothing while its
+# wake sat in the queue.
+#
+# <cycle-reason> defaults to <payload> and exists because a batch queues one row
+# per file with a per-row payload while the cycle delivers one reason.
+wake_queue_append() {  # <kind> <key> <payload> [cycle-reason]
+  fm_wake_append "$1" "$2" "$3" || return $?
+  watch_delivery_publish "${4:-$3}" || true
+  return 0
 }
 
 # Append one bounded best-effort line for an absorbed supervision event.
@@ -161,7 +191,7 @@ handle_push_transition() {  # <backend> <session> <record>
     0|1) surface_end=${span_record%%$'\t'*}; rest=${span_record#*$'\t'}; surface_ident=${rest%%$'\t'*} ;;
   esac
   reason="stale: $window (herdr: agent $to - waiting on human, escalated immediately, not via wedge timer)"
-  fm_wake_append stale "$window" "$reason" || exit 1
+  wake_queue_append stale "$window" "$reason" || exit 1
   fm_backend_commit_transition "$backend" "$STATE" "$session" "$record" || exit 1
   mark_surfaced "$STATE/$task.status" "$surface_end" "$surface_ident"
   wake "$reason"

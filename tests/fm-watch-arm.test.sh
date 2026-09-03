@@ -805,6 +805,209 @@ test_downtime_marker_does_not_follow_symlink() {
   pass "watch-arm: downtime marker publication does not follow symlinks"
 }
 
+# --- cycle-close reason on a delivered wake ----------------------------------
+#
+# The watcher's reason line reaches an owning arm only if the cycle survives long
+# enough to print it. Its wake, by contrast, is durable the moment it is queued.
+# These cases drive real bin/fm-watch.sh cycles that queue a wake and then end
+# WITHOUT printing it, and assert the arm closes them by naming that wake on both
+# the Herdr and the tmux reference backend, while a cycle that queued nothing
+# still fails exactly as loudly as before.
+#
+# The failing shape is driven through the push escalation and the stalled
+# secondmate check rather than the signal batch, because those are the wake kinds
+# whose cycle does further work that can fail AFTER the queue append: inside the
+# signal branch nothing between the append and the reason line can fail in
+# process, so a batch is lost there only to process death or a dead stdout, which
+# no portable test can force without a race. The guarantee is enforced where every
+# kind shares it - the queue append that records the reason, and the one cycle
+# close that resolves against it - so the batch's own end-to-end case below is its
+# delivered path.
+
+# Install a fake `herdr` CLI beside the case's other fakes and record <task> as a
+# herdr-backed pane, so the cycle runs the push-capable terminal wait instead of
+# the blind poll sleep. The fakes answer only what the adapter asks of them here:
+# the session's socket path, and the raw-socket subscriber's stream.
+make_herdr_backed_case() {  # <name> <task> -> echoes case dir
+  local name=$1 task=$2 dir fakebin
+  dir=$(make_case "$name")
+  fakebin="$dir/fakebin"
+  cat > "$fakebin/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in
+  "session list --json")
+    printf '%s\n' '{"sessions":[{"name":"fmsess","socket_path":"/tmp/fm-fake-herdr.sock"}]}'
+    exit 0
+    ;;
+esac
+printf '%s\n' '{}'
+SH
+  chmod +x "$fakebin/herdr"
+  cat > "$fakebin/herdr-reader" <<'SH'
+#!/usr/bin/env bash
+set -u
+printf '@subscribed\n'
+sleep 0.2
+printf 'p1\tws1\tblocked\tclaude\n'
+sleep "${2:-5}"
+SH
+  chmod +x "$fakebin/herdr-reader"
+  cat > "$dir/state/$task.meta" <<'META'
+window=fmsess:p1
+backend=herdr
+kind=ship
+META
+  printf '%s\n' "$dir"
+}
+
+# Record <status> as already classified, so a fresh signal batch cannot pre-empt
+# the path a case is aiming at.
+prime_status_seen() {  # <state> <status-file>
+  FM_STATE_OVERRIDE="$1" bash -c '
+    . "$1"
+    fm_wake_status_mark_current "$2" "$3"
+  ' _ "$ROOT/bin/fm-wake-lib.sh" "$1" "$2"
+}
+
+# Make one durable check the cycle's last act: the watcher observes a secondmate
+# whose own wake loop has stalled, queues that check, and then fails its receipt
+# bookkeeping and exits nonzero before it can print the reason. The receipt root
+# is a regular file, so the write refuses rather than creating the directory it
+# needs. This shape is backend-independent, which is what makes it the reference
+# backend's half of the parity pair.
+seed_stalled_secondmate() {  # <case-dir> <mate-id>
+  local dir=$1 mate=$2 mate_home
+  mate_home="$dir/$mate-home"
+  mkdir -p "$mate_home/state"
+  printf '%s\n' "$mate" > "$mate_home/.fm-secondmate-home"
+  printf '%s\t1\tsignal\tx.status\tsignal: stalled row\n' "$(( $(date +%s) - 5000 ))" \
+    > "$mate_home/state/.wake-queue"
+  cat > "$dir/state/$mate.meta" <<META
+kind=secondmate
+home=$mate_home
+window=fmsess:p9
+META
+  : > "$dir/state/.secondmate-wake-stall-receipts"
+}
+
+# Run an arm that OWNS its cycle - the shape every auto-arm and background arm
+# uses - to completion, and report its exit status in ARM_STATUS.
+ARM_STATUS=0
+run_owning_arm() {  # <state> <fakebin> <arm-out> [extra env assignments...]
+  local state=$1 fakebin=$2 armout=$3
+  shift 3
+  ARM_STATUS=0
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=3 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=10 \
+    env "$@" "$WATCH_ARM" > "$armout" 2>&1 || ARM_STATUS=$?
+}
+
+test_herdr_cycle_reports_its_delivered_signal_batch() {
+  local dir state fakebin armout
+  dir=$(make_herdr_backed_case herdr-signal-batch demo)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  printf 'done: fixture finished\n' > "$state/demo.status"
+  : > "$state/demo.turn-ended"
+  run_owning_arm "$state" "$fakebin" "$armout" \
+    FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_BACKEND_HERDR_EVENT_READER="$fakebin/herdr-reader"
+
+  grep -q 'demo.status' "$state/.wake-queue" \
+    || fail "the signal batch was not durably queued, so this case proves nothing"
+  grep -q '^signal:' "$armout" \
+    || fail "a delivered signal batch was not named by the cycle: $(cat "$armout")"
+  ! grep -qF 'watcher: FAILED' "$armout" \
+    || fail "a delivered signal batch still ended in a failure line: $(cat "$armout")"
+  expect_code 0 "$ARM_STATUS" "a cycle that delivered a signal batch must close successfully"
+  grep -q 'reason=actionable-signal' "$state/.watch-cycle-exits.log" \
+    || fail "the delivered batch was not classified in the lifecycle ledger"
+  pass "watch-arm: a herdr cycle that delivers a signal batch ends naming that batch"
+}
+
+test_herdr_push_cycle_names_the_wake_it_queued() {
+  local dir state fakebin armout
+  command -v jq >/dev/null 2>&1 || {
+    echo "skip: jq not found (required by the herdr adapter)"
+    return 0
+  }
+  dir=$(make_herdr_backed_case herdr-push-queued-wake demo)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  printf 'working: under way\n' > "$state/demo.status"
+  prime_status_seen "$state" "$state/demo.status"
+  # The push escalation's own dedupe marker cannot be written: the path resolves
+  # through a link with no directory behind it, so the edge is still fresh (no
+  # marker exists) and the commit that FOLLOWS the queued wake fails. That is the
+  # herdr-only shape of a cycle that queued its wake and then ended for another
+  # reason before it could print it.
+  ln -s "$state/no-such-dir/marker" "$state/.herdr-escalated-fmsess_p1"
+
+  run_owning_arm "$state" "$fakebin" "$armout" \
+    FM_BACKEND_HERDR_EVENTS_FORCE=1 FM_BACKEND_HERDR_EVENT_READER="$fakebin/herdr-reader"
+
+  grep -q 'fmsess:p1' "$state/.wake-queue" \
+    || fail "the push escalation was not durably queued, so this case proves nothing"
+  grep -q '^stale: fmsess:p1' "$armout" \
+    || fail "a cycle that queued its wake did not name it: $(cat "$armout")"
+  ! grep -qF 'without an actionable reason' "$armout" \
+    || fail "a delivered wake was still reported as no actionable reason: $(cat "$armout")"
+  expect_code 0 "$ARM_STATUS" "a cycle that queued its wake must close successfully"
+  grep -q 'reason=nonzero-exit-delivered-wake' "$state/.watch-cycle-exits.log" \
+    || fail "the delivered-wake close was not classified in the lifecycle ledger"
+  pass "watch-arm: a herdr cycle that ends after queueing its wake ends naming that wake"
+}
+
+test_reference_backend_names_the_wake_it_queued() {
+  local dir state fakebin armout
+  dir=$(make_case tmux-queued-wake)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  seed_stalled_secondmate "$dir" mate1
+  run_owning_arm "$state" "$fakebin" "$armout"
+
+  grep -q 'secondmate-wake-loop-mate1' "$state/.wake-queue" \
+    || fail "the stalled-secondmate check was not durably queued, so this case proves nothing"
+  grep -q '^check: secondmate wake-loop stalled' "$armout" \
+    || fail "the reference backend did not name the wake its cycle queued: $(cat "$armout")"
+  ! grep -qF 'without an actionable reason' "$armout" \
+    || fail "a delivered wake was still reported as no actionable reason: $(cat "$armout")"
+  expect_code 0 "$ARM_STATUS" "a cycle that queued its wake must close successfully"
+  pass "watch-arm: the tmux reference backend resolves a queued wake through the same close"
+}
+
+test_cycle_that_queued_nothing_still_fails_loudly() {
+  local dir state fakebin armout row
+  dir=$(make_case queued-nothing)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+
+  seed_stalled_secondmate "$dir" mate1
+  # An earlier producer already queued this exact check, so the cycle skips the
+  # append, fails the same bookkeeping, and ends having delivered nothing of its
+  # own. A queue that is merely non-empty must never be read as this cycle's
+  # delivery.
+  row=$(cut -f1,2 "$dir/mate1-home/state/.wake-queue" | tr '\t' '-')
+  append_wake "$state" check "secondmate-wake-loop-mate1-$row" \
+    'check: queued by an earlier cycle'
+  run_owning_arm "$state" "$fakebin" "$armout"
+
+  grep -qF 'watcher: FAILED - watcher cycle exited 1 without an actionable reason' "$armout" \
+    || fail "a cycle that delivered nothing must still fail loudly: $(cat "$armout")"
+  [ "$ARM_STATUS" -ne 0 ] \
+    || fail "arm did not exit nonzero for a cycle that delivered nothing"
+  grep -q 'reason=nonzero-exit	' "$state/.watch-cycle-exits.log" \
+    || fail "the empty close was not classified in the lifecycle ledger"
+  pass "watch-arm: a cycle that queued no wake of its own still fails loudly"
+}
+
 test_attached_arm_reports_the_delivered_wake
 test_attached_arm_reports_the_delivered_wake_after_drain
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
@@ -819,3 +1022,7 @@ test_markerless_legacy_queue_is_recovered_on_arm
 test_handling_window_close_keeps_the_acknowledgement_valid
 test_moved_generation_acknowledgement_is_self_healing
 test_downtime_marker_does_not_follow_symlink
+test_herdr_cycle_reports_its_delivered_signal_batch
+test_herdr_push_cycle_names_the_wake_it_queued
+test_reference_backend_names_the_wake_it_queued
+test_cycle_that_queued_nothing_still_fails_loudly

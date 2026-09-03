@@ -397,7 +397,7 @@ inbox_steer_check() {  # <window> <task>
         fi
         if [ -d "${rec%/*}" ]; then
           reason="stale: $w (steering-inbox ladder bookkeeping unwritable: ${rec%/*}/.ring-state cannot be written while $rec stays unhandled; the doorbell cannot advance toward escalation - inspect the inbox directory)"
-          fm_wake_append stale "$w" "$reason" || exit 1
+          wake_queue_append stale "$w" "$reason" || exit 1
           wake "$reason"
         fi
       fi
@@ -409,7 +409,7 @@ inbox_steer_check() {  # <window> <task>
         fm_task_inbox_due_action "$STATE" "$task" >/dev/null || true
         return 0
       fi
-      fm_wake_append stale "$w" "$reason" || exit 1
+      wake_queue_append stale "$w" "$reason" || exit 1
       if ! fm_task_inbox_record_escalated "$STATE" "$task" "$rec"; then
         echo "error: stale wake was queued for $task but its inbox escalation marker could not be written" >&2
         exit 1
@@ -703,7 +703,7 @@ EOF
     reason="check: secondmate wake-loop stalled: mate=$task row=$seq age=${age}s"
     queued=$(fm_wake_queued_keys check)
     if ! printf '%s\n' "$queued" | grep -Fx "$notify_key" >/dev/null 2>&1; then
-      fm_wake_append check "$notify_key" "$reason" || return 1
+      wake_queue_append check "$notify_key" "$reason" || return 1
     fi
     fm_wake_secondmate_stall_receipt_write "$task" "$row_key" || return 1
     fm_wake_secondmate_stall_marker_write "$task" "$row_key" || return 1
@@ -767,7 +767,7 @@ resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<de
     triage_log "absorbed duplicate nudge (identical recheck already delivered this turn): $win"
     return 0
   fi
-  fm_wake_append stale "$win" "$reason" || exit 1
+  wake_queue_append stale "$win" "$reason" || exit 1
   date +%s > "$throttle"
   [ -z "$dedupe_file" ] || printf '%s' "$dedupe_id" > "$dedupe_file"
   wake "$reason"
@@ -842,7 +842,7 @@ wedge_timer_check() {  # <window> <since-file> <triage-label> <escalation-count-
         if [ "$n" -ge "$FM_WEDGE_DEMAND_INSPECT_COUNT" ]; then
           reason="stale: $win (idle ${age}s, possible wedge, escalation $n, demand-deep-inspection: same pane has wedge-escalated $n times in a row - do not re-absorb on the run-step/pane state alone)"
         fi
-        fm_wake_append stale "$win" "$reason" || exit 1
+        wake_queue_append stale "$win" "$reason" || exit 1
         rm -f "$since_file"
         clear_write_tracking "$(window_key "$win")"
         wake "$reason"
@@ -975,7 +975,7 @@ busy_turn_bound_check() {  # <window> <task> <hash> <since-file> <escalation-fil
       clear_write_tracking "$key"
       declared="declared:$(fm_wake_signal_sig "$statusf" || true)"
       if [ "$(cat "$STATE/.stale-$key" 2>/dev/null || true)" != "$declared" ]; then
-        fm_wake_append stale "$win" "stale: $win" || exit 1
+        wake_queue_append stale "$win" "stale: $win" || exit 1
         printf '%s' "$declared" > "$STATE/.stale-$key"
         wake "stale: $win"
       fi
@@ -1082,7 +1082,7 @@ pause_state_class() {  # <window> <task>
 surface_nonterminal_stale() {  # <window> <hash>
   local win=$1 h=$2 key task last
   key=$(window_key "$win")
-  fm_wake_append stale "$win" "stale: $win" || exit 1
+  wake_queue_append stale "$win" "stale: $win" || exit 1
   printf '%s' "$h" > "$STATE/.stale-$key"
   rm -f "$STATE/.stale-since-$key"
   clear_write_tracking "$key"
@@ -1622,7 +1622,7 @@ printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/
 # Finish only identity-bound retirement receipts before any check can run.
 if ! fm_pr_poll_retirement_recover_all "$STATE" "$SCRIPT_DIR/fm-pr-poll.sh"; then
   reason="check: rejected unauthenticated PR poll retirement receipts:$FM_PR_POLL_RETIREMENT_REJECTED"
-  fm_wake_append check pr-poll-retirement "$reason" || exit 1
+  wake_queue_append check pr-poll-retirement "$reason" || exit 1
   touch "$STATE/.last-check"
   wake "$reason"
 fi
@@ -1790,14 +1790,14 @@ while :; do
           fi
           wake "$reason"
         fi
-        fm_wake_append check "$c" "$reason" || exit 1
+        wake_queue_append check "$c" "$reason" || exit 1
         touch "$STATE/.last-check"
         wake "$reason"
       fi
     done
     if [ -n "$rejected_checks" ]; then
       reason="check: rejected unauthenticated state checks:$rejected_checks"
-      fm_wake_append check unauthenticated-state-checks "$reason" || exit 1
+      wake_queue_append check unauthenticated-state-checks "$reason" || exit 1
       touch "$STATE/.last-check"
       wake "$reason"
     fi
@@ -1859,7 +1859,7 @@ EOF
       || { ! signal_crew_provably_working $files && ! signal_turnend_panes_churned $files; }; then
       while IFS=$(printf '\t') read -r sf sig f; do
         [ -n "$sf" ] || continue
-        fm_wake_append signal "$(basename "$f")" "$(signal_payload "$f" "$reason")" || exit 1
+        wake_queue_append signal "$(basename "$f")" "$(signal_payload "$f" "$reason")" "$reason" || exit 1
       done <<EOF
 $pending
 EOF
@@ -1906,7 +1906,7 @@ EOF
       if [ "$signal_commit_error" -ne 0 ]; then
         while IFS=$(printf '\t') read -r sf sig f; do
           [ -n "$sf" ] || continue
-          fm_wake_append signal "$(basename "$f")" "$reason" || exit 1
+          wake_queue_append signal "$(basename "$f")" "$reason" || exit 1
         done <<EOF
 $pending
 EOF
@@ -1972,7 +1972,7 @@ EOF
         elif afk_present; then
           # Daemon owns triage: one-shot per distinct stale hash, as before.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            fm_wake_append stale "$w" "stale: $w" || exit 1
+            wake_queue_append stale "$w" "stale: $w" || exit 1
             printf '%s' "$h" > "$sf"
             wake "stale: $w"
           fi
@@ -2018,7 +2018,7 @@ EOF
               clear_write_tracking "$key"
               triage_log "absorbed stale (finished status already surfaced): $w"
             else
-              fm_wake_append stale "$w" "stale: $w" || exit 1
+              wake_queue_append stale "$w" "stale: $w" || exit 1
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               clear_write_tracking "$key"
@@ -2154,7 +2154,7 @@ EOF
     # without exiting); the away-mode daemon, when present, owns triage and wants
     # every heartbeat.
     if afk_present; then
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      wake_queue_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       wake "heartbeat"
     elif heartbeat_scan_finds_actionable; then
@@ -2162,7 +2162,7 @@ EOF
       # Enqueue first, then record every status log surfaced through its end so the
       # next heartbeat does not re-fire it (enqueue-before-suppress preserved);
       # this wake sends firstmate to the whole fleet, so every log is read.
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      wake_queue_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       mark_all_captain_relevant_surfaced || true
       wake "heartbeat"
@@ -2171,13 +2171,13 @@ EOF
       # as a heartbeat wake (firstmate heals with a full layout --repair); record
       # the drift signature only AFTER enqueuing so a crash cannot suppress an
       # un-surfaced drift (enqueue-before-suppress, as above).
-      fm_wake_append heartbeat heartbeat heartbeat || exit 1
+      wake_queue_append heartbeat heartbeat heartbeat || exit 1
       touch "$STATE/.last-heartbeat"
       printf '%s' "$_HERDR_DRIFT_PENDING" > "$_HERDR_DRIFT_MARKER"
       wake "heartbeat"
     else
       if ! mark_all_captain_relevant_surfaced; then
-        fm_wake_append heartbeat heartbeat heartbeat || exit 1
+        wake_queue_append heartbeat heartbeat heartbeat || exit 1
         touch "$STATE/.last-heartbeat"
         wake "heartbeat"
       fi
