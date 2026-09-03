@@ -682,6 +682,16 @@ main_inventory_json() {  # <backlog-json> <tasks-json>
 # This mode never reads parent events or terminal text and never aggregates
 # nested secondmates.
 secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
+  # The backlog and task snapshots can grow large on a busy home, and
+  # --argjson passes its value on the process argument list: past a big enough
+  # backlog that trips the OS argument-size limit ("Argument list too long").
+  # --slurpfile instead reads each document from a file, so its size is bounded
+  # only by disk.
+  local tmp_backlog tmp_tasks rc
+  tmp_backlog=$(mktemp "${TMPDIR:-/tmp}/fm-fleet-snapshot-backlog.XXXXXX") || return 1
+  tmp_tasks=$(mktemp "${TMPDIR:-/tmp}/fm-fleet-snapshot-tasks.XXXXXX") || { rm -f "$tmp_backlog"; return 1; }
+  printf '%s' "$1" > "$tmp_backlog"
+  printf '%s' "$2" > "$tmp_tasks"
   jq -n \
     --arg generated "$SNAPSHOT_NOW" \
     --argjson generated_epoch "$SNAPSHOT_EPOCH" \
@@ -690,9 +700,11 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
     --argjson queued_n "$FM_SNAPSHOT_SECONDMATE_QUEUED" \
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
-    --argjson backlog "$1" \
-    --argjson tasks "$2" '
-    def trunc($n):
+    --slurpfile backlog_raw "$tmp_backlog" \
+    --slurpfile tasks_raw "$tmp_tasks" '
+    ($backlog_raw[0]) as $backlog
+    | ($tasks_raw[0]) as $tasks
+    | def trunc($n):
       tostring | gsub("\\s+"; " ")
       | if length > $n then .[:$n] + "…" else . end;
     ([ $backlog.records[]?
@@ -835,6 +847,9 @@ secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
           (if $landed_n > 0 and ($landed_all | length) > $landed_n then {surface:"landed",count:(($landed_all | length) - $landed_n)} else empty end)
         ]
       }'
+  rc=$?
+  rm -f "$tmp_backlog" "$tmp_tasks"
+  return $rc
 }
 
 # Current registered-secondmate aggregation.
