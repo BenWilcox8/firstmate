@@ -52,10 +52,17 @@
 #     ends that routing.
 #     Crewmates are autonomous, so a delayed stale response does not stall a
 #     healthy crewmate's own progress.
-#     Buffered escalation delivery also has a max-defer alarm: if a digest stays
-#     undelivered past FM_MAX_DEFER_SECS, the daemon retries a normal flush and
-#     writes state/.subsuper-inject-wedged and attempts a configurable active
-#     alert if submit still cannot be confirmed.
+#     Buffered escalation delivery also has a bounded max-defer ladder: if a
+#     digest stays undelivered past FM_MAX_DEFER_SECS, the daemon retries a
+#     normal flush; if the pane has read busy on EVERY attempt since the digest
+#     was buffered, it retries once more with a fresh composer classification
+#     instead of stopping at the busy heuristic; and if delivery still cannot be
+#     proven it writes state/.subsuper-inject-wedged, attempts a configurable
+#     active alert naming the classification it saw, and hands the digest to the
+#     captain's durable inbox (bin/fm-inbox.sh note) so it is presented at the
+#     next turn boundary. The composer guard is never relaxed by any of that:
+#     only a proven-empty input box is ever typed into. The escalation buffer is
+#     kept, so the pane path still delivers at the next proven-idle moment.
 #   - Cheap heartbeat catch-all: every HEARTBEAT_SCAN_SECS the daemon greps all
 #     state/*.status for a captain-relevant line the per-wake classifier might
 #     have missed (e.g. a status verb outside CAPTAIN_RE) and escalates it.
@@ -108,9 +115,13 @@
 #          FM_COMPOSER_IDLE_RE      optional shared classifier override; see
 #                                   docs/configuration.md for its safety gates
 #          FM_MAX_DEFER_SECS        max seconds a buffered escalation may sit
-#                                   undelivered before one normal flush attempt;
-#                                   if that cannot confirm a submit, a wedge
-#                                   alarm fires (default 300; 0 disables)
+#                                   undelivered before the bounded delivery
+#                                   ladder runs: one normal flush attempt, then
+#                                   one busy-override attempt against a
+#                                   continuously busy pane (fresh composer
+#                                   classification, never a relaxed composer
+#                                   guard), then a wedge alarm and the durable
+#                                   inbox fallback (default 300; 0 disables)
 #          FM_WEDGE_ALARM_CHANNEL   override config/wedge-alarm with a single
 #                                   active-alert directive for that wedge alarm
 #                                   (off|auto|osascript|herdr|command:<cmd>). An
@@ -207,6 +218,10 @@ MAX_DEFER_SECS_DEFAULT=300
 WEDGE_ALARM_TIMEOUT_SECS_DEFAULT=10
 WEDGE_ALARM_LAST_EPOCH=0
 WEDGE_ALARM_NOTIFIER_PID=
+# Which signal produced the last pane_is_busy verdict (see pane_busy_verdict).
+# The wedge alarm names it, so a stall reports whether a real turn was running
+# or a stale rendered footer was matching.
+PANE_BUSY_SOURCE=unknown
 # The captain-relevant verb set and the status classifiers (last_status_line,
 # status_is_captain_relevant, window_to_task, and the status-span reader) now
 # live in bin/fm-classify-lib.sh, shared with the always-on watcher.
@@ -632,16 +647,47 @@ fm_daemon_primary_harness() {
   printf '%s' "$FM_DAEMON_PRIMARY_HARNESS"
 }
 
-pane_is_busy() {  # <target> [backend]
+# pane_busy_verdict: the busy question AND which signal answered it, as one
+# "<busy|idle> <source>" line. The source is what the wedge alarm names, because
+# "the pane was busy" on its own never told the captain whether a real agent turn
+# was running (source native) or a stale rendered footer left in the scrollback
+# was matching forever (source rendered) - the exact ambiguity behind the
+# overnight stalls this alarm exists to report. Sources: native (the backend's
+# own agent-state row, herdr today), rendered (the harness-scoped delivery footer
+# in the pane tail), rendered-none (the tail was read and matched nothing) and
+# capture-failed (the tail could not be read at all, which stays NOT busy,
+# exactly as before).
+pane_busy_verdict() {  # <target> [backend] -> "<busy|idle> <source>"
   local target=$1 backend=${2:-tmux} native tail40 harness
   harness=$(fm_daemon_primary_harness)
   native=$(fm_backend_busy_state "$backend" "$target" 2>/dev/null)
   case "$native" in
-    busy) return 0 ;;
+    busy) printf 'busy native'; return 0 ;;
   esac
-  tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null) || return 1
-  printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
-    | fm_busy_lines_match "$harness"
+  if ! tail40=$(fm_backend_capture "$backend" "$target" 40 2>/dev/null); then
+    printf 'idle capture-failed'; return 0
+  fi
+  if printf '%s' "$tail40" | grep -v '^[[:space:]]*$' | tail -12 \
+    | fm_busy_lines_match "$harness"; then
+    printf 'busy rendered'
+  else
+    printf 'idle rendered-none'
+  fi
+}
+
+# pane_is_busy keeps its original 0=busy / 1=not-busy contract and stays the one
+# call site every guard uses; pane_busy_verdict above is the one owner of how
+# that verdict is reached. The source is published in PANE_BUSY_SOURCE rather
+# than returned, so asking WHICH signal answered never changes this function's
+# signature. A caller that replaces pane_is_busy therefore still controls the
+# branch exactly as before and simply leaves the source at its reset "unknown",
+# which is what the alarm then reports.
+pane_is_busy() {  # <target> [backend]; sets PANE_BUSY_SOURCE
+  local verdict
+  PANE_BUSY_SOURCE=unknown
+  verdict=$(pane_busy_verdict "$1" "${2:-tmux}")
+  PANE_BUSY_SOURCE=${verdict#* }
+  [ "${verdict%% *}" = busy ]
 }
 
 # pane_input_pending dispatches through fm_backend_composer_state and treats
@@ -689,20 +735,138 @@ escalate_add() {  # <state> <distilled-item>
   printf '%s\n' "$item" >> "$buf"
 }
 
-# Flush the escalation buffer as ONE batched, single-line digest to the
-# supervisor pane. Returns 0 on successful inject (or empty buffer), non-zero on
-# inject failure (buffer preserved for retry / catch-up).
-escalate_flush() {  # <state>
-  local state=$1 buf item n msg
+# --- delivery observability records -----------------------------------------
+# Three small durable records, all owned here and all safe to delete:
+#   .subsuper-inject-busy-since  epoch of the FIRST busy deferral of the current
+#                                undelivered digest. It survives only while the
+#                                pane keeps reading busy: any not-busy read, or
+#                                any confirmed delivery, removes it. Its presence
+#                                is therefore the "continuously busy" proof the
+#                                max-defer override asks for, and its age is how
+#                                long that has been true.
+#   .subsuper-inject-verdict     one line naming why the last delivery attempt
+#                                did not land. inject_wedge_alarm reads it so the
+#                                alarm can say WHICH classification it saw rather
+#                                than only that something was undelivered.
+#   .subsuper-inject-fallback    fingerprint of the digest already handed to the
+#                                durable captain inbox, so one wedge queues one
+#                                note however many max-defer windows it survives.
+INJECT_BUSY_SINCE_NAME=".subsuper-inject-busy-since"
+INJECT_VERDICT_NAME=".subsuper-inject-verdict"
+INJECT_FALLBACK_NAME=".subsuper-inject-fallback"
+
+inject_busy_since_start() {  # <state>
+  local f="$1/$INJECT_BUSY_SINCE_NAME"
+  [ -e "$f" ] || { mkdir -p "$1" 2>/dev/null || true; _now > "$f" 2>/dev/null || true; }
+}
+
+inject_busy_since_clear() {  # <state>
+  rm -f "$1/$INJECT_BUSY_SINCE_NAME"
+}
+
+# inject_continuously_busy: 0 when the pane has read busy on every delivery
+# attempt since this digest was buffered, 1 otherwise.
+inject_continuously_busy() {  # <state>
+  [ -e "$1/$INJECT_BUSY_SINCE_NAME" ]
+}
+
+inject_record_verdict() {  # <state> <mode> <outcome> <composer> <busy-state> <busy-source>
+  local state=$1 mode=$2 outcome=$3 composer=$4 busy_state=$5 busy_source=$6
+  mkdir -p "$state" 2>/dev/null || true
+  printf 'outcome=%s composer=%s busy=%s busy_source=%s mode=%s at=%s\n' \
+    "$outcome" "${composer:-unknown}" "${busy_state:-unknown}" \
+    "${busy_source:-unknown}" "$mode" "$(_now)" \
+    > "$state/$INJECT_VERDICT_NAME" 2>/dev/null || true
+}
+
+# inject_last_verdict: the recorded line, or a stated "never recorded" so the
+# alarm never implies a classification it does not have.
+inject_last_verdict() {  # <state>
+  local f="$1/$INJECT_VERDICT_NAME"
+  if [ -r "$f" ]; then
+    head -1 "$f" 2>/dev/null
+  else
+    printf 'outcome=unrecorded composer=unknown busy=unknown busy_source=unknown\n'
+  fi
+}
+
+# Build the one batched, single-line digest from the escalation buffer.
+escalate_digest() {  # <state>
+  local state=$1 buf n msg
   buf="$state/.subsuper-escalations"
-  [ -s "$buf" ] || return 0
+  [ -s "$buf" ] || return 1
   n=$(wc -l < "$buf" 2>/dev/null || echo 0)
   # Join buffered items with the literal " | " separator into one digest line.
   msg=$(awk 'NR>1{printf " | "} {printf "%s",$0} END{print ""}' "$buf" 2>/dev/null)
   # Single-line wrapper: no embedded newlines (inject_msg also collapses as a
   # safety net, but keeping the source single-line makes the intent explicit).
-  msg=$(printf 'Supervisor escalate (%s event(s)): %s (pre-read; re-arm not needed — watcher daemon-managed)' "$n" "$msg")
-  if inject_msg "$msg" "$state"; then : > "$buf"; rm -f "${buf}.since" "$state/.subsuper-inject-wedged"; return 0; fi
+  printf 'Supervisor escalate (%s event(s)): %s (pre-read; re-arm not needed — watcher daemon-managed)' "$n" "$msg"
+}
+
+# Flush the escalation buffer as ONE batched, single-line digest to the
+# supervisor pane. Returns 0 on successful inject (or empty buffer), non-zero on
+# inject failure (buffer preserved for retry / catch-up). <mode> is passed
+# through to inject_msg: "normal" (default) defers on a busy pane, while
+# "busy-override" is housekeeping's bounded max-defer escape.
+escalate_flush() {  # <state> [mode]
+  local state=$1 mode=${2:-normal} buf msg
+  buf="$state/.subsuper-escalations"
+  [ -s "$buf" ] || return 0
+  msg=$(escalate_digest "$state") || return 0
+  if inject_msg "$msg" "$state" "$mode"; then
+    : > "$buf"
+    rm -f "${buf}.since" "$state/.subsuper-inject-wedged" "$state/$INJECT_FALLBACK_NAME"
+    return 0
+  fi
+  return 1
+}
+
+# --- durable fallback -------------------------------------------------------
+# When the pane cannot be proven to have accepted the digest inside the whole
+# max-defer window, the escalation stops depending on the pane at all and is
+# handed to the captain's own durable inbox (bin/fm-inbox.sh note).
+#
+# Why THAT inbox and not the per-task steering inbox: this escalation is
+# addressed to the primary firstmate session, and fm-inbox.sh note is the one
+# surface for that audience - it writes an atomic durable record and appends
+# exactly one `check` wake, so the digest is presented at the primary's next
+# turn boundary and stays pending until it is explicitly acknowledged. The
+# per-task inbox (bin/fm-task-inbox-lib.sh) addresses a spawned WORKER, keyed by
+# task id and acknowledged by that worker moving the record; it has no reader
+# for a message meant for the primary session and would strand the escalation.
+#
+# The fallback is ADDITIVE, not a handover: the escalation buffer is deliberately
+# left intact, so the pane path keeps retrying and still delivers the digest at
+# the next proven-idle moment. Losing the buffer to gain durability would trade
+# one guarantee for the other; keeping both costs at most one repeated reading of
+# an escalation the captain was told could not be delivered.
+#
+# Exactly one note per distinct digest: .subsuper-inject-fallback records the
+# fingerprint of what was handed off, so a wedge that survives many max-defer
+# windows does not queue the same note on each one. Buffering a NEW event changes
+# the fingerprint, and that new content is handed off in its turn. A confirmed
+# pane delivery clears the record with the buffer.
+#
+# Returns 0 when the digest is durable in the inbox (or already was), 1 when the
+# handoff failed, in which case the next window retries it.
+escalate_fallback_to_inbox() {  # <state>
+  local state=$1 buf marker msg fingerprint out
+  buf="$state/.subsuper-escalations"
+  marker="$state/$INJECT_FALLBACK_NAME"
+  [ -s "$buf" ] || return 0
+  msg=$(escalate_digest "$state") || return 0
+  fingerprint=$(_hash_text "$msg")
+  if [ "$(cat "$marker" 2>/dev/null || true)" = "$fingerprint" ]; then
+    return 0  # Already durable in the inbox; nothing new to hand off.
+  fi
+  msg=$(printf 'Away-mode escalation could not be delivered to your session (%s). %s' \
+    "$(inject_last_verdict "$state")" "$msg")
+  if out=$(FM_STATE_OVERRIDE="$state" "$FM_DAEMON_DIR/fm-inbox.sh" note - <<<"$msg" 2>&1); then
+    printf '%s\n' "$fingerprint" > "$marker" 2>/dev/null || true
+    log "inject fallback: digest handed to the durable captain inbox; it is presented at the next turn boundary ($(printf '%s' "$out" | head -1))"
+    return 0
+  fi
+  log "ERROR: inject fallback FAILED: the durable captain inbox rejected the digest ($(printf '%s' "$out" | tail -1)); the next max-defer window retries it"
   return 1
 }
 
@@ -945,8 +1109,13 @@ wedge_alarm_notify() {  # <summary> <marker>
 # is lost - the buffer and the
 # wake-queue both survive - but the stall stops being invisible.
 inject_wedge_alarm() {  # <state> <age-seconds>
-  local state=$1 age=$2 marker target backend max_defer now notify=1
+  local state=$1 age=$2 marker target backend max_defer now notify=1 seen
   marker="$state/.subsuper-inject-wedged"
+  # The last classification the delivery path actually saw. Without it the alarm
+  # says only that something is undelivered, which never told the captain
+  # whether their input box held text, the pane was mid-turn, or a stale
+  # rendered footer was matching forever.
+  seen=$(inject_last_verdict "$state")
   max_defer="${FM_MAX_DEFER_SECS:-$MAX_DEFER_SECS_DEFAULT}"
   # Re-alarm at most once per max-defer window so a long wedge does not spam.
   if [ "$(_file_age "$marker")" -lt "$max_defer" ]; then
@@ -957,10 +1126,11 @@ inject_wedge_alarm() {  # <state> <age-seconds>
     notify=0
   else
     WEDGE_ALARM_LAST_EPOCH=$now
-    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit (supervisor pane busy or wedged). Buffer + wake-queue preserved; alarm marker written."
+    log "ERROR: away-mode escalation undelivered ${age}s; inject could not confirm a submit ($seen). Buffer + wake-queue preserved; alarm marker written."
   fi
   {
     printf 'fm away-mode inject WEDGED: %ss undelivered as of %s\n' "$age" "$(date '+%Y-%m-%dT%H:%M:%S%z')"
+    printf 'Last delivery classification: %s\n' "$seen"
     printf 'The supervisor pane could not accept an escalation. Buffered items:\n'
     cat "$state/.subsuper-escalations" 2>/dev/null
   } 2>/dev/null > "$marker" || true
@@ -979,7 +1149,7 @@ inject_wedge_alarm() {  # <state> <age-seconds>
   # incident fell through. Configurable and best-effort; the marker above stays
   # the durable record whether or not any channel fires.
   if [ "$notify" -eq 1 ]; then
-    wedge_alarm_notify "away-mode escalations WEDGED ${age}s undelivered - see $marker" "$marker"
+    wedge_alarm_notify "away-mode escalations WEDGED ${age}s undelivered ($seen) - see $marker" "$marker"
   fi
 }
 
@@ -998,9 +1168,11 @@ _oldest_line_age() {  # <buf> -> seconds since the oldest buffered item first ar
 # Four cheap jobs, each guarded so an empty/quiet fleet costs near zero:
 #  1) batch flush: if the escalation buffer's oldest content is older than
 #     ESCALATE_BATCH_SECS (or batching is disabled), inject one digest.
-#  1b) max-defer escape: if the buffer is STILL undelivered past MAX_DEFER_SECS,
-#     attempt one normal delivery; if it cannot confirm, raise the wedge alarm.
-#     Never silently defer forever.
+#  1b) max-defer ladder: if the buffer is STILL undelivered past MAX_DEFER_SECS,
+#     attempt one normal delivery; against a continuously busy pane attempt one
+#     more with a fresh composer classification; and if neither can confirm,
+#     raise the wedge alarm and hand the digest to the durable captain inbox.
+#     Never silently defer forever, and never wait on the pane forever.
 #  2) stale recheck: for each pending stale marker past STALE_ESCALATE_SECS,
 #     re-peek the pane; still idle -> escalate (wedge); resumed -> clear marker.
 #  2b) pause re-surface: for each declared-wait marker past PAUSE_RESURFACE_SECS,
@@ -1038,8 +1210,16 @@ housekeeping() {  # <state>
       if escalate_flush "$state"; then
         log "inject recovered: max-defer flush succeeded after ${oldest}s undelivered"
         rm -f "$state/.subsuper-inject-wedged"
+      elif inject_continuously_busy "$state" && escalate_flush "$state" busy-override; then
+        # The busy guard, not the composer, was holding the digest: a fresh
+        # classification proved the box empty and the digest landed.
+        log "inject recovered: max-defer busy-override flush succeeded after ${oldest}s undelivered"
+        rm -f "$state/.subsuper-inject-wedged"
       else
+        # Both bounded attempts are spent. Alarm FIRST, so the marker still
+        # lists the buffered items, then stop depending on the pane at all.
         inject_wedge_alarm "$state" "$oldest"
+        escalate_fallback_to_inbox "$state" || true
       fi
     fi
   fi
@@ -1206,9 +1386,14 @@ window_for_task() {  # <task-key> [state]
 #     after dim/faint ghost text and borders are ignored (a human's half-typed
 #     line, or a previous injection's unsent text), defer entirely - injecting
 #     would merge with the human's text.
-inject_msg() {  # <message> [state]
-  local msg=$1 state target backend retries sleep_s verdict composer encoded
+inject_msg() {  # <message> [state] [mode]
+  local msg=$1 state mode target backend retries sleep_s verdict composer encoded
+  local busy_state busy_source busy_age
   state="${2:-$(_state_root)}"
+  # mode: "normal" applies the busy guard as a hard defer; "busy-override" is
+  # the bounded max-defer escape that re-reads the composer instead of stopping
+  # at a busy pane. Only housekeeping's max-defer ladder passes the override.
+  mode="${3:-normal}"
   # (1) Presence-gate: inject ONLY when afk is active. When afk is off, the
   # daemon self-handles and stays quiet; firstmate drives the normal always-on
   # watcher triage. Escalations buffer and survive for the next catch-up flush.
@@ -1228,10 +1413,31 @@ inject_msg() {  # <message> [state]
   # discovery), matching this function's pre-existing default assumption.
   backend="${FM_SUPERVISOR_BACKEND:-tmux}"
   fm_backend_target_exists "$backend" "$target" || return 1
-  # (3) Busy-guard: never inject into an in-use supervisor pane.
+  # (3) Busy-guard: never inject into an in-use supervisor pane. The verdict now
+  # carries its source (PANE_BUSY_SOURCE) so a deferral records what actually
+  # held the digest back and so the continuously-busy clock below can age.
+  PANE_BUSY_SOURCE=unknown
   if pane_is_busy "$target" "$backend"; then
-    log "inject deferred: supervisor pane busy (agent mid-turn)"
-    return 1
+    busy_state=busy; busy_source=$PANE_BUSY_SOURCE
+    inject_busy_since_start "$state"
+    busy_age=$(_file_age "$state/$INJECT_BUSY_SINCE_NAME")
+    if [ "$mode" != busy-override ]; then
+      inject_record_verdict "$state" "$mode" deferred-busy "not-read" "$busy_state" "$busy_source"
+      log "inject deferred: supervisor pane busy (agent mid-turn; busy source=$busy_source, continuously busy ${busy_age}s)"
+      return 1
+    fi
+    # Max-defer escape. The busy verdict is a HEURISTIC precaution; the composer
+    # verdict below is the authoritative one. A pane that has been continuously
+    # busy longer than the whole defer window is the case where that heuristic
+    # is most likely wrong (a completed turn's footer still sitting in the
+    # scrollback), so re-read the composer FRESH rather than stopping here. The
+    # composer guard is not relaxed: only a proven-empty box is typed into.
+    log "inject max-defer override: pane read busy for ${busy_age}s (source=$busy_source); re-reading the composer instead of deferring again"
+  else
+    busy_state=idle; busy_source=$PANE_BUSY_SOURCE
+    # Any not-busy read ends the continuously-busy run, so the override arm can
+    # only ever fire against a pane that never once read free.
+    inject_busy_since_clear "$state"
   fi
   #   b) Composer-guard: inject ONLY into a confirmed-empty GENUINE agent
   #      composer. The shared classifier (fm_backend_composer_state ->
@@ -1244,6 +1450,7 @@ inject_msg() {  # <message> [state]
   #      stays buffered for the next cycle or the catch-up flush.
   composer=$(fm_backend_composer_state "$backend" "$target" 2>/dev/null)
   if [ "$composer" != empty ]; then
+    inject_record_verdict "$state" "$mode" deferred-composer "${composer:-unknown}" "$busy_state" "$busy_source"
     log "inject deferred: supervisor composer not confirmed-empty (state=${composer:-unknown}: pending input, dead-shell prompt, or unreadable pane)"
     return 1
   fi
@@ -1258,8 +1465,11 @@ inject_msg() {  # <message> [state]
   sleep_s=${FM_INJECT_CONFIRM_SLEEP:-$INJECT_CONFIRM_SLEEP_DEFAULT}
   verdict=$(fm_backend_send_text_submit "$backend" "$target" "$msg" "$retries" "$sleep_s" "$sleep_s")
   if [ "$verdict" = empty ]; then
+    inject_busy_since_clear "$state"
+    rm -f "$state/$INJECT_VERDICT_NAME"
     return 0  # Backend confirmed the submit.
   fi
+  inject_record_verdict "$state" "$mode" "submit-$verdict" "$composer" "$busy_state" "$busy_source"
   if [ "$verdict" = target-missing ]; then
     # The backend proved the supervisor endpoint is gone. Nothing is sitting in
     # a composer waiting to be submitted, and no retry can reach it.

@@ -2008,6 +2008,266 @@ test_max_defer_afk_inactive_does_not_flush_or_alarm() {
   pass "max-defer does not flush or alarm while afk is inactive"
 }
 
+# --- max-defer against a continuously busy captain pane ---------------------
+# The reported failure: the captain's pane keeps matching a rendered busy
+# footer - a completed turn's "… (12s · ↑ 3.1k tokens)" row still sitting in the
+# scrollback - while its input box is genuinely empty. The busy guard then
+# deferred every flush, so the digest sat undelivered for a whole night and the
+# captain's own order was never read. These cases drive that pane shape through
+# housekeeping, the daemon's own entry point, with synthetic captures.
+
+# A capture whose tail still matches claude's busy footer while the composer box
+# below it is empty; <composer-text> fills that box (empty means an idle box).
+make_busy_pane_case() {  # <name> <composer-text>
+  local name=$1 text=$2 dir cap
+  dir=$(make_supercase "$name")
+  cap="$dir/pane.txt"
+  {
+    printf '● Read the config and applied the change.\n'
+    printf '  ⎿  Wrote 3 files … (12s · ↑ 3.1k tokens)\n'
+    printf '╭──────────────────────────────────────────╮\n'
+    printf '│ > %-38s │\n' "$text"
+    printf '╰──────────────────────────────────────────╯\n'
+  } > "$cap"
+  printf '%s\n' "$dir"
+}
+
+# The cursor sits on the composer row of make_busy_pane_case's capture.
+BUSY_PANE_CURSOR_Y=3
+
+test_max_defer_busy_pane_with_empty_composer_delivers() {
+  local dir state fakebin sent
+  dir=$(make_busy_pane_case maxdefer-busy-empty "")
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+    FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+
+  grep -F 'compact at 400k context' "$sent" >/dev/null \
+    || fail "a digest held only by a stale busy footer was never delivered: $(cat "$sent")"
+  [ "$(grep -c '\[ENTER\]' "$sent")" -eq 1 ] || fail "expected exactly one submitted Enter"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after the recovered delivery"
+  [ ! -e "$state/.subsuper-inject-wedged" ] || fail "a recovered delivery still left a wedge alarm behind"
+  pass "max-defer re-reads the composer and delivers to a pane that only LOOKS busy"
+}
+
+test_max_defer_busy_pane_with_pending_composer_never_types() {
+  local dir state fakebin sent alarm
+  dir=$(make_busy_pane_case maxdefer-busy-pending "compact at 400k when you")
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  alarm="$dir/alarm.log"; : > "$alarm"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  # The alarm's once-per-window notify throttle is process state shared by every
+  # case in this file; reset it so this case exercises a real first alarm.
+  WEDGE_ALARM_LAST_EPOCH=0
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+    FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+    FM_WEDGE_ALARM_LOG="$alarm" FM_WEDGE_ALARM_CHANNEL=osascript \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+
+  [ ! -s "$sent" ] || fail "the max-defer override typed into a composer holding the captain's own text: $(cat "$sent")"
+  grep -F 'compact at 400k when you' "$dir/pane.txt" >/dev/null \
+    || fail "the captain's pending text was disturbed"
+  [ -s "$state/.subsuper-inject-wedged" ] || fail "an undeliverable digest raised no wedge alarm"
+  assert_contains "$(cat "$state/.subsuper-inject-wedged")" "composer=pending" \
+    "the wedge alarm marker did not name the composer verdict it saw"
+  assert_contains "$(cat "$state/.subsuper-inject-wedged")" "busy_source=rendered" \
+    "the wedge alarm marker did not name the busy source it saw"
+  assert_contains "$(cat "$alarm")" "composer=pending" \
+    "the active wedge alert did not carry the composer verdict"
+  pass "max-defer never types into a pending composer and the alarm names what it saw"
+}
+
+test_max_defer_undelivered_digest_lands_in_the_durable_inbox() {
+  local dir state fakebin sent notes queue
+  dir=$(make_busy_pane_case maxdefer-durable-fallback "half typed captain line")
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+    FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+
+  notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$notes" -eq 1 ] || fail "an undeliverable digest did not land in the durable inbox (notes=$notes)"
+  grep -rF 'compact at 400k context' "$state/inbox" >/dev/null \
+    || fail "the durable note does not carry the escalation"
+  queue=$(cat "$state/.wake-queue" 2>/dev/null || true)
+  assert_contains "$queue" "check" "the durable note queued no wake to present it at the next turn boundary"
+  assert_contains "$queue" "captain inbox note" "the queued wake does not point at the durable note"
+  [ -s "$state/.subsuper-escalations" ] \
+    || fail "the buffer was dropped; the pane path must still deliver at the next idle moment"
+  pass "an undeliverable digest lands in the durable inbox and is queued for the next turn boundary"
+}
+
+test_max_defer_fallback_queues_one_note_per_digest() {
+  local dir state fakebin sent notes
+  dir=$(make_busy_pane_case maxdefer-fallback-once "half typed captain line")
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+
+  local i
+  for i in 1 2 3; do
+    # Age the wedge marker so each pass is a fresh max-defer window rather than
+    # a throttled repeat of the first.
+    [ -e "$state/.subsuper-inject-wedged" ] \
+      && touch -d "@$(( $(date +%s) - 30000 ))" "$state/.subsuper-inject-wedged"
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+      FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+      FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+      housekeeping "$state"
+  done
+  notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$notes" -eq 1 ] || fail "a surviving wedge queued a durable note on every window (notes=$notes)"
+
+  # A NEW buffered event is new content and must become durable in its turn.
+  escalate_add "$state" "blocked: credentials expired"
+  touch -d "@$(( $(date +%s) - 30000 ))" "$state/.subsuper-inject-wedged"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+    FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+    FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+    housekeeping "$state"
+  notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$notes" -eq 2 ] || fail "a newly buffered event never became durable (notes=$notes)"
+  grep -rF 'credentials expired' "$state/inbox" >/dev/null \
+    || fail "the second note does not carry the new event"
+  pass "the durable fallback queues one note per distinct digest, and new events get their own"
+}
+
+test_fallback_that_cannot_reach_the_inbox_keeps_everything() {
+  # If the durable handoff itself fails there is nowhere safe to put the
+  # escalation, so nothing may be marked handed off and nothing may be dropped.
+  local dir state
+  dir=$(make_supercase fallback-inbox-unreachable)
+  state="$dir/state"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  afk_enter "$state"
+
+  if FM_DAEMON_DIR=/nonexistent escalate_fallback_to_inbox "$state"; then
+    fail "an unreachable durable inbox reported a successful handoff"
+  fi
+  [ -s "$state/.subsuper-escalations" ] || fail "the escalation was dropped when the handoff failed"
+  [ ! -e "$state/.subsuper-inject-fallback" ] \
+    || fail "a failed handoff was recorded as durable, which would suppress every retry"
+  pass "a failed durable handoff keeps the escalation and never records itself as done"
+}
+
+test_busy_override_requires_a_continuously_busy_pane() {
+  # A pane that read free at any point in the window is not the case the
+  # override exists for: the ordinary busy guard must still be the one in force.
+  local dir state fakebin sent
+  dir=$(make_busy_pane_case maxdefer-not-continuous "")
+  state="$dir/state"; fakebin="$dir/fakebin"
+  sent="$dir/sent.log"; : > "$sent"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  (
+    # Busy on every read, but the continuously-busy run was already broken.
+    pane_is_busy() { PANE_BUSY_SOURCE=rendered; return 0; }
+    rm -f "$state/.subsuper-inject-busy-since"
+    inject_busy_since_start() { :; }
+    PATH="$fakebin:$PATH" FM_FAKE_TMUX_PANE_ALIVE=1 FM_FAKE_TMUX_SENT="$sent" \
+      FM_FAKE_TMUX_CAPTURE="$dir/pane.txt" FM_FAKE_TMUX_CURSOR_Y="$BUSY_PANE_CURSOR_Y" \
+      FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
+      housekeeping "$state"
+  ) || fail "housekeeping subshell failed"
+  [ ! -s "$sent" ] || fail "the override fired against a pane that was not continuously busy"
+  [ -s "$state/.subsuper-escalations" ] || fail "buffer lost without a delivery"
+  pass "the max-defer override fires only against a continuously busy pane"
+}
+
+test_pane_busy_verdict_names_its_source() {
+  local dir fakebin cap
+  dir=$(make_supercase busy-verdict-source); fakebin="$dir/fakebin"; cap="$dir/pane.txt"
+
+  printf 'thinking… (12s · ↑ 3.1k tokens)\n' > "$cap"
+  [ "$(PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$cap" pane_busy_verdict fakepane)" = "busy rendered" ] \
+    || fail "a rendered busy footer was not reported as source 'rendered'"
+
+  printf 'nothing here but transcript\n' > "$cap"
+  [ "$(PATH="$fakebin:$PATH" FM_FAKE_TMUX_CAPTURE="$cap" pane_busy_verdict fakepane)" = "idle rendered-none" ] \
+    || fail "a quiet pane was not reported as source 'rendered-none'"
+
+  (
+    fm_backend_busy_state() { printf 'busy'; }
+    [ "$(pane_busy_verdict "default:w1:p2" herdr)" = "busy native" ] \
+      || fail "a native backend busy state was not reported as source 'native'"
+  ) || fail "native busy source subshell failed"
+
+  (
+    fm_backend_busy_state() { printf 'unknown'; }
+    fm_backend_capture() { return 1; }
+    [ "$(pane_busy_verdict "default:w1:p2" herdr)" = "idle capture-failed" ] \
+      || fail "an unreadable pane was not reported as source 'capture-failed'"
+  ) || fail "capture-failed source subshell failed"
+
+  pass "pane_busy_verdict names which signal produced the busy verdict"
+}
+
+test_max_defer_busy_override_delivers_on_herdr_backend() {
+  # The same ladder on the other supported supervisor backend, where the busy
+  # verdict comes from herdr's native agent-state row rather than a footer.
+  local dir state submitted
+  dir=$(make_supercase maxdefer-herdr-override)
+  state="$dir/state"; submitted="$dir/submitted"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  (
+    fm_backend_target_exists() { return 0; }
+    fm_backend_busy_state() { printf 'busy'; }
+    fm_backend_composer_state() { printf 'empty'; }
+    fm_backend_send_text_submit() { printf '%s\n' "$3" > "$submitted"; printf 'empty'; }
+    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" \
+      FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 housekeeping "$state"
+  ) || fail "herdr housekeeping subshell failed"
+  grep -F 'compact at 400k context' "$submitted" >/dev/null 2>&1 \
+    || fail "the herdr override never delivered the digest"
+  [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after the herdr delivery"
+  pass "max-defer override delivers through the herdr supervisor backend too"
+}
+
+test_max_defer_herdr_pending_composer_never_types_and_falls_back() {
+  local dir state notes
+  dir=$(make_supercase maxdefer-herdr-pending)
+  state="$dir/state"
+  escalate_add "$state" "needs-decision: compact at 400k context"
+  echo $(( $(date +%s) - 30000 )) > "$state/.subsuper-escalations.since"
+  afk_enter "$state"
+  (
+    fm_backend_target_exists() { return 0; }
+    fm_backend_busy_state() { printf 'busy'; }
+    fm_backend_composer_state() { printf 'pending'; }
+    fm_backend_send_text_submit() { fail "the herdr override typed into a pending composer"; }
+    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" \
+      FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 housekeeping "$state"
+  ) || fail "herdr pending housekeeping subshell failed"
+  assert_contains "$(cat "$state/.subsuper-inject-wedged")" "busy_source=native" \
+    "the herdr wedge alarm did not name the native busy source"
+  notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' 2>/dev/null | wc -l | tr -d ' ')
+  [ "$notes" -eq 1 ] || fail "the herdr fallback did not reach the durable inbox (notes=$notes)"
+  pass "the herdr backend never types into a pending composer and falls back durably"
+}
+
 # --- backend-independent active wedge alert ---------------------------------
 # These cover the 2026-07-10 overnight-incident fix: the max-defer wedge alarm's
 # ACTIVE alert channel must reach the captain even when the wedged pane and its
@@ -2703,6 +2963,15 @@ test_max_defer_pending_composer_alarms_without_typing
 test_normal_flush_clears_stale_wedge_marker
 test_below_max_defer_does_nothing
 test_max_defer_afk_inactive_does_not_flush_or_alarm
+test_max_defer_busy_pane_with_empty_composer_delivers
+test_max_defer_busy_pane_with_pending_composer_never_types
+test_max_defer_undelivered_digest_lands_in_the_durable_inbox
+test_max_defer_fallback_queues_one_note_per_digest
+test_fallback_that_cannot_reach_the_inbox_keeps_everything
+test_busy_override_requires_a_continuously_busy_pane
+test_pane_busy_verdict_names_its_source
+test_max_defer_busy_override_delivers_on_herdr_backend
+test_max_defer_herdr_pending_composer_never_types_and_falls_back
 test_wedge_alarm_library_mode_defaults_to_discard
 test_wake_helpers_replace_inherited_notifier_override
 test_wedge_alarm_discard_seam_fires_nothing
