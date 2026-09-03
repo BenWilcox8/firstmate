@@ -18,7 +18,7 @@ TMP_ROOT=$(fm_test_tmproot fm-spawn-dispatch-profile)
 # Overridable through the same FM_TEST_BASE_PATH seam the other suites use, so a
 # non-FHS system (NixOS and friends, where /usr/bin holds only env) can supply
 # its own real tool directories instead of failing on absent /bin.
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 make_spawn_pi_probe() {
   local fakebin=$1 tool=$2
   cat > "$fakebin/$tool" <<'SH'
