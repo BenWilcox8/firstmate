@@ -47,8 +47,34 @@ test_oversized_backlog_still_summarizes() {
   printf '%s' "$out" | jq -e '.schema == "fm-secondmate-home-summary.v1"' >/dev/null \
     || fail "secondmate-home-summary did not emit the expected schema: $out"
   pass "secondmate-home-summary handles a backlog larger than ARG_MAX without an argument-list failure"
+
+  # The default snapshot is the path bearings, the fleet view and the parent's
+  # own inventory all take, and it builds the same two documents through
+  # different jq calls. Covering only the summary mode would leave the common
+  # path free to keep passing the backlog on the argument list.
+  out=$(FM_HOME="$home" "$SNAPSHOT" --json 2>"$TMP_ROOT/err-json"); rc=$?
+  [ "$rc" -eq 0 ] \
+    || fail "the default snapshot failed on an oversized backlog (rc=$rc): $(cat "$TMP_ROOT/err-json")"
+  printf '%s' "$out" | jq -e '.schema == "fm-fleet-snapshot.v1" and (.backlog.records | length) == 5' >/dev/null \
+    || fail "the default snapshot did not emit the expected document on an oversized backlog"
+  pass "the default fleet snapshot handles a backlog larger than ARG_MAX too"
+}
+
+# The whole point of reading these documents from files is that nothing is left
+# behind afterwards; a leak would be invisible until a disk filled up.
+test_oversized_run_leaves_no_working_files() {
+  local home before after
+  home="$TMP_ROOT/home"
+  before=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'fm-fleet-snapshot.*' 2>/dev/null | wc -l)
+  FM_HOME="$home" "$SNAPSHOT" --json >/dev/null 2>&1 \
+    || fail "the default snapshot failed while checking working-file cleanup"
+  after=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'fm-fleet-snapshot.*' 2>/dev/null | wc -l)
+  [ "$before" -eq "$after" ] \
+    || fail "the snapshot left its working directory behind (before=$before after=$after)"
+  pass "the snapshot removes the working files it materialized"
 }
 
 test_oversized_backlog_still_summarizes
+test_oversized_run_leaves_no_working_files
 
 echo "ALL TESTS PASSED"
