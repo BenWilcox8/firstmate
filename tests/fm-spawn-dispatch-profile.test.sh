@@ -13,12 +13,6 @@ set -u
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-dispatch-profile)
 
-# The minimal system PATH used by the "binary is missing" case below, which must
-# exclude the fakebin stub without also losing the ordinary tools fm-spawn calls.
-# Overridable through the same FM_TEST_BASE_PATH seam the other suites use, so a
-# non-FHS system (NixOS and friends, where /usr/bin holds only env) can supply
-# its own real tool directories instead of failing on absent /bin.
-BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 make_spawn_pi_probe() {
   local fakebin=$1 tool=$2
   cat > "$fakebin/$tool" <<'SH'
@@ -124,22 +118,6 @@ assert_meta_profile() {
   assert_grep "effort=$effort" "$meta" "meta missing effort=$effort"
 }
 
-test_retired_mode_flag_refuses_before_spawn_side_effects() {
-  local rec id out status retired_flag
-  id=retired-mode-flag-z0
-  rec=$(make_spawn_case retired-mode-flag pi "$id")
-  read_case_record "$rec"
-  retired_flag=$(printf '%s%s' '--ultra' 'code')
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" "$retired_flag")
-  status=$?
-  expect_code 1 "$status" "retired mode flag must refuse"
-  assert_contains "$out" "unknown option '$retired_flag'" "spawn did not name the unsupported option"
-  assert_absent "$HOME_DIR/state/$id.meta" "retired mode flag wrote task metadata"
-  [ ! -s "$LAUNCH_LOG" ] || fail "retired mode flag typed a worker launch"
-  pass "retired mode flag refuses before spawn metadata or worker launch"
-}
-
 test_no_profile_keeps_claude_profile_defaults() {
   local rec id out status expected launch
   id=profile-off-z1
@@ -153,17 +131,9 @@ test_no_profile_keeps_claude_profile_defaults() {
   assert_meta_profile "$HOME_DIR/state/$id.meta" claude default default
 
   launch=$(cat "$LAUNCH_LOG")
-  # With no --session-name, a crewmate defaults its session name to the task id
-  # (AGENTS.md task lifecycle / spawn), so claude receives --name '<id>'; the
-  # brief still goes through the canonical operational-input launch encoder, and
-  # the rest of the launch is unchanged by the absent --model/--effort flags.
-  # Two env prefixes now wrap every firstmate-launched claude agent: the outer one
-  # is the claude session-persistence fix (owned by
-  # tests/fm-spawn-claude-persistence.test.sh) and the inner one strips the
-  # Cursor markers a cursor-hosted firstmate would otherwise leak into the pane.
-  expected="env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions --name '$id' \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/brief.md')\""
-  [ "$launch" = "$expected" ] || fail "no-profile claude launch changed or did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
-  pass "no --model/--effort records defaults, keeps the default --name, and types the claude launch instructions"
+  expected="env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude --dangerously-skip-permissions \"\$('${ROOT}/bin/fm-operational-input.sh' encode launch-brief < '$HOME_DIR/data/$id/launch-brief.md')\""
+  [ "$launch" = "$expected" ] || fail "no-profile claude launch did not use the canonical launch kind"$'\n'"expected: $expected"$'\n'"actual:   $launch"
+  pass "no --model/--effort records defaults and types the claude launch instructions"
 }
 
 test_non_cursor_launch_clears_inherited_cursor_markers() {
@@ -206,7 +176,7 @@ test_relative_home_overrides_launch_with_absolute_cross_process_paths() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$home_real/state/$id.pi-ext.ts'" \
     "relative FM_STATE_OVERRIDE leaked into Pi's cross-process extension path"
-  assert_contains "$launch" "< '$home_real/data/$id/brief.md'" \
+  assert_contains "$launch" "< '$home_real/data/$id/launch-brief.md'" \
     "relative FM_DATA_OVERRIDE leaked into the cross-process brief path"
   pass "relative home overrides ignore CDPATH and become absolute before spawn launch construction"
 }
@@ -235,7 +205,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$home_real/state/$relative_id.pi-ext.ts'" \
     "relative FM_HOME leaked into Pi's default cross-process extension path"
-  assert_contains "$launch" "< '$home_real/data/$relative_id/brief.md'" \
+  assert_contains "$launch" "< '$home_real/data/$relative_id/launch-brief.md'" \
     "relative FM_HOME leaked into the default cross-process brief path"
 
   linked_home="$CASE_DIR/home-link"
@@ -255,7 +225,7 @@ test_home_defaults_preserve_absolute_or_resolve_relative_paths() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$linked_home/state/$absolute_id.pi-ext.ts'" \
     "absolute FM_HOME spelling changed in Pi's default cross-process extension path"
-  assert_contains "$launch" "< '$linked_home/data/$absolute_id/brief.md'" \
+  assert_contains "$launch" "< '$linked_home/data/$absolute_id/launch-brief.md'" \
     "absolute FM_HOME spelling changed in the default cross-process brief path"
   pass "FM_HOME defaults resolve relative paths and preserve absolute spellings"
 }
@@ -283,7 +253,7 @@ test_absolute_override_spelling_is_preserved_in_launch_paths() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "-e '$linked_home/state/$id.pi-ext.ts'" \
     "absolute FM_STATE_OVERRIDE spelling changed in Pi's cross-process extension path"
-  assert_contains "$launch" "< '$linked_home/data/$id/brief.md'" \
+  assert_contains "$launch" "< '$linked_home/data/$id/launch-brief.md'" \
     "absolute FM_DATA_OVERRIDE spelling changed in the cross-process brief path"
   pass "absolute override spellings are preserved in spawn launch paths"
 }
@@ -703,7 +673,7 @@ test_pi_signed_missing_binary_refuses_before_endpoint_or_metadata() {
     FM_STATE_OVERRIDE="$HOME_DIR/state" FM_DATA_OVERRIDE="$HOME_DIR/data" \
     FM_PROJECTS_OVERRIDE="$HOME_DIR/projects" FM_CONFIG_OVERRIDE="$HOME_DIR/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$WT_DIR" TMUX="fake,1,0" \
-    FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" PATH="$FAKEBIN_DIR:$BASE_PATH" \
+    FM_FAKE_LAUNCH_LOG="$LAUNCH_LOG" PATH="$FAKEBIN_DIR:/usr/bin:/bin:/usr/sbin:/sbin" \
     "$SPAWN" "$id" "$PROJ_DIR" --mode no-mistakes --yolo off 2>&1)
   status=$?
   expect_code 1 "$status" "a missing pi-signed executable should refuse the spawn"
@@ -766,7 +736,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CONFIG_DIR='/opt/test/claude-work' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -822,142 +792,6 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
-
-# --- claude account pinning through cswap -----------------------------------
-#
-# The account pin is resolved through a fake cswap selected with FM_CSWAP_BIN,
-# so these tests pin the launch contract without a live credential, a network
-# call, or any account switch.
-
-CSWAP_ACCOUNTS_JSON='{"schemaVersion":1,"activeAccountNumber":1,"accounts":[
-  {"number":1,"email":"one@example.com","alias":"primary","active":true},
-  {"number":2,"email":"two@example.com","alias":"parent","active":false}]}'
-
-make_fake_cswap() {
-  local path=$1
-  cat > "$path" <<'SH'
-#!/usr/bin/env bash
-set -u
-[ -z "${FM_FAKE_CSWAP_OUT:-}" ] || printf '%s\n' "$FM_FAKE_CSWAP_OUT"
-exit 0
-SH
-  chmod +x "$path"
-  printf '%s\n' "$path"
-}
-
-test_claude_account_pin_launches_through_cswap() {
-  local rec id out status launch cswap
-  id=account-pin-c1
-  rec=$(make_spawn_case account-pin claude "$id")
-  read_case_record "$rec"
-  cswap=$(make_fake_cswap "$CASE_DIR/cswap")
-
-  # A firstmate-side CLAUDE_CONFIG_DIR is deliberately set here: cswap picks the
-  # account's own store, so a pinned launch must not also carry a config-dir
-  # prefix for cswap to override.
-  out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    FM_TEST_CLAUDE_CONFIG_DIR="/opt/test/claude-work" \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --account parent)
-  status=$?
-  expect_code 0 "$status" "a claude spawn with a resolvable account pin should succeed"
-  assert_contains "$out" "spawned $id harness=claude account=parent" \
-    "the spawn line should name the pinned account"
-  assert_grep "account=parent" "$HOME_DIR/state/$id.meta" \
-    "the pinned account should be recorded in the task's durable record"
-
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false cswap run '2' -- --dangerously-skip-permissions" \
-    "a pinned claude launch should run through cswap's per-terminal path"
-  assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
-    "a pinned launch must not also set a config dir for cswap to override"
-  assert_contains "$launch" "encode launch-brief" \
-    "a pinned launch should still deliver the brief through the canonical encoder"
-  pass "a pinned claude spawn launches through cswap and records the account it resolved"
-}
-
-test_claude_account_pin_accepts_slot_number_and_email() {
-  local rec id out status launch cswap
-  id=account-pin-num-c2
-  rec=$(make_spawn_case account-pin-num claude "$id" account-pin-email-c3)
-  read_case_record "$rec"
-  cswap=$(make_fake_cswap "$CASE_DIR/cswap")
-
-  out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --account 2)
-  status=$?
-  expect_code 0 "$status" "a slot-number account pin should succeed"
-  assert_contains "$out" "account=parent" "a slot-number pin should resolve to its canonical alias"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "cswap run '2' --" "a slot-number pin should launch on that slot"
-
-  id=account-pin-email-c3
-  out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --account one@example.com)
-  status=$?
-  expect_code 0 "$status" "an email account pin should succeed"
-  assert_contains "$out" "account=primary" "an email pin should resolve to its canonical alias"
-  launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "cswap run '1' --" "an email pin should launch on that account's slot"
-  pass "an account pin may be a slot number, an alias, or an email"
-}
-
-test_unknown_claude_account_refuses_before_endpoint_or_metadata() {
-  local rec id out status cswap
-  id=account-unknown-c4
-  rec=$(make_spawn_case account-unknown claude "$id")
-  read_case_record "$rec"
-  cswap=$(make_fake_cswap "$CASE_DIR/cswap")
-
-  out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --account nosuchaccount)
-  status=$?
-  [ "$status" -ne 0 ] || fail "an unknown account pin must not spawn"
-  assert_contains "$out" "unknown Claude account 'nosuchaccount'" \
-    "an unknown account should be named in the refusal"
-  [ ! -f "$HOME_DIR/state/$id.meta" ] \
-    || fail "an unknown account pin must refuse before any task record is written"
-  [ ! -s "$LAUNCH_LOG" ] || fail "an unknown account pin must refuse before any launch is typed"
-  pass "an unknown account pin refuses before any worker, record, or launch exists"
-}
-
-test_account_pin_rejected_for_non_claude_harness() {
-  local rec id out status cswap
-  id=account-nonclaude-c5
-  rec=$(make_spawn_case account-nonclaude codex "$id")
-  read_case_record "$rec"
-  cswap=$(make_fake_cswap "$CASE_DIR/cswap")
-
-  out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --account parent)
-  status=$?
-  [ "$status" -ne 0 ] || fail "an account pin on a non-claude harness must not spawn"
-  assert_contains "$out" "--account applies only to claude-harness spawns" \
-    "the refusal should say the pin is claude-only"
-  pass "an account pin is refused on a harness that has no Claude account to pin"
-}
-
-test_unpinned_claude_spawn_records_no_account() {
-  local rec id out status
-  id=account-unpinned-c6
-  rec=$(make_spawn_case account-unpinned claude "$id")
-  read_case_record "$rec"
-
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
-  status=$?
-  expect_code 0 "$status" "an unpinned claude spawn should succeed"
-  assert_not_contains "$out" "account=" "an unpinned spawn should not claim an account"
-  assert_no_grep "account=" "$HOME_DIR/state/$id.meta" \
-    "an unpinned spawn should write no account line"
-  assert_not_contains "$(cat "$LAUNCH_LOG")" "cswap" \
-    "an unpinned spawn should launch claude directly on whatever account is active"
-  pass "an unpinned claude spawn rides the active account and records no account"
-}
-test_retired_mode_flag_refuses_before_spawn_side_effects
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths
@@ -989,10 +823,5 @@ test_claude_forwards_firstmate_config_dir_when_set
 test_claude_omits_config_dir_prefix_when_unset
 test_non_claude_harness_ignores_config_dir
 test_active_dispatch_profile_does_not_block_secondmate_launch
-test_claude_account_pin_launches_through_cswap
-test_claude_account_pin_accepts_slot_number_and_email
-test_unknown_claude_account_refuses_before_endpoint_or_metadata
-test_account_pin_rejected_for_non_claude_harness
-test_unpinned_claude_spawn_records_no_account
 
 echo "# all fm-spawn-dispatch-profile tests passed"
