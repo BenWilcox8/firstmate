@@ -328,7 +328,7 @@ unit_herdr_partial_create_recovery() {
   local st recorded
   st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-partial.XXXXXX")
   recorded="$st/recorded"
-  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_LAUNCH_ENTRY=/bin/true \
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_LAUNCH_ENTRY="$(fm_test_tool true)" \
     FM_AFK_LAUNCH_LABEL=afk-exact-label RECORDED="$recorded" bash -c '
     . "$1"
     fm_backend_source() { return 0; }
@@ -513,7 +513,7 @@ unit_native_entry_preserves_prepared_state() {
   : > "$st/state/.subsuper-escalations"
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_STATE_PREPARED=1 bash -c '
     . "$1"
-    FM_AFK_DAEMON=/bin/true
+    FM_AFK_DAEMON="$(fm_test_tool true)"
     fm_afk_start_main
   ' _ "$START" >/dev/null 2>&1
   if [ -e "$st/state/.afk" ] && [ -e "$st/state/.subsuper-escalations" ]; then

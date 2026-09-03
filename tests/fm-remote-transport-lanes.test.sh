@@ -65,24 +65,24 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 # Appends its tag to a shared log, then optionally sleeps: the log order is the
 # observable execution order.
 cat > "$REMOTE_ROOT/bin/fm-mark-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf '%s\n' "$1" >> "$2"
 sleep "${3:-0}"
 SH
 cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'ran\n' > "$1"
 SH
 # Marks its start, sleeps, then marks completion: cancellation must leave the
 # start marker without the completion marker.
 cat > "$REMOTE_ROOT/bin/fm-two-phase-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'started\n' > "$1"
 sleep "$3"
 printf 'finished\n' > "$2"
 SH
 cat > "$REMOTE_ROOT/bin/fm-stdin-probe.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 SH
 chmod +x "$REMOTE_ROOT/bin"/*.sh

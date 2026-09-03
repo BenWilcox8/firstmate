@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # Long-lived per-account worker for remote fm-on jobs.
 #
 # This process is launched by the Firstmate-owned dev.firstmate.remote-job

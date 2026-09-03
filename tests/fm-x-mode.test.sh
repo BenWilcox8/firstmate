@@ -427,8 +427,9 @@ test_poll_inbox_commit_failure_reports_error() {
   local home fakebin out rc body
   home="$TMP_ROOT/poll-mv-fail"; mkdir -p "$home"
   fakebin=$(make_fake_curl "$home")
-  cat > "$fakebin/mv" <<'SH'
-#!/usr/bin/env bash
+  # This fake shadows `mv` on PATH, so it must reach the real one by absolute
+  # path rather than assuming /bin/mv, which does not exist on hosts like NixOS.
+  { printf '#!/usr/bin/env bash\nreal_mv=%s\n' "$(fm_test_tool mv)"; cat <<'SH'
 dest=
 for arg in "$@"; do
   dest=$arg
@@ -436,8 +437,9 @@ done
 case "$dest" in
   */x-inbox/*) exit 1 ;;
 esac
-exec /bin/mv "$@"
+exec "$real_mv" "$@"
 SH
+  } > "$fakebin/mv"
   chmod +x "$fakebin/mv"
   printf 'FMX_PAIRING_TOKEN=tok-q\n' > "$home/.env"
   body='{"request_id":"req-rename","tweet_id":"555","author_id":"42","text":"what are you building?"}'

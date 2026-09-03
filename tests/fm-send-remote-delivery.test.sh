@@ -33,6 +33,13 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# These fixtures deliberately shadow `sleep` on PATH, so the real one is
+# resolved here, before any fake exists, and reached by absolute path.
+# It is exported so the generated fakes can use it too. /bin/sleep is not
+# a valid assumption: hosts like NixOS have no such file.
+FM_REAL_SLEEP=$(fm_test_tool sleep) || exit 1
+export FM_REAL_SLEEP
 # shellcheck source=bin/fm-pending-reply-lib.sh
 . "$ROOT/bin/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-operational-input.sh
@@ -108,7 +115,7 @@ printf '%s\n' "$*" >> "$FM_SSH_LOG"
 if [ -n "${FM_FAKE_SSH_HANG:-}" ]; then
   # A busy remote lane: the transport attempt never returns on its own. The
   # real sleep, because the stubbed one on PATH returns immediately.
-  /bin/sleep "$FM_FAKE_SSH_HANG"
+  "$FM_REAL_SLEEP" "$FM_FAKE_SSH_HANG"
   exit 255
 fi
 if [ "${FM_FAKE_SSH_AFTER_AMBIGUOUS_RC:-0}" -ne 0 ] && [ "$count" -gt 1 ]; then

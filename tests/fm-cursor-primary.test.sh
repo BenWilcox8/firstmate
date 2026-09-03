@@ -48,7 +48,11 @@ int main(int argc, char **argv) {
   child = fork();
   if (child < 0) return 70;
   if (child == 0) {
-    execl("/bin/bash", "bash", "-c", argv[2], (char *)0);
+    /* execvp resolves bash on PATH: hosts like NixOS have no /bin/bash. */
+    {
+      char *args[] = {"bash", "-c", argv[2], (char *)0};
+      execvp("bash", args);
+    }
     _exit(127);
   }
   while (waitpid(child, &status, 0) < 0) {

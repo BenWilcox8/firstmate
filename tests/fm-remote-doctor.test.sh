@@ -29,7 +29,10 @@ TOOLS="$TMP_ROOT/tools"
 mkdir -p "$TOOLS"
 ln -sf "$(command -v git)" "$TOOLS/git"
 ln -sf "$(command -v jq)" "$TOOLS/jq"
-BASE_PATH=${FM_TEST_BASE_PATH:-"$TOOLS:$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
+# $TOOLS stays outside the override: it is this suite's purpose-built fixture
+# (exactly git and jq, deliberately no herdr), so an FM_TEST_BASE_PATH set by a
+# caller must not be able to take it away.
+BASE_PATH="$TOOLS:${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}"
 
 # new_case <Darwin|Linux> [with-herdr] [gui]
 # Builds one isolated account fixture and points the module-level CASE_*

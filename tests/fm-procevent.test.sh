@@ -394,7 +394,7 @@ pe_adapter() {  # <home> <command>...: run the runner against the fixture adapte
 
 HPUBLISH="$TMP_ROOT/hpublish"; new_home "$HPUBLISH"
 PE_TRACKED+=("$HPUBLISH|publish-src")
-pe_adapter "$HPUBLISH" register applying publish-src -- /bin/echo "apply after publish" >/dev/null
+pe_adapter "$HPUBLISH" register applying publish-src -- "$(fm_test_tool echo)" "apply after publish" >/dev/null
 mkdir "$HPUBLISH/state/.wake-queue"
 out=$(pe_adapter "$HPUBLISH" start publish-src 2>&1)
 assert_contains "$out" "not-autohandled: publish-src" "failed publication did not suppress automatic application"
@@ -426,7 +426,7 @@ pass "automatic application waits for durable publication and failed publication
 # adapter could NOT apply - that one still publishes for the handler.
 HSELF="$TMP_ROOT/hself"; new_home "$HSELF"
 PE_TRACKED+=("$HSELF|self-src")
-pe_adapter "$HSELF" register selfann self-src -- /bin/echo "self announced" >/dev/null
+pe_adapter "$HSELF" register selfann self-src -- "$(fm_test_tool echo)" "self announced" >/dev/null
 out=$(pe_adapter "$HSELF" start self-src 2>&1)
 assert_contains "$out" "autohandled: self-src" "the self-announcing adapter did not apply its own capture"
 assert_not_contains "$out" "not-autohandled" "the applied capture was still reported as left for the handler"
@@ -445,7 +445,7 @@ pe_adapter "$HSELF" retire self-src >/dev/null
 out=$(pe_adapter "$HSELF" reconcile)
 assert_contains "$out" "published=0" "reconcile re-announced a capture its adapter already acknowledged"
 assert_contains "$out" "started=0" "reconcile restarted an always-ready acknowledged source and raced the next start"
-pe_adapter "$HSELF" register selfann self-src -- /bin/echo "self announced" >/dev/null
+pe_adapter "$HSELF" register selfann self-src -- "$(fm_test_tool echo)" "self announced" >/dev/null
 : > "$HSELF/state/selfann-fail"
 out=$(pe_adapter "$HSELF" start self-src 2>&1)
 assert_contains "$out" "not-autohandled: self-src" "a failed self-announcing application was reported as applied"
@@ -457,7 +457,7 @@ pass "a self-announcing adapter applies quietly and still publishes what it coul
 
 HTERM="$TMP_ROOT/hterm"; new_home "$HTERM"
 PE_TRACKED+=("$HTERM|ends-src")
-pe_adapter "$HTERM" register endnow ends-src -- /bin/echo "terminal payload" >/dev/null
+pe_adapter "$HTERM" register endnow ends-src -- "$(fm_test_tool echo)" "terminal payload" >/dev/null
 out=$(pe_adapter "$HTERM" start ends-src)
 assert_contains "$out" "captured:" "a terminal result is still captured durably"
 assert_contains "$out" "retired: ends-src" "the runner reports the adapter-driven retirement"
@@ -481,7 +481,7 @@ pass "an adapter-classified terminal result is captured once, announced, and ret
 
 HOPEN="$TMP_ROOT/hopen"; new_home "$HOPEN"
 PE_TRACKED+=("$HOPEN|open-src")
-pe_adapter "$HOPEN" register openended open-src -- /bin/echo "open payload" >/dev/null
+pe_adapter "$HOPEN" register openended open-src -- "$(fm_test_tool echo)" "open payload" >/dev/null
 out=$(pe_adapter "$HOPEN" start open-src)
 assert_contains "$out" "captured:" "a result from an adapter with no terminal verdict is captured"
 assert_not_contains "$out" "retired:" "an adapter with no terminal verdict never retires its source"
@@ -496,7 +496,7 @@ pe_adapter "$HREPLACE" register endnow replace-src -- "$BLOCKER" "$OLD_TRIGGER" 
 pe_adapter "$HREPLACE" start replace-src > "$TMP_ROOT/replace-old.out" 2>&1 &
 replace_old_pid=$!
 wait_for "$FM_PROCEVENT_CLAIM_ROOT/replace-src.claim" || fail "the old registration was never claimed"
-pe_adapter "$HREPLACE" register openended replace-src -- /bin/echo "replacement payload" >/dev/null
+pe_adapter "$HREPLACE" register openended replace-src -- "$(fm_test_tool echo)" "replacement payload" >/dev/null
 touch "$OLD_TRIGGER"
 wait "$replace_old_pid" || fail "the old terminal runner failed"
 assert_contains "$(cat "$TMP_ROOT/replace-old.out")" "cannot retire terminal source" \
@@ -525,7 +525,7 @@ done
 exec "$REAL_RM" "$@"
 SH
 chmod +x "$FAIL_RM_BIN/rm"
-pe_adapter "$HRETFAIL" register endnow retire-fail-src -- /bin/echo "one terminal payload" >/dev/null
+pe_adapter "$HRETFAIL" register endnow retire-fail-src -- "$(fm_test_tool echo)" "one terminal payload" >/dev/null
 out=$(PATH="$FAIL_RM_BIN:$PATH" pe_adapter "$HRETFAIL" start retire-fail-src 2>&1)
 assert_contains "$out" "cannot retire terminal source" "a failed registration removal is reported"
 assert_present "$HRETFAIL/state/procevent/retire-fail-src.source" \
@@ -992,7 +992,7 @@ mkdir -p "$FM_PROCEVENT_CLAIM_ROOT"
 HC="$TMP_ROOT/hc"; new_home "$HC"
 printf '%s\n%s\nstale-token\nstale-identity\n' "$HC" "999999" > "$CLAIM"
 chmod 0600 "$CLAIM"
-pe_register "$HC" lavish stale-src -- /bin/echo recovered >/dev/null
+pe_register "$HC" lavish stale-src -- "$(fm_test_tool echo)" recovered >/dev/null
 printf 'partial sensitive output\n' > "$HC/state/procevent/.stale-src.stale-token.output"
 chmod 0600 "$HC/state/procevent/.stale-src.stale-token.output"
 out=$(pe "$HC" start stale-src)
@@ -1010,7 +1010,7 @@ printf '%s\n%s\ncross-home-token\ncross-home-identity\n%s\n' \
 chmod 0600 "$FM_PROCEVENT_CLAIM_ROOT/cross-home-src.claim"
 printf 'partial cross-home output\n' > "$HC_OLD_STATE/procevent/.cross-home-src.cross-home-token.output"
 chmod 0600 "$HC_OLD_STATE/procevent/.cross-home-src.cross-home-token.output"
-pe_register "$HC_NEW" lavish cross-home-src -- /bin/echo recovered >/dev/null
+pe_register "$HC_NEW" lavish cross-home-src -- "$(fm_test_tool echo)" recovered >/dev/null
 out=$(pe "$HC_NEW" start cross-home-src)
 assert_contains "$out" "captured:" "a second home can replace a stale source owner"
 assert_absent "$HC_OLD_STATE/procevent/.cross-home-src.cross-home-token.output" "cross-home reclaim removes the old generation's recorded staging file"
@@ -1180,7 +1180,7 @@ assert_absent "$FM_PROCEVENT_CLAIM_ROOT/retire-start-src.claim" "retirement cann
 pass "retirement and start share one serialized lifecycle boundary"
 
 HI="$TMP_ROOT/hi"; new_home "$HI"
-pe_register "$HI" lavish reused-src -- /bin/true >/dev/null
+pe_register "$HI" lavish reused-src -- "$(fm_test_tool true)" >/dev/null
 sleep 60 &
 innocent_pid=$!
 printf '%s\n%s\nreused-token\nnot-the-live-process-identity\n' \
@@ -1298,7 +1298,7 @@ assert_absent /tmp/nope "no shell interpretation occurred"
 assert_not_contains "$(wake_payloads "$HD")" "rm -rf" "argv content never reaches the event line"
 
 newline_status=0
-newline_out=$(pe_register "$HD" lavish newline-src -- /bin/echo $'first\nsecond' 2>&1) || newline_status=$?
+newline_out=$(pe_register "$HD" lavish newline-src -- "$(fm_test_tool echo)" $'first\nsecond' 2>&1) || newline_status=$?
 [ "$newline_status" -ne 0 ] || fail "registration accepted an argv element containing a newline"
 assert_contains "$newline_out" "cannot contain newlines" "newline rejection explains the unsupported representation"
 assert_absent "$HD/state/procevent/newline-src.source" "newline rejection publishes no corrupt registration"
@@ -1354,7 +1354,7 @@ assert_absent "$staged" "retirement removes the tracked partial staging file"
 pass "live output stays bounded and retirement reaps the whole source group"
 
 HBAD="$TMP_ROOT/hbad"; new_home "$HBAD"
-pe_register "$HBAD" lavish bad-limit -- /bin/true >/dev/null
+pe_register "$HBAD" lavish bad-limit -- "$(fm_test_tool true)" >/dev/null
 bad_limit_status=0
 bad_limit_out=$(FM_PROCEVENT_MAX_OUTPUT_BYTES=invalid pe "$HBAD" start bad-limit 2>&1) || bad_limit_status=$?
 [ "$bad_limit_status" -ne 0 ] || fail "an invalid output bound was accepted"

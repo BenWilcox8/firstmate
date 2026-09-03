@@ -1613,7 +1613,7 @@ test_failed_rechain_retirement_keeps_source_claimed() {
 for arg in "\$@"; do
   [ "\$arg" != '$registry_file' ] || exit 1
 done
-exec /bin/rm "\$@"
+exec "$(fm_test_tool rm)" "\$@"
 EOF
   chmod +x "$home/fakebin/rm"
   expect_failure "rechain must surface a failed source retirement" \
@@ -1630,7 +1630,7 @@ EOF
   assert_absent "$home/state/public-followup/registry/public-final-retire-c" \
     "a refused competing destination must not be registered"
 
-  /bin/rm "$home/fakebin/rm"
+  "$(fm_test_tool rm)" "$home/fakebin/rm"
   out=$(run_pf "$home" rechain public-final-retire-b --from public-final-retire-a \
     --work-home main --work-id ship-retire-b --expected pr-merged) \
     || fail "the claimed destination must remain resumable: $out"
@@ -1933,7 +1933,7 @@ test_retire_reason_closes_the_open_loop() {
 for arg in "\$@"; do
   [ "\$arg" != '$registry_file' ] || exit 1
 done
-exec /bin/rm "\$@"
+exec "$(fm_test_tool rm)" "\$@"
 EOF
   chmod +x "$home/fakebin/rm"
   expect_failure "retire must report registration removal failure" \
@@ -1942,7 +1942,7 @@ EOF
     "retire removal failure must report the truthful loop state"
   assert_present "$registry_file" \
     "retire removal failure must retain the registration"
-  /bin/rm "$home/fakebin/rm"
+  "$(fm_test_tool rm)" "$home/fakebin/rm"
   out=$(run_pf "$home" retire pf-retire --reason "the public loop is finished") \
     || fail "retire --reason failed"
   assert_contains "$out" "retired pf-retire reason=the public loop is finished" \

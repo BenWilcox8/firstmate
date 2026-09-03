@@ -1,66 +1,131 @@
 #!/usr/bin/env bash
-# tests/fm-test-base-path-guard.test.sh - every FM_TEST_BASE_PATH default must
-# stay NixOS-safe.
+# tests/fm-test-base-path-guard.test.sh - the suite must not assume an FHS layout.
 #
-# Several suites build a restricted PATH for the script under test with a
-# fallback shape like:
-#   BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
-# On a host where /usr/bin and /bin are nearly empty (NixOS), that fallback
-# alone cannot even resolve `bash`, so any subshell or `bash -c` invocation
-# built from it fails with "No such file or directory" or "command not found"
-# instead of exercising the behavior under test. tests/lib.sh's
-# fm_test_core_path symlinks a curated set of standard tools (bash, sed, grep,
-# jq, ...) into a private directory precisely so a restricted-PATH fallback can
-# prepend it and stay portable. This is a structural guard, not a snapshot of
-# today's file list: it scans every suite for the hazard shape directly, so a
-# newly added fallback that omits fm_test_core_path fails here regardless of
+# Two distinct ways a fixture can hardcode where a tool lives, both of which
+# broke real suites on this NixOS host, where /bin holds only sh and /usr/bin
+# holds only env:
+#
+#   1. A restricted PATH built from a bare FHS tail, e.g.
+#        BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+#      Nothing on that PATH resolves, so any subshell or `bash -c` built from
+#      it dies with "command not found" before the assertions run.
+#      tests/lib.sh's fm_test_core_path exists to be prepended here.
+#   2. An absolute path to a tool that simply is not there, e.g. /bin/echo as a
+#      registered argv, /bin/bash as a symlink target or shebang, /bin/cat in a
+#      fake that must reach the real one. PATH cannot help: these bypass it.
+#      tests/lib.sh's fm_test_tool resolves such a path instead.
+#
+# Both checks are structural sweeps over every suite rather than a snapshot of
+# today's offenders, so a newly introduced instance fails here regardless of
 # which file introduces it.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-test_base_path_fallback_shape_is_portable() {
+SELF=fm-test-base-path-guard.test.sh
+
+# restricted_path_hazards <file>: one line per restricted-PATH fallback that
+# names an FHS system directory without prepending fm_test_core_path.
+restricted_path_hazards() {
+  perl -ne '
+    next if /^\s*#/;
+    next unless /(BASE_PATH|RUN_PATH|FM_TEST_BASE_PATH)/;
+    next unless m{(/usr/bin|/usr/sbin|(?<![\w/])/bin(?![\w])|(?<![\w/])/sbin(?![\w]))};
+    next if /fm_test_core_path/;
+    print "$.: $_";
+  ' "$1"
+}
+
+# absent_tool_hazards <file>: one line per hardcoded absolute path to a tool
+# that does not exist outside an FHS layout, in a position where the path is
+# actually used as an executable. /bin/sh and /usr/bin/env are the two
+# spellings a non-FHS host still provides, so they are never flagged.
+#
+# Only execution positions count, because the same text as DATA is legitimate:
+# a fixture that prints "/bin/bash" as fake `ps` output is asserting on a
+# string, not running anything. A block that proves the path exists first
+# (`[ -x /bin/bash ] || { pass ...; return; }`) is portable by construction, so
+# a guard within the preceding two lines suppresses the finding.
+absent_tool_hazards() {
+  perl -ne '
+    BEGIN { @recent = ("", "") }
+    my $line = $_;
+    my $guarded = ($recent[0] =~ m{-x\s+/bin/} || $recent[1] =~ m{-x\s+/bin/}
+                   || $line =~ m{-x\s+/bin/} || $line =~ m{command -v\s+/bin/});
+    push @recent, $line; shift @recent;
+    next if $line =~ /^\s*#/ && $line !~ /^#!/;
+    next if $guarded;
+    my $tool = qr{/bin/(?:bash|echo|true|false|cat|sleep|cp|mv|rm|ls|sed|grep)(?![\w.-])};
+    print "$.: $line" if
+         $line =~ /^#!$tool/                 # shebang
+      || $line =~ /(?:^|\||&|;|\()\s*exec\s+$tool/   # exec replacement
+      || $line =~ /\bln\s+-s\s+$tool/        # symlink target
+      || $line =~ /(?:^|\s)--\s+$tool/       # recorded argv after --
+      || $line =~ /\bexec(?:l|v|vp|lp)?\s*\(\s*"$tool"/  # C exec family
+      || $line =~ /^\s*$tool/                # plain command position
+      || $line =~ /\$\(\s*$tool/             # command substitution
+      || $line =~ /^\s*\w+=$tool/            # VAR=/bin/tool handed on as a command
+      ;
+  ' "$1"
+}
+
+test_detector_tells_hazard_from_portable() {
   local unsafe safe
   unsafe="$TMP_ROOT/unsafe.sh"
   safe="$TMP_ROOT/safe.sh"
   # shellcheck disable=SC2016 # Literal shell fixtures must remain unexpanded.
-  printf '%s\n' 'BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}' > "$unsafe"
+  printf '%s\n' \
+    'BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}' \
+    'BASE_PATH=${FM_TEST_BASE_PATH:-/bin:/sbin}' \
+    'ln -s /bin/bash "$dir/claude"' \
+    'register lavish src -- /bin/echo payload' > "$unsafe"
   # shellcheck disable=SC2016 # Literal shell fixtures must remain unexpanded.
-  printf '%s\n' 'BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}' > "$safe"
-  base_path_fallback_hazards "$unsafe" | grep -q . \
-    || fail "structural guard missed an FM_TEST_BASE_PATH fallback with no fm_test_core_path"
-  [ -z "$(base_path_fallback_hazards "$safe")" ] \
-    || fail "structural guard flagged an FM_TEST_BASE_PATH fallback that already includes fm_test_core_path"
-  pass "fm-test-base-path-guard: the structural check tells a hazardous fallback from a portable one"
+  printf '%s\n' \
+    'BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}' \
+    'ln -s "$(fm_test_tool bash)" "$dir/claude"' \
+    'register lavish src -- "$(fm_test_tool echo)" payload' \
+    '[ -x /bin/bash ] || { pass "skipped"; return; }' \
+    'printf "#!/usr/bin/env bash\n" > "$dir/fake"' \
+    'exec /bin/sh -c "true"' > "$safe"
+
+  [ "$(restricted_path_hazards "$unsafe" | wc -l)" -eq 2 ] \
+    || fail "restricted-PATH check missed a bare FHS fallback: $(restricted_path_hazards "$unsafe")"
+  [ "$(absent_tool_hazards "$unsafe" | wc -l)" -eq 2 ] \
+    || fail "absent-tool check missed a hardcoded absent binary: $(absent_tool_hazards "$unsafe")"
+  [ -z "$(restricted_path_hazards "$safe")" ] \
+    || fail "restricted-PATH check flagged a portable fallback: $(restricted_path_hazards "$safe")"
+  [ -z "$(absent_tool_hazards "$safe")" ] \
+    || fail "absent-tool check flagged a portable line: $(absent_tool_hazards "$safe")"
+  pass "fm-test-base-path-guard: both checks separate a hazardous line from a portable one"
 }
 
-test_every_suite_fallback_is_portable() {
-  local file hazards all_hazards=""
-  for file in "$ROOT"/tests/*.test.sh; do
-    [ "$(basename "$file")" != "fm-test-base-path-guard.test.sh" ] || continue
-    hazards=$(base_path_fallback_hazards "$file")
-    [ -z "$hazards" ] || all_hazards="$all_hazards
+sweep() {  # <label> <detector>
+  local label=$1 detector=$2 file hazards all=""
+  for file in "$ROOT"/tests/*.test.sh "$ROOT"/tests/lib.sh; do
+    [ "$(basename "$file")" != "$SELF" ] || continue
+    hazards=$("$detector" "$file")
+    [ -z "$hazards" ] || all="$all
 $file:
 $hazards"
   done
-  [ -z "$all_hazards" ] \
-    || fail "FM_TEST_BASE_PATH fallback(s) without fm_test_core_path (NixOS bash/sed/etc. would not resolve):$all_hazards"
-  pass "fm-test-base-path-guard: every suite's FM_TEST_BASE_PATH fallback prepends fm_test_core_path"
+  [ -z "$all" ] || fail "$label:$all"
 }
 
-# base_path_fallback_hazards <file>: prints one line per FM_TEST_BASE_PATH
-# default-value expression in <file> that mentions /usr/bin (the restricted
-# system tail) without also mentioning fm_test_core_path.
-base_path_fallback_hazards() {
-  perl -ne '
-    print "$.: $_" if /FM_TEST_BASE_PATH:-/ && /\/usr\/bin/ && !/fm_test_core_path/;
-  ' "$1"
+test_no_restricted_path_hazards() {
+  sweep "restricted PATH fallback(s) without fm_test_core_path" restricted_path_hazards
+  pass "fm-test-base-path-guard: every restricted-PATH fallback prepends fm_test_core_path"
+}
+
+test_no_absent_tool_hazards() {
+  sweep "hardcoded absolute path(s) to a tool absent outside an FHS layout" absent_tool_hazards
+  pass "fm-test-base-path-guard: no suite hardcodes an absolute path to an FHS-only tool"
 }
 
 TMP_ROOT=$(fm_test_tmproot fm-test-base-path-guard)
 
-test_base_path_fallback_shape_is_portable
-test_every_suite_fallback_is_portable
+test_detector_tells_hazard_from_portable
+test_no_restricted_path_hazards
+test_no_absent_tool_hazards
 
 echo "ALL TESTS PASSED"

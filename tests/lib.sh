@@ -189,7 +189,7 @@ SH
 # tests fake out or deliberately omit. It symlinks each tool by name into its
 # own private directory rather than adding any real tool's own directory to
 # PATH, so it never leaks an app-level tool a test means to keep off PATH.
-FM_TEST_CORE_TOOLS="bash sh cat mkdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum"
+FM_TEST_CORE_TOOLS="bash sh cat mkdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum ps"
 fm_test_core_path() {
   local dir tool bin
   dir=$(fm_test_tmproot fm-test-core-path)
@@ -203,6 +203,28 @@ fm_test_core_path() {
     ln -sf "$bin" "$dir/$tool"
   done
   printf '%s\n' "$dir"
+}
+
+# fm_test_tool <tool> echoes the ABSOLUTE path of a standard tool, resolved from
+# the ambient PATH instead of assumed at an FHS location. A fixture needs a real
+# absolute path when the value is a symlink target, an argv recorded durably and
+# re-executed later, or a shebang - none of which consult the caller's PATH. On
+# NixOS /bin holds only sh, so a hardcoded /bin/echo, /bin/true, /bin/sleep,
+# /bin/cat or /bin/bash is simply a path to nothing and the fixture fails with
+# exit 127 or "No such file or directory". Fails loudly rather than emitting an
+# empty string a caller would silently splice into a command.
+fm_test_tool() {
+  local bin
+  # type -P searches PATH only. Plain `command -v echo` answers "echo", the
+  # shell builtin, which is not a path any exec, symlink, or shebang can use.
+  bin=$(type -P "$1" 2>/dev/null) \
+    || { echo "tests/lib.sh: required tool not found on PATH: $1" >&2; return 1; }
+  [ -n "$bin" ] \
+    || { echo "tests/lib.sh: required tool not found on PATH: $1" >&2; return 1; }
+  case "$bin" in
+    /*) printf '%s\n' "$bin" ;;
+    *) echo "tests/lib.sh: tool did not resolve to an absolute path: $1 -> $bin" >&2; return 1 ;;
+  esac
 }
 
 # fm_fake_version_tool <fakebin> <tool> <override-env-var> <default-version>
