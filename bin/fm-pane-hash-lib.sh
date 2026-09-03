@@ -33,21 +33,26 @@ hash_pane() {
 # otherwise change the hash once per rollover. The duration expression folds a
 # whole run of zeroed unit tokens, with or without separating spaces, to one
 # token, so no unit count survives the fold.
-# The fifth expression folds a bracketed FILL BAR - the usage/progress meter
-# claude renders beside its reset countdown ("[##--------]") and the same shape
-# any TUI draws for a quota or download bar. It advances on its own schedule
-# while the agent sits idle, and no digit or glyph rule reaches it because the
-# bar carries its value in the ratio of its fill characters, not in a number.
-# It is matched by SHAPE - a bracketed run of fill characters - not by any
-# vendor's bar string, so a harness that draws the same meter with different
-# glyphs folds too.
+# The fifth expression folds a bracketed FILL BAR - the usage meter claude
+# renders beside its reset countdown ("[##--------]") and the same shape a TUI
+# draws for a quota or download bar. It advances on its own schedule while the
+# agent sits idle, and no digit or glyph rule reaches it because the bar carries
+# its value in the ratio of its fill characters, not in a number.
+# It is matched by SHAPE - a bracketed run of ASCII fill characters - rather than
+# by one vendor's bar string, so a meter drawn from a different ASCII fill set
+# folds too. The set is deliberately ASCII-only: LC_ALL=C keeps this sed
+# byte-oriented, and a bracket expression holding multibyte glyphs would match
+# their individual BYTES, so a block-drawing or braille meter would have to be
+# added as an alternation instead. A meter this expression misses only keeps the
+# churny per-tick hash for that harness, exactly like a missed spinner glyph
+# above; it can never mask a real content change.
 normalize_pane_volatiles() {
   LC_ALL=C sed -E \
     -e 's/[0-9]+/0/g' \
     -e 's/0(\.0)+/0/g' \
     -e 's/(0[hmsd][[:space:]]*)+/0s/g' \
     -e 's/0k/0/g' \
-    -e 's/\[[#=+*.:_ -]{2,}\]/[]/g' \
+    -e 's/\[[#=+*.:_|>< -]{2,}\]/[]/g' \
     -e 's/✢|✳|✶|✻|✽|·//g' \
     -e 's/⠁|⠂|⠄|⡀|⢀|⠠|⠐|⠈|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏//g' \
     -e 's/🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘//g'

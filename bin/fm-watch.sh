@@ -251,9 +251,10 @@ SECONDMATE_WAKE_STALL_SECS=${FM_SECONDMATE_WAKE_STALL_SECS:-60}
 # A crew that declared a pause is idling on a known external wait, so its stale
 # pane is absorbed rather than wedge-escalated.
 # A captain-held or paused crew whose agent has confidently exited uses the same
-# bounded cadence, while a live or ambiguously read agent still surfaces once; a
-# secondmate earns the cadence on its declaration alone, because its endpoint
-# liveness is deliberately never read (pause_state_class owns that split).
+# bounded cadence silently from first sight, while a live or ambiguously read
+# agent spends one opening recheck on that same cadence rather than a bare stale
+# surface; a secondmate earns the silent cadence on its declaration alone, because
+# its endpoint liveness is deliberately never read (pause_state_class owns that split).
 # These cases re-surface once for a recheck every PAUSE_RESURFACE_SECS - far
 # longer than the wedge threshold, but finite so a forgotten hold cannot rot invisibly.
 PAUSE_RESURFACE_SECS=${FM_PAUSE_RESURFACE_SECS:-$FM_PAUSE_RESURFACE_SECS_DEFAULT}
@@ -739,20 +740,26 @@ FM_WEDGE_DEMAND_INSPECT_COUNT=${FM_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # pane that repaints between two sightings of the SAME declaration in the SAME
 # turn - the ordinary shape right after a turn ends - can otherwise spend the
 # owed report twice and cost a handling turn for a nudge carrying nothing new.
-# The identity is the caller's, records only what it actually delivered, and
-# self-invalidates on a new turn or a new status append.
-# It gates the OWED report alone, never the timed re-surface below it. Applying
-# it to the timed path would be a rot hole with no floor: a wait that sits for
-# days with no new turn and no new status line keeps one unchanging identity, so
-# every hourly recheck would match it and the absorb this whole function exists
-# to bound would become permanent. The timed path is already bounded by
-# PAUSE_RESURFACE_SECS and needs no second suppressor.
+# The identity is the caller's and is written only on an actual delivery, so the
+# record's own mtime is the time of that delivery and its content self-invalidates
+# on a new turn or a new status append.
+# Absorbing a duplicate REBUILDS the throttle the reset destroyed. Without that,
+# absorbing the owed report only moves the duplicate one poll later: the very next
+# poll takes the timed path against a throttle that is still missing, reads it as
+# never re-surfaced, and delivers the identical recheck anyway.
+# The absorb is itself bounded by the record's age, so it can never become a rot
+# hole. A pane that keeps clearing the throttle would otherwise renew the
+# suppression forever on one unchanging identity; past PAUSE_RESURFACE_SECS since
+# the real delivery the duplicate is delivered instead, which is the same floor
+# the timed path carries.
 resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<dedupe-file> <dedupe-id>]]
   local win=$1 throttle=$2 age=$3 reason=$4 owed=${5-} dedupe_file=${6-} dedupe_id=${7-}
   if [ -z "$owed" ] || [ -e "$throttle" ]; then
     [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
-  elif [ -n "$dedupe_file" ] && [ "$(cat "$dedupe_file" 2>/dev/null || true)" = "$dedupe_id" ]; then
+  elif [ -n "$dedupe_file" ] && [ "$(cat "$dedupe_file" 2>/dev/null || true)" = "$dedupe_id" ] \
+    && [ "$(age_of "$dedupe_file")" -lt "$PAUSE_RESURFACE_SECS" ]; then
+    date +%s > "$throttle"
     triage_log "absorbed duplicate nudge (identical recheck already delivered this turn): $win"
     return 0
   fi
@@ -876,7 +883,7 @@ busy_turn_over_age() {  # <task>
 # turn so an identical one cannot be delivered twice for the same turn.
 handle_paused_stale() {  # <window> <task> <hash> [<class>]
   local win=$1 task=$2 h=$3 class=${4-} key statusf mtime age detail reason
-  local owed='' turnf turn_gen nudge_id
+  local owed='' turnf turn_gen nudge_id nudge_file throttlef
   key=$(window_key "$win")
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
@@ -897,15 +904,26 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   # The turn this nudge belongs to: the harness-neutral marker every verified
   # turn-end hook touches, or the task's spawn record before any turn has
   # completed - the same generation source busy_turn_over_age ages. Paired with
-  # the status log's own observed signature so a crew that writes a new line
+  # the status log's own observed signature so a crew that APPENDS a new line
   # earns a fresh nudge, and only a nudge repeating BOTH is a duplicate.
-  turnf="$STATE/$task.turn-ended"
-  [ -e "$turnf" ] || turnf="$STATE/$task.meta"
-  turn_gen=$(stat_mtime "$turnf")
-  case "$turn_gen" in ''|*[!0-9]*) turn_gen=none ;; esac
-  nudge_id="$turn_gen|$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
-  resurface_absorbed "$win" "$STATE/.paused-resurfaced-$key" "$age" "stale: $win ($reason)" \
-    "$owed" "$STATE/.paused-nudged-$key" "$nudge_id"
+  # Built only when it can be used, because this function is on the per-poll path
+  # of every declared-paused window and that signature is not a cheap read.
+  # resurface_absorbed can deliver, and so can need the identity, only while the
+  # throttle marker is missing or already past its window; a fresh throttle means
+  # neither of its paths can wake, and the identity is neither built nor consulted.
+  throttlef="$STATE/.paused-resurfaced-$key"
+  nudge_file=''
+  nudge_id=''
+  if [ ! -e "$throttlef" ] || [ "$(age_of "$throttlef")" -ge "$PAUSE_RESURFACE_SECS" ]; then
+    turnf="$STATE/$task.turn-ended"
+    [ -e "$turnf" ] || turnf="$STATE/$task.meta"
+    turn_gen=$(stat_mtime "$turnf")
+    case "$turn_gen" in ''|*[!0-9]*) turn_gen=none ;; esac
+    nudge_id="$turn_gen|$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
+    nudge_file="$STATE/.paused-nudged-$key"
+  fi
+  resurface_absorbed "$win" "$throttlef" "$age" "stale: $win ($reason)" \
+    "$owed" "$nudge_file" "$nudge_id"
   triage_log "absorbed stale ($detail, age ${age}s): $win"
 }
 
@@ -1987,10 +2005,13 @@ EOF
           #   - working: an actively-running pipeline legitimately sits on a static
           #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
           #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
-          #   - paused: a declared wait pause_state_class admits (its header owns which
-          #     liveness evidence each kind of crew must supply), so absorb on the long
-          #     PAUSE_RESURFACE_SECS cadence instead of wedge-escalating;
-          #   - none: no running pipeline, no exact busy verdict, no admitted declared wait.
+          #   - paused / paused-report: a declared wait, absorbed on the long
+          #     PAUSE_RESURFACE_SECS cadence instead of wedge-escalating (its header
+          #     owns how endpoint liveness picks between the silent class and the one
+          #     that owes an opening recheck);
+          #   - none: no running pipeline, no exact busy verdict, no declared wait -
+          #     reachable only without a declaration, since a declared wait always
+          #     takes one of the classes above.
           #     Surface immediately so firstmate inspects the inconclusive state
           #     (it may be done via an interactive menu that wrote no done: status,
           #     waiting on a decision, or wedged) instead of leaving the finish to

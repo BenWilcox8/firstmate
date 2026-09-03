@@ -2368,14 +2368,23 @@ test_live_declared_pause_never_surfaces_bare_stale() {
 # handling turn for a nudge carrying nothing new. The second one is absorbed and
 # logged instead of queued, and a NEW turn still earns a fresh report so the
 # dedupe cannot become a blind spot.
+# The wait is deliberately AGED past the re-surface window throughout. A young
+# pause cannot see the failure this case exists for: absorbing the owed report
+# only moves the duplicate one poll later, because the next poll takes the timed
+# path against a throttle the same reset already deleted, reads it as never
+# re-surfaced, and delivers the identical recheck anyway. The aged wait is also
+# the ordinary shape of a real one, which sits for hours.
 test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
-  local dir state fakebin out capture_file statusf window key pid wakes round
+  local dir state fakebin out capture_file statusf window key pid wakes round back
   dir=$(make_case duplicate-pause-nudge); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/dupnudge.status"
   window="test:fm-dupnudge"
   printf 'idle at the prompt\n' > "$capture_file"
   printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\n' "$window" > "$state/dupnudge.meta"
   printf 'paused: waiting on the upstream release\n' > "$statusf"
+  back=$(( $(date +%s) - 5000 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
   printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-dupnudge_status"
   touch "$state/dupnudge.turn-ended"
   prime_turnend_seen "$state/dupnudge.turn-ended"
@@ -2386,7 +2395,7 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   # Phase A: the owed first report for this declared wait.
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
   wait_for_exit "$pid" 100 || fail "the owed first pause report was never delivered"
@@ -2401,7 +2410,7 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   record_pi_busy "$state" dupnudge
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
-    FM_STATE_OVERRIDE="$state" FM_BUSY_TURN_MAX_SECS=999999 FM_PAUSE_RESURFACE_SECS=999 FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_STATE_OVERRIDE="$state" FM_BUSY_TURN_MAX_SECS=999999 FM_PAUSE_RESURFACE_SECS=3600 FM_POLL=1 FM_SIGNAL_GRACE=1 \
     FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
   pid=$!
 
@@ -2421,13 +2430,19 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   record_pi_idle "$state" dupnudge
   wait_for_absorbed "$state" "$pid" "absorbed duplicate nudge" \
     || { reap "$pid"; fail "a duplicate pause nudge in the same turn escaped absorption: $(cat "$out")"; }
+  # Absorbing is not enough on its own. Unless the absorb rebuilds the throttle
+  # this same reset deleted, these polls take the timed path against a throttle
+  # that reads as never re-surfaced and deliver the identical recheck one poll
+  # later - the absorb would only have moved the duplicate, not stopped it.
   round=1
-  while [ "$round" -le 2 ]; do
+  while [ "$round" -le 3 ]; do
     if ! wait_poll_cycle "$state" "$pid"; then
       reap "$pid"; fail "a duplicate pause nudge re-fired on round $round: $(cat "$out")"
     fi
     round=$((round + 1))
   done
+  [ -e "$state/.paused-resurfaced-$key" ] \
+    || { reap "$pid"; fail "an absorbed duplicate pause nudge left the pause throttle cleared"; }
   [ ! -s "$out" ] || { reap "$pid"; fail "an absorbed duplicate pause nudge printed a wake reason: $(cat "$out")"; }
   wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || { reap "$pid"; fail "an absorbed duplicate pause nudge queued $wakes wakes"; }
@@ -2448,11 +2463,11 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   grep -F "awaiting external" "$out" >/dev/null || fail "the new turn's pause report missing: $(cat "$out")"
   ack_stopped_cycle "$state" || fail "could not acknowledge the new turn's pause report"
 
-  # Phase E: the timed recheck is never deduped. A wait that sits for days with
-  # no new turn and no new status line keeps ONE unchanging identity, so a
-  # dedupe reaching the timed path would make this absorb permanent and a
-  # forgotten pause would rot invisibly. Same identity as the report Phase D
-  # just delivered, past the re-surface window: it must still wake.
+  # Phase E: the timed recheck keeps its own floor. A wait that sits for days
+  # with no new turn and no new status line keeps ONE unchanging identity, so an
+  # absorb without a floor would make the suppression permanent and a forgotten
+  # pause would rot invisibly. Same identity as the report Phase D just
+  # delivered, past the re-surface window: it must still wake.
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
