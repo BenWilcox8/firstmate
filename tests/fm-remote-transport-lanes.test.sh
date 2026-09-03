@@ -51,13 +51,11 @@ cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-entrypoint.sh" "$ROOT/bin/fm-remote-delta-read.sh" \
   "$ROOT/bin/fm-remote-secondmate-control.sh" "$ROOT/bin/fm-backend.sh" \
   "$ROOT/bin/fm-pending-reply-lib.sh" "$ROOT/bin/fm-task-inbox-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
-  "$ROOT/bin/fm-wake-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
+  "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-marker-lib.sh" \
   "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-tmux-lib.sh" \
   "$ROOT/bin/fm-composer-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
   "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
+  "$ROOT/bin/fm-ff-lib.sh" "$ROOT/bin/fm-secondmate-registry-lib.sh" \
   "$REMOTE_ROOT/bin/"
 mkdir -p "$REMOTE_ROOT/bin/backends"
 cp "$ROOT/bin/backends/herdr.sh" "$REMOTE_ROOT/bin/backends/herdr.sh"
@@ -65,24 +63,24 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 # Appends its tag to a shared log, then optionally sleeps: the log order is the
 # observable execution order.
 cat > "$REMOTE_ROOT/bin/fm-mark-job.sh" <<'SH'
-#!/usr/bin/env bash
+#!/bin/bash
 printf '%s\n' "$1" >> "$2"
 sleep "${3:-0}"
 SH
 cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
-#!/usr/bin/env bash
+#!/bin/bash
 printf 'ran\n' > "$1"
 SH
 # Marks its start, sleeps, then marks completion: cancellation must leave the
 # start marker without the completion marker.
 cat > "$REMOTE_ROOT/bin/fm-two-phase-job.sh" <<'SH'
-#!/usr/bin/env bash
+#!/bin/bash
 printf 'started\n' > "$1"
 sleep "$3"
 printf 'finished\n' > "$2"
 SH
 cat > "$REMOTE_ROOT/bin/fm-stdin-probe.sh" <<'SH'
-#!/usr/bin/env bash
+#!/bin/bash
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 SH
 chmod +x "$REMOTE_ROOT/bin"/*.sh
