@@ -29,7 +29,9 @@ test_oversized_backlog_still_summarizes() {
   arg_max=$(getconf ARG_MAX 2>/dev/null || printf '2097152\n')
   # A handful of oversized rows push the parsed backlog JSON well past
   # ARG_MAX without the per-line regex cost of thousands of ordinary ones.
-  pad=$(printf 'x%.0s' $(seq 1 600000))
+  # Sized from the host's own ARG_MAX (rather than a fixed constant) so the
+  # fixture still exceeds it on hosts where ARG_MAX is larger than 3 MB.
+  pad=$(printf 'x%.0s' $(seq 1 $((arg_max / 2 + 1))))
   {
     printf '## Done\n'
     local i
