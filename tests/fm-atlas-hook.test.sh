@@ -430,6 +430,7 @@ make_merge_local_case() {  # <name> [ticket-lines...]
     "project=$proj" \
     "kind=ship" \
     "mode=local-only" \
+    "yolo=on" \
     "$@"
   printf '%s\n' "$home"
 }
@@ -535,6 +536,7 @@ SH
     "project=$home/project" \
     "kind=ship" \
     "mode=no-mistakes" \
+    "yolo=on" \
     "$@"
   printf '%s\n' "$home"
 }
