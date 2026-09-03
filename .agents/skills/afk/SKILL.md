@@ -101,18 +101,21 @@ backend (tmux or herdr; see "Auto-discovered supervisor pane" below):
   `pane_input_pending` is the tested fail-closed predicate for callers that need to know whether the composer is unsafe: it treats every result except exact `empty` as pending.
 
 A busy primary pane, or any composer verdict other than `empty`, defers the injection; the buffered escalation survives in `state/.subsuper-escalations` and is retried on the next housekeeping tick.
+A busy pane defers only until the max-defer ladder below; a composer verdict other than `empty` defers unconditionally, at every stage.
 In afk mode the composer guard is belt-and-suspenders (no human is typing), but it protects against the race window between the captain returning and their message landing, a dead shell, and the daemon's own previous injection sitting unsent.
 
-**Max-defer escape (the daemon must never silently wedge).**
-If anything stays buffered past `FM_MAX_DEFER_SECS` (default 300), the daemon
-attempts one normal flush, which still requires an idle pane and an affirmatively empty composer.
-The alarm is defense in depth rather than a substitute for keeping every genuinely idle supported composer injectable.
-If that submit cannot be confirmed, it raises a loud, rate-limited wedge alarm:
-an ERROR in the daemon log, a durable
-`state/.subsuper-inject-wedged` marker (surface it on the "while you were out"
-catch-up if present), a tmux status-line flash when applicable, and a configurable backend-independent active alert.
-`docs/wedge-alarm.md` owns the alert channel setup, and `docs/verification/supervision.md` "Wedge-alarm channels" owns active evidence.
-So a guard false-positive becomes a visible stall, never an unbounded silent no-op.
+**Max-defer ladder (the daemon must never silently wedge, and must never wait on the pane forever).**
+If anything stays buffered past `FM_MAX_DEFER_SECS` (default 300), the daemon attempts one normal flush, which still requires an idle pane and an affirmatively empty composer.
+Against a pane that has read busy on every attempt since the digest was buffered, it then attempts one more flush with a fresh composer classification.
+A pane that never once read free for a whole window is where the busy heuristic is most likely wrong.
+That override never relaxes the composer guard, so a composer holding the captain's own text still defers.
+If neither attempt can confirm a submit, the daemon raises a loud, rate-limited wedge alarm naming the classification it saw.
+It then hands the digest to the captain's durable inbox, so the escalation is presented at the next turn boundary.
+The alarm is an ERROR in the daemon log, a durable `state/.subsuper-inject-wedged` marker, a tmux status-line flash when applicable, and a configurable backend-independent active alert.
+Surface that marker on the "while you were out" catch-up when it is present.
+The escalation buffer is kept through all of it, so the pane path still delivers at the next proven-idle moment.
+`docs/wedge-alarm.md` owns the ladder and the alert channel setup, and `docs/verification/supervision.md` "Wedge-alarm channels" owns active evidence.
+So a guard false-positive becomes a recovered delivery or a visible stall with a durable copy, never an unbounded silent no-op.
 
 ## Submit model
 
@@ -179,14 +182,10 @@ the operational prefix lets firstmate distinguish it from a real captain message
   `FM_COMPOSER_IDLE_RE` overrides the shared idle-placeholder regex, but a match alone never bypasses the classifier's shape-specific position and ANSI de-emphasis safety gates.
   `FM_BUSY_REGEX` overrides the rendered delivery guards plus Grok's isolated task-state fallback.
   A blank or otherwise unidentified input row carries no positive container proof and defers injection, so a modal dialog or a mid-redraw pane is never an injection target.
-- **Max-defer escape** - the daemon must never silently wedge. If anything stays
-  buffered past `FM_MAX_DEFER_SECS` (default 300s), the daemon attempts one
-  normal flush, which still requires an idle pane and an affirmatively empty composer. If that
-  cannot confirm a submit, it raises a loud, rate-limited wedge alarm: ERROR log,
-  durable `state/.subsuper-inject-wedged` marker, a tmux status-line flash when
-  applicable, and a backend-independent active alert. A
-  composer false-positive surfaces as a visible stall, never an unbounded silent
-  no-op.
+- **Max-defer ladder** - past `FM_MAX_DEFER_SECS` an undelivered digest gets one
+  normal flush, one busy-override flush against a continuously busy pane, then
+  the wedge alarm and the durable inbox fallback. See "Max-defer ladder" above,
+  which states it in full.
 - **Verified type-once submit model** - the digest is typed once (`send-keys -l`
   on tmux, `pane send-text` on herdr), then submitted with Enter and verified.
   Enter is retried, Enter only and never a retype, until the backend submit
@@ -218,7 +217,9 @@ the operational prefix lets firstmate distinguish it from a real captain message
 
 ## Stale-artifact lifecycle
 
-Treat `state/.subsuper-escalations`, its `.since` sidecar, and `state/.subsuper-inject-wedged` as session-scoped delivery artifacts, not as the durable work record.
+Treat `state/.subsuper-escalations`, its `.since` sidecar, `state/.subsuper-inject-wedged`, and the ladder's own records (`state/.subsuper-inject-busy-since`, `state/.subsuper-inject-verdict`, `state/.subsuper-inject-fallback`) as session-scoped delivery artifacts, not as the durable work record.
+`bin/fm-afk-start.sh`'s `FM_AFK_DELIVERY_ARTIFACTS` is the one list of them.
+A digest that reached the durable captain inbox is the exception: that note is a real work record and is acknowledged with `bin/fm-inbox.sh drain --ack <id>` like any other.
 Always enter through `bin/fm-afk-launch.sh`, which clears prior-session artifacts only for a fresh entry and preserves the current session's buffer on refresh.
 Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` present through the daemon's shutdown flush and clears it last.
 `docs/herdr-backend.md` "Away-mode supervisor support" owns the current mechanism, and `docs/verification/runtime-backends.md` "Away-mode transport" owns active evidence.

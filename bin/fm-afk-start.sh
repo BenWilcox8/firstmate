@@ -59,11 +59,26 @@ fm_afk_start_usage() {
 # lifecycle" and bin/fm-supervise-daemon.sh's escalate_add/inject_wedge_alarm).
 # NOT called on a refresh (daemon already alive), so the current session's own
 # buffered escalations are preserved.
+#
+# FM_AFK_DELIVERY_ARTIFACTS is the ONE list of those session-scoped files, read
+# here and by bin/fm-afk-launch.sh's rollback backup and restore. Every artifact
+# the daemon's delivery path writes belongs in it, so a new away session never
+# inherits a prior session's buffer, wedge marker, continuously-busy clock, last
+# delivery classification, or durable-fallback fingerprint.
+FM_AFK_DELIVERY_ARTIFACTS="\
+.subsuper-escalations
+.subsuper-escalations.since
+.subsuper-inject-wedged
+.subsuper-inject-busy-since
+.subsuper-inject-verdict
+.subsuper-inject-fallback"
+
 fm_afk_clear_stale_artifacts() {  # <state-dir>
-  local state=$1
-  rm -f "$state/.subsuper-escalations" \
-        "$state/.subsuper-escalations.since" \
-        "$state/.subsuper-inject-wedged" 2>/dev/null
+  local state=$1 artifact
+  while IFS= read -r artifact; do
+    [ -n "$artifact" ] || continue
+    rm -f "$state/$artifact" 2>/dev/null
+  done <<<"$FM_AFK_DELIVERY_ARTIFACTS"
 }
 
 daemon_lock_owner() {
