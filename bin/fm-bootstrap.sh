@@ -9,7 +9,6 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
-#                 "STARTUP_MEMORY_BUDGET: startup memory <N> estimated tokens exceeds <M> token budget (<breakdown>)",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
@@ -19,8 +18,7 @@
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
-#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after
-#                 <cause>: <reason>|previous endpoint <target> was not retired: <reason>",
+#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING local secondmate worktree is fast-forwarded to
@@ -48,10 +46,7 @@
 #          process, an unreadable target, and an unverified backend; respawn
 #          failed names whether the endpoint was missing or agent-less.
 #          Already-live and successfully relaunched secondmates are silent
-#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts, EXCEPT
-#          that a respawn which cannot retire the previous endpoint still reports
-#          it by pane id even though the respawn itself succeeded (see
-#          docs/agent-control.md "Endpoint retirement").
+#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
@@ -91,25 +86,25 @@
 #          the backlog row inside the script that moves the task's record
 #          (bin/fm-backlog-transition-lib.sh), so this sweep exists for the
 #          crash window inside those scripts and for drift a home was already
-#          carrying: it finishes the authoritative close an interrupted cleanup
-#          recorded, and marks In flight any item this home already owns a worker
-#          for. The worker-record sweep never starts a captain-held or closed
-#          item, and reconciliation never reads or writes another home; the fleet
-#          snapshot's classifier and
+#          carrying: it finishes the authoritative close or captain-call
+#          retention an interrupted cleanup recorded, and marks In flight any
+#          item this home already owns a worker for. The worker-record sweep
+#          never starts a captain-held or closed item, and reconciliation never
+#          reads or writes another home; the fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
-#          closes and restored In-flight rows print BOOTSTRAP_INFO facts.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the seven MUTATING sweeps
+#          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
+#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
-#          secondmate_liveness_sweep, secondmate_handoff_resume,
-#          herdr_layout_repair_sweep, x_mode_setup, fleet_sync) while still
+#          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
+#          fleet_sync) while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
-#          this home's backlog books, secondmate homes, pending handoff outboxes,
-#          herdr layout, X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all seven sweeps - this flag is purely
+#          secondmate homes, pending handoff outboxes,
+#          X-mode artifacts, project clones, or repair instructions.
+#          Unset/0 (the default) runs all six sweeps - this flag is purely
 #          additive.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
@@ -181,23 +176,6 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
-# shellcheck source=bin/fm-herdr-layout-lib.sh disable=SC1091
-. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
-
-# herdr_layout_repair_sweep: at a locked session boundary, ask agent-axi to
-# converge this home's live herdr workspace to its slot plan (reap husks, re-bind
-# drifted labels), so a layout that drifted while firstmate was away self-heals
-# on session start. A definitive no-op unless this is a herdr-backed home with a
-# resolvable agent-axi (fm_herdr_layout_applicable); a converged workspace stays
-# silent, and a heal reports one BOOTSTRAP_INFO fact. Never fails the bootstrap:
-# the whole layout model is best-effort supervision, not a spawn precondition.
-herdr_layout_repair_sweep() {
-  local summary
-  summary=$(fm_herdr_layout_repair 2>/dev/null) || return 0
-  [ -n "$summary" ] || return 0
-  echo "BOOTSTRAP_INFO: $summary"
-}
-
 # fm-timing-lib.sh is inert unless FM_TIMING_LOG names a file, which only the
 # deferred network stage sets, so an ordinary bootstrap run records nothing.
 # shellcheck source=bin/fm-timing-lib.sh disable=SC1091
@@ -822,15 +800,7 @@ secondmate_liveness_one() {  # <meta> <id>
     dead|missing)
       if [ "$agent_state" = dead ]; then
         cause="confirmed agent absence on existing endpoint"
-        # The replacement is about to rewrite this secondmate's endpoint record,
-        # so the pane that record still names has to go first or it survives as
-        # an unreferenced husk. fm_backend_endpoint_retire proves the close
-        # landed; an unproven one is named here rather than swallowed, and the
-        # respawn still runs because no agent at all is worse than a leftover
-        # pane the captain can close.
-        if ! fm_backend_endpoint_retire "$backend" "$target"; then
-          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
-        fi
+        fm_backend_kill "$backend" "$target" 2>/dev/null || true
       else
         cause="recorded endpoint confidently missing"
       fi
@@ -1222,7 +1192,7 @@ crew_dispatch_validate() {
 # snapshot's classifier and bin/fm-secondmate-reconcile.sh's nudge stay as
 # backstops for what this cannot see. Never reads or writes another home.
 backlog_record_reconcile() {
-  local marker meta meta_lock id row label has_record=0 gate_status
+  local marker meta control_lock meta_lock id row label has_record=0 gate_status
   # A fresh home with no state directory has no physical task records to pair.
   # Keep bootstrap diagnostics working without creating state just for a no-op.
   [ -e "$STATE" ] || [ -L "$STATE" ] || return 0
@@ -1253,8 +1223,13 @@ backlog_record_reconcile() {
       return 2
     fi
     label=$(basename "$marker" .backlog-close)
+    control_lock="$STATE/.control-$label.lock"
     meta_lock=$(fm_meta_lock_path "$STATE/$label.meta") || continue
-    fm_lock_try_acquire "$meta_lock" || continue
+    fm_lock_try_acquire "$control_lock" || continue
+    if ! fm_lock_try_acquire "$meta_lock"; then
+      fm_lock_release "$control_lock"
+      continue
+    fi
     if fm_backlog_close_marker_replay "$STATE" "$marker" "$DATA"; then
       case "$FM_BACKLOG_CLOSE_REPLAY_RESULT" in
         closed)
@@ -1263,11 +1238,21 @@ backlog_record_reconcile() {
         closed_incomplete)
           echo "BOOTSTRAP_INFO: closed the backlog item for $label after interrupted cleanup; its endpoint or local copy may remain and should be reconciled"
           ;;
+        retained)
+          echo "BOOTSTRAP_INFO: kept the captain call for $label open with its deliverable recorded after an interrupted cleanup"
+          ;;
+        retained_incomplete)
+          echo "BOOTSTRAP_INFO: kept the captain call for $label open with its deliverable recorded after interrupted cleanup; its endpoint or local copy may remain and should be reconciled"
+          ;;
+        answered)
+          echo "BOOTSTRAP_INFO: finished the interrupted cleanup for $label; the captain had already answered its call"
+          ;;
       esac
     else
       echo "BACKLOG_RECONCILE: $label: recorded backlog close could not be replayed: $FM_BACKLOG_TRANSITION_ERROR"
     fi
     fm_lock_release "$meta_lock"
+    fm_lock_release "$control_lock"
   done
 
   # A home that owns no records has nothing to pair, so it never pays for a
@@ -1333,24 +1318,6 @@ startup_memory_budget_setup() {
   fi
   if ! fm_startup_memory_budget_materialize "$CONFIG"; then
     echo "STARTUP_MEMORY_BUDGET: invalid config/$FM_STARTUP_MEMORY_BUDGET_FILE - $FM_STARTUP_MEMORY_BUDGET_ERROR"
-  fi
-}
-
-startup_memory_budget_check() {
-  # Detect-only: reads the materialized budget and measures the three startup
-  # memory files.  Returns silently when the config is unreadable (the mutating
-  # phase already reported that) or when the total is within budget.
-  local budget total=0 file tokens summary="" sep=""
-  budget=$(fm_startup_memory_budget_read "$CONFIG") || return 0
-  for file in captain.md captain-shared.md learnings.md; do
-    fm_startup_memory_measure_file "$DATA/$file" >/dev/null || return 0
-    tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
-    total=$((total + tokens))
-    summary="${summary}${sep}data/$file ${tokens}"
-    sep=" + "
-  done
-  if ! fm_startup_memory_decimal_le "$total" "$budget"; then
-    echo "STARTUP_MEMORY_BUDGET: startup memory ${total} estimated tokens exceeds ${budget} token budget (${summary})"
   fi
 }
 
@@ -1493,7 +1460,6 @@ detect_local_config() {
     echo "BOOTSTRAP_INFO: tasks-axi available"
   fi
   detect_home_summary_publication
-  startup_memory_budget_check
 }
 
 # This home's ledger publication is deliberately best-effort: every lifecycle
@@ -1607,9 +1573,6 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
-  # herdr_layout_repair_sweep converges this home's live workspace to its slot
-  # plan from local reads only and never leaves the machine.
-  local_phase && herdr_layout_repair_sweep
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true
     cat "$fleet_sync_out"
