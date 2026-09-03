@@ -1057,16 +1057,11 @@ test_partial_github_failure_degrades() {
 }
 
 test_perl_fallback_bounds_github_call() {
-  local home fakebin toolbin cmd json started elapsed
+  local home fakebin json started elapsed
   home=$(make_home perl-timeout); write_fixture "$home"
   fakebin=$(make_fakebin "$home")
-  toolbin="$home/toolbin"
-  mkdir -p "$toolbin"
-  for cmd in bash dirname basename jq date sed git grep tail cut tr head sort wc perl sleep cat find; do
-    ln -s "$(command -v "$cmd")" "$toolbin/$cmd"
-  done
   started=$(date +%s)
-  json=$(PATH="$fakebin:$toolbin" FM_HOME="$home" FM_BEARINGS_NOW=2026-07-11T18:00:00Z \
+  json=$(PATH="$fakebin:$(fm_test_core_path)" FM_HOME="$home" FM_BEARINGS_NOW=2026-07-11T18:00:00Z \
     FM_BEARINGS_PR_TIMEOUT=1 NET_LOG="$home/net.log" FAKE_GH_SLEEP=1 "$BEARINGS" --include-prs --json)
   elapsed=$(( $(date +%s) - started ))
   [ "$elapsed" -lt 10 ] || fail "Perl fallback did not bound a stalled gh call (${elapsed}s)"
