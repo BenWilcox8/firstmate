@@ -420,7 +420,7 @@ reap_log_line() { # <pid> <age> <reason> <kind> <chain-size> <program> <result>
 # --- sweep ------------------------------------------------------------------
 
 reap_sweep() {
-  local i=0 pid kind ppid age command owner chain program result count parent_index
+  local i=0 pid kind ppid age command owner chain program result count parent_index member
   local -a members
   reap_scan
   while [ "$i" -lt "${#REAP_PIDS[@]}" ]; do
@@ -443,7 +443,14 @@ reap_sweep() {
     [ "$age" -ge "$MAX_AGE" ] || continue
     reap_signallable "$pid" || continue
     chain=$(reap_descendants "$pid")
-    read -r -a members <<<"$pid${chain:+ $chain}"
+    # Every member passes the same self-protection test as the root, so no
+    # descendant can carry the sweep into this process, its ancestry, or its
+    # own process group.
+    members=("$pid")
+    for member in $chain; do
+      reap_signallable "$member" || continue
+      members+=("$member")
+    done
     program=$(reap_program_path "$command")
     program=${program##*/}
     count=${#members[@]}
