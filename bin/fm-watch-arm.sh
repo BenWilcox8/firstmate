@@ -47,7 +47,11 @@
 # typed nonzero failure. That matters because the watcher records its reason when
 # it QUEUES the wake, so a cycle whose wake is already durably queued names that
 # wake even when the cycle then dies without printing it. Neither is ever a clean
-# empty completion. On FAILED it exits non-zero so the failure is loud. A live
+# empty completion. A delivery never hides an abnormal end: the child's stderr is
+# captured separately from the stdout classified above (a diagnostic starting
+# with a wake prefix must not read as a reason), released on every close, and a
+# delivered wake after an abnormal exit adds one stderr line naming that exit.
+# On FAILED it exits non-zero so the failure is loud. A live
 # cycle already present means re-arm attaches - do not start a second watcher.
 #
 # Every observed watcher cycle appends one tab-separated lifecycle record to

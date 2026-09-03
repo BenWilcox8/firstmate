@@ -84,7 +84,7 @@ Because branch claims contain no check-kind rows, a branch acknowledgement skips
 An actionable child output returns that reason normally.
 A zero/empty child return rechecks the home lock and beacon, attaches to a verified healthy successor when one exists, or resolves the close against the watcher's bounded terminal-delivery ledger.
 An attached arm follows verified identity-matched successors and resolves the same way when that chain ends without one, because it holds no handle on the watcher's stdout and cannot read the reason line itself.
-A child that exited nonzero or on a signal without naming its own failure resolves against the same ledger through the same code path, so no close shape can lose a wake the cycle already delivered.
+A child that exited nonzero or on a signal resolves against the same ledger through the same code path, so no close shape can lose a wake the cycle already delivered.
 
 The watcher records its actionable reason with its PID and process identity in `state/.watch-deliveries.log` when it QUEUES that wake, in `wake_queue_append`, not when it prints it.
 The two deliveries whose rows are queued by a subprocess rather than by the cycle itself - the inactive-outcome reconcile and the process-event surface - publish at the point those rows become durable, for the same reason.
