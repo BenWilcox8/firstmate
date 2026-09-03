@@ -300,6 +300,9 @@ family_for_basename() {
     fm-backend-orca.test.sh)
       printf '%s\n' orca
       ;;
+    fm-browser-reap.test.sh)
+      printf '%s\n' browser-reap
+      ;;
     *)
       printf '%s\n' unclassified
       ;;
@@ -331,6 +334,7 @@ snapshot-bearings
 cmux
 zellij
 orca
+browser-reap
 unclassified
 EOF
 }
@@ -1118,6 +1122,10 @@ families_for_changed_path() {
       ;;
     bin/fm-watch*|bin/fm-wake*|bin/fm-inactive-reconcile.sh|\
     bin/fm-classify-lib.sh|bin/fm-daemon*|bin/fm-turnend-guard*|bin/fm-guard.sh)
+      printf '%s\n' watcher-wake-lock
+      ;;
+    bin/fm-browser-reap.sh)
+      printf '%s\n' browser-reap
       printf '%s\n' watcher-wake-lock
       ;;
     bin/fm-afk*)
