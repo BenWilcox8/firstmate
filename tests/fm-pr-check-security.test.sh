@@ -569,7 +569,8 @@ SH
       "worktree=$dir/missing-worktree" \
       "project=$dir/project" \
       'kind=ship' \
-      'mode=local-only'
+      'mode=local-only' \
+      'yolo=on'
     cat > "$dir/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 exit 0
