@@ -522,9 +522,8 @@ unit_native_entry_preserves_prepared_state() {
   mkdir -p "$st/state"
   : > "$st/state/.afk"
   : > "$st/state/.subsuper-escalations"
-  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_STATE_PREPARED=1 bash -c '
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_STATE_PREPARED=1 FM_AFK_DAEMON="$TRUE_BIN" bash -c '
     . "$1"
-    FM_AFK_DAEMON="$TRUE_BIN"
     fm_afk_start_main
   ' _ "$START" >/dev/null 2>&1
   if [ -e "$st/state/.afk" ] && [ -e "$st/state/.subsuper-escalations" ]; then

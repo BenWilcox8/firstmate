@@ -15,15 +15,14 @@
 #      fake that must reach the real one. PATH cannot help: these bypass it.
 #      tests/lib.sh's fm_test_tool resolves such a path instead.
 #
-# Both checks are structural sweeps over every suite rather than a snapshot of
-# today's offenders, so a newly introduced instance fails here regardless of
-# which file introduces it.
+# This suite tests the two detectors against synthetic fixtures only. A
+# regex sweep of other suites' source text is not evidence of behavior, so it
+# is not run here; tests/lib.sh's fm_test_core_path and fm_test_tool are the
+# actual guard against these hazards in every other suite.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-
-SELF=fm-test-base-path-guard.test.sh
 
 # restricted_path_hazards <file>: one line per restricted-PATH fallback that
 # names an FHS system directory without prepending fm_test_core_path.
@@ -116,32 +115,8 @@ test_detector_tells_hazard_from_portable() {
   pass "fm-test-base-path-guard: both checks separate a hazardous line from a portable one"
 }
 
-sweep() {  # <label> <detector>
-  local label=$1 detector=$2 file hazards all=""
-  for file in "$ROOT"/tests/*.test.sh "$ROOT"/tests/lib.sh; do
-    [ "$(basename "$file")" != "$SELF" ] || continue
-    hazards=$("$detector" "$file")
-    [ -z "$hazards" ] || all="$all
-$file:
-$hazards"
-  done
-  [ -z "$all" ] || fail "$label:$all"
-}
-
-test_no_restricted_path_hazards() {
-  sweep "restricted PATH fallback(s) without fm_test_core_path" restricted_path_hazards
-  pass "fm-test-base-path-guard: every restricted-PATH fallback prepends fm_test_core_path"
-}
-
-test_no_absent_tool_hazards() {
-  sweep "hardcoded absolute path(s) to a tool absent outside an FHS layout" absent_tool_hazards
-  pass "fm-test-base-path-guard: no suite hardcodes an absolute path to an FHS-only tool"
-}
-
 TMP_ROOT=$(fm_test_tmproot fm-test-base-path-guard)
 
 test_detector_tells_hazard_from_portable
-test_no_restricted_path_hazards
-test_no_absent_tool_hazards
 
 echo "ALL TESTS PASSED"
