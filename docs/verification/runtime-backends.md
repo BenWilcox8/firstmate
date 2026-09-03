@@ -337,6 +337,7 @@ Measured 2026-08-19 against Herdr 0.8.0 and Claude Code 2.1.236 in an isolated `
 `herdr agent get` reported `agent_status=idle` on every sample across a landed one-word turn and an 8-second `sleep` tool call, while the pane rendered `Pontificating…` then `Sock-hopping… (11s · ↓ 234 tokens)`.
 `fm_backend_herdr_send_text_submit` therefore cannot treat native idle as proof of a swallow.
 The portable regressions in `tests/fm-backend-herdr.test.sh` and `tests/fm-composer-lib.test.sh` pin the verdicts: native idle plus a cleared composer is delivery, proven pending plus idle is a swallow, and proven pending plus a generating busy signal is a queued Enter.
+That generating signal is read at the verdict rather than gated on the pre-Enter baseline, so a mid-turn pane whose native read is `working`, stale, or unreadable still reaches its rendered busy footer; `tests/fm-send-busy-doorbell.test.sh` pins that end to end through `bin/fm-send.sh` for both herdr and tmux.
 Refresh the live Claude proof with:
 
 ```sh
