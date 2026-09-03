@@ -1148,6 +1148,44 @@ ROWS
   pass "bootstrap validates crew-dispatch.json and reports malformed or unverified configs"
 }
 
+test_startup_memory_budget_check() {
+  local home out
+
+  # Over-budget: all three data files together exceed the configured budget.
+  # Budget = 10 tokens; each 20-byte file = ceil(20/3) = 7 tokens; total = 21 > 10.
+  home="$TMP_ROOT/budget-over"
+  mkdir -p "$home/config" "$home/data"
+  printf '%s\n' 10 > "$home/config/startup-memory-budget"
+  head -c 20 /dev/zero | tr '\0' 'a' > "$home/data/captain.md"
+  head -c 20 /dev/zero | tr '\0' 'b' > "$home/data/captain-shared.md"
+  head -c 20 /dev/zero | tr '\0' 'c' > "$home/data/learnings.md"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
+    FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
+    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null \
+    | grep '^STARTUP_MEMORY_BUDGET:' || true)
+  [ -n "$out" ] \
+    || fail "over-budget home: expected a STARTUP_MEMORY_BUDGET: line, got none"
+  printf '%s\n' "$out" | grep -q "exceeds" \
+    || fail "over-budget STARTUP_MEMORY_BUDGET: line did not say 'exceeds'; got: $out"
+
+  # Within-budget: all three small files stay inside the configured budget.
+  # Budget = 7500 tokens; each 10-byte file = ceil(10/3) = 4 tokens; total = 12 << 7500.
+  home="$TMP_ROOT/budget-within"
+  mkdir -p "$home/config" "$home/data"
+  printf '%s\n' 7500 > "$home/config/startup-memory-budget"
+  head -c 10 /dev/zero | tr '\0' 'a' > "$home/data/captain.md"
+  head -c 10 /dev/zero | tr '\0' 'b' > "$home/data/captain-shared.md"
+  head -c 10 /dev/zero | tr '\0' 'c' > "$home/data/learnings.md"
+  out=$(FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
+    FM_BOOTSTRAP_DETECT_ONLY=1 FM_BOOTSTRAP_NETWORK=skip \
+    "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null \
+    | grep '^STARTUP_MEMORY_BUDGET:' || true)
+  [ -z "$out" ] \
+    || fail "within-budget home: expected no STARTUP_MEMORY_BUDGET: line, got: $out"
+
+  pass "bootstrap emits STARTUP_MEMORY_BUDGET: when startup memory exceeds budget and is silent when within"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_min_version
 test_gh_axi_min_version
@@ -1176,3 +1214,4 @@ test_network_phases_record_per_step_elapsed_times
 test_tasks_axi_verdict_handoff_is_consumed_once
 test_crew_dispatch_active_rules_are_verbose_bootstrap_info
 test_crew_dispatch_validation
+test_startup_memory_budget_check
