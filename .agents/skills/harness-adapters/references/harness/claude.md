@@ -26,18 +26,10 @@ As defense in depth, `fm_composer_strip_ghost` in `../../../bin/fm-composer-lib.
 `../../../docs/herdr-backend.md` under "Composer and injection safety" owns dark-TRUECOLOR tradeoffs and `../../../docs/verification/runtime-backends.md` owns captures.
 Styled capture stays internal to the boolean detector; `fm-peek` and model-facing captures remain plain, without escapes.
 
-## Session persistence
+## Feedback drafts
 
-Verified 2026-08-20 on Claude Code 2.1.237.
-The spawn launches every Claude agent behind `env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1`, so the captain can resume a spawned agent later with `claude --resume <session-id>`.
-Claude Code exports `CLAUDE_CODE_CHILD_SESSION=1` into the shells it spawns.
-A pane daemon started from inside a Claude session passes that marker to every pane it creates, and an interactive Claude launched there writes no transcript at all, showing "Transcript saving is off - inherited CLAUDE_CODE_CHILD_SESSION marker" in its footer.
-The suppression needs the marker, an interactive session, and the marker to be absent from tmux's GLOBAL environment: Claude treats a marker that `tmux show-environment -g CLAUDE_CODE_CHILD_SESSION` reports as ambient contamination and keeps saving.
-That forgiveness is why the symptom shows on panes whose daemon exports no tmux global marker while a hand-made tmux repro can look healthy, and why a repro must clear the global variable first.
-`CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` is checked before every other condition, so it alone is decisive; stripping the inherited marker also removes the trigger and stays as the second line of defense.
-Print mode (`--print`) always writes a transcript and cannot reproduce or verify this - use a real interactive session.
-`../../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
-`../../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
+The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
+The controls are scoped to the launched process and never modify the captain's global Claude settings; `launch_template()` in `../../../../../bin/fm-spawn.sh` owns their exact mechanics and defense-in-depth rationale.
 
 ## Primary integration
 
