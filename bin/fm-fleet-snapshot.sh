@@ -1423,7 +1423,7 @@ scout_report_lines() {
 # the run dies with "Argument list too long" (onestopgreek, 2026-09-02).
 # Both are therefore materialized once here and read by every consumer with
 # --slurpfile, so their size is bounded only by disk.
-SNAPSHOT_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
+SNAPSHOT_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot-work.XXXXXX") \
   || { echo "fm-fleet-snapshot: could not create a working directory" >&2; exit 1; }
 trap 'rm -rf -- "$SNAPSHOT_TMPDIR"' EXIT HUP INT TERM
 BACKLOG_FILE="$SNAPSHOT_TMPDIR/backlog.json"

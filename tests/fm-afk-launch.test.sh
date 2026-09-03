@@ -27,6 +27,17 @@ FAILED=0
 fail() { printf 'not ok - %s\n' "$1" >&2; FAILED=1; }
 pass() { printf 'ok - %s\n' "$1"; }
 
+# This suite is self-contained and deliberately does not source tests/lib.sh,
+# so it resolves its own no-op binary rather than assuming /bin/true, which
+# does not exist on hosts like NixOS. Resolving it must fail loudly: both
+# FM_AFK_LAUNCH_ENTRY and FM_AFK_DAEMON are read by bin/fm-afk-launch.sh with
+# the `${VAR:-default}` form, which treats an EMPTY value as unset, so an
+# unresolved path here would silently bypass the very seam these cases install
+# and let them report ok while testing nothing.
+TRUE_BIN=$(type -P true 2>/dev/null || true)
+[ -n "$TRUE_BIN" ] \
+  || { printf 'not ok - could not resolve a true(1) binary for the launch seam\n' >&2; exit 1; }
+
 SLEEPER=$(mktemp "${TMPDIR:-/tmp}/fm-afk-sleeper.XXXXXX")
 printf '#!/usr/bin/env bash\nexec sleep 600\n' > "$SLEEPER"
 chmod +x "$SLEEPER"
@@ -328,7 +339,7 @@ unit_herdr_partial_create_recovery() {
   local st recorded
   st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-partial.XXXXXX")
   recorded="$st/recorded"
-  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_LAUNCH_ENTRY="$(fm_test_tool true)" \
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_LAUNCH_ENTRY="$TRUE_BIN" \
     FM_AFK_LAUNCH_LABEL=afk-exact-label RECORDED="$recorded" bash -c '
     . "$1"
     fm_backend_source() { return 0; }
@@ -513,7 +524,7 @@ unit_native_entry_preserves_prepared_state() {
   : > "$st/state/.subsuper-escalations"
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_AFK_STATE_PREPARED=1 bash -c '
     . "$1"
-    FM_AFK_DAEMON="$(fm_test_tool true)"
+    FM_AFK_DAEMON="$TRUE_BIN"
     fm_afk_start_main
   ' _ "$START" >/dev/null 2>&1
   if [ -e "$st/state/.afk" ] && [ -e "$st/state/.subsuper-escalations" ]; then

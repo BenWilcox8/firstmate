@@ -59,13 +59,21 @@ absent_tool_hazards() {
     my $tool = qr{/bin/(?:bash|echo|true|false|cat|sleep|cp|mv|rm|ls|sed|grep)(?![\w.-])};
     print "$.: $line" if
          $line =~ /^#!$tool/                 # shebang
-      || $line =~ /(?:^|\||&|;|\()\s*exec\s+$tool/   # exec replacement
+      || $line =~ /\bexec\s+$tool/           # exec replacement
       || $line =~ /\bln\s+-s\s+$tool/        # symlink target
       || $line =~ /(?:^|\s)--\s+$tool/       # recorded argv after --
       || $line =~ /\bexec(?:l|v|vp|lp)?\s*\(\s*"$tool"/  # C exec family
-      || $line =~ /^\s*$tool/                # plain command position
+      # Command position: start of line, or after a separator or block keyword
+      # (`; do /bin/sleep 0.01; done` is as much a command as a bare line).
+      || $line =~ /(?:^|;|\||&|\(|\}|\bdo\b|\bthen\b|\belse\b|\bin\b)\s*$tool/
       || $line =~ /\$\(\s*$tool/             # command substitution
-      || $line =~ /^\s*\w+=$tool/            # VAR=/bin/tool handed on as a command
+      # VAR=/bin/tool anywhere on the line, not just the first assignment:
+      # `FM_HOME="$st" FM_AFK_LAUNCH_ENTRY=/bin/true \` puts it second.
+      || $line =~ /(?:^|\s)\w+=$tool/
+      # A quoted path as an element of a language-level argv list, e.g.
+      # Popen(["/bin/sleep", "300"]). Anchored to the opening bracket or paren
+      # so that the same text merely being printed as data is not flagged.
+      || $line =~ /[\[\(]\s*[\x27"]$tool[\x27"]/
       ;
   ' "$1"
 }
@@ -79,7 +87,11 @@ test_detector_tells_hazard_from_portable() {
     'BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}' \
     'BASE_PATH=${FM_TEST_BASE_PATH:-/bin:/sbin}' \
     'ln -s /bin/bash "$dir/claude"' \
-    'register lavish src -- /bin/echo payload' > "$unsafe"
+    'register lavish src -- /bin/echo payload' \
+    'exec /bin/cat "$@"' \
+    'FM_HOME="$st" FM_AFK_LAUNCH_ENTRY=/bin/true' \
+    'while [ ! -e "$release" ]; do /bin/sleep 0.01; done' \
+    'child = subprocess.Popen(["/bin/sleep", "300"], cwd="/")' > "$unsafe"
   # shellcheck disable=SC2016 # Literal shell fixtures must remain unexpanded.
   printf '%s\n' \
     'BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}' \
@@ -91,7 +103,11 @@ test_detector_tells_hazard_from_portable() {
 
   [ "$(restricted_path_hazards "$unsafe" | wc -l)" -eq 2 ] \
     || fail "restricted-PATH check missed a bare FHS fallback: $(restricted_path_hazards "$unsafe")"
-  [ "$(absent_tool_hazards "$unsafe" | wc -l)" -eq 2 ] \
+  # Every non-BASE_PATH line in the unsafe fixture must be caught: the symlink
+  # target, the argv after --, the exec, the second assignment on its line, the
+  # command after `do`, and the path inside a language-level argv list. The
+  # last three are shapes an earlier version of this detector missed.
+  [ "$(absent_tool_hazards "$unsafe" | wc -l)" -eq 6 ] \
     || fail "absent-tool check missed a hardcoded absent binary: $(absent_tool_hazards "$unsafe")"
   [ -z "$(restricted_path_hazards "$safe")" ] \
     || fail "restricted-PATH check flagged a portable fallback: $(restricted_path_hazards "$safe")"
