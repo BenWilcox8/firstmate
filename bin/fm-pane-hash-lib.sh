@@ -26,16 +26,28 @@ hash_pane() {
 # harness - it can never mask a real content change - so the list stays small
 # and additive. LC_ALL=C keeps sed byte-oriented: the multibyte glyphs match as
 # literal byte sequences and raw captures with non-UTF-8 bytes cannot error.
-# The second and third expressions fold counter FORMAT transitions that digit
-# collapsing alone leaves behind: an elapsed counter grows units ("59s" ->
-# "1m 3s" -> "1h 2m 3s") and a token counter gains a decimal k suffix ("847"
-# -> "3.4k"), each of which would otherwise change the hash once per rollover.
+# The second, third and fourth expressions fold counter FORMAT transitions that
+# digit collapsing alone leaves behind: an elapsed or countdown counter grows and
+# sheds units ("59s" -> "1m 3s" -> "1h 2m 3s", "3h23m" -> "59m") and a token
+# counter gains a decimal k suffix ("847" -> "3.4k"), each of which would
+# otherwise change the hash once per rollover. The duration expression folds a
+# whole run of zeroed unit tokens, with or without separating spaces, to one
+# token, so no unit count survives the fold.
+# The fifth expression folds a bracketed FILL BAR - the usage/progress meter
+# claude renders beside its reset countdown ("[##--------]") and the same shape
+# any TUI draws for a quota or download bar. It advances on its own schedule
+# while the agent sits idle, and no digit or glyph rule reaches it because the
+# bar carries its value in the ratio of its fill characters, not in a number.
+# It is matched by SHAPE - a bracketed run of fill characters - not by any
+# vendor's bar string, so a harness that draws the same meter with different
+# glyphs folds too.
 normalize_pane_volatiles() {
   LC_ALL=C sed -E \
     -e 's/[0-9]+/0/g' \
     -e 's/0(\.0)+/0/g' \
-    -e 's/(0[hm][[:space:]]+)*0s/0s/g' \
+    -e 's/(0[hmsd][[:space:]]*)+/0s/g' \
     -e 's/0k/0/g' \
+    -e 's/\[[#=+*.:_ -]{2,}\]/[]/g' \
     -e 's/✢|✳|✶|✻|✽|·//g' \
     -e 's/⠁|⠂|⠄|⡀|⢀|⠠|⠐|⠈|⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏//g' \
     -e 's/🌑|🌒|🌓|🌔|🌕|🌖|🌗|🌘//g'
