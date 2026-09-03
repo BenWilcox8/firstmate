@@ -18,7 +18,11 @@
 # through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
 # never fail a merge that has already landed; a task with no recorded ticket, or
 # a home with no Atlas, makes no call at all.
-# Usage: fm-merge-local.sh <task-id>
+# Merge authority: reads yolo= from the task's state/<id>.meta at entry and
+# refuses when the value is off or the field is absent (safe default). Pass
+# --captain-authorized as the second argument to override the guard with an
+# explicit current captain merge instruction.
+# Usage: fm-merge-local.sh <task-id> [--captain-authorized]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -36,8 +40,24 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-lease-lib.sh"
 fm_lease_forbid_branch "local-only landing (fm-merge-local)"
 ID=${1:?usage: fm-merge-local.sh <task-id>}
+# --captain-authorized: explicit current captain merge instruction; passes
+# through the yolo= guard below. Never modifies the git operation itself.
+CAPTAIN_AUTHORIZED=false
+[ "${2:-}" != --captain-authorized ] || CAPTAIN_AUTHORIZED=true
 META="$STATE/$ID.meta"
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
+
+# Merge-authority guard: refuse unless yolo=on is recorded in the task meta or
+# the caller supplied --captain-authorized (a current, explicit captain merge
+# word). A missing yolo= field is treated as yolo=off (safe default).
+if [ "$CAPTAIN_AUTHORIZED" != true ]; then
+  YOLO_VAL=$(grep '^yolo=' "$META" | tail -1 | cut -d= -f2- || true)
+  if [ "$YOLO_VAL" != on ]; then
+    printf 'error: merge refused for task %s: yolo=%s (expected on or --captain-authorized for an explicit captain merge instruction)\n' \
+      "$ID" "${YOLO_VAL:-<missing>}" >&2
+    exit 1
+  fi
+fi
 
 PROJ=$(grep '^project=' "$META" | cut -d= -f2-)
 MODE=$(grep '^mode=' "$META" | cut -d= -f2- || true)

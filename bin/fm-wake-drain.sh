@@ -60,6 +60,19 @@ ELIGIBLE_ROWS_FILE="$STATE/.branch-eligible-rows"
 ELIGIBLE_OWNER_FILE="$STATE/.branch-eligible-owner"
 MAIN_ROWS_FILE="$STATE/.main-eligible-rows"
 
+# Pi harness is present when the branch-session directory exists: the Pi
+# extension creates and owns it exclusively, so its absence proves no Pi branch
+# is or has been active in this home. Non-Pi homes (Claude, Codex) skip the
+# claim block on every drain - it is a no-op for them and the file it produces
+# is never read by any main-only wake path.
+pi_harness_present() {
+  [ -d "$STATE/branch-session" ]
+}
+
+# Evaluated once; the result drives every Pi-conditional branch below.
+PI_HARNESS=false
+pi_harness_present && PI_HARNESS=true || true
+
 rows_file_valid() {
   [ -s "$1" ] && awk 'BEGIN { ok=1 } !/^[0-9]+$/ || seen[$0]++ { ok=0 } END { exit !ok }' "$1"
 }
@@ -407,7 +420,9 @@ if [ -n "$ACK_THROUGH" ]; then
     # Claim again under the queue lock so those rows cannot be stranded merely
     # because they were not present during the earlier drain. A live branch
     # grant remains excluded by claim_main_rows_locked.
-    claim_main_rows_locked || exit 1
+    # Pi-only: the claim block and .main-eligible-rows file are exclusively for
+    # the Pi supervision-branch split; non-Pi homes skip it on every drain.
+    pi_harness_present && { claim_main_rows_locked || exit 1; }
   fi
   if [ "$ACTOR" = branch ]; then
     # check-kind rows (inactive-outcome receipts, secondmate stall markers)
@@ -422,8 +437,12 @@ if [ -n "$ACK_THROUGH" ]; then
       echo "wake drain: main acknowledgement has an invalid presented-row claim" >&2
       exit 1
     fi
-    ACK_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-outcome:' "$MAIN_ROWS_FILE") || exit 1
-    ACK_NOTICE_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-reconcile:' "$MAIN_ROWS_FILE") || exit 1
+    # For non-Pi homes MAIN_ROWS_FILE is not populated; pass an empty rows arg
+    # so inactive_outcome_fingerprints treats every row as owned by main.
+    _ack_rows=
+    [ "$PI_HARNESS" != true ] || _ack_rows=$MAIN_ROWS_FILE
+    ACK_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-outcome:' "$_ack_rows") || exit 1
+    ACK_NOTICE_FINGERPRINTS=$(inactive_outcome_fingerprints "$ACK_THROUGH" 'inactive-reconcile:' "$_ack_rows") || exit 1
   fi
   fm_lock_release "$FM_WAKE_QUEUE_LOCK"
   DRAIN_LOCK_HELD=false
@@ -445,12 +464,21 @@ if [ -n "$ACK_THROUGH" ]; then
       BEGIN { while ((getline line < seqs) > 0) if (line ~ /^[0-9]+$/) keep[line] = 1 }
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in keep) { print }
     ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
-  else
+  elif [ "$PI_HARNESS" = true ]; then
     awk -F '\t' -v cutoff="$ACK_THROUGH" -v seqs="$MAIN_ROWS_FILE" '
       BEGIN { while ((getline line < seqs) > 0) owned[line]=1 }
       NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff || !($2 in owned) { print }
     ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
     fm_wake_commit_secondmate_stall_receipts_through "$ACK_THROUGH" "$MAIN_ROWS_FILE" || {
+      echo "wake drain: secondmate stall receipt could not be recorded safely" >&2
+      exit 1
+    }
+  else
+    # Non-Pi main: owns every row; ack all valid rows through the cutoff.
+    awk -F '\t' -v cutoff="$ACK_THROUGH" '
+      NF < 5 || $2 !~ /^[0-9]+$/ || $2 > cutoff { print }
+    ' "$FM_WAKE_QUEUE" > "$DRAIN_TMP" || exit 1
+    fm_wake_commit_secondmate_stall_receipts_through "$ACK_THROUGH" "" || {
       echo "wake drain: secondmate stall receipt could not be recorded safely" >&2
       exit 1
     }
@@ -521,14 +549,20 @@ if [ "$ACTOR" = main ]; then
   if [ -e "$ELIGIBLE_ROWS_FILE" ] || [ -L "$ELIGIBLE_ROWS_FILE" ]; then
     require_branch_eligible_rows || exit 1
   fi
-  claim_main_rows_locked || exit 1
-  if [ ! -s "$MAIN_ROWS_FILE" ]; then
-    fm_lock_release "$FM_WAKE_QUEUE_LOCK"
-    DRAIN_LOCK_HELD=false
-    (print_status_presentation) || true
-    assert_watcher_liveness
-    exit 0
+  if [ "$PI_HARNESS" = true ]; then
+    # Pi homes: claim each row not reserved by the branch actor, then exit
+    # early when no rows remain for main (the branch claimed them all).
+    claim_main_rows_locked || exit 1
+    if [ ! -s "$MAIN_ROWS_FILE" ]; then
+      fm_lock_release "$FM_WAKE_QUEUE_LOCK"
+      DRAIN_LOCK_HELD=false
+      (print_status_presentation) || true
+      assert_watcher_liveness
+      exit 0
+    fi
   fi
+  # Non-Pi: all rows in the queue belong to main; no claim file is needed.
+  # The queue is already confirmed non-empty at this point.
 fi
 
 fm_recovery_marker_snapshot "$RECOVERY_MARKER" || true
@@ -557,13 +591,20 @@ RECOVERY_MARKER_TOKEN=$FM_RECOVERY_MARKER_TOKEN
 DRAIN_VIEW_TMP=$(mktemp "$STATE/.wake-queue.actor-view.XXXXXX") || exit 1
 if [ "$ACTOR" = branch ]; then
   ACTOR_ROWS_FILE=$ELIGIBLE_ROWS_FILE
-else
+elif [ "$PI_HARNESS" = true ]; then
   ACTOR_ROWS_FILE=$MAIN_ROWS_FILE
+else
+  ACTOR_ROWS_FILE=
 fi
-awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
-  BEGIN { while ((getline line < seqs) > 0) keep[line]=1 }
-  NF >= 5 && ($2 in keep)
-' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
+if [ -n "$ACTOR_ROWS_FILE" ]; then
+  awk -F '\t' -v seqs="$ACTOR_ROWS_FILE" '
+    BEGIN { while ((getline line < seqs) > 0) keep[line]=1 }
+    NF >= 5 && ($2 in keep)
+  ' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
+else
+  # Non-Pi main: no claim file; every valid queue row belongs to this actor.
+  awk -F '\t' 'NF >= 5 && $2 ~ /^[0-9]+$/' "$FM_WAKE_QUEUE" > "$DRAIN_VIEW_TMP" || exit 1
+fi
 RAW_ROWS=$(fm_wake_print_deduped "$DRAIN_VIEW_TMP") || exit "$?"
 rm -f -- "$DRAIN_VIEW_TMP" || exit 1
 DRAIN_VIEW_TMP=

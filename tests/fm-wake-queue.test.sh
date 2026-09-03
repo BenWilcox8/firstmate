@@ -668,6 +668,7 @@ test_main_drain_excludes_rows_already_granted_to_branch() {
   local dir state out err sequence generation
   dir=$(make_case main-excludes-branch-grant)
   state="$dir/state"
+  mkdir -p "$state/branch-session"
 
   append_wake "$state" check "some-poll.check.sh" "check: some-poll.check.sh: merged" \
     || fail "main-only append failed"
@@ -707,6 +708,7 @@ test_branch_grant_refuses_rows_already_claimed_by_main() {
   local dir state rc
   dir=$(make_case branch-refuses-main-claim)
   state="$dir/state"
+  mkdir -p "$state/branch-session"
 
   append_wake "$state" signal "task-a.status" "signal: task-a" || fail "signal append failed"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$dir/main.out" 2> "$dir/main.err" \
