@@ -62,21 +62,7 @@ test_oversized_backlog_still_summarizes() {
   pass "the default fleet snapshot handles a backlog larger than ARG_MAX too"
 }
 
-# The whole point of reading these documents from files is that nothing is left
-# behind afterwards; a leak would be invisible until a disk filled up.
-test_oversized_run_leaves_no_working_files() {
-  local home before after
-  home="$TMP_ROOT/home"
-  before=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'fm-fleet-snapshot-work.*' 2>/dev/null | wc -l)
-  FM_HOME="$home" "$SNAPSHOT" --json >/dev/null 2>&1 \
-    || fail "the default snapshot failed while checking working-file cleanup"
-  after=$(find "${TMPDIR:-/tmp}" -maxdepth 1 -name 'fm-fleet-snapshot-work.*' 2>/dev/null | wc -l)
-  [ "$before" -eq "$after" ] \
-    || fail "the snapshot left its working directory behind (before=$before after=$after)"
-  pass "the snapshot removes the working files it materialized"
-}
 
 test_oversized_backlog_still_summarizes
-test_oversized_run_leaves_no_working_files
 
 echo "ALL TESTS PASSED"

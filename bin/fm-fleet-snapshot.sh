@@ -653,10 +653,10 @@ task_json_lines() {
 # used by secondmate_home_summary_json, without inventing live task rows.
 # Meta inventory remains the sole source of live workers; this object only
 # discloses backlog↔task inconsistency for renderers (Bearings omitted/gates).
-main_inventory_json() {  # <backlog-file> <tasks-file>
+main_inventory_json() {  # <backlog-json> <tasks-json>
   jq -n \
-    --slurpfile backlog_raw "$1" \
-    --slurpfile tasks_raw "$2" '
+    --slurpfile backlog_raw <(printf %s "$1") \
+    --slurpfile tasks_raw <(printf %s "$2") '
     ($backlog_raw[0]) as $backlog
     | ($tasks_raw[0]) as $tasks
     | ([ $backlog.records[]?
@@ -683,7 +683,7 @@ main_inventory_json() {  # <backlog-file> <tasks-file>
 # validated parent read needs.
 # This mode never reads parent events or terminal text and never aggregates
 # nested secondmates.
-secondmate_home_summary_json() {  # <backlog-file> <tasks-file>
+secondmate_home_summary_json() {  # <backlog-json> <tasks-json>
   jq -n \
     --arg generated "$SNAPSHOT_NOW" \
     --argjson generated_epoch "$SNAPSHOT_EPOCH" \
@@ -692,8 +692,8 @@ secondmate_home_summary_json() {  # <backlog-file> <tasks-file>
     --argjson queued_n "$FM_SNAPSHOT_SECONDMATE_QUEUED" \
     --argjson decisions_n "$FM_SNAPSHOT_SECONDMATE_DECISIONS" \
     --argjson landed_n "$FM_SNAPSHOT_SECONDMATE_LANDED_PER_HOME" \
-    --slurpfile backlog_raw "$1" \
-    --slurpfile tasks_raw "$2" '
+    --slurpfile backlog_raw <(printf %s "$1") \
+    --slurpfile tasks_raw <(printf %s "$2") '
     ($backlog_raw[0]) as $backlog
     | ($tasks_raw[0]) as $tasks
     | def trunc($n):
@@ -1170,13 +1170,13 @@ parent_evidence_reconciliation_json() {  # <summary-json> <activities-json> <dec
        inconclusive:any(($activity_results + $decision_results)[]; .verdict == "inconclusive")}'
 }
 
-secondmate_current_json() {  # <parent-tasks-file>
+secondmate_current_json() {  # <parent-tasks-json>
   local tasks=$1 registry union rows total_registered total shown truncated
   local row id home host remote registered registry_error task sampled_spawn_gen status_file event_raw event_note event_epoch event_age
   local activity_scan activities decisions reconciliation provenance freshness reason summary summary_rc summary_bytes summary_sampled summary_valid summary_reason summary_invalidity state current_reason terminal terminal_contradiction contradiction
   local records='[]' seen_homes=''
   registry=$(registry_secondmates_json) || return 1
-  union=$(jq -n --argjson registry "$registry" --slurpfile tasks_raw "$tasks" '
+  union=$(jq -n --argjson registry "$registry" --slurpfile tasks_raw <(printf %s "$tasks") '
     ($tasks_raw[0]) as $tasks
     | ($registry.records // []) as $registered
     | (($registered | map(.id)) // []) as $registered_ids
@@ -1417,38 +1417,26 @@ scout_report_lines() {
     | jq -s 'sort_by(.id)'
 }
 
-# The backlog and the live task list are the two documents that grow with the
-# size of a home, and --argjson would place each one whole on jq's argument
-# list: past a big enough backlog that exceeds the OS argument-size limit and
-# the run dies with "Argument list too long" (onestopgreek, 2026-09-02).
-# Both are therefore materialized once here and read by every consumer with
-# --slurpfile, so their size is bounded only by disk.
-SNAPSHOT_TMPDIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot-work.XXXXXX") \
-  || { echo "fm-fleet-snapshot: could not create a working directory" >&2; exit 1; }
-trap 'rm -rf -- "$SNAPSHOT_TMPDIR"' EXIT HUP INT TERM
-BACKLOG_FILE="$SNAPSHOT_TMPDIR/backlog.json"
-TASKS_FILE="$SNAPSHOT_TMPDIR/tasks.json"
-
-backlog_json > "$BACKLOG_FILE" || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
-task_json_lines > "$TASKS_FILE" || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
+TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
 
 # A producer that exits 0 with no output would otherwise surface far downstream
 # as an opaque "Cannot iterate over null" from whichever jq consumed it first.
-[ -s "$BACKLOG_FILE" ] \
+[ -n "$BACKLOG_JSON" ] \
   || { echo "fm-fleet-snapshot: backlog read produced no document" >&2; exit 1; }
-[ -s "$TASKS_FILE" ] \
+[ -n "$TASKS_JSON" ] \
   || { echo "fm-fleet-snapshot: task snapshot produced no document" >&2; exit 1; }
 
 if [ "$OUTPUT_MODE" = secondmate-home-summary ]; then
-  secondmate_home_summary_json "$BACKLOG_FILE" "$TASKS_FILE" \
+  secondmate_home_summary_json "$BACKLOG_JSON" "$TASKS_JSON" \
     || { echo "fm-fleet-snapshot: secondmate home summary failed" >&2; exit 1; }
   exit 0
 fi
 
 SCOUT_REPORTS_JSON=$(scout_report_lines)
-MAIN_INVENTORY_JSON=$(main_inventory_json "$BACKLOG_FILE" "$TASKS_FILE") \
+MAIN_INVENTORY_JSON=$(main_inventory_json "$BACKLOG_JSON" "$TASKS_JSON") \
   || { echo "fm-fleet-snapshot: main inventory summary failed" >&2; exit 1; }
-SECONDMATE_CURRENT_JSON=$(secondmate_current_json "$TASKS_FILE") \
+SECONDMATE_CURRENT_JSON=$(secondmate_current_json "$TASKS_JSON") \
   || { echo "fm-fleet-snapshot: registered secondmate aggregation failed" >&2; exit 1; }
 SECONDMATE_LANDED_JSON=$(secondmate_landed_from_current_json "$SECONDMATE_CURRENT_JSON") \
   || { echo "fm-fleet-snapshot: secondmate landed projection failed" >&2; exit 1; }
@@ -1461,8 +1449,8 @@ jq -n \
   --arg data "$DATA" \
   --arg config "$CONFIG" \
   --arg projects "$PROJECTS" \
-  --slurpfile backlog_raw "$BACKLOG_FILE" \
-  --slurpfile tasks_raw "$TASKS_FILE" \
+  --slurpfile backlog_raw <(printf %s "$BACKLOG_JSON") \
+  --slurpfile tasks_raw <(printf %s "$TASKS_JSON") \
   --argjson main_inventory "$MAIN_INVENTORY_JSON" \
   --argjson scout_reports "$SCOUT_REPORTS_JSON" \
   --argjson secondmate_current "$SECONDMATE_CURRENT_JSON" \
