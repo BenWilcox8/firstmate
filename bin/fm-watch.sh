@@ -201,7 +201,7 @@ HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
 esac
-BROWSER_REAP_INTERVAL=${FM_BROWSER_REAP_INTERVAL:-3600}  # seconds between orphaned-browser sweeps
+BROWSER_REAP_INTERVAL=${FM_BROWSER_REAP_INTERVAL:-3600}  # seconds between orphaned-browser sweeps; 0 disables them
 case "$BROWSER_REAP_INTERVAL" in
   ''|*[!0-9]*) BROWSER_REAP_INTERVAL=3600 ;;
 esac
@@ -1678,7 +1678,10 @@ while :; do
   # Orphaned-browser sweep, on its own slow cadence. Time-based via
   # .last-browser-reap mtime so the cadence survives watcher restarts, and the
   # marker is stamped before the sweep so a long reap cannot queue a second one.
-  if [ "$(age_of "$STATE/.last-browser-reap")" -ge "$BROWSER_REAP_INTERVAL" ]; then
+  # An interval of 0 turns the sweep off: it is the one thing in this loop that
+  # reaches outside this home, so it needs a switch that is not a code edit.
+  if [ "$BROWSER_REAP_INTERVAL" -gt 0 ] \
+    && [ "$(age_of "$STATE/.last-browser-reap")" -ge "$BROWSER_REAP_INTERVAL" ]; then
     touch "$STATE/.last-browser-reap"
     browser_reap_detached
   fi

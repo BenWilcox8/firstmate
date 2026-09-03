@@ -12,25 +12,27 @@
 #                      still applies, so a named pid that is not a chain root,
 #                      has a live owner, or is too young is still left alone.
 #
-# The leak this clears: an agent drives a headless browser through
-# chrome-devtools-axi, the agent's session dies, and the browser survives it.
-# Both halves of that stack detach themselves at birth - the bridge is spawned
-# with `detached: true` and a launcher-started Chrome calls setsid - so nothing
-# in the process tree ever notices the owner leaving. Observed 2026-08-18 as
+# The leak this clears: an agent drives a headless browser, the agent's session
+# dies, and the browser survives it. A launcher-started Chrome calls setsid, so
+# nothing in the process tree notices the owner leaving. Observed 2026-08-18 as
 # about fifty nine-day-old browser processes holding roughly 11 GB of resident
 # memory, with load at 80 and the machine swapping.
 #
-# WHAT IS RECOGNISED. Only two kinds of process, and no other command is ever
-# signalled:
-#   browser  the program is a Chrome/Chromium main binary AND the command line
-#            carries an automation marker (--headless, --remote-debugging-port,
-#            --remote-debugging-pipe, or --type=). A browser the captain
-#            launched to read with therefore never enters the family.
-#   bridge   the command line names chrome-devtools-axi-bridge or
-#            chrome-devtools-mcp - the control chain that holds a browser open.
-# Chrome's crashpad handler is deliberately excluded: it detaches itself, and
-# carries nothing that binds it to the browser it serves, so a chain root test
-# on it would be a guess. It is reaped only as a descendant of a reaped chain.
+# WHAT IS RECOGNISED. One kind of process, and no other command is ever
+# signalled: the PROGRAM the command line runs is a Chrome or Chromium main
+# binary, AND the command line carries an automation marker (--headless,
+# --remote-debugging-port, --remote-debugging-pipe, or --type=). Both halves are
+# required. A browser the captain launched to read with never enters the family,
+# because it carries no automation marker; and no process merely MENTIONING a
+# browser enters it either, because the program itself must be the browser. That
+# second half matters in this repo, where a crewmate's whole brief is its argv.
+#
+# The chrome-devtools-axi bridge is deliberately out of scope even though it
+# leaks the same way. `ensureBridge` reuses a live bridge across agent sessions,
+# so the launching agent recorded in that bridge's environment is not its owner:
+# the bridge outliving its first session may be serving its third. Reaping a
+# bridge safely needs its own session registration as the in-use signal, which
+# is a separate change.
 #
 # WHO OWNS A CHAIN. A chain root is a recognised process whose parent is not
 # itself recognised; the chain is that root plus every descendant. Ownership is
@@ -41,37 +43,46 @@
 #      the list). The owner counts as alive only when that pid exists AND is at
 #      least as old as the chain root, so a recycled pid reads as gone.
 #   2. parent lineage. The owner is gone when the root has been reparented to a
-#      reaper: pid 1, or the per-user manager identified by its
+#      reaper - pid 1, or the per-user manager identified by its
 #      user@<uid>.service/init.scope cgroup, which adopts this account's orphans
-#      instead of init on a systemd login session.
-# A bridge is detached from birth, so its parent is a reaper while its owner is
-# perfectly alive; signal 2 is therefore never applied to a bridge. A bridge
-# whose recorded owner cannot be read at all is left alone.
+#      instead of init on a systemd login session - AND the root is not itself
+#      inside a systemd user unit. A process the user manager STARTED sits in
+#      that unit's own .service cgroup and has a live owner; only an adopted
+#      orphan keeps the cgroup of whatever launched it.
 #
 # A Chrome main process overwrites its own environment block, so signal 1 cannot
-# read it and a browser is decided on signal 2. The agent session id embedded in
-# a browser profile path was measured as an unsound substitute: every other
-# process the dead session left behind inherits that same id, so a live holder
-# of it proves nothing about the session. What signal 2 cannot separate is a
-# browser a LIVE agent deliberately detached and then held past the age gate;
-# the automation-flag family and that gate are the whole bound on it.
+# read it and a real browser is decided on signal 2. The agent session id
+# embedded in a browser profile path was measured as an unsound substitute:
+# every other process the dead session left behind inherits that same id, so a
+# live holder of it proves nothing about the session. What signal 2 cannot
+# separate is a browser a LIVE agent deliberately detached and then held past the
+# age gate; the automation-marker family and that gate are the whole bound on it.
 #
 # WHAT HAPPENS. An orphaned chain older than --max-age is sent SIGTERM whole,
-# polled for up to --grace seconds, and only then sent SIGKILL. Every pid is
-# bound to a reuse-proof identity before the first signal and rechecked before
-# the second, so a pid that dies and is recycled mid-sweep is never killed.
+# polled for up to --grace seconds, and only then sent SIGKILL. Immediately
+# before the first signal each member must still present the command line the
+# scan saw and is bound to a reuse-proof identity that is rechecked before the
+# second, so a pid that dies and is recycled between the scan and the signal is
+# never touched.
 #
 # LOG. Each reap appends one line to state/browser-reap.log (override with
 # FM_BROWSER_REAP_LOG), carrying the pid, the age in seconds, and the reason:
-#   <iso8601> reap pid=<pid> age=<n>s reason=<reason> kind=<kind> chain=<n>
-#             program=<basename> result=terminated|killed|survived
-# --dry-run writes nothing there.
+#   <iso8601> reap pid=<pid> age=<n>s reason=<reason> chain=<n>
+#             members=<pid,pid,...> program=<basename> result=<result>
+# A run that cannot start at all appends one `abort` line there for the same
+# reason: the watcher runs this detached and discards its output, so a sweep
+# that never works again must leave a record of its own.
+# --dry-run appends nothing.
 #
-# The sweep is machine-wide by nature, so concurrent Firstmate homes serialize
-# on one per-account lock and a home that cannot take it exits quietly. Prints
-# one line per candidate and nothing when there is nothing to do. Exits 0 unless
-# the process scan itself could not run, so a caller can sweep without risking
-# its own outcome.
+# One sweep at a time per home, through a lock in that home's own state
+# directory. Concurrent homes may sweep at once; that is safe because a chain
+# the other home already stopped fails the identity recheck instead of being
+# signalled, and costs only a duplicate log line.
+#
+# Prints one line per candidate and nothing when there is nothing to do. Exits 0
+# unless the process scan itself could not run, so a caller can sweep without
+# risking its own outcome. Verified against Linux `ps`; `--dry-run` is the safe
+# way to confirm the field spellings on a new platform.
 set -u
 
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -83,7 +94,7 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 
 REAP_LOG=${FM_BROWSER_REAP_LOG:-$STATE/browser-reap.log}
-REAP_LOCK=${FM_BROWSER_REAP_LOCK:-${TMPDIR:-/tmp}/.fm-browser-reap.$(id -u 2>/dev/null || echo 0).lock}
+REAP_LOCK=${FM_BROWSER_REAP_LOCK:-$STATE/.browser-reap.lock}
 REAP_PROC_ROOT=${FM_PROC_ROOT_OVERRIDE:-/proc}
 REAP_OWNER_VARS=${FM_BROWSER_REAP_OWNER_VARS:-CLAUDE_PID}
 MAX_AGE=${FM_BROWSER_REAP_MAX_AGE:-86400}
@@ -91,7 +102,20 @@ GRACE=${FM_BROWSER_REAP_GRACE:-10}
 DRY_RUN=0
 ONLY_PIDS=
 
-reap_die() { printf 'fm-browser-reap: %s\n' "$1" >&2; exit 2; }
+reap_log_append() { # <line>
+  local dir
+  dir=$(dirname "$REAP_LOG")
+  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
+  printf '%s %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" >>"$REAP_LOG" 2>/dev/null || true
+}
+
+# A sweep that cannot run is durable, not just noisy: the watcher throws this
+# script's output away, so stderr alone would hide a permanently broken sweep.
+reap_die() {
+  printf 'fm-browser-reap: %s\n' "$1" >&2
+  [ "$DRY_RUN" -eq 1 ] || reap_log_append "abort reason=$1"
+  exit 2
+}
 
 reap_usage() {
   cat <<'TXT'
@@ -99,9 +123,9 @@ Usage: fm-browser-reap.sh [--dry-run] [--max-age <seconds>] [--grace <seconds>]
                           [--pid <pid>]...
 
 Stop headless browser chains left behind by a dead agent session: a
-Chrome/Chromium process carrying an automation flag, or a chrome-devtools-axi
-bridge, whose owning session is provably gone and which is older than the age
-gate. A chain with a live owner is never touched at any age.
+Chrome/Chromium process carrying an automation flag whose owning session is
+provably gone and which is older than the age gate. A chain with a live owner
+is never touched at any age.
 
   --dry-run          list the candidates and signal nothing
   --max-age <secs>   age gate for an orphaned chain (default 86400)
@@ -140,14 +164,14 @@ reap_require_seconds FM_BROWSER_REAP_GRACE "$GRACE"
 #
 # One `ps` snapshot, held as index-aligned arrays. Every later question about a
 # pid is answered from this snapshot, so the family, the chain, and the age gate
-# all read one consistent view of the machine; identity is rechecked against the
-# live process immediately before each signal.
+# all read one consistent view of the machine; each member is then re-read from
+# the live process immediately before it is signalled.
 
 REAP_PIDS=()
 REAP_PPIDS=()
 REAP_AGES=()
 REAP_CMDS=()
-REAP_KINDS=()
+REAP_FAMILY=()
 
 # Elapsed seconds from the portable `ps -o etime=` shapes: SS, MM:SS, HH:MM:SS,
 # and DD-HH:MM:SS. `etimes` would be one field read but is procps-only.
@@ -180,12 +204,11 @@ reap_program_path() { # <command>
   printf '%s\n' "${command%% *}"
 }
 
-# browser | bridge for a recognised command line, empty for everything else.
-reap_kind_of() { # <command>
+# The command line runs a browser under automation. The program test comes
+# first and is what keeps a process that merely names a browser in its own
+# arguments - a crewmate brief, a log tail, an installer - out of the family.
+reap_is_browser() { # <command>
   local command=$1 program
-  case "$command" in
-    *chrome-devtools-axi-bridge*|*chrome-devtools-mcp*) printf '%s\n' bridge; return 0 ;;
-  esac
   program=$(reap_program_path "$command")
   case "${program##*/}" in
     chrome|chromium|chromium-browser|chrome-browser|google-chrome|google-chrome-stable|\
@@ -193,8 +216,7 @@ reap_kind_of() { # <command>
     *) return 1 ;;
   esac
   case "$command" in
-    *--headless*|*--remote-debugging-port=*|*--remote-debugging-pipe*|*--type=*)
-      printf '%s\n' browser; return 0 ;;
+    *--headless*|*--remote-debugging-port=*|*--remote-debugging-pipe*|*--type=*) return 0 ;;
   esac
   return 1
 }
@@ -209,7 +231,7 @@ reap_index_of() { # <pid>
 }
 
 reap_scan() {
-  local uid scan pid ppid etime command age kind
+  local uid scan pid ppid etime command age family
   uid=$(id -u 2>/dev/null || true)
   case "$uid" in ''|*[!0-9]*) reap_die "cannot resolve the current uid" ;; esac
   # Only this account's processes, and the same field spelling the sibling
@@ -223,12 +245,13 @@ reap_scan() {
     case "$ppid" in ''|*[!0-9]*) continue ;; esac
     [ -n "$command" ] || continue
     age=$(reap_etime_seconds "$etime") || continue
-    kind=$(reap_kind_of "$command" || true)
+    family=''
+    reap_is_browser "$command" && family=1
     REAP_PIDS+=("$pid")
     REAP_PPIDS+=("$ppid")
     REAP_AGES+=("$age")
     REAP_CMDS+=("$command")
-    REAP_KINDS+=("$kind")
+    REAP_FAMILY+=("$family")
   done <<EOF
 $scan
 EOF
@@ -236,14 +259,34 @@ EOF
 
 # --- ownership --------------------------------------------------------------
 
+reap_cgroup_of() { # <pid>
+  cat "$REAP_PROC_ROOT/$1/cgroup" 2>/dev/null
+}
+
 # A process that adopts this account's orphans: init, or the per-user manager,
 # recognised by the cgroup it alone occupies rather than by its name.
 reap_is_reaper() { # <pid>
-  local pid=$1 cgroup
+  local pid=$1
   [ "$pid" = 1 ] && return 0
-  cgroup=$(cat "$REAP_PROC_ROOT/$pid/cgroup" 2>/dev/null) || return 1
-  case "$cgroup" in
+  case "$(reap_cgroup_of "$pid")" in
     *"user@"*".service/init.scope"*) return 0 ;;
+  esac
+  return 1
+}
+
+# The process sits inside a systemd user unit, so the user manager is its
+# supervisor rather than the reaper that adopted it. A unit's processes live in
+# that unit's own .service cgroup; an adopted orphan keeps the .scope cgroup of
+# whatever launched it, which is why the leaf suffix is the whole test.
+reap_in_managed_unit() { # <pid>
+  local cgroup
+  cgroup=$(reap_cgroup_of "$1")
+  case "$cgroup" in
+    *"user@"*".service/"*) ;;
+    *) return 1 ;;
+  esac
+  case "${cgroup##*/}" in
+    *.service) return 0 ;;
   esac
   return 1
 }
@@ -277,11 +320,11 @@ reap_recorded_owner() { # <pid>
   return 1
 }
 
-# alive | gone | unknown for the session that owns a chain root. `unknown` is
-# treated exactly like `alive`: it never authorizes a signal.
+# alive | gone for the session that owns a chain root. Only `gone` authorizes a
+# signal, so every unreadable or ambiguous case answers alive.
 reap_owner_state() { # <index>
-  local pid=${REAP_PIDS[$1]} kind=${REAP_KINDS[$1]} ppid=${REAP_PPIDS[$1]}
-  local age=${REAP_AGES[$1]} owner owner_index owner_age
+  local pid=${REAP_PIDS[$1]} ppid=${REAP_PPIDS[$1]} age=${REAP_AGES[$1]}
+  local owner owner_index owner_age
   if owner=$(reap_recorded_owner "$pid"); then
     if owner_index=$(reap_index_of "$owner"); then
       owner_age=${REAP_AGES[$owner_index]}
@@ -295,9 +338,8 @@ reap_owner_state() { # <index>
     printf '%s\n' gone
     return 0
   fi
-  # A bridge is spawned detached, so its parent says nothing about its owner.
-  [ "$kind" = bridge ] && { printf '%s\n' unknown; return 0; }
   reap_is_reaper "$ppid" || { printf '%s\n' alive; return 0; }
+  reap_in_managed_unit "$pid" && { printf '%s\n' alive; return 0; }
   printf '%s\n' gone
 }
 
@@ -340,9 +382,11 @@ reap_is_self_or_ancestor() { # <pid>
 REAP_OWN_PGID=$(ps -p "$$" -o pgid= 2>/dev/null | tr -d '[:space:]' || true)
 
 # This sweep may signal <pid>: it is not this process, not an ancestor of it,
-# and not a member of its own process group.
-reap_signallable() { # <pid>
-  local pid=$1 pgid
+# not a member of its own process group, and it still presents the command line
+# the scan read. That last test is what closes the window between the snapshot
+# and the signal, in which a scanned pid can exit and be reused.
+reap_signallable() { # <pid> <scanned-command>
+  local pid=$1 want=$2 pgid live
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   [ "$pid" -gt 1 ] || return 1
   [ "$pid" != "$$" ] || return 1
@@ -351,6 +395,11 @@ reap_signallable() { # <pid>
     pgid=$(ps -p "$pid" -o pgid= 2>/dev/null | tr -d '[:space:]' || true)
     [ "$pgid" != "$REAP_OWN_PGID" ] || return 1
   fi
+  live=$(ps -p "$pid" -o command= 2>/dev/null) || return 1
+  read -r live <<EOF
+$live
+EOF
+  [ "$live" = "$want" ] || return 1
   return 0
 }
 
@@ -409,31 +458,22 @@ reap_stop_chain() { # <pid>...
   printf '%s\n' "$result"
 }
 
-reap_log_line() { # <pid> <age> <reason> <kind> <chain-size> <program> <result>
-  local dir
-  dir=$(dirname "$REAP_LOG")
-  [ -d "$dir" ] || mkdir -p "$dir" 2>/dev/null || return 0
-  printf '%s reap pid=%s age=%ss reason=%s kind=%s chain=%s program=%s result=%s\n' \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$1" "$2" "$3" "$4" "$5" "$6" "$7" >>"$REAP_LOG" 2>/dev/null || true
-}
-
 # --- sweep ------------------------------------------------------------------
 
 reap_sweep() {
-  local i=0 pid kind ppid age command owner chain program result count parent_index member
+  local i=0 pid age command owner chain program result count parent_index member
+  local member_index members_csv
   local -a members
   reap_scan
   while [ "$i" -lt "${#REAP_PIDS[@]}" ]; do
     pid=${REAP_PIDS[$i]}
-    kind=${REAP_KINDS[$i]}
-    ppid=${REAP_PPIDS[$i]}
     age=${REAP_AGES[$i]}
     command=${REAP_CMDS[$i]}
     i=$((i + 1))
-    [ -n "$kind" ] || continue
+    [ -n "${REAP_FAMILY[$((i - 1))]}" ] || continue
     # Only chain roots are judged; a recognised child rides its root's verdict.
-    if parent_index=$(reap_index_of "$ppid"); then
-      [ -n "${REAP_KINDS[$parent_index]}" ] && continue
+    if parent_index=$(reap_index_of "${REAP_PPIDS[$((i - 1))]}"); then
+      [ -n "${REAP_FAMILY[$parent_index]}" ] && continue
     fi
     if [ -n "$ONLY_PIDS" ]; then
       case " $ONLY_PIDS " in *" $pid "*) ;; *) continue ;; esac
@@ -441,37 +481,39 @@ reap_sweep() {
     owner=$(reap_owner_state "$((i - 1))")
     [ "$owner" = gone ] || continue
     [ "$age" -ge "$MAX_AGE" ] || continue
-    reap_signallable "$pid" || continue
+    reap_signallable "$pid" "$command" || continue
     chain=$(reap_descendants "$pid")
-    # Every member passes the same self-protection test as the root, so no
-    # descendant can carry the sweep into this process, its ancestry, or its
-    # own process group.
+    # Every member passes the same self-protection and identity test as the
+    # root, so no descendant can carry the sweep into this process, its
+    # ancestry, its own process group, or a pid that has since been reused.
     members=("$pid")
     for member in $chain; do
-      reap_signallable "$member" || continue
+      member_index=$(reap_index_of "$member") || continue
+      reap_signallable "$member" "${REAP_CMDS[$member_index]}" || continue
       members+=("$member")
     done
+    count=${#members[@]}
     program=$(reap_program_path "$command")
     program=${program##*/}
-    count=${#members[@]}
     if [ "$DRY_RUN" -eq 1 ]; then
-      printf 'would reap orphaned %s chain %s (age %ss, chain of %s, owner session gone, %s)\n' \
-        "$kind" "$pid" "$age" "$count" "$program"
+      printf 'would reap orphaned browser chain %s (age %ss, chain of %s, owner session gone, %s)\n' \
+        "$pid" "$age" "$count" "$program"
       continue
     fi
     result=$(reap_stop_chain "${members[@]}")
-    reap_log_line "$pid" "$age" owner-session-gone "$kind" "$count" "$program" "$result"
+    members_csv=$(printf '%s,' "${members[@]}")
+    reap_log_append "reap pid=$pid age=${age}s reason=owner-session-gone chain=$count members=${members_csv%,} program=$program result=$result"
     if [ "$result" = survived ]; then
-      printf 'warning: orphaned %s chain %s survived reaping (age %ss, %s)\n' \
-        "$kind" "$pid" "$age" "$program" >&2
+      printf 'warning: orphaned browser chain %s survived reaping (age %ss, %s)\n' \
+        "$pid" "$age" "$program" >&2
     else
-      printf 'reaped orphaned %s chain %s (age %ss, chain of %s, %s, %s)\n' \
-        "$kind" "$pid" "$age" "$count" "$program" "$result"
+      printf 'reaped orphaned browser chain %s (age %ss, chain of %s, %s, %s)\n' \
+        "$pid" "$age" "$count" "$program" "$result"
     fi
   done
 }
 
-# A dry run reads only, so it never contends for the machine-wide lock.
+# A dry run signals nothing, so it never contends for the sweep lock.
 if [ "$DRY_RUN" -eq 1 ]; then
   reap_sweep
   exit 0
