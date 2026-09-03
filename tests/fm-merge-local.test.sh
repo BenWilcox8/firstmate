@@ -33,9 +33,11 @@ make_case() {
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master 2>/dev/null
   git -C "$proj" remote add origin "$proj" 2>/dev/null || true
   # Set origin/HEAD so default_branch() resolves via symbolic-ref.
-  git -C "$proj" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/main 2>/dev/null \
-    || git -C "$proj" symbolic-ref refs/remotes/origin/HEAD refs/remotes/origin/master 2>/dev/null \
-    || true
+  # Use the actual branch name (git init default varies by host config).
+  local _actual_default
+  _actual_default=$(git -C "$proj" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+  [ -z "$_actual_default" ] || \
+    git -C "$proj" symbolic-ref refs/remotes/origin/HEAD "refs/remotes/origin/$_actual_default" || true
   fm_write_meta "$dir/state/task-x1.meta" \
     "window=fm-task-x1" \
     "worktree=$dir/wt" \
