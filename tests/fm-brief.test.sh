@@ -28,7 +28,7 @@ mkdir -p "$BRIEF_HOME/data"
 # macos-stock-bash CI job carry the real cross-version enforcement.
 test_script_parses() {
   local script out rc
-  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh bin/fm-dod-lib.sh; do
     out=$(bash -n "$ROOT/$script" 2>&1); rc=$?
     expect_code 0 "$rc" "bash -n $script must parse cleanly (got: $out)"
     [ -z "$out" ] || fail "bash -n $script emitted unexpected output: $out"
@@ -56,7 +56,7 @@ test_no_heredoc_in_command_substitution() {
   no_heredoc_in_command_substitution "$safe" \
     || fail "structural guard treated heredoc body prose as shell structure"
   local script
-  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh; do
+  for script in bin/fm-brief.sh bin/fm-brief-blocks-lib.sh bin/fm-dod-lib.sh; do
     no_heredoc_in_command_substitution "$ROOT/$script" \
       || fail "$script wraps a heredoc in a command substitution (breaks Bash 3.2 parsing)"
   done

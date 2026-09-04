@@ -40,7 +40,7 @@ cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-delta-read.sh" "$REMOTE_ROOT/bin/"
 printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 cat > "$REMOTE_ROOT/bin/fm-probe-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 set -u
 printf 'home=%s\nroot=%s\nactive=%s\npath=%s\n' "$FM_HOME" "$FM_ROOT_OVERRIDE" "${FM_REMOTE_JOB_ACTIVE:-}" "$PATH"
 printf 'args:'
@@ -51,27 +51,27 @@ while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 exit "${FM_PROBE_EXIT:-0}"
 SH
 cat > "$REMOTE_ROOT/bin/fm-timeout-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 sleep 3
 SH
 cat > "$REMOTE_ROOT/bin/fm-delay-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 sleep "$1"
 printf 'ran\n' > "$2"
 SH
 cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'ran\n' > "$1"
 SH
 cat > "$REMOTE_ROOT/bin/fm-shutdown-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 trap '' HUP INT TERM
 printf 'started\n' > "$1"
 sleep 3
 printf 'ran\n' > "$2"
 SH
 cat > "$REMOTE_ROOT/bin/fm-output-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 set -e
 head -c 1200000 < /dev/zero
 head -c 1200000 < /dev/zero >&2
@@ -79,7 +79,7 @@ exit 23
 SH
 chmod +x "$REMOTE_ROOT/bin"/*.sh
 cat > "$RUNTIME_BIN/perl" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'invoked\n' >> "$FM_FAKE_PERL_LOG"
 exit 127
 SH
@@ -138,8 +138,8 @@ NVM_V20="$NVM_ROOT/versions/node/v20.18.0/bin"
 NVM_V24="$NVM_ROOT/versions/node/v24.14.1/bin"
 mkdir -p "$NVM_ROOT/alias" "$NVM_V20" "$NVM_V24"
 printf '20\n' > "$NVM_ROOT/alias/default"
-printf '#!/bin/bash\nprintf "20\\n"\n' > "$NVM_V20/node"
-printf '#!/bin/bash\nprintf "24\\n"\n' > "$NVM_V24/node"
+printf '#!%s\nprintf "20\\n"\n' "$(fm_test_tool bash)" > "$NVM_V20/node"
+printf '#!%s\nprintf "24\\n"\n' "$(fm_test_tool bash)" > "$NVM_V24/node"
 chmod +x "$NVM_V20/node" "$NVM_V24/node"
 fm_remote_job_compose_operator_path "$ACCOUNT_HOME" >/dev/null
 NVM_SELECTED=$(PATH="$FM_REMOTE_JOB_OPERATOR_PATH" node)
@@ -505,7 +505,7 @@ mkdir -p "$ACCOUNT_HOME/.local/bin"
 PREEXEC_STARTED="$TMP_ROOT/preexecution-started"
 PREEXEC_FINISHED="$TMP_ROOT/preexecution-finished"
 cat > "$ACCOUNT_HOME/.local/bin/git" <<SH
-#!/bin/bash
+#!/usr/bin/env bash
 if [ "\${3:-}" = ls-files ]; then
   printf 'started\n' > "$PREEXEC_STARTED"
   sleep 30
@@ -730,7 +730,7 @@ cp "$ROOT/bin/fm-remote-job-lib.sh" "$RESTART_ROOT/bin/"
 cp "$ROOT/bin/fm-remote-job-worker.sh" "$RESTART_ROOT/bin/fm-remote-job-supervisor-under-test.sh"
 printf 'fixture\n' > "$RESTART_ROOT/AGENTS.md"
 cat > "$RESTART_ROOT/bin/fm-remote-job-worker.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 set -u
 [ "${1:-}" = --serve ] || exit 2
 printf '%s\n' "${BASHPID:-$$}" >> "$FM_TEST_SUPERVISOR_CHILD_LOG"

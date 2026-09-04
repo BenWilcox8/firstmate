@@ -1126,7 +1126,7 @@ install_integrated_autoarm() {
   cp "$ROOT/bin/fm-cursor-lib.sh" "$dir/bin/fm-cursor-lib.sh"
   cp "$ROOT/bin/fm-lock.sh" "$dir/bin/fm-lock.sh"
   chmod +x "$dir/bin/fm-claude-stop-autoarm.sh" "$dir/bin/fm-lock.sh"
-  ln -s /bin/bash "$dir/fake-claude"
+  ln -s "$(fm_test_tool bash)" "$dir/fake-claude"
 }
 
 run_integrated_autoarm() {
@@ -1252,16 +1252,21 @@ test_hook_claude_mode_terminal_boundary_excludes_starting_owner() {
   guard_status="$dir/guard.status"
   mkdir -p "$fakebin"
   mkfifo "$ready" "$release"
-  cat > "$fakebin/cat" <<'SH'
-#!/usr/bin/env bash
+  # This fake shadows `cat` on PATH, so it must reach the real one by absolute
+  # path or it would exec itself. Resolve that path instead of assuming
+  # /bin/cat, which does not exist on hosts like NixOS.
+  {
+    printf '#!/usr/bin/env bash\nreal_cat=%s\n' "$(fm_test_tool cat)"
+    cat <<'SH'
 if [ "$1" = "$FM_TERMINAL_ROLE_PATH" ] \
-  && [ "$(/bin/cat "$1" 2>/dev/null || true)" = terminal-check ] \
+  && [ "$("$real_cat" "$1" 2>/dev/null || true)" = terminal-check ] \
   && (set -C; : > "$FM_TERMINAL_ONCE") 2>/dev/null; then
   printf 'ready\n' > "$FM_TERMINAL_READY"
   IFS= read -r _ < "$FM_TERMINAL_RELEASE"
 fi
-exec /bin/cat "$@"
+exec "$real_cat" "$@"
 SH
+  } > "$fakebin/cat"
   chmod +x "$fakebin/cat"
   (
     printf '{"stop_hook_active":true,"session_id":"sess-claude-mode"}' \

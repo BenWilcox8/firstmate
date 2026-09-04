@@ -14,7 +14,7 @@ set -u
 # portable regression pass locally while failing on a harness-free CI runner.
 if [ "${FM_SESSIONSTART_TEST_HARNESS:-0}" != 1 ]; then
   HARNESS_FIXTURE=$(mktemp -d "${TMPDIR:-/tmp}/fm-sessionstart-harness.XXXXXX") || exit 1
-  ln -s /bin/bash "$HARNESS_FIXTURE/codex" || exit 1
+  ln -s "$(command -v bash)" "$HARNESS_FIXTURE/codex" || exit 1
   # shellcheck disable=SC2016 # Expand in the fixture shell, not this parent.
   FM_SESSIONSTART_TEST_HARNESS=1 "$HARNESS_FIXTURE/codex" \
     -c '"$@"; rc=$?; :; exit "$rc"' _ "$0" "$@"
@@ -177,7 +177,7 @@ EOF
 # behaves, plus the home directories the digest reads. The deliberately bare
 # PATH keeps every bootstrap probe fast and hermetic - it reports missing tools
 # instead of reaching the host's real gh/tmux/tasks-axi.
-RUN_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+RUN_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 
 make_run_primary() {
   local dir=$1

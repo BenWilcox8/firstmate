@@ -25,11 +25,11 @@ LIB="$ROOT/bin/fm-session-lock-lib.sh"
 # so the harness identity has to survive a basename that says nothing.
 CLAUDE_VERSION_DIR="$TMP_ROOT/claude-install/share/claude/versions"
 mkdir -p "$CLAUDE_VERSION_DIR"
-ln -s /bin/bash "$CLAUDE_VERSION_DIR/2.1.220"
+ln -s "$(fm_test_tool bash)" "$CLAUDE_VERSION_DIR/2.1.220"
 VERSIONED_CLAUDE="$CLAUDE_VERSION_DIR/2.1.220"
 
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/harness-bin")
-ln -s /bin/bash "$FAKEBIN/claude"
+ln -s "$(fm_test_tool bash)" "$FAKEBIN/claude"
 NAMED_CLAUDE="$FAKEBIN/claude"
 
 # --- unit layer: identity behind a deterministic process table ---------------

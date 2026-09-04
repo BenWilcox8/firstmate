@@ -404,7 +404,8 @@ pass "fresh remote work gets a new wake after confirmed cleanup recovery"
 write_backlog '- [ ] route-race - remains dispatchable through retirement (repo: alpha)'
 registry_lock="$PARENT/state/.secondmate-registry.lock"
 handoff_lock="$PARENT/state/.backlog-handoff-ios.lock"
-FM_HOME="$PARENT" /bin/bash -c '
+# shellcheck disable=SC2016 # The single-quoted argument is the shell script bash -c runs.
+FM_HOME="$PARENT" "$(fm_test_tool bash)" -c '
   . "$1"
   fm_lock_acquire_wait "$2"
   fm_lock_acquire_wait "$3"

@@ -11,7 +11,7 @@ set -u
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-config-inherit-lib.sh"
 
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 TMP_ROOT=$(fm_test_tmproot fm-shared-captain)
 
 fm_git_identity fmtest fmtest@example.invalid

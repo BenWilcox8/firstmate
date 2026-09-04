@@ -1060,6 +1060,11 @@ test_perl_fallback_bounds_github_call() {
   local home fakebin toolbin cmd json started elapsed
   home=$(make_home perl-timeout); write_fixture "$home"
   fakebin=$(make_fakebin "$home")
+  # This case proves the Perl fallback bounds a stalled gh call WITHOUT
+  # coreutils timeout, so its PATH is a deliberately minimal, hand-curated
+  # tool list. Do not swap it for fm_test_core_path: that supplies timeout,
+  # which stops the fallback ever being taken, and mktemp, which would mask a
+  # snapshot that had come to depend on it.
   toolbin="$home/toolbin"
   mkdir -p "$toolbin"
   for cmd in bash dirname basename jq date sed git grep tail cut tr head sort wc perl sleep cat find; do

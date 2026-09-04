@@ -26,6 +26,13 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+
+# This suite deliberately shadows `sleep` on PATH, so the real one is
+# resolved here, before any fake exists, and reached by absolute path.
+# It is exported so the generated fakes can use it too. /bin/sleep is not
+# a valid assumption: hosts like NixOS have no such file.
+FM_REAL_SLEEP=$(fm_test_tool sleep) || exit 1
+export FM_REAL_SLEEP
 # shellcheck source=bin/fm-operational-input.sh
 . "$ROOT/bin/fm-operational-input.sh"
 # shellcheck source=bin/fm-pending-reply-lib.sh
@@ -690,7 +697,7 @@ test_delivery_confirmation_serializes_with_reconciliation() {
       local pending_state=$1 pending_corr=$2 epoch=$3 pending_rec phase
       printf '%s\n' "$BASHPID" >> "$calls"
       : > "$entered"
-      while [ ! -e "$release" ]; do /bin/sleep 0.01; done
+      while [ ! -e "$release" ]; do "$FM_REAL_SLEEP" 0.01; done
       pending_rec=$(fm_pending_reply_path "$pending_state" "$pending_corr")
       fm_pending_reply_set "$pending_rec" delivered_epoch "$epoch" || return 1
       phase=$(fm_pending_reply_get "$pending_rec" phase)
@@ -703,14 +710,14 @@ test_delivery_confirmation_serializes_with_reconciliation() {
     confirm_pid=$!
     for i in $(seq 1 100); do
       [ -e "$entered" ] && break
-      /bin/sleep 0.01
+      "$FM_REAL_SLEEP" 0.01
     done
     [ -e "$entered" ] || fail "delivery confirmation did not reach its commit boundary"
     fm_pending_reply_reconcile_delivery "$state" "$corr" &
     # The background PID is consumed within this isolated test subshell.
     # shellcheck disable=SC2031
     reconcile_pid=$!
-    /bin/sleep 0.1
+    "$FM_REAL_SLEEP" 0.1
     : > "$release"
     wait "$confirm_pid" || fail "delivery confirmation should commit"
     wait "$reconcile_pid" || fail "reconciliation should observe committed delivery"

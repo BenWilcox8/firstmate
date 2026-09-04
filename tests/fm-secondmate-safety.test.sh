@@ -1802,7 +1802,7 @@ test_secondmate_teardown_refuses_failed_leased_home_return() {
   git -C "$fmroot" worktree add --quiet --detach "$subhome" HEAD
   mkdir -p "$home/state" "$home/data" "$subhome/state/procevent"
   printf 'domain\n' > "$subhome/.fm-secondmate-home"
-  printf 'adapter=lavish\nargc=1\nargv:\n/bin/true\n' > "$subhome/state/procevent/source.source"
+  printf 'adapter=lavish\nargc=1\nargv:\n%s\n' "$(fm_test_tool true)" > "$subhome/state/procevent/source.source"
   install_fake_process_event_sweep "$subhome" "$sweep_log"
   : > "$rearm_log"
   subhome_abs=$(cd "$subhome" && pwd -P)

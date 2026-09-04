@@ -37,7 +37,7 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$FM_AFK_START_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 FM_AFK_STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 FM_AFK_LOCK="$FM_AFK_STATE/.supervise-daemon.lock"
-FM_AFK_DAEMON="$FM_AFK_START_DIR/fm-supervise-daemon.sh"
+FM_AFK_DAEMON="${FM_AFK_DAEMON:-$FM_AFK_START_DIR/fm-supervise-daemon.sh}"
 
 # shellcheck source=bin/fm-wake-lib.sh
 . "$FM_AFK_START_DIR/fm-wake-lib.sh"

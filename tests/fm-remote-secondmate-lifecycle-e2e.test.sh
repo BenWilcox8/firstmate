@@ -244,7 +244,8 @@ chmod +x "$FAKEBIN/fake-ssh"
 
 publish_healthy_watcher_identity() { # <state> <home> <watch-script>
   local state=$1 home=$2 watch=$3 identity
-  identity=$(FM_HOME="$PARENT" FM_STATE_OVERRIDE="$PARENT/state" /bin/bash -c \
+  # shellcheck disable=SC2016 # The single-quoted argument is the shell script bash -c runs.
+  identity=$(FM_HOME="$PARENT" FM_STATE_OVERRIDE="$PARENT/state" "$(fm_test_tool bash)" -c \
     '. "$1"; fm_pid_identity "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$$") \
     || fail "could not derive fixture watcher identity"
   mkdir -p "$state/.watch.lock"
@@ -1191,7 +1192,8 @@ FM_HOME="$PARENT" bash -c '
   || fail "could not settle remote receiver wake retirement state"
 printf 'confirmed:%s\n' "$retired_wake_corr" > "$PARENT/state/.backlog-handoff-ios.wake-pending"
 handoff_lock="$PARENT/state/.backlog-handoff-ios.lock"
-FM_HOME="$PARENT" /bin/bash -c '
+# shellcheck disable=SC2016 # The single-quoted argument is the shell script bash -c runs.
+FM_HOME="$PARENT" "$(fm_test_tool bash)" -c '
   . "$1"
   fm_lock_acquire_wait "$2"
   touch "$3"

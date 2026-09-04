@@ -2208,7 +2208,7 @@ EOF
 case "\${*: -1}" in
   "$home/state/.session-start-complete") exit 1 ;;
 esac
-exec /bin/mv "\$@"
+exec "$(fm_test_tool mv)" "\$@"
 SH
   chmod +x "$fakebin/mv"
   FM_FAKE_HARNESS=pi run_pi_session_start "$home" "$root" "$fakebin:$BASE_PATH" --source startup >/dev/null

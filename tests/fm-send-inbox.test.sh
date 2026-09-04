@@ -256,8 +256,9 @@ test_post_enqueue_bookkeeping_failure_is_not_retryable() {
   local dir err rc rec body
   dir=$(setup_case bookkeeping-failure); err="$dir/send.err"
   fm_write_secondmate_meta "$dir/home/state/domain.meta" "$dir/home" "sess:fm-domain"
-  cat > "$dir/fakebin/mv" <<'SH'
-#!/usr/bin/env bash
+  # This fake shadows `mv` on PATH, so it must reach the real one by absolute
+  # path rather than assuming /bin/mv, which does not exist on hosts like NixOS.
+  { printf '#!/usr/bin/env bash\nreal_mv=%s\n' "$(fm_test_tool mv)"; cat <<'SH'
 set -u
 source_arg=${@: -2:1}
 target_arg=${@: -1}
@@ -267,8 +268,9 @@ if [ "${FM_FAIL_DELIVERY_CONFIRM:-0}" = 1 ] \
   rm -f "$target_arg"
   exit 1
 fi
-exec /bin/mv "$@"
+exec "$real_mv" "$@"
 SH
+  } > "$dir/fakebin/mv"
   chmod +x "$dir/fakebin/mv"
 
   run_send "$dir" "$err" FM_FAIL_DELIVERY_CONFIRM=1 -- domain "durable once"; rc=$?
