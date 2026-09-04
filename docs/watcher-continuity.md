@@ -84,9 +84,26 @@ Because branch claims contain no check-kind rows, a branch acknowledgement skips
 An actionable child output returns that reason normally.
 A zero/empty child return rechecks the home lock and beacon, attaches to a verified healthy successor when one exists, or resolves the close against the watcher's bounded terminal-delivery ledger.
 An attached arm follows verified identity-matched successors and resolves the same way when that chain ends without one, because it holds no handle on the watcher's stdout and cannot read the reason line itself.
-Before releasing its singleton lock after printing an actionable reason, the watcher records that reason with its PID and process identity in `state/.watch-deliveries.log`.
-A matching PID and identity lets an attached arm report the delivered reason and exit zero even after its durable wake was handled and acknowledged, while an unrelated queue producer or a recycled PID cannot satisfy the match.
-Only a cycle with no matching delivery record emits `watcher: FAILED - cycle ended without an actionable reason` and exits nonzero.
+A child that exited nonzero or on a signal resolves against the same ledger through the same code path, so no close shape can lose a wake the cycle already delivered.
+
+The watcher records its actionable reason with its PID and process identity in `state/.watch-deliveries.log` when it QUEUES that wake, in `wake_queue_append`, not when it prints it.
+The deliveries whose rows are queued by something other than the cycle's own inline `wake_queue_append` call - the inactive-outcome reconcile, the process-event surface, and the merged-PR poll's in-process call into `fm-merge-outcome-lib.sh` - publish at the point those rows become durable, for the same reason.
+The record is written just after the queue append, never before: a claimed delivery must never outrun a durable row, so a failed append leaves nothing claimed.
+The queued row is the delivery: the next drain hands it to the supervising session whether or not the cycle survives to print its reason line.
+That ordering is what makes the ledger answer "did this cycle deliver" rather than "did this cycle finish printing", and it is why a cycle that queues a wake and then ends for another reason - a push-capable cycle whose backend bookkeeping fails after the append, a torn-down process tree, an unwritable stdout - is closed by name instead of reported as having delivered nothing.
+Publication is per delivered reason, so a batch that queues one row per file still writes one record.
+A matching PID and identity lets an arm report the delivered reason and exit zero even after its durable wake was handled and acknowledged, while an unrelated queue producer or a recycled PID cannot satisfy the match.
+A non-empty queue is therefore never read as this cycle's delivery.
+
+Only a cycle with no matching delivery record fails, and it names its own end: a clean exit emits `watcher: FAILED - cycle ended without an actionable reason` and a nonzero or signal exit emits `watcher: FAILED - watcher cycle exited <rc> without an actionable reason`.
+Both exit nonzero, unchanged.
+
+A delivery never hides an abnormal end from the record.
+The arm captures the watcher child's stderr separately from the stdout it classifies, because a diagnostic line that happened to start with a wake prefix must never read as a delivered reason, and releases it on the arm's own stderr on every close.
+A close that reports a delivered wake after a nonzero or signal exit also emits `watcher: cycle exited <rc> after delivering its wake` there, and the lifecycle ledger records that close as `nonzero-exit-delivered-wake` or `signal-exit-delivered-wake`.
+The ledger and a foreground or manual arm are where that fault is currently legible.
+It does NOT reach the model on an actionable close: every adapter that consumes arm output composes its wake banner from the wake-prefixed stdout lines alone and reads `watcher:` lines only on its failure path, so a cycle that keeps dying after delivering is visible in the record without being reported as a fault.
+Closing that gap means changing the arm-output contract each adapter implements, which is deliberately not part of this contract.
 
 The arm layer appends one tab-separated record per observed cycle to `state/.watch-cycle-exits.log`.
 Each record includes arm and watcher PIDs, start and end timestamps, exit code and signal, classified reason, beacon age, lock identity before and after close, and successor disposition.
@@ -101,11 +118,15 @@ Only the watcher process touches `state/.last-watcher-beat`; no helper process c
 `tests/fm-pi-watch-extension.test.sh` checks Pi's first-cycle-or-explicit-repair tool metadata and ownership-based redundant-call no-ops, then simulates actionable and empty child closes against the actual Pi and OpenCode close handlers, blocks prompt delivery to prove the successor launches first, verifies single-flight behavior, changes the session lock before close to prove ownership is rechecked, and hangs each successor arm to prove bounded fallback delivery includes the typed restoration failure.
 The same suite covers ordinary same-process session replacement for `/new`, `/resume`, and `/fork`, same-instance shutdown-plus-start, stale prior-generation callbacks, repeated transitions with exactly one live cycle, disappearance of the shutting-down refusal after a valid replacement activates, and terminal quit still refusing late rearm.
 `tests/fm-watch-arm.test.sh` covers durable queue replay, real remote parent-replies ingestion into the authoritative status log, decision-only OPEN DECISIONS recovery, interrupted handling replay, generation-bound acknowledgement, a persistent live successor after recovery, a watcher close inside the handling window that must leave the printed acknowledgement valid, and the self-healing moved-generation acknowledgement that consumes its handled rows and names its remedy.
+It also drives real cycles that queue a wake and then end without printing it, with a fake Herdr adapter on the push-capable path and with the reference backend, and asserts each is closed by naming that wake while a cycle that queued nothing still fails loudly.
+The signal-batch case parks a real cycle between its queue append and its reason line - the classification marker it writes next is a fifo with no reader - so the loss it reproduces carries no timing race.
+A matching case for the merged-PR poll path parks a real cycle between its queue append and its retirement bookkeeping on a fifo barrier, then kills it there, and asserts the arm still names the delivered merge notification instead of failing.
 `tests/fm-watch-recovery-loop.test.sh` covers the once-per-generation announcement bound with the real Pi extension against a refused handling handshake, and a handling successor that must surface a real crew event instead of going blind.
 `tests/fm-watcher-lock.test.sh` covers verified-successor attach, recovery publication before stale-lock removal, the typed self-eviction failure, bounded and successor-linked lifecycle rows, and a SIGSTOP counterfactual that distinguishes a live PID from a stale beacon before classifying termination.
 `tests/fm-subagent-pretool-check.test.sh` proves Claude retains only the non-status Bash seatbelts.
 `tests/fm-claude-stop-autoarm.test.sh` covers the auto-arm's scope, stale and live session owners, unchanged AFK and need boundaries, single-flight, bounded failure retries, benign live-watcher cycle ends, one-notice failure episodes, and exit-2 translation.
 It also covers generation-claim single-flight, stuck-claim supersession, superseded-owner silence, notice-marker refusal and retry, ownership-atomic episode reset, and the legacy upgrade shim; [`turnend-guard.md`](turnend-guard.md) owns those behavior contracts.
+Its one real-arm case runs the actual arm and watcher so the claim is checked against the reason line the arm really produces: a cycle that queued its wake and then closed nonzero must rewake the session with that wake, not raise the broken-mechanism notice.
 `FM_CLAUDE_LIVE_E2E=1 tests/fm-claude-stop-autoarm-live-e2e.test.sh` starts with the reproduced stale-lock state, runs session start first, completes two tokenless cycles, and checks the competing-live-owner negative control.
 `tests/fm-turnend-guard.test.sh` covers the cooperative `--claude` guard, including monotonic failed-epoch progression, the integrated bounded fail-open, post-alarm continuation suppression, and positive recovery reset; [`turnend-guard.md`](turnend-guard.md#regression-coverage) lists that suite's full generation and legacy claim coverage.
 
