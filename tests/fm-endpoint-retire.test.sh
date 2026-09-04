@@ -9,16 +9,21 @@
 #
 # These regressions pin the contract end to end, against fake backend adapters
 # that record every close and open call in order:
-#   1. fm_backend_endpoint_retire proves the close on both state-verified
-#      backends, refuses to close a live agent's endpoint, treats an absent
-#      endpoint as already retired, and never reports an unconfirmed close as
-#      success - including on a backend with no recovery-grade classifier.
-#   2. A replacement spawn closes the endpoint the record still names BEFORE the
-#      new window value lands, reuses a target it resolved to the same endpoint
-#      without closing anything, and names the leftover pane when the close
-#      cannot be proven instead of succeeding silently.
-#   3. A relaunch adopts its endpoint: no close, no open, same recorded window,
-#      so the task still holds exactly one pane afterwards.
+#   1. fm_backend_endpoint_retire closes only what a close is licensed for. An
+#      authoritatively absent endpoint is already retired, a live one and any
+#      state that cannot be classified are refused untouched, a proven close
+#      reports success, and an unproven one is never reported as success -
+#      including on a backend that can never classify its own endpoints.
+#   2. The close addresses one endpoint and never the task, so a delegated
+#      backend whose task-scoped teardown resolves a pane from its slot ledger
+#      cannot be made to tear down the replacement that just claimed that slot.
+#   3. A replacement spawn refuses, before anything is created, unless the
+#      endpoint its record still names is agent-free or absent; then closes that
+#      endpoint BEFORE the new window value lands; reuses a target it resolved
+#      to the same endpoint without closing anything; and names a leftover it
+#      could not close instead of succeeding silently.
+#   4. A relaunch adopts its endpoint on both state-verified backends: no close,
+#      no open, same recorded window, so the task still holds exactly one pane.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -76,7 +81,7 @@ case "${1:-} ${2:-}" in
     fi ;;
   "agent get")
     if grep -qxF "${3:-}" "$D/agents"; then
-      printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+      printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${FM_FAKE_HERDR_AGENT_STATUS:-idle}"
     else
       printf '%s\n' '{"error":{"code":"agent_not_found"}}'
       exit 1
@@ -92,6 +97,36 @@ exit 0
 SH
   chmod +x "$fakebin/herdr"
   printf '%s\n' "$fakebin"
+}
+
+# make_fake_agent_axi <fakebin>: the delegated pane lifecycle. `spawn` opens the
+# replacement pane and points this task's slot at it; `teardown` closes whatever
+# pane that slot names, which is the real contract - it resolves a pane BY TASK
+# ID, never by a target. A retire that reached teardown would therefore close
+# the replacement, and this fake makes that visible instead of plausible.
+make_fake_agent_axi() {  # <fakebin>
+  local fakebin=$1
+  cat > "$fakebin/agent-axi" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=$FM_FAKE_HERDR_DIR
+printf '%s\n' "$*" >> "$D/axi.calls"
+case "${1:-}" in
+  spawn)
+    printf '%s\n' p-new >> "$D/panes"
+    printf '%s\n' p-new > "$D/slot"
+    printf '%s\n' '{"spawn":{"paneId":"p-new","tabId":"t-new"}}'
+    ;;
+  teardown)
+    if [ -s "$D/slot" ]; then
+      grep -vxF "$(cat "$D/slot")" "$D/panes" > "$D/panes.next" || :
+      mv "$D/panes.next" "$D/panes"
+    fi
+    ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/agent-axi"
 }
 
 # make_fake_tmux <dir>: a tmux CLI over <dir>/tmux/windows.<session> (one window
@@ -233,7 +268,7 @@ test_herdr_husk_is_closed_and_proven_gone() {
   fakebin=$(make_fake_herdr "$dir")
   printf '%s\n' p-old > "$dir/herdr/panes"
 
-  RETIRE_ARGS=(herdr default:p-old "" fm-t1)
+  RETIRE_ARGS=(herdr default:p-old)
   out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
     FM_BACKEND_HERDR_AXI_BIN=)
   [ "$out" = retired ] || fail "a confirmed Herdr husk should retire cleanly, got: $out"
@@ -248,9 +283,8 @@ test_herdr_unprovable_close_is_reported() {
   fakebin=$(make_fake_herdr "$dir")
   printf '%s\n' p-stuck > "$dir/herdr/panes"
 
-  RETIRE_ARGS=(herdr default:p-stuck "" fm-t1)
-  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
-    FM_FAKE_HERDR_STUCK=p-stuck FM_BACKEND_HERDR_AXI_BIN=)
+  RETIRE_ARGS=(herdr default:p-stuck)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" FM_FAKE_HERDR_STUCK=p-stuck FM_BACKEND_HERDR_AXI_BIN=)
   case "$out" in
     left-open:*) ;;
     *) fail "a close that left the pane behind was reported as retired: $out" ;;
@@ -267,9 +301,8 @@ test_live_agent_endpoint_is_never_closed() {
   printf '%s\n' p-live > "$dir/herdr/panes"
   printf '%s\n' p-live > "$dir/herdr/agents"
 
-  RETIRE_ARGS=(herdr default:p-live "" fm-t1)
-  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
-    FM_BACKEND_HERDR_AXI_BIN=)
+  RETIRE_ARGS=(herdr default:p-live)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" FM_BACKEND_HERDR_AXI_BIN=)
   assert_contains "$out" "an agent is still running on it" \
     "retiring a live endpoint should report the running agent"
   assert_not_contains "$(calls_of "$dir/herdr")" "pane close" \
@@ -282,9 +315,8 @@ test_absent_endpoint_needs_no_close() {
   mkdir -p "$dir"
   fakebin=$(make_fake_herdr "$dir")
 
-  RETIRE_ARGS=(herdr default:p-gone "" fm-t1)
-  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
-    FM_BACKEND_HERDR_AXI_BIN=)
+  RETIRE_ARGS=(herdr default:p-gone)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" FM_BACKEND_HERDR_AXI_BIN=)
   [ "$out" = retired ] || fail "an absent endpoint should already count as retired, got: $out"
   assert_not_contains "$(calls_of "$dir/herdr")" "pane close" \
     "an authoritatively absent pane should need no close call"
@@ -297,7 +329,7 @@ test_tmux_window_is_closed_and_proven_gone() {
   fakebin=$(make_fake_tmux "$dir")
   printf '%s\n' fm-t1 > "$dir/tmux/windows.oldses"
 
-  RETIRE_ARGS=(tmux oldses:fm-t1 "" fm-t1)
+  RETIRE_ARGS=(tmux oldses:fm-t1)
   out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_TMUX_DIR="$dir/tmux")
   [ "$out" = retired ] || fail "an agent-free tmux window should retire cleanly, got: $out"
   assert_contains "$(calls_of "$dir/tmux")" "close oldses:fm-t1" \
@@ -311,7 +343,7 @@ test_tmux_unreadable_inventory_is_never_reported_gone() {
   fakebin=$(make_fake_tmux "$dir")
   printf '%s\n' fm-t1 > "$dir/tmux/windows.oldses"
 
-  RETIRE_ARGS=(tmux oldses:fm-t1 "" fm-t1)
+  RETIRE_ARGS=(tmux oldses:fm-t1)
   out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_TMUX_DIR="$dir/tmux" \
     FM_FAKE_TMUX_STUCK=fm-t1)
   case "$out" in
@@ -325,15 +357,23 @@ test_backend_without_classifier_never_claims_a_retire() {
   local dir=$TMP_ROOT/zellij fakebin out
   mkdir -p "$dir"
   fakebin=$(fm_fakebin "$dir")
-  fm_fake_exit0 "$fakebin" zellij
+  cat > "$fakebin/zellij" <<'SH'
+#!/usr/bin/env bash
+set -u
+[ -z "${FM_FAKE_ZELLIJ_CALLS:-}" ] || printf '%s\n' "$*" >> "$FM_FAKE_ZELLIJ_CALLS"
+exit 0
+SH
+  chmod +x "$fakebin/zellij"
 
-  RETIRE_ARGS=(zellij zses:ztab "" fm-t1)
-  out=$(retire_in "$fakebin" FM_HOME="$dir")
+  RETIRE_ARGS=(zellij zses:ztab)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_ZELLIJ_CALLS="$dir/zellij.calls")
   case "$out" in
     left-open:*) ;;
     *) fail "a backend with no recovery classifier must never claim a proven retire: $out" ;;
   esac
-  pass "endpoint retire: a backend that cannot prove a close never reports one"
+  assert_not_contains "$(cat "$dir/zellij.calls" 2>/dev/null)" "kill" \
+    "a backend whose state can never be classified must be left untouched, not closed blind"
+  pass "endpoint retire: a backend that cannot prove a close never closes or reports one"
 }
 
 # --- 2. the replacement spawn ------------------------------------------------
@@ -475,14 +515,14 @@ case "\${1:-} \${2:-}" in
     printf '%s\n' '{"result":{"panes":[{"pane_id":"p-old","tab_id":"t-restored"},{"pane_id":"p-new","tab_id":"t-new"}]}}' ;;
   "pane get")
     if grep -qxF "\${3:-}" "\$D/panes"; then
-      printf '{"result":{"pane":{"pane_id":"%s","tab_id":"t-new","workspace_id":"ws1"}}}\n' "\${3:-}"
+      printf '{"result":{"pane":{"pane_id":"%s","tab_id":"t-new","workspace_id":"ws1","foreground_cwd":"%s"}}}\n' "\${3:-}" "\${FM_FAKE_HERDR_CWD:-}"
     else
       printf '%s\n' '{"error":{"code":"pane_not_found"}}'
       exit 1
     fi ;;
   "agent get")
     if grep -qxF "\${3:-}" "\$D/agents"; then
-      printf '%s\n' '{"result":{"agent":{"agent_status":"idle"}}}'
+      printf '{"result":{"agent":{"agent_status":"%s"}}}\n' "${FM_FAKE_HERDR_AGENT_STATUS:-idle}"
     else
       printf '%s\n' '{"error":{"code":"agent_not_found"}}'
       exit 1
@@ -541,7 +581,189 @@ test_herdr_replacement_retires_the_pane_its_record_named() {
   pass "replacement spawn: a Herdr pane the create path never reaps is still retired"
 }
 
+test_unclassifiable_state_is_never_closed() {
+  local dir=$TMP_ROOT/herdr-unknown fakebin out
+  mkdir -p "$dir"
+  fakebin=$(make_fake_herdr "$dir")
+  printf '%s\n' p-odd > "$dir/herdr/panes"
+  printf '%s\n' p-odd > "$dir/herdr/agents"
+
+  # An agent_status the adapter has no vocabulary for reads `unreadable`, which
+  # is the shape a newer backend release produces. It must be left alone.
+  RETIRE_ARGS=(herdr default:p-odd)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
+    FM_FAKE_HERDR_AGENT_STATUS=refactoring FM_BACKEND_HERDR_AXI_BIN=)
+  assert_contains "$out" "never licenses a close" \
+    "an unclassifiable endpoint state should refuse rather than close"
+  assert_not_contains "$(calls_of "$dir/herdr")" "pane close" \
+    "an endpoint whose state could not be classified was closed anyway"
+  pass "endpoint retire: a state that does not license recovery is never closed"
+}
+
+test_retire_never_issues_a_task_scoped_teardown() {
+  local dir=$TMP_ROOT/herdr-axi fakebin out
+  mkdir -p "$dir"
+  fakebin=$(make_fake_herdr "$dir")
+  make_fake_agent_axi "$fakebin"
+  # The delegated close is keyed by TASK ID, not by this target, and a
+  # replacement has already pointed that task's slot at its new pane. A retire
+  # that reached it would close the replacement instead of the endpoint it is
+  # retiring, so it must address the pane directly and never the task.
+  printf '%s\n%s\n' p-old p-new > "$dir/herdr/panes"
+  printf '%s\n' p-new > "$dir/herdr/slot"
+
+  RETIRE_ARGS=(herdr default:p-old)
+  out=$(retire_in "$fakebin" FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr")
+  [ "$out" = retired ] || fail "the delegated-backend retire did not retire the old pane: $out"
+  assert_not_contains "$(cat "$dir/herdr/axi.calls" 2>/dev/null)" teardown \
+    "the retire issued a task-scoped close, which resolves a pane by task id rather than by target"
+  assert_grep p-new "$dir/herdr/panes" \
+    "the retire closed the replacement's own pane instead of the endpoint it was retiring"
+  assert_no_grep p-old "$dir/herdr/panes" \
+    "the retire did not close the endpoint it was asked to retire"
+  pass "endpoint retire: the close addresses one endpoint, never the task's ledger slot"
+}
+
+test_replacement_refuses_a_live_previous_endpoint() {
+  local rec out before
+  rec=$(make_replacement_case replace-live oldses:fm-rep-replace-live)
+  read_case "$rec"
+  printf '%s\n' fm-rep-replace-live > "$CASE_DIR/tmux/windows.oldses"
+  printf 'claude' > "$CASE_DIR/tmux/command.oldses:fm-rep-replace-live"
+  : > "$CASE_DIR/tmux/windows.firstmate"
+  before=$(cat "$HOME_DIR/state/$TASK_ID.meta")
+
+  out=$(run_replacement_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$TASK_ID") \
+    && fail "a replacement over a live agent must refuse: $out"
+  assert_contains "$out" "still has a running agent" \
+    "the refusal did not name the running agent as the reason"
+  assert_not_contains "$(calls_of "$CASE_DIR/tmux")" "open " \
+    "the refusal still created a second endpoint for the task"
+  assert_not_contains "$(calls_of "$CASE_DIR/tmux")" "close " \
+    "the refusal closed a live agent's endpoint"
+  [ "$(cat "$HOME_DIR/state/$TASK_ID.meta")" = "$before" ] \
+    || fail "the refusal changed the task record"
+  pass "replacement spawn: a live previous endpoint refuses before anything is created"
+}
+
+test_replacement_refuses_an_unclassifiable_previous_endpoint() {
+  local rec out before
+  rec=$(make_replacement_case replace-unreadable oldses:fm-rep-replace-unreadable)
+  read_case "$rec"
+  # A foreground command the classifier cannot attribute to a harness or a shell
+  # is `ambiguous`: the endpoint may well be a live worker.
+  printf '%s\n' fm-rep-replace-unreadable > "$CASE_DIR/tmux/windows.oldses"
+  printf 'node' > "$CASE_DIR/tmux/command.oldses:fm-rep-replace-unreadable"
+  : > "$CASE_DIR/tmux/windows.firstmate"
+  before=$(cat "$HOME_DIR/state/$TASK_ID.meta")
+
+  out=$(run_replacement_spawn "$CASE_DIR" "$HOME_DIR" "$PROJ_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$TASK_ID") \
+    && fail "a replacement over an endpoint that cannot be classified must refuse: $out"
+  assert_contains "$out" "positively agent-free or authoritatively absent" \
+    "the refusal did not say why an unclassified endpoint blocks a replacement"
+  assert_not_contains "$(calls_of "$CASE_DIR/tmux")" "close " \
+    "an endpoint whose state could not be classified was closed by the replacement"
+  [ "$(cat "$HOME_DIR/state/$TASK_ID.meta")" = "$before" ] \
+    || fail "the refusal changed the task record"
+  pass "replacement spawn: an endpoint that cannot be classified refuses, untouched"
+}
+
+test_herdr_replacement_keeps_the_pane_it_just_created() {
+  local dir=$TMP_ROOT/herdr-axi-spawn home mate fakebin id=sm-axi out
+  home="$dir/home"
+  mate="$dir/mate"
+  mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects"
+  mkdir -p "$mate/bin" "$mate/data" "$mate/state" "$mate/config" "$mate/projects"
+  printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
+  printf '# Firstmate\n' > "$mate/AGENTS.md"
+  printf 'Second mate charter.\n' > "$mate/data/charter.md"
+  printf '%s\n' herdr > "$home/config/backend"
+  printf '%s\n' pi > "$home/config/secondmate-harness"
+  printf '%s\n' manual > "$home/config/backlog-backend"
+  touch "$home/state/.last-watcher-beat"
+  fakebin=$(make_spawn_herdr "$dir" "2ndmate-$id")
+  make_fake_agent_axi "$fakebin"
+  {
+    printf 'window=default:p-old\n'
+    printf 'endpoint_task_id=%s\n' "$id"
+    printf 'kind=secondmate\n'
+    printf 'harness=pi\n'
+    printf 'home=%s\n' "$mate"
+    printf 'backend=herdr\n'
+    printf 'herdr_session=default\n'
+    printf 'herdr_workspace_id=ws1\n'
+    printf 'herdr_tab_id=t-restored\n'
+    printf 'herdr_pane_id=p-old\n'
+  } > "$home/state/$id.meta"
+
+  # Delegation ON - the production shape. The replacement's own pane is
+  # registered under this task id, so anything task-scoped would reach it.
+  out=$(env PATH="$fakebin:$PATH" FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    FM_BACKEND=herdr FM_FAKE_HERDR_DIR="$dir/herdr" \
+    HERDR_SESSION=default GROK_HOME="$home/grok-home" \
+    "$SPAWN" "$id" --secondmate 2>&1) || fail "the delegated Herdr replacement failed: $out"
+
+  assert_grep "window=default:p-new" "$home/state/$id.meta" \
+    "the delegated replacement did not record its own pane"
+  assert_grep p-new "$dir/herdr/panes" \
+    "the replacement's own pane was closed by its own retire"
+  assert_no_grep p-old "$dir/herdr/panes" \
+    "the pane the record stopped naming survived the delegated replacement"
+  pass "replacement spawn: a delegated Herdr replacement retires the old pane and keeps its own"
+}
+
 # --- 3. relaunch adopts its endpoint ----------------------------------------
+
+test_herdr_relaunch_keeps_exactly_one_pane() {
+  local dir=$TMP_ROOT/herdr-relaunch home proj wt fakebin id=herdr-r1 out before after
+  home="$dir/home"
+  proj="$dir/project"
+  wt="$dir/wt"
+  mkdir -p "$home/data/$id" "$home/state" "$home/config" "$home/projects"
+  printf 'brief for %s\n\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
+  printf '%s\n' manual > "$home/config/backlog-backend"
+  touch "$home/state/.last-watcher-beat"
+  fm_git_worktree "$proj" "$wt" "wt-herdr-relaunch"
+  fakebin=$(make_spawn_herdr "$dir" "firstmate")
+  # The recorded pane exists and holds no agent: the agent-free endpoint a
+  # relaunch adopts. p-new is what a create would produce, and must never appear.
+  printf '%s\n' p-old > "$dir/herdr/panes"
+  {
+    printf 'window=default:p-old\n'
+    printf 'endpoint_task_id=%s\n' "$id"
+    printf 'worktree=%s\n' "$wt"
+    printf 'project=%s\n' "$proj"
+    printf 'harness=pi\n'
+    printf 'kind=ship\n'
+    printf 'mode=no-mistakes\n'
+    printf 'yolo=off\n'
+    printf 'tasktmp=/tmp/fm-%s\n' "$id"
+    printf 'model=default\n'
+    printf 'effort=default\n'
+    printf 'backend=herdr\n'
+    printf 'herdr_session=default\n'
+    printf 'herdr_workspace_id=ws1\n'
+    printf 'herdr_tab_id=t-old\n'
+    printf 'herdr_pane_id=p-old\n'
+  } > "$home/state/$id.meta"
+  TASK_TMPS+=("/tmp/fm-$id")
+  before=$(grep '^window=' "$home/state/$id.meta")
+
+  out=$(env PATH="$fakebin:$PATH" FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
+    FM_BACKEND=herdr FM_BACKEND_HERDR_AXI_BIN= FM_FAKE_HERDR_DIR="$dir/herdr" \
+    FM_FAKE_HERDR_CWD="$wt" HERDR_SESSION=default GROK_HOME="$home/grok-home" \
+    "$SPAWN" "$id" --relaunch 2>&1) || fail "the Herdr relaunch failed: $out"
+
+  after=$(grep '^window=' "$home/state/$id.meta")
+  [ "$before" = "$after" ] || fail "the Herdr relaunch moved the task's endpoint: $before -> $after"
+  assert_not_contains "$(calls_of "$dir/herdr")" "tab create" \
+    "a Herdr relaunch opened a second pane instead of adopting the recorded one"
+  assert_not_contains "$(calls_of "$dir/herdr")" "pane close" \
+    "a Herdr relaunch closed the endpoint it is supposed to adopt"
+  [ "$(wc -l < "$dir/herdr/panes")" -eq 1 ] \
+    || fail "the task holds more than one Herdr pane after a relaunch: $(cat "$dir/herdr/panes")"
+  pass "relaunch: a Herdr task still holds exactly one pane, the one its record already named"
+}
 
 test_relaunch_keeps_exactly_one_endpoint() {
   local dir=$TMP_ROOT/relaunch home proj wt fakebin id=relaunch-r1 out calls before after
@@ -599,4 +821,10 @@ test_replacement_closes_the_old_endpoint_before_recording_the_new_one
 test_replacement_reusing_the_same_endpoint_closes_nothing
 test_replacement_names_a_leftover_it_could_not_close
 test_herdr_replacement_retires_the_pane_its_record_named
+test_unclassifiable_state_is_never_closed
+test_retire_never_issues_a_task_scoped_teardown
+test_replacement_refuses_a_live_previous_endpoint
+test_replacement_refuses_an_unclassifiable_previous_endpoint
+test_herdr_replacement_keeps_the_pane_it_just_created
 test_relaunch_keeps_exactly_one_endpoint
+test_herdr_relaunch_keeps_exactly_one_pane

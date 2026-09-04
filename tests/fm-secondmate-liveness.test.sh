@@ -589,6 +589,27 @@ test_sweep_noop_with_no_secondmate_meta() {
   pass "sweep: a silent no-op with no kind=secondmate meta present (a secondmate home's own natural scoping)"
 }
 
+test_sweep_retires_the_endpoint_before_it_respawns() {
+  local w fb tmuxfb log out calls kill_at new_at
+  w=$(new_world sweep-order)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_not_contains "$out" "was not retired" \
+    "a proven close must not be reported as a leftover endpoint"
+  calls=$(cat "$log")
+  kill_at=$(printf '%s\n' "$calls" | grep -n kill-window | head -1 | cut -d: -f1)
+  new_at=$(printf '%s\n' "$calls" | grep -n new-window | head -1 | cut -d: -f1)
+  [ -n "$kill_at" ] || fail "the sweep never closed the endpoint it was replacing: $calls"
+  [ -n "$new_at" ] || fail "the sweep never respawned the secondmate: $calls"
+  [ "$kill_at" -lt "$new_at" ] \
+    || fail "the sweep respawned before retiring the endpoint its record still named: $calls"
+  pass "sweep: the endpoint being replaced is retired before the replacement is created"
+}
+
 test_sweep_names_an_endpoint_it_could_not_retire() {
   local w fb tmuxfb log out
   w=$(new_world sweep-stuck)
@@ -620,6 +641,7 @@ test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
+test_sweep_retires_the_endpoint_before_it_respawns
 test_sweep_names_an_endpoint_it_could_not_retire
 
 echo "# all fm-secondmate-liveness tests passed"

@@ -20,7 +20,7 @@
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
 #                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after
-#                 <cause>: <reason>|previous endpoint <target> (pane <id>) was not retired: <reason>",
+#                 <cause>: <reason>|previous endpoint <target> was not retired: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING local secondmate worktree is fast-forwarded to
@@ -828,8 +828,8 @@ secondmate_liveness_one() {  # <meta> <id>
         # landed; an unproven one is named here rather than swallowed, and the
         # respawn still runs because no agent at all is worse than a leftover
         # pane the captain can close.
-        if ! fm_backend_endpoint_retire "$backend" "$target" "" "fm-$id"; then
-          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target (pane ${target##*:}) was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+        if ! fm_backend_endpoint_retire "$backend" "$target"; then
+          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
         fi
       else
         cause="recorded endpoint confidently missing"

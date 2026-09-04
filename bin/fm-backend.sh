@@ -767,11 +767,14 @@ fm_backend_kill() {  # <backend> <target>
 # The two wrappers below extend that same close primitive with proof. They add
 # no second close implementation.
 
-# fm_backend_endpoint_confirmed_gone: 0 only when <backend> can PROVE the exact
-# recorded <target> is no longer there. Every ambiguous or unreadable probe
-# returns 1, so a transient failure is never mistaken for a retired endpoint.
-# A backend with no recovery-grade classifier (zellij, orca, cmux) can never
-# prove it and always returns 1.
+# fm_backend_endpoint_confirmed_gone: 0 only when <backend> answers that the
+# exact recorded <target> is no longer there. Every ambiguous or unreadable
+# probe returns 1, so a transient read failure is never mistaken for a retired
+# endpoint. A backend with no recovery-grade classifier (zellij, orca, cmux) can
+# never answer it and always returns 1.
+# The tmux arm reuses that adapter's own `missing`, which is a successful
+# inventory omitting the exact window OR a definitive missing-session/server
+# response - a dead server takes its windows with it, so both are gone.
 fm_backend_endpoint_confirmed_gone() {  # <backend> <target>
   local backend=$1 target=${2:-}
   [ -n "$target" ] || return 1
@@ -783,17 +786,31 @@ fm_backend_endpoint_confirmed_gone() {  # <backend> <target>
   esac
 }
 
-# fm_backend_endpoint_retire: close <target> through this backend's own close
-# primitive and prove it is gone. Returns 0 when the endpoint is already
+# fm_backend_endpoint_retire: close ONE EXACT <target> through this backend's own
+# close primitive and prove it is gone. Returns 0 when the endpoint is already
 # authoritatively absent or the close is confirmed, and 1 otherwise with
 # FM_BACKEND_ENDPOINT_RETIRE_REASON naming why, so a caller reports the leftover
-# by id instead of swallowing it. A positively ALIVE endpoint is never closed:
-# stopping a running agent belongs to bin/fm-control.sh's exit verb, which owns
-# that postcondition, so this reports the live endpoint instead. Arguments after
-# <target> are handed to fm_backend_kill unchanged - the zellij tab id and the
-# fm-<id> label its adapters read.
-fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id> <label>]
-  local backend=$1 target=${2:-} state
+# by id instead of swallowing it.
+#
+# Only `dead` licenses a close, matching fm_backend_agent_state's own recovery
+# contract: `missing` is already retired, and alive, ambiguous, unreadable, and
+# unverified all refuse untouched. That refusal is the point. A live agent is
+# stopped by bin/fm-control.sh's exit verb, which owns that postcondition, and an
+# inconclusive read is exactly the case where closing could destroy a running
+# worker's turn.
+#
+# The label fm_backend_kill's herdr and cmux adapters accept is deliberately NOT
+# passed. On herdr that label triggers `agent-axi teardown <task-id>`, which
+# resolves the pane from the slot ledger BY TASK ID rather than from this target,
+# and a replacement has already pointed that slot at its new pane - so a labelled
+# close here would tear down the replacement instead of the endpoint it is
+# retiring. Unlabelled, every adapter closes the exact target and nothing else,
+# which is all a retire ever means. Freeing a ledger slot stays with teardown and
+# the layout repair sweep, which own it.
+# <zellij-tab-id> is still forwarded, because that adapter reads it as a fallback
+# for the same exact pane rather than as a task identity.
+fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id>]
+  local backend=$1 target=${2:-} tab=${3:-} state
   # shellcheck disable=SC2034 # Output global consumed by sourcing callers.
   FM_BACKEND_ENDPOINT_RETIRE_REASON=
   [ -n "$target" ] || {
@@ -807,13 +824,17 @@ fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id> <label>]
   state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
   case "$state" in
     missing) return 0 ;;
+    dead) ;;
     alive)
       FM_BACKEND_ENDPOINT_RETIRE_REASON="an agent is still running on it"
       return 1
       ;;
+    *)
+      FM_BACKEND_ENDPOINT_RETIRE_REASON="its state reads '$state', which never licenses a close"
+      return 1
+      ;;
   esac
-  shift
-  fm_backend_kill "$backend" "$@" >/dev/null 2>&1 || true
+  fm_backend_kill "$backend" "$target" "$tab" >/dev/null 2>&1 || true
   fm_backend_endpoint_confirmed_gone "$backend" "$target" && return 0
   # shellcheck disable=SC2034 # Output global consumed by sourcing callers.
   FM_BACKEND_ENDPOINT_RETIRE_REASON="backend '$backend' could not confirm the close"
