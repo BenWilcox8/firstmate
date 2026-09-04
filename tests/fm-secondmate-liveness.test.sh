@@ -22,6 +22,8 @@
 #   - bin/fm-bootstrap.sh's secondmate_liveness_sweep recovers only dead or
 #     missing endpoints, keeps successful recovery and already-live results
 #     silent by default, and reports ambiguous and unreadable targets distinctly.
+#   - The sweep proves the close of the endpoint it is about to replace, and
+#     names that endpoint by id when the close cannot be proven.
 #   - The sweep converges: once a secondmate reads alive, a later run never
 #     re-touches it (idempotent by construction, not by remembering what it
 #     already did).
@@ -360,6 +362,38 @@ add_sm_home() {
   } > "$w/home/state/$id.meta"
 }
 
+# make_stuck_liveness_tmux <dir>: the same liveness fake, except its window
+# survives kill-window. This is the endpoint whose close cannot be proven, which
+# the sweep must name rather than pass over on its way to the replacement.
+make_stuck_liveness_tmux() {
+  local dir=$1 fakebin
+  fakebin=$(fm_fakebin "$dir")
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+mode=${FM_TEST_PANE_CMD:-zsh}
+case "${1:-}" in
+  display-message)
+    for a in "$@"; do
+      case "$a" in
+        *pane_current_command*) printf '%s\n' "$mode"; exit 0 ;;
+      esac
+    done
+    exit 0
+    ;;
+  list-windows) printf '%s\n' fm-sm1; exit 0 ;;
+  new-window|kill-window)
+    printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"
+    exit 0
+    ;;
+  has-session) exit 0 ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  printf '%s\n' "$fakebin"
+}
+
 run_bootstrap() {  # <fakebin> <home> <pane-cmd> <call-log> [extra env...] -> stdout
   local fb=$1 home=$2 cmd=$3 log=$4; shift 4
   PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$home" \
@@ -555,6 +589,43 @@ test_sweep_noop_with_no_secondmate_meta() {
   pass "sweep: a silent no-op with no kind=secondmate meta present (a secondmate home's own natural scoping)"
 }
 
+test_sweep_retires_the_endpoint_before_it_respawns() {
+  local w fb tmuxfb log out calls kill_at new_at
+  w=$(new_world sweep-order)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_not_contains "$out" "was not retired" \
+    "a proven close must not be reported as a leftover endpoint"
+  calls=$(cat "$log")
+  kill_at=$(printf '%s\n' "$calls" | grep -n kill-window | head -1 | cut -d: -f1)
+  new_at=$(printf '%s\n' "$calls" | grep -n new-window | head -1 | cut -d: -f1)
+  [ -n "$kill_at" ] || fail "the sweep never closed the endpoint it was replacing: $calls"
+  [ -n "$new_at" ] || fail "the sweep never respawned the secondmate: $calls"
+  [ "$kill_at" -lt "$new_at" ] \
+    || fail "the sweep respawned before retiring the endpoint its record still named: $calls"
+  pass "sweep: the endpoint being replaced is retired before the replacement is created"
+}
+
+test_sweep_names_an_endpoint_it_could_not_retire() {
+  local w fb tmuxfb log out
+  w=$(new_world sweep-stuck)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_stuck_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  out=$(run_bootstrap "$tmuxfb:$fb" "$w/home" zsh "$log")
+
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm1: previous endpoint firstmate:fm-sm1" \
+    "an endpoint the sweep could not close must be named by id, not passed over silently"
+  assert_contains "$out" "was not retired" \
+    "the report did not say the close was never proven"
+  pass "sweep: an endpoint whose close cannot be proven is named instead of swallowed"
+}
+
 test_tmux_agent_state_classifies
 test_tmux_agent_state_rejects_malformed_targets_before_probe
 test_herdr_agent_state_preserves_husk_classifier
@@ -570,5 +641,7 @@ test_sweep_never_acts_on_unverified_harness_dead_reading
 test_sweep_converges_no_retouch_once_alive
 test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
+test_sweep_retires_the_endpoint_before_it_respawns
+test_sweep_names_an_endpoint_it_could_not_retire
 
 echo "# all fm-secondmate-liveness tests passed"

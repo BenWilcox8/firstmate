@@ -19,7 +19,8 @@
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
-#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
+#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after
+#                 <cause>: <reason>|previous endpoint <target> was not retired: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING local secondmate worktree is fast-forwarded to
@@ -47,7 +48,10 @@
 #          process, an unreadable target, and an unverified backend; respawn
 #          failed names whether the endpoint was missing or agent-less.
 #          Already-live and successfully relaunched secondmates are silent
-#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
+#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts, EXCEPT
+#          that a respawn which cannot retire the previous endpoint still reports
+#          it by pane id even though the respawn itself succeeded (see
+#          docs/agent-control.md "Endpoint retirement").
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
@@ -818,7 +822,15 @@ secondmate_liveness_one() {  # <meta> <id>
     dead|missing)
       if [ "$agent_state" = dead ]; then
         cause="confirmed agent absence on existing endpoint"
-        fm_backend_kill "$backend" "$target" 2>/dev/null || true
+        # The replacement is about to rewrite this secondmate's endpoint record,
+        # so the pane that record still names has to go first or it survives as
+        # an unreferenced husk. fm_backend_endpoint_retire proves the close
+        # landed; an unproven one is named here rather than swallowed, and the
+        # respawn still runs because no agent at all is worse than a leftover
+        # pane the captain can close.
+        if ! fm_backend_endpoint_retire "$backend" "$target"; then
+          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+        fi
       else
         cause="recorded endpoint confidently missing"
       fi

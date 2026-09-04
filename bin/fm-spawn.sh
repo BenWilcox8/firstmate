@@ -32,6 +32,18 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation.
+#   A FRESH spawn on a task id this home already holds a record for is a
+#   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
+#   Such a spawn settles the endpoint the old record named in two halves. Before
+#   anything is created it REFUSES unless that endpoint is positively agent-free
+#   or authoritatively absent, so a live or unreadable one can never end up
+#   running beside the replacement on the same local copy. After the replacement
+#   endpoint exists and before the new window value is written, it retires the
+#   old one through fm_backend_endpoint_retire (bin/fm-backend.sh), so the pane
+#   the record stops naming cannot survive as an unreferenced husk. An endpoint
+#   the spawn resolved to the same target was reused and is left alone; one that
+#   cannot be proven closed is named on stderr and the replacement still lands.
+#   docs/agent-control.md "Endpoint retirement" owns the contract.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -2325,6 +2337,53 @@ if [ -e "$STATE/$ID.backlog-close" ] || [ -L "$STATE/$ID.backlog-close" ]; then
   exit 1
 fi
 
+# A REPLACEMENT spawn - a fresh spawn onto a task id this home already holds a
+# record for, which is how the secondmate liveness sweep and hand-driven stuck
+# recovery replace a worker - is the one path that SWAPS a task's endpoint
+# instead of adopting one. Its previous endpoint is settled in two halves, and
+# this is the first: read that endpoint's state BEFORE anything is created, and
+# refuse the whole spawn unless it is positively agent-free or authoritatively
+# absent.
+#
+# Refusing here rather than later is what keeps the dangerous outcomes
+# impossible. A live previous agent would otherwise end up running beside the
+# replacement on the same recorded worktree, unreferenced by any record, and an
+# ambiguous or unreadable read is exactly the case where a close could destroy a
+# working agent's turn - the same rule fm-spawn --relaunch already applies to
+# the endpoint it adopts. Nothing has been created at this point, so a refusal
+# changes no record, no endpoint, and no worktree.
+# A backend with no recovery-grade classifier can never satisfy that read, so a
+# replacement on zellij, orca, or cmux refuses by construction.
+SPAWN_PRIOR_BACKEND=
+SPAWN_PRIOR_TARGET=
+SPAWN_PRIOR_TAB=
+spawn_prior_endpoint() {
+  local prior="$STATE/$ID.meta" target state
+  [ -f "$prior" ] && [ ! -L "$prior" ] || return 0
+  target=$(fm_backend_target_of_meta "$prior")
+  [ -n "$target" ] || return 0
+  # A remote secondmate's agent runs on another host, so it has no local
+  # endpoint here to read or retire; its lifecycle is driven on its own host.
+  case "$target" in remote:*) return 0 ;; esac
+  SPAWN_PRIOR_BACKEND=$(fm_backend_of_meta "$prior")
+  SPAWN_PRIOR_TARGET=$target
+  SPAWN_PRIOR_TAB=$(fm_meta_get "$prior" zellij_tab_id)
+  state=$(fm_backend_agent_state "$SPAWN_PRIOR_BACKEND" "$target" 2>/dev/null) || state=unreadable
+  case "$state" in
+    dead|missing) return 0 ;;
+    alive)
+      echo "error: task $ID's recorded endpoint $target still has a running agent; stop it first with bin/fm-control.sh $ID exit, or relaunch it in place with bin/fm-control.sh $ID relaunch, rather than leaving two agents on one local copy" >&2
+      return 1
+      ;;
+    *)
+      echo "error: task $ID's recorded endpoint $target reads '$state'; a replacement needs a positively agent-free or authoritatively absent endpoint, so nothing was created or changed" >&2
+      return 1
+      ;;
+  esac
+}
+if [ "$RELAUNCH" -eq 0 ] && ! spawn_prior_endpoint; then
+  exit 1
+fi
 W="fm-$ID"
 if [ "$RELAUNCH" -eq 1 ]; then
   # Adopt the recorded endpoint instead of creating one. This is what keeps a
@@ -3217,6 +3276,34 @@ preserve_relaunch_meta() {
     !($1 in owned)
   ' "$RELAUNCH_META"
 }
+
+# Second half of the replacement contract (spawn_prior_endpoint above owns the
+# first): close the endpoint the record still names, now, before the new window
+# value lands, so the pane the record is about to stop naming cannot survive as
+# an unreferenced husk.
+#
+# The preflight already proved this endpoint agent-free or absent, and the retire
+# re-reads that state itself, so a close is only ever issued against a state that
+# licenses one. A prior target equal to the one just resolved was verifiably
+# reused - the backend's own close-and-replace, a deterministic label, or the
+# Herdr projection reclaiming its own pane - so nothing is closed there.
+#
+# A close that cannot be proven names the leftover endpoint instead of being
+# swallowed, and the replacement still lands: its agent is already running, and
+# the pane it would strand is one the captain can close, while unwinding a live
+# replacement is not. A relaunch never reaches here, because it adopts its
+# recorded endpoint by contract.
+spawn_retire_replaced_endpoint() {
+  local new_target
+  [ -n "$SPAWN_PRIOR_TARGET" ] || return 0
+  new_target=$META_WINDOW
+  [ "$BACKEND" != orca ] || new_target=$ORCA_TERMINAL
+  [ "$SPAWN_PRIOR_TARGET" != "$new_target" ] || return 0
+  fm_backend_endpoint_retire "$SPAWN_PRIOR_BACKEND" "$SPAWN_PRIOR_TARGET" "$SPAWN_PRIOR_TAB" && return 0
+  echo "warning: task $ID's previous endpoint $SPAWN_PRIOR_TARGET was not retired: ${FM_BACKEND_ENDPOINT_RETIRE_REASON:-reason unknown}; it stays open and unreferenced until it is closed" >&2
+  return 0
+}
+[ "$RELAUNCH" -eq 1 ] || spawn_retire_replaced_endpoint
 {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"
