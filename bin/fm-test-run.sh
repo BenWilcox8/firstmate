@@ -277,7 +277,7 @@ family_for_basename() {
     fm-spawn-claude-persistence.test.sh|fm-spawn-dispatch-profile.test.sh|\
     fm-spawn-ultracode.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
-    fm-teardown-endpoint-safety.test.sh)
+    fm-teardown-endpoint-safety.test.sh|fm-endpoint-retire.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     fm-pr-check-security.test.sh|fm-pr-merge.test.sh|fm-review-diff.test.sh|\

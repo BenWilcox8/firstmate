@@ -80,6 +80,29 @@ Switching harness is therefore one ordinary relaunch rather than a separate mech
 - If the launch owner already published the new record but no running agent can be confirmed, the new record is kept: the task is recorded on the new harness with no agent confirmed, which is exactly what recovery reconciles.
   Rewriting it back to the old harness would be a second, worse inaccuracy.
 
+## Endpoint retirement
+
+A task record names exactly one endpoint.
+Any path that rewrites `window=` must therefore close the endpoint the record stops naming, or that pane stays open with nothing pointing at it.
+`relaunch` never has that problem, because it adopts the recorded endpoint: the task keeps exactly one pane and no close happens at all.
+A REPLACEMENT spawn does have it.
+That is a fresh [`bin/fm-spawn.sh`](../bin/fm-spawn.sh) run on a task id this home already holds a record for, and it is how the secondmate liveness sweep and hand-driven stuck recovery replace a worker.
+
+`fm_backend_endpoint_retire` in [`bin/fm-backend.sh`](../bin/fm-backend.sh) is the single owner of that close.
+It extends each adapter's existing `fm_backend_kill` primitive with proof rather than adding a second close implementation.
+Its rules:
+
+- An authoritatively absent endpoint is already retired, so nothing is closed.
+- A positively alive endpoint is never closed, because stopping an agent is the `exit` verb's postcondition and not a side effect of a replacement.
+- Every other state gets one close, then a structured read that must prove the exact endpoint gone.
+- Only a proven close reports success.
+  An ambiguous or unreadable probe is never proof, and a backend with no recovery-grade classifier can never produce one.
+
+A replacement spawn runs that retire before it records the new window value, so the record never points away from a pane that is still open.
+An endpoint the retire cannot close is named by id, in the spawn's own report and in the liveness sweep's `SECONDMATE_LIVENESS:` line.
+The replacement still lands, because a task with no agent at all is worse than one leftover pane the captain can close.
+An endpoint the replacement resolved to the same target was reused, so it is left alone.
+
 ## Fail-closed boundaries
 
 - Targeting is exact.
@@ -120,3 +143,4 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, and rollback after a failed launch.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
+- `tests/fm-endpoint-retire.test.sh` - endpoint retirement on both state-verified backends: the proven close, the live-agent refusal, the unproven close, the replacement spawn's ordering and leftover report, and a relaunch that opens and closes nothing.

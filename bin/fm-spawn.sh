@@ -32,6 +32,15 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation.
+#   A FRESH spawn on a task id this home already holds a record for is a
+#   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
+#   Such a spawn retires the endpoint the old record named before the new value
+#   is written, through fm_backend_endpoint_retire (bin/fm-backend.sh), so the
+#   pane the record stops naming cannot survive as an unreferenced husk. An
+#   endpoint the spawn resolved to the same target was reused and is left alone;
+#   one that cannot be proven closed is named by id on stderr and the
+#   replacement still lands. docs/agent-control.md "Endpoint retirement" owns
+#   the contract.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
@@ -3217,6 +3226,37 @@ preserve_relaunch_meta() {
     !($1 in owned)
   ' "$RELAUNCH_META"
 }
+
+# A REPLACEMENT spawn - a fresh spawn onto a task id this home already holds a
+# record for, which is how secondmate liveness recovery and hand-driven stuck
+# recovery replace a worker - is the one path that SWAPS a task's endpoint
+# instead of adopting one. Retire the endpoint the record still names here,
+# before the new window value lands, so the pane the record is about to stop
+# naming can never survive as an unreferenced husk.
+#
+# A prior target equal to the one just resolved was verifiably reused (the
+# backend's own close-and-replace, or a deterministic label), so nothing is
+# closed. A retire that cannot be proven names the leftover pane rather than
+# swallowing the failure, and the replacement still lands: leaving the task with
+# no agent at all is worse than a named pane the captain can close. A relaunch
+# never reaches here, because it adopts its recorded endpoint by contract.
+spawn_retire_replaced_endpoint() {
+  local prior="$STATE/$ID.meta" prior_backend prior_target prior_tab new_target
+  [ -f "$prior" ] && [ ! -L "$prior" ] || return 0
+  prior_target=$(fm_backend_target_of_meta "$prior")
+  [ -n "$prior_target" ] || return 0
+  # A remote secondmate's agent runs on another host, so no local endpoint of
+  # its own exists here to retire.
+  case "$prior_target" in remote:*) return 0 ;; esac
+  new_target=$META_WINDOW
+  [ "$BACKEND" != orca ] || new_target=$ORCA_TERMINAL
+  [ "$prior_target" != "$new_target" ] || return 0
+  prior_backend=$(fm_backend_of_meta "$prior")
+  prior_tab=$(fm_meta_get "$prior" zellij_tab_id)
+  fm_backend_endpoint_retire "$prior_backend" "$prior_target" "$prior_tab" "fm-$ID" && return 0
+  echo "warning: task $ID's previous endpoint $prior_target (pane ${prior_target##*:}) was not retired: ${FM_BACKEND_ENDPOINT_RETIRE_REASON:-reason unknown}; it stays open and unreferenced until it is closed" >&2
+}
+[ "$RELAUNCH" -eq 1 ] || spawn_retire_replaced_endpoint || true
 {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"

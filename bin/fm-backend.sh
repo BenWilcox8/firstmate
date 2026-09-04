@@ -758,6 +758,68 @@ fm_backend_kill() {  # <backend> <target>
   esac
 }
 
+# --- endpoint retirement ----------------------------------------------------
+#
+# fm_backend_kill above is best-effort by contract: it asks a backend to close a
+# target and says nothing about whether the close landed. Every path that
+# REPLACES a task's endpoint needs more than that, because a pane the durable
+# record has stopped naming is an unreferenced husk no later sweep will reap.
+# The two wrappers below extend that same close primitive with proof. They add
+# no second close implementation.
+
+# fm_backend_endpoint_confirmed_gone: 0 only when <backend> can PROVE the exact
+# recorded <target> is no longer there. Every ambiguous or unreadable probe
+# returns 1, so a transient failure is never mistaken for a retired endpoint.
+# A backend with no recovery-grade classifier (zellij, orca, cmux) can never
+# prove it and always returns 1.
+fm_backend_endpoint_confirmed_gone() {  # <backend> <target>
+  local backend=$1 target=${2:-}
+  [ -n "$target" ] || return 1
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) [ "$(fm_backend_tmux_agent_state "$target")" = missing ] ;;
+    herdr) fm_backend_herdr_endpoint_confirmed_gone "$target" ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_backend_endpoint_retire: close <target> through this backend's own close
+# primitive and prove it is gone. Returns 0 when the endpoint is already
+# authoritatively absent or the close is confirmed, and 1 otherwise with
+# FM_BACKEND_ENDPOINT_RETIRE_REASON naming why, so a caller reports the leftover
+# by id instead of swallowing it. A positively ALIVE endpoint is never closed:
+# stopping a running agent belongs to bin/fm-control.sh's exit verb, which owns
+# that postcondition, so this reports the live endpoint instead. Arguments after
+# <target> are handed to fm_backend_kill unchanged - the zellij tab id and the
+# fm-<id> label its adapters read.
+fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id> <label>]
+  local backend=$1 target=${2:-} state
+  # shellcheck disable=SC2034 # Output global consumed by sourcing callers.
+  FM_BACKEND_ENDPOINT_RETIRE_REASON=
+  [ -n "$target" ] || {
+    FM_BACKEND_ENDPOINT_RETIRE_REASON="no endpoint target was recorded"
+    return 1
+  }
+  fm_backend_source "$backend" || {
+    FM_BACKEND_ENDPOINT_RETIRE_REASON="backend '$backend' has no adapter here"
+    return 1
+  }
+  state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
+  case "$state" in
+    missing) return 0 ;;
+    alive)
+      FM_BACKEND_ENDPOINT_RETIRE_REASON="an agent is still running on it"
+      return 1
+      ;;
+  esac
+  shift
+  fm_backend_kill "$backend" "$@" >/dev/null 2>&1 || true
+  fm_backend_endpoint_confirmed_gone "$backend" "$target" && return 0
+  # shellcheck disable=SC2034 # Output global consumed by sourcing callers.
+  FM_BACKEND_ENDPOINT_RETIRE_REASON="backend '$backend' could not confirm the close"
+  return 1
+}
+
 fm_backend_remove_worktree() {  # <backend> <worktree-id>
   local backend=$1
   shift

@@ -818,7 +818,15 @@ secondmate_liveness_one() {  # <meta> <id>
     dead|missing)
       if [ "$agent_state" = dead ]; then
         cause="confirmed agent absence on existing endpoint"
-        fm_backend_kill "$backend" "$target" 2>/dev/null || true
+        # The replacement is about to rewrite this secondmate's endpoint record,
+        # so the pane that record still names has to go first or it survives as
+        # an unreferenced husk. fm_backend_endpoint_retire proves the close
+        # landed; an unproven one is named here rather than swallowed, and the
+        # respawn still runs because no agent at all is worse than a leftover
+        # pane the captain can close.
+        if ! fm_backend_endpoint_retire "$backend" "$target" "" "fm-$id"; then
+          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target (pane ${target##*:}) was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+        fi
       else
         cause="recorded endpoint confidently missing"
       fi
