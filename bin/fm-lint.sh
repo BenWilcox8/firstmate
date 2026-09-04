@@ -100,15 +100,17 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
   return "$rc"
 }
 
-# fm_lint_hazard_targets prints, one per line, the members of ROOTS named
-# *.test.sh: the only files the hazard scan below ever reads. Restricting to
-# that suffix keeps helper libraries like tests/lib.sh out of scope and lets
-# a fixture fed by an explicit path (the lint self-test) opt in by name.
+# fm_lint_hazard_targets prints, one per line, the members of ROOTS the
+# hazard scan below reads: every tests/*.sh canonical root, so shared
+# helpers like tests/lib.sh and tests/wake-helpers.sh are covered by the
+# same "repo-wide net" as the suites themselves, plus any *.test.sh path
+# given explicitly, so a scratch fixture (the lint self-test) opts in by
+# name without needing to sit under a directory literally called tests/.
 fm_lint_hazard_targets() {
   local path
   for path in "$@"; do
     case "$path" in
-      *.test.sh) [ -f "$path" ] && printf '%s\n' "$path" ;;
+      tests/*.sh|*.test.sh) [ -f "$path" ] && printf '%s\n' "$path" ;;
     esac
   done
 }
@@ -260,14 +262,23 @@ sub scan_unexported_body_vars {
   for my $idx (0 .. $#$lines) {
     next if $in_body_line{$idx + 1};
     my $l = $lines->[$idx];
-    while ($l =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=/g) {
-      $outer_assigned{$1} = 1;
+    while ($l =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=[^\s;&|()]*/g) {
+      my $name = $1;
+      # A `case` arm label (`STATE=ready)`) matches the same bare `NAME=`
+      # shape but is a pattern, not an assignment - the very next character
+      # after the value run is its own unquoted `)`, which a real
+      # assignment's value never abuts.
+      next if substr($l, pos($l), 1) eq ')';
+      $outer_assigned{$name} = 1;
     }
     if ($l =~ /^\s*local\s+(?:-\w+\s+)?(.+)$/) {
       for my $tok (split /\s+/, $1) {
         $tok =~ s/=.*$//;
         $outer_assigned{$tok} = 1;
       }
+    }
+    if ($l =~ /^\s*read\s+(?:-\w+\s+)*(.+)$/) {
+      $outer_assigned{$_} = 1 for split /\s+/, $1;
     }
   }
 
