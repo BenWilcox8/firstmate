@@ -201,6 +201,10 @@ HOME_SUMMARY_INTERVAL=${FM_HOME_SUMMARY_INTERVAL:-300}
 case "$HOME_SUMMARY_INTERVAL" in
   ''|*[!0-9]*|0) HOME_SUMMARY_INTERVAL=300 ;;
 esac
+BROWSER_REAP_INTERVAL=${FM_BROWSER_REAP_INTERVAL:-3600}  # seconds between orphaned-browser sweeps; 0 disables them
+case "$BROWSER_REAP_INTERVAL" in
+  ''|*[!0-9]*) BROWSER_REAP_INTERVAL=3600 ;;
+esac
 SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trailing
                                       # signals (a status write, then the same turn's
                                       # turn-end hook) coalesce into one wake
@@ -1551,6 +1555,28 @@ home_summary_refresh_detached() {
   HOME_SUMMARY_PID=$!
 }
 
+# Machine housekeeping the supervision cadence already owns: headless browser
+# chains left behind by dead agent sessions accumulate until they swamp the box
+# (2026-08-18: about fifty nine-day-old processes, roughly 11 GB resident, load
+# at 80, swapping). bin/fm-browser-reap.sh owns the whole ownership rule and its
+# own machine-wide lock, so concurrent homes serialize and this only decides how
+# often to ask. Detached because a reap waits out its own TERM-to-KILL grace,
+# and never a wake source: the sweep's record is its log, not firstmate's
+# attention.
+BROWSER_REAP_PID=
+browser_reap_detached() {
+  if [ -n "$BROWSER_REAP_PID" ]; then
+    if kill -0 "$BROWSER_REAP_PID" 2>/dev/null; then
+      return 0
+    fi
+    wait "$BROWSER_REAP_PID" 2>/dev/null || true
+    BROWSER_REAP_PID=
+  fi
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-browser-reap.sh" </dev/null >/dev/null 2>&1 &
+  BROWSER_REAP_PID=$!
+}
+
 watcher_cleanup() {
   local cleanup_status=0 owns_lock=0 transition=release-lock
   if [ "$(cat "$WATCH_LOCK/pid" 2>/dev/null || true)" = "${WATCHER_PID:-}" ]; then
@@ -1584,6 +1610,12 @@ FM_WATCH_DELIVERY_IDENTITY=$(fm_pid_identity "$WATCHER_PID" 2>/dev/null || true)
 printf '%s\n' "$FM_WATCH_DELIVERY_IDENTITY" > "$WATCH_LOCK/pid-identity" 2>/dev/null || true
 
 [ -e "$STATE/.last-heartbeat" ] || touch "$STATE/.last-heartbeat"
+# Seeded, not stamped: a home that has never swept waits one interval rather
+# than sweeping the machine the moment its first watcher arms, while a home that
+# already has a marker keeps its persisted cadence across restarts. Watchers are
+# armed and re-armed often, and the sweep is the one thing here that reaches
+# outside this home.
+[ -e "$STATE/.last-browser-reap" ] || touch "$STATE/.last-browser-reap"
 
 # A merged poll may have queued its terminal wake and then lost the process
 # between receipt publication and fixed-path removal.
@@ -1641,6 +1673,17 @@ while :; do
 
   if [ "$(age_of "$STATE/home-summary.json")" -ge "$HOME_SUMMARY_INTERVAL" ]; then
     home_summary_refresh_detached
+  fi
+
+  # Orphaned-browser sweep, on its own slow cadence. Time-based via
+  # .last-browser-reap mtime so the cadence survives watcher restarts, and the
+  # marker is stamped before the sweep so a long reap cannot queue a second one.
+  # An interval of 0 turns the sweep off: it is the one thing in this loop that
+  # reaches outside this home, so it needs a switch that is not a code edit.
+  if [ "$BROWSER_REAP_INTERVAL" -gt 0 ] \
+    && [ "$(age_of "$STATE/.last-browser-reap")" -ge "$BROWSER_REAP_INTERVAL" ]; then
+    touch "$STATE/.last-browser-reap"
+    browser_reap_detached
   fi
 
   # Parent-owned secondmate pending-reply reconciliation: resolve correlated
