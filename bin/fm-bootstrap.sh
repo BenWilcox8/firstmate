@@ -19,7 +19,8 @@
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: secondmate <id>: send failed: <reason>",
 #                 "BOOTSTRAP_INFO: nudged fm-<id> with '<message>'",
-#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after <cause>: <reason>",
+#                 "SECONDMATE_LIVENESS: secondmate <id>: skipped: <reason>|respawn failed after
+#                 <cause>: <reason>|previous endpoint <target> (pane <id>) was not retired: <reason>",
 #                 "SECONDMATE_HANDOFF: secondmate <id>: pending delivery: <n> item(s)",
 #                 "FMX: X mode on ..." or "FMX: X mode off ...".
 #          When a RUNNING local secondmate worktree is fast-forwarded to
@@ -47,7 +48,10 @@
 #          process, an unreadable target, and an unverified backend; respawn
 #          failed names whether the endpoint was missing or agent-less.
 #          Already-live and successfully relaunched secondmates are silent
-#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts.
+#          unless FM_BOOTSTRAP_VERBOSE_FACTS=1 requests BOOTSTRAP_INFO facts, EXCEPT
+#          that a respawn which cannot retire the previous endpoint still reports
+#          it by pane id even though the respawn itself succeeded (see
+#          docs/agent-control.md "Endpoint retirement").
 #          A TANGLE line means the firstmate primary checkout (FM_ROOT) is stranded
 #          on a feature branch instead of its default branch - a crewmate's work
 #          landed in the primary instead of its own worktree; restore it per the line.
