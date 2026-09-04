@@ -15,13 +15,16 @@
 # before merge instead of only failing to run as CI.
 #
 # Every lint target named *.test.sh, in the canonical set or given
-# explicitly, is also scanned for two hazardous test-suite shapes: a
+# explicitly, is also scanned for three hazardous test-suite shapes: a
 # restricted-PATH fallback that names an FHS directory without the portable
-# tool-resolution helper, and a single-quoted `bash -c '...'` body that reads
-# an outer-scope shell variable never exported or passed through that
-# invocation's own prefix. Both break silently rather than failing loudly, so
-# ShellCheck alone cannot catch them; this is the single lint entry point
-# either way. The scan skips a fixture literal that never executes.
+# tool-resolution helper; a hardcoded absolute path to a tool (e.g.
+# /bin/bash) used as a shebang, exec target, symlink target, recorded argv,
+# or subprocess argv element, which bypasses PATH resolution entirely; and a
+# single-quoted `bash -c '...'` body that reads an outer-scope shell variable
+# never exported or passed through that invocation's own prefix. All three
+# break silently rather than failing loudly, so ShellCheck alone cannot catch
+# them; this is the single lint entry point either way. The scan skips a
+# fixture literal that never executes.
 #
 # With no explicit paths, the file set depends on context:
 #   - In CI (GITHUB_ACTIONS=true or CI=true), on the main branch, or when no
@@ -122,11 +125,15 @@ fm_lint_write_hazard_scanner() {
   cat > "$1" <<'FM_LINT_HAZARD_SCAN_PL'
 #!/usr/bin/env perl
 # fm-lint.sh's embedded hazard scan - see that script's header for the
-# contract. Scans *.test.sh files for two shapes that broke real suites:
+# contract. Scans *.test.sh files for three shapes that broke real suites:
 #   1. a restricted-PATH fallback naming an FHS directory (nothing on it
 #      resolves on a host, like NixOS, whose /bin and /usr/bin hold only a
 #      handful of tools) without the portable tool-resolution helper.
-#   2. a single-quoted `bash -c '...'` body reading, by name, a shell
+#   2. a hardcoded absolute path to a tool (e.g. /bin/bash, /bin/echo) used
+#      as a shebang, exec target, symlink target, recorded argv, or
+#      subprocess argv element - PATH cannot help here, since the path
+#      bypasses it entirely.
+#   3. a single-quoted `bash -c '...'` body reading, by name, a shell
 #      variable the outer test scope assigned but never exported or passed
 #      through that invocation's own env-var prefix - invisible to the
 #      child, so it aborts under `set -u` or is masked by a `:-default`
@@ -175,6 +182,44 @@ sub scan_restricted_path {
     next unless $line =~ m{(?:/usr/bin|/usr/sbin|(?<![\w/])/bin(?![\w])|(?<![\w/])/sbin(?![\w]))};
     next if $line =~ /fm_test_core_path/;
     printf "%s:%d: restricted-PATH fallback names an FHS directory without fm_test_core_path: %s\n",
+      $file, $i + 1, $line =~ s/^\s+|\s+$//gr;
+    $n++;
+  }
+  return $n;
+}
+
+# scan_absent_tool_hazards <file> <lines>: one finding per hardcoded absolute
+# path to a tool that does not exist outside an FHS layout (e.g. /bin/bash on
+# a host where /bin holds only sh), in a position where the path is actually
+# used as an executable: a shebang, exec target, symlink target, recorded
+# argv, or subprocess argv element. The same text as DATA (e.g. asserting on
+# a fake `ps` line) is not a hazard, so only execution positions count. A
+# `[ -x /bin/... ]` or `command -v /bin/...` guard within the two preceding
+# lines makes the line portable by construction, so it is not flagged.
+sub scan_absent_tool_hazards {
+  my ($file, $lines) = @_;
+  my $n = 0;
+  my $tool = qr{/bin/(?:bash|echo|true|false|cat|sleep|cp|mv|rm|ls|sed|grep)(?![\w.-])};
+  my @recent = ("", "");
+  for my $i (0 .. $#$lines) {
+    my $line = $lines->[$i];
+    my $guarded = ($recent[0] =~ m{-x\s+/bin/} || $recent[1] =~ m{-x\s+/bin/}
+                   || $line =~ m{-x\s+/bin/} || $line =~ m{command -v\s+/bin/});
+    push @recent, $line;
+    shift @recent;
+    next if $line =~ /^\s*#/ && $line !~ /^#!/;
+    next if $guarded;
+    next unless
+         $line =~ /^#!$tool/
+      || $line =~ /\bexec\s+$tool/
+      || $line =~ /\bln\s+-s\s+$tool/
+      || $line =~ /(?:^|\s)--\s+$tool/
+      || $line =~ /\bexec(?:l|v|vp|lp)?\s*\(\s*"$tool"/
+      || $line =~ /(?:^|;|\||&|\(|\}|\bdo\b|\bthen\b|\belse\b|\bin\b)\s*$tool/
+      || $line =~ /\$\(\s*$tool/
+      || $line =~ /(?:^|\s)\w+=$tool/
+      || $line =~ /[\[\(]\s*[\x27"]$tool[\x27"]/;
+    printf "%s:%d: hardcoded absolute path to a tool that may not exist outside an FHS layout: %s\n",
       $file, $i + 1, $line =~ s/^\s+|\s+$//gr;
     $n++;
   }
@@ -262,13 +307,20 @@ sub scan_unexported_body_vars {
   for my $idx (0 .. $#$lines) {
     next if $in_body_line{$idx + 1};
     my $l = $lines->[$idx];
-    while ($l =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=[^\s;&|()]*/g) {
-      my $name = $1;
-      # A `case` arm label (`STATE=ready)`) matches the same bare `NAME=`
-      # shape but is a pattern, not an assignment - the very next character
-      # after the value run is its own unquoted `)`, which a real
-      # assignment's value never abuts.
-      next if substr($l, pos($l), 1) eq ')';
+    while ($l =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|()]*)/g) {
+      my ($name, $value) = ($1, $2);
+      my $end = pos($l);
+      # A `case` arm label (`  STATE=ready)`) matches the same bare `NAME=`
+      # shape but is a pattern, not an assignment. Unlike a real assignment,
+      # the label is the only thing on its line up to a trailing `)` or
+      # `);;`, and its value never carries a quote character (a real
+      # assignment's quoted value, e.g. `STATUS="closed)"`, can end flush
+      # against a literal `)` and must not be mistaken for a label).
+      if (substr($l, $end, 1) eq ')' && $value !~ /["']/) {
+        my $before = substr($l, 0, $end - length($name) - 1 - length($value));
+        my $after = substr($l, $end + 1);
+        next if $before =~ /^\s*$/ && $after =~ /^\s*;{0,2}\s*$/;
+      }
       $outer_assigned{$name} = 1;
     }
     if ($l =~ /^\s*local\s+(?:-\w+\s+)?(.+)$/) {
@@ -334,6 +386,7 @@ for my $file (@ARGV) {
   close $fh;
   my $lines = strip_heredocs(\@raw_lines);
   $findings += scan_restricted_path($file, $lines);
+  $findings += scan_absent_tool_hazards($file, $lines);
   $findings += scan_unexported_body_vars($file, $lines);
 }
 exit($findings > 0 ? 1 : 0);

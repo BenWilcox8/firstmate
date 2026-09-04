@@ -850,6 +850,85 @@ SH
   pass "fm-lint.sh passes a test that resolves its tools portably and exports what its bash -c body reads"
 }
 
+test_hazard_scan_catches_absent_tool_path() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): absent-tool-path hazard check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-tool)
+  mkdir -p "$tmp"
+  bad="$tmp/absent-tool.test.sh"
+  cat > "$bad" <<'SH'
+#!/usr/bin/env bash
+set -u
+run_case() {
+  exec /bin/cat "$@"
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed a hardcoded absent-tool-path fixture"$'\n'"$out"
+  assert_contains "$out" "$bad:4:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "hardcoded absolute path to a tool" \
+    "fm-lint.sh did not report the absent-tool-path hazard"
+  pass "fm-lint.sh fails a test that hardcodes an absolute path to a tool, naming the file and line"
+}
+
+test_hazard_scan_absent_tool_path_allows_guarded_use() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): absent-tool-path guard check"
+    return
+  fi
+  local tmp good rc out
+  tmp=$(fm_test_tmproot fm-lint-hazard-tool-guarded)
+  mkdir -p "$tmp"
+  good="$tmp/guarded-tool.test.sh"
+  cat > "$good" <<'SH'
+#!/usr/bin/env bash
+set -u
+run_case() {
+  [ -x /bin/cat ] || { pass "skipped"; return; }
+  exec /bin/cat /dev/null
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$good" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "fm-lint.sh flagged an existence-guarded tool path (exit $rc)"$'\n'"$out"
+  pass "fm-lint.sh passes a hardcoded tool path that is guarded by a preceding -x check"
+}
+
+test_hazard_scan_case_label_guard_does_not_hide_quoted_assignment() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): case-label guard regression check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-case-label)
+  mkdir -p "$tmp"
+  bad="$tmp/quoted-close-paren.test.sh"
+  cat > "$bad" <<'SH'
+#!/usr/bin/env bash
+set -u
+STATUS="closed)"
+run_case() {
+  bash -c '
+    printf "%s\n" "$STATUS"
+  '
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed an unexported var whose outer value ends in a literal )"$'\n'"$out"
+  assert_contains "$out" "$bad:7:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "unexported \$STATUS" \
+    "fm-lint.sh did not report the unexported-variable hazard when the outer value ends in a literal )"
+  pass "fm-lint.sh still catches an unexported bash -c body var when its outer assignment's value ends in )"
+}
+
 test_jobs_are_deterministic_and_complete() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): deterministic bounded jobs check"
@@ -1096,6 +1175,9 @@ test_clean_fixture_passes
 test_hazard_scan_catches_restricted_path_fallback
 test_hazard_scan_catches_unexported_bash_c_var
 test_hazard_scan_passes_clean_fixture
+test_hazard_scan_catches_absent_tool_path
+test_hazard_scan_absent_tool_path_allows_guarded_use
+test_hazard_scan_case_label_guard_does_not_hide_quoted_assignment
 test_jobs_are_deterministic_and_complete
 test_worker_trees_stop_on_signal
 test_seeded_module_boundary_parity
