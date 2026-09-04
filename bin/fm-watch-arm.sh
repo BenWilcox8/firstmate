@@ -47,10 +47,13 @@
 # typed nonzero failure. That matters because the watcher records its reason when
 # it QUEUES the wake, so a cycle whose wake is already durably queued names that
 # wake even when the cycle then dies without printing it. Neither is ever a clean
-# empty completion. A delivery never hides an abnormal end: the child's stderr is
-# captured separately from the stdout classified above (a diagnostic starting
-# with a wake prefix must not read as a reason), released on every close, and a
-# delivered wake after an abnormal exit adds one stderr line naming that exit.
+# empty completion. A delivery never hides an abnormal end FROM THE RECORD: the
+# child's stderr is captured separately from the stdout classified above (a
+# diagnostic starting with a wake prefix must not read as a reason), released on
+# every close, and a delivered wake after an abnormal exit adds one stderr line
+# naming that exit plus a -delivered-wake row in the lifecycle ledger. That fault
+# is legible there and to a foreground arm, not to an adapter's wake banner,
+# which composes from wake-prefixed stdout alone.
 # On FAILED it exits non-zero so the failure is loud. A live
 # cycle already present means re-arm attaches - do not start a second watcher.
 #
@@ -653,9 +656,15 @@ done
 
 trap - HUP TERM INT
 print_watch_output "$child_out"
-cleanup_child
+# Reap before releasing the diagnostics, as the signal traps already do: the
+# watcher's EXIT trap writes its last stderr while it is dying, so a release
+# ordered ahead of the wait would drop exactly the line that says why.
+if [ -n "$child" ] && fm_pid_alive "$child"; then
+  kill -TERM "$child" 2>/dev/null || true
+fi
 wait "$child" 2>/dev/null
 rc=$?
+cleanup_child
 cycle_log_append "$rc" "$(cycle_signal_name "$rc")" confirmation-timeout none
 echo "watcher: FAILED - no live watcher with a fresh beacon"
 exit 1

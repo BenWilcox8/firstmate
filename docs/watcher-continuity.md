@@ -98,10 +98,12 @@ A non-empty queue is therefore never read as this cycle's delivery.
 Only a cycle with no matching delivery record fails, and it names its own end: a clean exit emits `watcher: FAILED - cycle ended without an actionable reason` and a nonzero or signal exit emits `watcher: FAILED - watcher cycle exited <rc> without an actionable reason`.
 Both exit nonzero, unchanged.
 
-A delivery never hides an abnormal end.
-The arm captures the watcher child's stderr separately from the stdout it classifies - a diagnostic line that happened to start with a wake prefix must not read as a delivered reason - and releases it on every close, so the watcher's own named causes (an unclaimable lock, an unsafe recovery marker, a failed observation) still reach the operator.
-A close that reports a delivered wake after a nonzero or signal exit also emits `watcher: cycle exited <rc> after delivering its wake` on stderr.
-That keeps a cycle which repeatedly dies after delivering visible as a fault rather than reading as a healthy wake, while the stdout the harness adapters classify still carries exactly one reason line.
+A delivery never hides an abnormal end from the record.
+The arm captures the watcher child's stderr separately from the stdout it classifies, because a diagnostic line that happened to start with a wake prefix must never read as a delivered reason, and releases it on the arm's own stderr on every close.
+A close that reports a delivered wake after a nonzero or signal exit also emits `watcher: cycle exited <rc> after delivering its wake` there, and the lifecycle ledger records that close as `nonzero-exit-delivered-wake` or `signal-exit-delivered-wake`.
+The ledger and a foreground or manual arm are where that fault is currently legible.
+It does NOT reach the model on an actionable close: every adapter that consumes arm output composes its wake banner from the wake-prefixed stdout lines alone and reads `watcher:` lines only on its failure path, so a cycle that keeps dying after delivering is visible in the record without being reported as a fault.
+Closing that gap means changing the arm-output contract each adapter implements, which is deliberately not part of this contract.
 
 The arm layer appends one tab-separated record per observed cycle to `state/.watch-cycle-exits.log`.
 Each record includes arm and watcher PIDs, start and end timestamps, exit code and signal, classified reason, beacon age, lock identity before and after close, and successor disposition.

@@ -934,10 +934,10 @@ test_signal_batch_lost_notification_is_still_named() {
   printf 'done: fixture finished\n' > "$state/demo.status"
   : > "$state/demo.turn-ended"
   # A barrier the cycle reaches AFTER it has queued the whole batch and BEFORE it
-  # prints the reason: the classification marker it writes next is a fifo with no
-  # reader, so the open blocks there. That parks the cycle in exactly the window
-  # this change exists for - the batch is durably the supervisor's, the reason
-  # line has not been written - with no timing race to lose.
+  # prints the reason: the classification marker it reads and writes next is a
+  # fifo, so it parks there. That holds the cycle in exactly the window this
+  # change exists for - the batch is durably the supervisor's, the reason line
+  # has not been written - rather than racing to catch it.
   mkfifo "$state/.hb-surfaced-demo" || fail "could not create the post-queue barrier"
 
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
@@ -964,9 +964,19 @@ test_signal_batch_lost_notification_is_still_named() {
 
   watcher=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
   [ -n "$watcher" ] || { kill "$ARM_PID" 2>/dev/null; fail "no watcher held the lock"; }
-  kill -TERM "$watcher" 2>/dev/null || true
-  wait "$ARM_PID"
+  # KILL, not TERM: the cycle is parked in a command substitution, and bash defers
+  # a trapped signal until that foreground child returns, so a TERM here would
+  # never be acted on. Then open the barrier read-write - which never blocks - so
+  # the reader the dead cycle left behind takes its EOF and exits instead of
+  # surviving as an orphan on an unlinked fifo.
+  kill -KILL "$watcher" 2>/dev/null || true
+  exec 8<> "$state/.hb-surfaced-demo" || true
+  exec 8>&- || true
+  # Bounded, like every other close in this file: a lost race must fail loudly
+  # rather than wedge the runner.
+  wait_for_exit "$ARM_PID" 300
   ARM_STATUS=$?
+  [ "$ARM_STATUS" -ne 124 ] || fail "the arm never closed after its cycle was killed"
 
   grep -q '^signal:.*demo.status' "$armout" \
     || fail "the delivered batch was not named after its notification was lost: $(cat "$armout")"
@@ -975,8 +985,8 @@ test_signal_batch_lost_notification_is_still_named() {
   expect_code 0 "$ARM_STATUS" "a cycle whose batch was delivered must close successfully"
   grep -qF 'after delivering its wake' "$armerr" \
     || fail "the abnormal end was not named alongside the delivered batch: $(cat "$armerr")"
-  grep -q 'reason=nonzero-exit-delivered-wake' "$state/.watch-cycle-exits.log" \
-    || fail "the delivered-batch close was not classified in the lifecycle ledger"
+  grep -q 'reason=signal-exit-delivered-wake' "$state/.watch-cycle-exits.log" \
+    || fail "the killed-after-delivery close was not classified in the lifecycle ledger"
   pass "watch-arm: a signal batch whose reason line never reached the arm is still named"
 }
 
