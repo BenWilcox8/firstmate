@@ -40,6 +40,32 @@ TMP_ROOT=$(fm_test_tmproot fm-browser-reap)
 BASH_BIN=$(command -v bash)
 LOG="$TMP_ROOT/browser-reap.log"
 
+# The orphan fixtures below must land in a cgroup of their own, outside
+# whatever systemd unit is running this test session, or the ownership
+# guard's "not inside a systemd user unit" clause reads the fixture as still
+# supervised by that unit rather than as adopted by the per-user manager -
+# exactly the shape a genuine orphan has in production (see
+# reap_in_managed_unit in bin/fm-browser-reap.sh). systemd-run --user --scope
+# gives the fixture its own transient .scope cgroup, matching how a real
+# agent-launched browser is scoped. When that is not available - no
+# systemd-run, or a sandbox where scopes do not behave this way - the fixture
+# cannot be told apart from this test session's own unit, so the orphan cases
+# cannot be proven and the file skips rather than asserting on a false
+# ownership reading.
+SYSTEMD_RUN=$(command -v systemd-run || true)
+ORPHAN_SCOPE_OK=0
+if [ -n "$SYSTEMD_RUN" ]; then
+  probe_cgroup=$("$SYSTEMD_RUN" --user --scope --quiet -- cat /proc/self/cgroup 2>/dev/null)
+  case "$probe_cgroup" in
+    *.service) ;;
+    *.scope) ORPHAN_SCOPE_OK=1 ;;
+  esac
+fi
+if [ "$ORPHAN_SCOPE_OK" != 1 ]; then
+  echo "skip: systemd-run --user --scope is unavailable or does not yield its own scope cgroup in this sandbox, so the orphan fixtures cannot be proven apart from this test session's own systemd unit"
+  exit 0
+fi
+
 TRACKED_PIDS=()
 browser_reap_cleanup() {
   local pid
@@ -140,15 +166,19 @@ spawn_owned() {
   track "$SPAWNED_PID"
 }
 
-# Start <cmd...> in its own process group under a parent that exits at once, so
-# the kernel reparents it. This is how the production leak is made. The
-# intermediate runs synchronously, so it has already exited - and the kernel has
-# already reparented the child - by the time this returns.
+# Start <cmd...> in its own process group, in its own transient systemd scope,
+# under a parent that exits at once, so the kernel reparents it. This is how
+# the production leak is made. The scope keeps the fixture out of this test
+# session's own systemd unit (see the ORPHAN_SCOPE_OK probe above); the
+# intermediate runs synchronously inside that scope, so it has already exited -
+# and the kernel has already reparented the child to the per-user manager -
+# by the time this returns.
 spawn_orphan() {
   local pidfile pid
   pidfile=$(mktemp "$TMP_ROOT/orphan-pid.XXXXXX")
   # shellcheck disable=SC2016 # $0, $@ and $! must expand in the intermediate shell.
-  "$BASH_BIN" -c 'set -m; "$@" >/dev/null 2>&1 & printf "%s\n" "$!" > "$0"' "$pidfile" "$@"
+  "$SYSTEMD_RUN" --user --scope --quiet -- \
+    "$BASH_BIN" -c 'set -m; "$@" >/dev/null 2>&1 & printf "%s\n" "$!" > "$0"' "$pidfile" "$@"
   pid=$(cat "$pidfile" 2>/dev/null || true)
   case "$pid" in ''|*[!0-9]*) return 1 ;; esac
   SPAWNED_PID=$pid
