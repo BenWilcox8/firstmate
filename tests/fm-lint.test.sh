@@ -769,6 +769,87 @@ SH
   pass "fm-lint.sh passes a clean fixture"
 }
 
+test_hazard_scan_catches_restricted_path_fallback() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): restricted-PATH hazard check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-path)
+  mkdir -p "$tmp"
+  bad="$tmp/restricted-path.test.sh"
+  cat > "$bad" <<'SH'
+#!/usr/bin/env bash
+set -u
+run_case() {
+  local BASE_PATH
+  BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+  PATH="$BASE_PATH" command -v true >/dev/null
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed a restricted-PATH fixture"$'\n'"$out"
+  assert_contains "$out" "$bad:5:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "restricted-PATH fallback" "fm-lint.sh did not report the restricted-PATH hazard"
+  pass "fm-lint.sh fails a test that hardcodes an FHS base PATH, naming the file and line"
+}
+
+test_hazard_scan_catches_unexported_bash_c_var() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): unexported bash -c var hazard check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-var)
+  mkdir -p "$tmp"
+  bad="$tmp/unexported-var.test.sh"
+  cat > "$bad" <<'SH'
+#!/usr/bin/env bash
+set -u
+TRUE_BIN=$(command -v true)
+run_case() {
+  bash -c '
+    printf "%s\n" "$TRUE_BIN"
+  '
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed an unexported single-quoted bash -c body fixture"$'\n'"$out"
+  assert_contains "$out" "$bad:7:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "unexported \$TRUE_BIN" "fm-lint.sh did not report the unexported-variable hazard"
+  pass "fm-lint.sh fails a single-quoted bash -c body reading an unexported outer variable, naming the file and line"
+}
+
+test_hazard_scan_passes_clean_fixture() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): hazard-scan clean fixture check"
+    return
+  fi
+  local tmp good rc out
+  tmp=$(fm_test_tmproot fm-lint-hazard-clean)
+  mkdir -p "$tmp"
+  good="$tmp/clean.test.sh"
+  cat > "$good" <<'SH'
+#!/usr/bin/env bash
+set -u
+TRUE_BIN=$(command -v true)
+run_case() {
+  TRUE_BIN="$TRUE_BIN" bash -c '
+    printf "%s\n" "$TRUE_BIN"
+  '
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$good" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "fm-lint.sh flagged a clean fixture (exit $rc)"$'\n'"$out"
+  pass "fm-lint.sh passes a test that resolves its tools portably and exports what its bash -c body reads"
+}
+
 test_jobs_are_deterministic_and_complete() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): deterministic bounded jobs check"
@@ -1012,6 +1093,9 @@ test_rejects_wrong_shellcheck_version
 test_catches_a_real_lint_defect
 test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
+test_hazard_scan_catches_restricted_path_fallback
+test_hazard_scan_catches_unexported_bash_c_var
+test_hazard_scan_passes_clean_fixture
 test_jobs_are_deterministic_and_complete
 test_worker_trees_stop_on_signal
 test_seeded_module_boundary_parity
