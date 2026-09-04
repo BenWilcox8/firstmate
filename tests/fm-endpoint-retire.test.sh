@@ -199,12 +199,12 @@ calls_of() {  # <dir>/<kind>
 }
 
 assert_call_order() {  # <calls-text> <first-pattern> <second-pattern> <msg>
-  local text=$1 first=$2 second=$3 msg=$4 fi si
-  fi=$(printf '%s\n' "$text" | grep -nF -- "$first" | head -1 | cut -d: -f1)
-  si=$(printf '%s\n' "$text" | grep -nF -- "$second" | head -1 | cut -d: -f1)
-  [ -n "$fi" ] || fail "$msg (never recorded: $first) - calls: $text"
-  [ -n "$si" ] || fail "$msg (never recorded: $second) - calls: $text"
-  [ "$fi" -lt "$si" ] || fail "$msg (order was $second then $first) - calls: $text"
+  local text=$1 first=$2 second=$3 msg=$4 first_index second_index
+  first_index=$(printf '%s\n' "$text" | grep -nF -- "$first" | head -1 | cut -d: -f1)
+  second_index=$(printf '%s\n' "$text" | grep -nF -- "$second" | head -1 | cut -d: -f1)
+  [ -n "$first_index" ] || fail "$msg (never recorded: $first) - calls: $text"
+  [ -n "$second_index" ] || fail "$msg (never recorded: $second) - calls: $text"
+  [ "$first_index" -lt "$second_index" ] || fail "$msg (order was $second then $first) - calls: $text"
 }
 
 # --- 1. the adapter contract -------------------------------------------------
@@ -214,6 +214,7 @@ assert_call_order() {  # <calls-text> <first-pattern> <second-pattern> <msg>
 retire_in() {  # <fakebin> [<env-assignment>...]
   local fakebin=$1
   shift
+  # shellcheck disable=SC2016 # expand in the inner shell, not here
   env PATH="$fakebin:$PATH" "$@" bash -c '
     set -u
     . "$1/bin/fm-backend.sh"
