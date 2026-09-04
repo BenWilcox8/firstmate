@@ -14,7 +14,7 @@
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
 #
-# Every lint target named *.test.sh, in the canonical set or given
+# Every tests/*.sh file in the canonical set, plus any *.test.sh path given
 # explicitly, is also scanned for three hazardous test-suite shapes: a
 # restricted-PATH fallback that names an FHS directory without the portable
 # tool-resolution helper; a hardcoded absolute path to a tool (e.g.
@@ -125,7 +125,8 @@ fm_lint_write_hazard_scanner() {
   cat > "$1" <<'FM_LINT_HAZARD_SCAN_PL'
 #!/usr/bin/env perl
 # fm-lint.sh's embedded hazard scan - see that script's header for the
-# contract. Scans *.test.sh files for three shapes that broke real suites:
+# contract. Scans each hazard-scan target file (fm_lint_hazard_targets) for
+# three shapes that broke real suites:
 #   1. a restricted-PATH fallback naming an FHS directory (nothing on it
 #      resolves on a host, like NixOS, whose /bin and /usr/bin hold only a
 #      handful of tools) without the portable tool-resolution helper.
