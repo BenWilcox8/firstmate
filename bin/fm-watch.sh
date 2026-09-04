@@ -1789,6 +1789,9 @@ while :; do
             triage_log "merge outcome for $id could not be recorded (rc=$merge_outcome_rc)"
             exit 1
           fi
+          if [ "$FM_MERGE_OUTCOME_ALREADY_RECORDED" != true ]; then
+            watch_delivery_publish "check: merge landed: $id $FM_PR_URL" || true
+          fi
           retire_merged_pr_poll "$id"
           touch "$STATE/.last-check"
           if [ "$FM_MERGE_OUTCOME_ALREADY_RECORDED" = true ]; then

@@ -20,6 +20,10 @@ WATCH="$ROOT/bin/fm-watch.sh"
 WATCH_ARM="$ROOT/bin/fm-watch-arm.sh"
 DRAIN="$ROOT/bin/fm-wake-drain.sh"
 
+# shellcheck source=bin/fm-pr-lib.sh
+. "$ROOT/bin/fm-pr-lib.sh"
+REAL_MKTEMP=$(command -v mktemp)
+
 TMP_ROOT=$(fm_test_tmproot fm-watch-arm-tests)
 
 # Both starters background a real process the test later waits on, so they set a
@@ -991,6 +995,104 @@ test_signal_batch_lost_notification_is_still_named() {
   pass "watch-arm: a signal batch whose reason line never reached the arm is still named"
 }
 
+seed_merged_pr_poll() {  # <state> <id> <url>
+  local state=$1 id=$2 url=$3
+  printf 'window=fm-%s\npr=%s\n' "$id" "$url" > "$state/$id.meta"
+  fm_pr_url_parse "$url" || fail "merged-poll fixture URL was invalid"
+  fm_pr_poll_prepare "$state" "$id" "$FM_PR_PROVIDER" "$url" "$FM_PR_HOST" "$FM_PR_PATH" "$FM_PR_NUMBER" \
+    "$ROOT/bin/fm-pr-poll.sh" || fail "could not prepare merged-poll fixture"
+  fm_pr_poll_publish_prepared || fail "could not publish merged-poll fixture"
+}
+
+# The merged-PR poll path (bin/fm-watch.sh's *.check.sh sweep) queues its wake
+# through fm-merge-outcome-lib.sh, a call site that runs in-process inside the
+# watcher's own poll loop rather than in a forked subprocess. This proves that
+# path publishes to the delivery ledger at the moment the row becomes durable,
+# exactly like the herdr push/signal-batch cases above, by parking the cycle on
+# a fifo barrier between the queue append and its own retirement bookkeeping -
+# the step that can still fail or hang after the row is already the
+# supervisor's - then killing it there.
+test_merged_pr_poll_lost_notification_is_still_named() {
+  local dir state fakebin armout armerr i watcher id url
+  dir=$(make_case merged-pr-poll-lost-notification)
+  state="$dir/state"
+  fakebin="$dir/fakebin"
+  armout="$dir/arm.out"
+  armerr="$dir/arm.err"
+  id=task-a
+  url=https://github.com/o/r/pull/1
+
+  cat > "$fakebin/gh" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *"--json state -q .state"*) printf 'MERGED\n'; exit 0 ;;
+esac
+exit 1
+SH
+  chmod +x "$fakebin/gh"
+
+  cat > "$fakebin/mktemp" <<SH
+#!/usr/bin/env bash
+case "\$*" in
+  *fm-pr-poll-retirement*)
+    if [ -n "\${FM_TEST_MKTEMP_BARRIER:-}" ]; then
+      exec 9< "\$FM_TEST_MKTEMP_BARRIER"
+      exec 9<&-
+    fi
+    ;;
+esac
+exec "$REAL_MKTEMP" "\$@"
+SH
+  chmod +x "$fakebin/mktemp"
+
+  seed_merged_pr_poll "$state" "$id" "$url"
+  mkfifo "$state/.merge-retire-barrier" || fail "could not create the post-queue barrier"
+
+  PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=1 FM_SIGNAL_GRACE=1 \
+    FM_CHECK_INTERVAL=0 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=10 \
+    env FM_TEST_MKTEMP_BARRIER="$state/.merge-retire-barrier" \
+    "$WATCH_ARM" > "$armout" 2> "$armerr" &
+  ARM_PID=$!
+
+  i=0
+  while [ "$i" -lt 600 ]; do
+    grep -qF "merge landed: $id $url" "$state/.watch-deliveries.log" 2>/dev/null && break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  grep -qF "merge landed: $id $url" "$state/.watch-deliveries.log" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the cycle never recorded its delivered merge notification"; }
+  grep -qF "merged-$id-$url" "$state/.wake-queue" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the merge notification never reached the durable queue"; }
+  ! grep -qF "merge landed: $id $url" "$armout" 2>/dev/null \
+    || { kill "$ARM_PID" 2>/dev/null; fail "the cycle printed its reason, so the barrier did not hold"; }
+
+  watcher=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
+  [ -n "$watcher" ] || { kill "$ARM_PID" 2>/dev/null; fail "no watcher held the lock"; }
+  # KILL, not TERM: the cycle is parked in a command substitution, and bash defers
+  # a trapped signal until that foreground child returns, so a TERM here would
+  # never be acted on. Then open the barrier read-write - which never blocks - so
+  # the reader the dead cycle left behind takes its EOF and exits instead of
+  # surviving as an orphan on an unlinked fifo.
+  kill -KILL "$watcher" 2>/dev/null || true
+  exec 8<> "$state/.merge-retire-barrier" || true
+  exec 8>&- || true
+  wait_for_exit "$ARM_PID" 300
+  ARM_STATUS=$?
+  [ "$ARM_STATUS" -ne 124 ] || fail "the arm never closed after its cycle was killed"
+
+  grep -qF "check: merge landed: $id $url" "$armout" \
+    || fail "the delivered merge notification was not named after its notification was lost: $(cat "$armout")"
+  ! grep -qF 'watcher: FAILED' "$armout" \
+    || fail "a delivered merge notification still ended in a failure line: $(cat "$armout")"
+  expect_code 0 "$ARM_STATUS" "a cycle whose merge notification was delivered must close successfully"
+  grep -qF 'after delivering its wake' "$armerr" \
+    || fail "the abnormal end was not named alongside the delivered merge notification: $(cat "$armerr")"
+  grep -q 'reason=signal-exit-delivered-wake' "$state/.watch-cycle-exits.log" \
+    || fail "the killed-after-delivery close was not classified in the lifecycle ledger"
+  pass "watch-arm: a merged-PR poll notification lost after queueing is still named"
+}
+
 test_herdr_push_cycle_names_the_wake_it_queued() {
   local dir state fakebin armout
   command -v jq >/dev/null 2>&1 || {
@@ -1091,3 +1193,4 @@ test_herdr_push_cycle_names_the_wake_it_queued
 test_reference_backend_names_the_wake_it_queued
 test_cycle_that_queued_nothing_still_fails_loudly
 test_signal_batch_lost_notification_is_still_named
+test_merged_pr_poll_lost_notification_is_still_named
