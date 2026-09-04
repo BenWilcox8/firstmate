@@ -1019,8 +1019,8 @@ test_merged_pr_poll_lost_notification_is_still_named() {
   fakebin="$dir/fakebin"
   armout="$dir/arm.out"
   armerr="$dir/arm.err"
-  id=task-a
-  url=https://github.com/o/r/pull/1
+  id="task-a"
+  url="https://github.com/o/r/pull/1"
 
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
