@@ -34,6 +34,13 @@
 # bridge safely needs its own session registration as the in-use signal, which
 # is a separate change.
 #
+# That deferral has a second consequence worth stating: a Chrome whose bridge
+# and mcp parent are still alive has a live parent, so it reads as owned and is
+# out of scope too, however dead the agent above it is. What this sweep clears
+# is the shape the incident had - a Chrome with no live launcher left anywhere
+# above it. Covering a browser held open by a surviving orphaned bridge waits on
+# the same bridge signal.
+#
 # WHO OWNS A CHAIN. A chain root is a recognised process whose parent is not
 # itself recognised; the chain is that root plus every descendant. Ownership is
 # structural and is the FIRST gate - a chain with a live owner is never touched
