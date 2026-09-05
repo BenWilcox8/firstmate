@@ -121,10 +121,6 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/atlas-firstmate-bridge/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/bearings/SKILL.md",
       "audience": "agent-runtime"
     },
@@ -153,15 +149,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/filesystem-map/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
       "path": ".agents/skills/firstmate-orca/SKILL.md",
-      "audience": "agent-runtime"
-    },
-    {
-      "path": ".agents/skills/firstmate-signalling/SKILL.md",
       "audience": "agent-runtime"
     },
     {
@@ -225,7 +213,7 @@
       "audience": "agent-runtime"
     },
     {
-      "path": ".agents/skills/herdr-pane-management/SKILL.md",
+      "path": ".agents/skills/harness-adapters/references/harness/rovo.md",
       "audience": "agent-runtime"
     },
     {
@@ -361,10 +349,6 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/harness-neutrality-audit.md",
-      "audience": "maintainer-verification"
-    },
-    {
       "path": "docs/gitlab-merge-watch.md",
       "audience": "maintainer-verification"
     },
@@ -461,11 +445,15 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "docs/verification/secondmate-parent-channel.md",
+      "path": "docs/verification/rovo.md",
       "audience": "maintainer-verification"
     },
     {
       "path": "docs/verification/runtime-backends.md",
+      "audience": "maintainer-verification"
+    },
+    {
+      "path": "docs/verification/secondmate-parent-channel.md",
       "audience": "maintainer-verification"
     },
     {
@@ -499,50 +487,6 @@
     {
       "path": "skills/stow/SKILL.md",
       "audience": "public-product"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/paused-verb-scout.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/paused-verb-secondmate.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/paused-verb-ship.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/scout-herdr-lab.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/scout.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/secondmate-no-projects.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/secondmate.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/ship-direct-pr.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/ship-herdr-lab.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/ship-local-only.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/ship-no-mistakes.md",
-      "audience": "maintainer-verification"
     }
   ]
 }
