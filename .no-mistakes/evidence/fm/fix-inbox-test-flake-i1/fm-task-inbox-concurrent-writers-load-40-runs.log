@@ -1,0 +1,46 @@
+fm_task_inbox_write concurrent-writer load verification
+Interface: bin/fm-task-inbox-lib.sh::fm_task_inbox_write
+Load: 6 nice -n 15 CPU loops, each capped at 60 seconds; two batches of 20 runs
+batch=1 run=01 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=02 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=03 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=04 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=05 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=06 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=07 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=08 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=09 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=10 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=11 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=12 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=13 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=14 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=15 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=16 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=17 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=18 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=19 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 run=20 result=ok durable_records=6 unique_writer_bodies=6
+batch=1 result=ok runs=20
+batch=2 run=01 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=02 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=03 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=04 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=05 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=06 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=07 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=08 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=09 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=10 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=11 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=12 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=13 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=14 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=15 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=16 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=17 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=18 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=19 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 run=20 result=ok durable_records=6 unique_writer_bodies=6
+batch=2 result=ok runs=20
+overall result=ok runs=40 concurrent_writers_per_run=6
