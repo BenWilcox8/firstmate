@@ -16,6 +16,13 @@ STATE_ROOT="$TMP_ROOT/remote-jobs"
 RUNTIME_BIN="$TMP_ROOT/runtime-bin"
 FAKE_PERL_LOG="$TMP_ROOT/perl.log"
 REAL_GIT=$(command -v git)
+# The restricted PATHs below name the FHS directories, which hold almost
+# nothing on a host that keeps its tools elsewhere - on NixOS /bin holds sh and
+# /usr/bin holds env. This directory of core-tool links is what makes such a
+# PATH a restriction rather than an empty one, so bash, git and the rest still
+# resolve. It sits after RUNTIME_BIN, which keeps the fake perl in front of the
+# real one.
+CORE_BIN=$(fm_test_core_path)
 OTHER_PID=
 RECOVERY_WORKER_PID=
 REPEAT_WORKER_PID=
@@ -190,7 +197,7 @@ MISE_EXPECTED=$(printf '%s\n' "$MISE_INSTALLS"/*/*/bin)
 rm -rf -- "$ACCOUNT_HOME/.local/share/mise"
 pass "operator PATH orders discovered tool installs deterministically"
 
-HOME="$ACCOUNT_HOME" PATH="$RUNTIME_BIN:/usr/bin:/bin:/usr/sbin:/sbin" FM_FAKE_PERL_LOG="$FAKE_PERL_LOG" \
+HOME="$ACCOUNT_HOME" PATH="$RUNTIME_BIN:$CORE_BIN:/usr/bin:/bin:/usr/sbin:/sbin" FM_FAKE_PERL_LOG="$FAKE_PERL_LOG" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" FM_REMOTE_JOB_STATE_ROOT="$STATE_ROOT" \
   FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux FM_REMOTE_JOB_TIMEOUT=5 \
   "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" > "$TMP_ROOT/worker.out" 2> "$TMP_ROOT/worker.err" &
@@ -776,12 +783,11 @@ pass "barely healthy worker failures remain bounded by the restart guard"
 # could not be published, and the worker stopped before readiness. Both halves
 # run the worker entry point under a PATH that names no FHS directory at all,
 # so the behavior is pinned on an FHS host too.
-PATH_CORE_BIN=$(fm_test_core_path)
 PATH_SHIM_BIN="$TMP_ROOT/path-shim-bin"
 PATH_FALLBACK_BIN="$TMP_ROOT/path-fallback-bin"
 PATH_SHIM_LOG="$TMP_ROOT/path-shim-ps.log"
 mkdir -p "$PATH_SHIM_BIN" "$PATH_FALLBACK_BIN"
-for CORE_TOOL in "$PATH_CORE_BIN"/*; do
+for CORE_TOOL in "$CORE_BIN"/*; do
   ln -sf "$CORE_TOOL" "$PATH_SHIM_BIN/$(basename "$CORE_TOOL")"
   ln -sf "$CORE_TOOL" "$PATH_FALLBACK_BIN/$(basename "$CORE_TOOL")"
 done
