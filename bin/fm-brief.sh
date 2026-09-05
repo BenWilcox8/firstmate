@@ -6,8 +6,8 @@
 # description, acceptance criteria, and context, and may adjust other sections
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
-#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab] [--ultracode]
+#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab] [--ultracode]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -24,6 +24,11 @@
 #   Set FM_SECONDMATE_SCOPE='<scope>' to write a routing scope distinct from the charter text.
 #   --herdr-lab is mandatory when the task will issue Herdr lifecycle commands.
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
+#   --ultracode marks a ship or scout brief for a crew spawned with
+#   bin/fm-spawn.sh --ultracode. It adds the mandatory verbatim workflow-subagent
+#   model-tier sentence from data/captain-shared.md to the Subagent model tier
+#   block. Refused on --secondmate charters, matching fm-spawn.sh's own
+#   restriction of --ultracode to disposable task worktrees.
 #   The flag must be explicit because {TASK} is filled after scaffolding and the
 #   caller-supplied repo string cannot reliably identify this repo. Briefs made
 #   without it carry a loud declaration so an omitted contract cannot be silent.
@@ -110,6 +115,7 @@ else
 fi
 KIND=ship
 HERDR_LAB=0
+ULTRACODE=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
@@ -131,6 +137,7 @@ for a in "$@"; do
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
     --herdr-lab) HERDR_LAB=1 ;;
+    --ultracode) ULTRACODE=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
@@ -165,6 +172,11 @@ ID=${POS[0]}
 
 if [ "$KIND" = secondmate ] && [ "$HERDR_LAB" -eq 1 ]; then
   echo "error: --herdr-lab applies only to crewmate ship or scout briefs" >&2
+  exit 1
+fi
+
+if [ "$KIND" = secondmate ] && [ "$ULTRACODE" -eq 1 ]; then
+  echo "error: --ultracode applies only to crewmate ship or scout briefs" >&2
   exit 1
 fi
 
@@ -204,6 +216,16 @@ When a terminal message says an instruction is waiting there - and at any natura
 The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
+
+# The subagent model-tier block every scaffold kind carries comes from its
+# single owner, bin/fm-brief-blocks-lib.sh. An ultracode ship or scout brief
+# (--ultracode, refused above on a secondmate charter) additionally carries the
+# exact verbatim sentence data/captain-shared.md's quota-pacing rule requires.
+TIER_BLOCK=$(fm_brief_subagent_tier_block "$FM_ROOT")
+if [ "$ULTRACODE" -eq 1 ]; then
+  TIER_BLOCK="$TIER_BLOCK
+$(fm_brief_ultracode_tier_line)"
+fi
 
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
@@ -247,6 +269,8 @@ You do not generate your own work.
 Act only on tasks the main firstmate routes to you.
 Never start a survey, audit, or "find improvements" sweep on your own initiative; that is not your job and it is unwanted.
 The captain watches this session on a dashboard: load the \`firstmate-signalling\` skill, which points at the single owner of that protocol, and follow it rather than any restatement.
+
+$TIER_BLOCK
 
 # Requests from the main firstmate
 You are a firstmate in your own home, so an incoming message reaches you in your own chat.
@@ -341,6 +365,8 @@ If this worktree's AGENTS.md is firstmate's own, it is the supervisor job descri
 
 $HERDR_SECTION
 
+$TIER_BLOCK
+
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
 This is a SCOUT task: the deliverable is a written report, not a PR.
@@ -398,6 +424,8 @@ If this worktree's AGENTS.md is firstmate's own, it is the supervisor job descri
 {TASK}
 
 $HERDR_SECTION
+
+$TIER_BLOCK
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.

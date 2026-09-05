@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Single owner of the scaffold blocks bin/fm-brief.sh renders into more than one
 # brief kind: the worker status protocol (ship and scout rules 4-7), the shared
-# States line every kind carries, and the shared no-mistakes daemon rule.
+# States line every kind carries, the shared no-mistakes daemon rule, and the
+# subagent model-tier block every kind carries.
 # Before this owner existed the status protocol was written three times and the
 # daemon rule twice, so one wording fix had to be applied in every copy or the
 # scaffolds silently drifted apart.
@@ -86,4 +87,33 @@ EOF
    every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
    daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
 EOF
+}
+
+# fm_brief_subagent_tier_block <fm-root> prints the "# Subagent model tier"
+# section every scaffold kind carries on stdout with no trailing blank line.
+# The token audit (data/token-audit-a1/report.md) found 96 percent of subagent
+# spend ran off-tier because workflow agent() calls omitted a model and
+# inherited the orchestrator's own session model. This block is the one place
+# that states the rule, so no supervisor has to remember to paste it into a
+# brief by hand; the fully authoritative tiers live outside this repo in the
+# captain's private data/captain-shared.md, so this block states only the
+# fixed default and the hard exclusion, then points at the tracked dispatch
+# doc for everything else.
+fm_brief_subagent_tier_block() {  # <fm-root>
+  local fm_root=$1
+  cat <<EOF
+# Subagent model tier
+Every subagent or workflow \`agent()\` call must pass an explicit model.
+The default subagent tier is \`claude-sonnet-5\` unless this brief names another.
+A Fable-class model or Haiku must never run as a subagent.
+See \`$fm_root/docs/configuration.md\`, section "Crew dispatch profiles", for the full model-tier and dispatch-profile contract.
+EOF
+}
+
+# fm_brief_ultracode_tier_line prints the exact sentence data/captain-shared.md
+# requires every ultracode brief to carry verbatim in its task section. Keep
+# this wording byte-identical to the captain's order; do not reword it here or
+# at either call site.
+fm_brief_ultracode_tier_line() {
+  printf '%s\n' "Workflow subagents run on claude-sonnet-5 (pass model: 'claude-sonnet-5' on every agent() call). Never spawn a subagent on a Fable-class model. Never use Haiku."
 }
