@@ -55,7 +55,7 @@
 // mutation, or stronger-operation capability.
 
 import { spawn } from "node:child_process";
-import { constants as fsConstants, fstat, read } from "node:fs";
+import { constants as fsConstants, existsSync, fstat, read } from "node:fs";
 import {
   chmod,
   copyFile,
@@ -833,8 +833,16 @@ function selectAdapter(bindings, adapter) {
   return matches[0];
 }
 
+// The root-owned NixOS system profile is where a NixOS host keeps the tools an
+// FHS host keeps in /usr/bin: there /usr/bin holds only env and /bin only sh,
+// so a child started with the FHS directories alone cannot even find bash. It
+// is appended after the FHS entries and only when it exists, so an FHS host
+// gets the same PATH string it got before.
+const NIX_SYSTEM_PROFILE_BIN = "/run/current-system/sw/bin";
+
 function sanitizedPath() {
   const candidates = [path.dirname(process.execPath), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  if (existsSync(NIX_SYSTEM_PROFILE_BIN)) candidates.push(NIX_SYSTEM_PROFILE_BIN);
   return [...new Set(candidates)].join(path.delimiter);
 }
 

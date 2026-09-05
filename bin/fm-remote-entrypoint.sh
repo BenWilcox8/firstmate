@@ -64,14 +64,15 @@ path_is_ancestor() { # <ancestor> <path>
   return 1
 }
 
+# The digest tool is resolved through PATH first and from the system tool
+# directories only as a fallback, for the reason given at
+# fm_remote_job_resolve_tool. Preferring shasum over sha256sum is unchanged.
 sha256_file() { # <path>
-  local path=$1 digest extra
-  if [ -x /usr/bin/shasum ]; then
-    read -r digest extra < <(/usr/bin/shasum -a 256 "$path") || return 1
-  elif [ -x /usr/bin/sha256sum ]; then
-    read -r digest extra < <(/usr/bin/sha256sum "$path") || return 1
-  elif [ -x /bin/sha256sum ]; then
-    read -r digest extra < <(/bin/sha256sum "$path") || return 1
+  local path=$1 digest extra tool
+  if tool=$(fm_remote_job_resolve_tool shasum); then
+    read -r digest extra < <("$tool" -a 256 "$path") || return 1
+  elif tool=$(fm_remote_job_resolve_tool sha256sum); then
+    read -r digest extra < <("$tool" "$path") || return 1
   else
     return 1
   fi
