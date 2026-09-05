@@ -31,10 +31,14 @@
 #                          recheck reason names which human the wait is on. Its
 #                          first sighting with a live or ambiguously read endpoint
 #                          spends one report immediately, since the declaration
-#                          alone cannot prove a live pane is quiet on purpose; a
-#                          repeat of that same report for the same declaration in
-#                          the same completed turn is absorbed and logged instead
-#                          of queued. Only when neither absorb class
+#                          alone cannot prove a live pane is quiet on purpose;
+#                          every further sighting of that same declaration inside
+#                          the re-surface window is absorbed and logged instead of
+#                          queued, whether the pane repainted or the worker
+#                          reached another turn boundary, so one declared wait
+#                          costs exactly one recheck per window. A new status line
+#                          is a new declaration and earns its own. Only when
+#                          neither absorb class
 #                          applies does the log's last line decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
 #                          both surfaced at once. A FINISHED line (done/failed)
@@ -739,37 +743,40 @@ FM_WEDGE_DEMAND_INSPECT_COUNT=${FM_WEDGE_DEMAND_INSPECT_COUNT:-3}
 # bounds it to one. It exists for the first sighting of a declared wait whose
 # agent is live, which must not go silent unannounced.
 #
-# <dedupe-file>/<dedupe-id> guard the one case the throttle alone cannot: the
-# throttle marker is cleared wherever a window's pause bookkeeping resets, so a
-# pane that repaints between two sightings of the SAME declaration in the SAME
-# turn - the ordinary shape right after a turn ends - can otherwise spend the
-# owed report twice and cost a handling turn for a nudge carrying nothing new.
-# The identity is the caller's and is written only on an actual delivery, so the
-# record's own mtime is the time of that delivery and its content self-invalidates
-# on a new turn or a new status append.
-# Absorbing a duplicate REBUILDS the throttle the reset destroyed. Without that,
-# absorbing the owed report only moves the duplicate one poll later: the very next
-# poll takes the timed path against a throttle that is still missing, reads it as
-# never re-surfaced, and delivers the identical recheck anyway.
+# <record-file>/<record-id> hold the recheck this absorb has already delivered
+# for ONE declaration, and they are what bounds the window to one recheck no
+# matter which path reaches it. The throttle marker alone cannot do that: it is
+# cleared wherever a window's pause bookkeeping resets, and a pane that repaints
+# busy and settles back - the ordinary shape as a turn wraps up - performs that
+# reset. Without this record every such repaint, and every later turn on the
+# same unchanging wait, re-earned the window's report and cost a handling turn
+# for a nudge carrying nothing new. The identity is the caller's and is written
+# only on an actual delivery, so the record's own mtime is the time of that
+# delivery, and its content self-invalidates when the declaration itself changes.
+# The check runs BEFORE the owed and timed gates because a delivered recheck
+# outranks both: an owed report is owed once per window, not once per reset.
+# Absorbing here REBUILDS the throttle the reset destroyed, on the RECORD's own
+# clock rather than now, so the two markers expire together and a stream of
+# absorbs cannot keep pushing the next delivery out of reach.
 # The absorb is itself bounded by the record's age, so it can never become a rot
-# hole. A pane that keeps clearing the throttle would otherwise renew the
-# suppression forever on one unchanging identity; past PAUSE_RESURFACE_SECS since
-# the real delivery the duplicate is delivered instead, which is the same floor
-# the timed path carries.
-resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<dedupe-file> <dedupe-id>]]
-  local win=$1 throttle=$2 age=$3 reason=$4 owed=${5-} dedupe_file=${6-} dedupe_id=${7-}
+# hole: past PAUSE_RESURFACE_SECS since the real delivery the recheck is
+# delivered again, which is the same floor the timed path carries.
+resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<record-file> <record-id>]]
+  local win=$1 throttle=$2 age=$3 reason=$4 owed=${5-} record_file=${6-} record_id=${7-}
+  if [ -n "$record_file" ] && [ "$(cat "$record_file" 2>/dev/null || true)" = "$record_id" ] \
+    && [ "$(age_of "$record_file")" -lt "$PAUSE_RESURFACE_SECS" ]; then
+    date +%s > "$throttle"
+    touch -r "$record_file" "$throttle" 2>/dev/null || true
+    triage_log "absorbed duplicate nudge (this declaration's recheck already delivered inside the window): $win"
+    return 0
+  fi
   if [ -z "$owed" ] || [ -e "$throttle" ]; then
     [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
-  elif [ -n "$dedupe_file" ] && [ "$(cat "$dedupe_file" 2>/dev/null || true)" = "$dedupe_id" ] \
-    && [ "$(age_of "$dedupe_file")" -lt "$PAUSE_RESURFACE_SECS" ]; then
-    date +%s > "$throttle"
-    triage_log "absorbed duplicate nudge (identical recheck already delivered this turn): $win"
-    return 0
   fi
   wake_queue_append stale "$win" "$reason" || exit 1
   date +%s > "$throttle"
-  [ -z "$dedupe_file" ] || printf '%s' "$dedupe_id" > "$dedupe_file"
+  [ -z "$record_file" ] || printf '%s' "$record_id" > "$record_file"
   wake "$reason"
 }
 
@@ -883,11 +890,12 @@ busy_turn_over_age() {  # <task>
 #
 # <class> is pause_state_class's verdict: `paused-report` means this sighting
 # owes one recheck now (see resurface_absorbed's <owed>), anything else takes the
-# plain bounded cadence. Either way the delivered nudge is recorded against this
-# turn so an identical one cannot be delivered twice for the same turn.
+# plain bounded cadence. Either way the delivered recheck is recorded against the
+# DECLARATION, so one declared wait earns exactly one recheck per window however
+# often its pane repaints or its worker reaches another turn boundary.
 handle_paused_stale() {  # <window> <task> <hash> [<class>]
   local win=$1 task=$2 h=$3 class=${4-} key statusf mtime age detail reason
-  local owed='' turnf turn_gen nudge_id nudge_file throttlef
+  local owed='' nudge_id nudge_file throttlef
   key=$(window_key "$win")
   printf '%s' "$h" > "$STATE/.stale-$key"
   : > "$STATE/.paused-$key"
@@ -905,11 +913,13 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
     reason="paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds"
   fi
   [ "$class" = paused-report ] && owed=owed
-  # The turn this nudge belongs to: the harness-neutral marker every verified
-  # turn-end hook touches, or the task's spawn record before any turn has
-  # completed - the same generation source busy_turn_over_age ages. Paired with
-  # the status log's own observed signature so a crew that APPENDS a new line
-  # earns a fresh nudge, and only a nudge repeating BOTH is a duplicate.
+  # The DECLARATION this recheck belongs to: the wait's own wording plus the
+  # status log's observed signature. A crew that APPENDS a new status line earns
+  # a fresh recheck, because that is the pane changing in a way that is not the
+  # declared wait; a pane that merely repaints, or reaches another turn boundary
+  # on the SAME wait, does not. The turn generation was deliberately dropped from
+  # this identity: it made every completed turn re-earn the window's recheck,
+  # which is the repeat the fleet paid for 116 times in three days.
   # Built only when it can be used, because this function is on the per-poll path
   # of every declared-paused window and that signature is not a cheap read.
   # resurface_absorbed can deliver, and so can need the identity, only while the
@@ -919,11 +929,7 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   nudge_file=''
   nudge_id=''
   if [ ! -e "$throttlef" ] || [ "$(age_of "$throttlef")" -ge "$PAUSE_RESURFACE_SECS" ]; then
-    turnf="$STATE/$task.turn-ended"
-    [ -e "$turnf" ] || turnf="$STATE/$task.meta"
-    turn_gen=$(stat_mtime "$turnf")
-    case "$turn_gen" in ''|*[!0-9]*) turn_gen=none ;; esac
-    nudge_id="$turn_gen|$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
+    nudge_id="$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
     nudge_file="$STATE/.paused-nudged-$key"
   fi
   resurface_absorbed "$win" "$throttlef" "$age" "stale: $win ($reason)" \

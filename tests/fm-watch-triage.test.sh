@@ -2361,20 +2361,21 @@ test_live_declared_pause_never_surfaces_bare_stale() {
   pass "a live declared pause reports once as a recheck and never surfaces a bare stale wake"
 }
 
-# Regression for the duplicate pause nudge: the pause re-surface throttle is
-# cleared wherever a window's pause bookkeeping resets - a busy repaint right
-# after a turn ends is the ordinary way that happens - so the owed first report
-# could be spent twice for the SAME declaration in the SAME turn, costing a
-# handling turn for a nudge carrying nothing new. The second one is absorbed and
-# logged instead of queued, and a NEW turn still earns a fresh report so the
-# dedupe cannot become a blind spot.
+# Regression for the repeated pause recheck: the pause re-surface throttle is
+# cleared wherever a window's pause bookkeeping resets - a busy repaint as a turn
+# wraps up is the ordinary way that happens - so one declared wait could spend a
+# fresh recheck on every reset and again on every later turn, costing a handling
+# turn each time for a nudge carrying nothing new. One declaration now earns
+# exactly ONE recheck per re-surface window: the repaint and the completed turn
+# after it are both absorbed and logged, while the timed cadence past the window
+# still reports so a forgotten wait cannot rot invisibly.
 # The wait is deliberately AGED past the re-surface window throughout. A young
-# pause cannot see the failure this case exists for: absorbing the owed report
-# only moves the duplicate one poll later, because the next poll takes the timed
-# path against a throttle the same reset already deleted, reads it as never
-# re-surfaced, and delivers the identical recheck anyway. The aged wait is also
-# the ordinary shape of a real one, which sits for hours.
-test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
+# pause cannot see the failure this case exists for: absorbing one repeat only
+# moves it one poll later, because the next poll takes the timed path against a
+# throttle the same reset already deleted, reads it as never re-surfaced, and
+# delivers the identical recheck anyway. The aged wait is also the ordinary shape
+# of a real one, which sits for hours.
+test_one_declaration_earns_one_recheck_per_window() {
   local dir state fakebin out capture_file statusf window key pid wakes round back
   dir=$(make_case duplicate-pause-nudge); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/dupnudge.status"
@@ -2447,9 +2448,10 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
   [ "$wakes" -eq 0 ] || { reap "$pid"; fail "an absorbed duplicate pause nudge queued $wakes wakes"; }
 
-  # Phase D: the same reset, one completed turn later. The recorded nudge no
-  # longer matches, so the report is delivered instead of absorbed - the dedupe
-  # is scoped to one turn rather than being a standing blind spot.
+  # Phase D: the same reset, one completed turn later. A turn boundary is not a
+  # new declaration and the window's one recheck is already spent, so this is
+  # absorbed too - the repeat the fleet was paying for on every completed turn of
+  # every declared wait.
   touch "$state/dupnudge.turn-ended"
   prime_turnend_seen "$state/dupnudge.turn-ended"
   printf 'reading the release notes again\n' > "$capture_file"
@@ -2459,15 +2461,28 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
   fi
   printf 'idle at the prompt\n' > "$capture_file"
   record_pi_idle "$state" dupnudge
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "a new turn did not earn a fresh pause report"; }
-  grep -F "awaiting external" "$out" >/dev/null || fail "the new turn's pause report missing: $(cat "$out")"
-  ack_stopped_cycle "$state" || fail "could not acknowledge the new turn's pause report"
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"; fail "a completed turn on the same declared wait re-earned a recheck on round $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a completed turn on the same declared wait printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "a completed turn on the same declared wait queued $wakes wakes"
+  # This watcher was reaped rather than exiting on a wake it delivered, so its
+  # recovery state is acknowledged here. Otherwise the next watcher re-arms into
+  # a resurface of that interrupted cycle and Phase E reads it as the pause
+  # recheck it is waiting for.
+  ack_stopped_cycle "$state" || fail "could not acknowledge the absorbed-turn phase stop"
 
   # Phase E: the timed recheck keeps its own floor. A wait that sits for days
-  # with no new turn and no new status line keeps ONE unchanging identity, so an
-  # absorb without a floor would make the suppression permanent and a forgotten
-  # pause would rot invisibly. Same identity as the report Phase D just
-  # delivered, past the re-surface window: it must still wake.
+  # with no new status line keeps ONE unchanging identity, so an absorb without a
+  # floor would make the suppression permanent and a forgotten pause would rot
+  # invisibly. Same declaration as the recheck Phase A delivered, now past the
+  # re-surface window: it must still wake.
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
     FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
@@ -2478,7 +2493,216 @@ test_duplicate_pause_nudge_within_a_turn_is_absorbed() {
     || { reap "$pid"; fail "an unchanged declared wait stopped re-surfacing on its timed cadence"; }
   grep -F "awaiting external" "$out" >/dev/null \
     || fail "the timed recheck of an unchanged declared wait was suppressed: $(cat "$out")"
-  pass "a duplicate pause nudge within one turn is absorbed and logged; a new turn and the timed cadence still report"
+  pass "one declaration earns one recheck per window; a repaint and a completed turn are absorbed, the timed cadence still reports"
+}
+
+# Acceptance 1, across a watcher RESTART: the window's one recheck is durable
+# state, not something a live watcher process remembers. A supervisor that
+# re-arms between polls - the ordinary shape, since every handled wake relaunches
+# the watcher - must not be made to pay for the same declared wait twice, whether
+# the pane repainted or the worker reached another turn boundary meanwhile.
+test_declared_pause_inside_the_window_absorbs_across_restarts() {
+  local dir state fakebin out capture_file statusf window key pid wakes round back
+  dir=$(make_case pause-window-restart); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/winpause.status"
+  window="test:fm-winpause"
+  printf 'idle at the prompt\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\n' "$window" > "$state/winpause.meta"
+  printf 'paused: waiting on the vendor rate-limit reset\n' > "$statusf"
+  # Aged past the window so the FIRST sighting delivers the window's recheck and
+  # everything after it is inside that window rather than before its floor.
+  back=$(( $(date +%s) - 5000 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-winpause_status"
+  touch "$state/winpause.turn-ended"
+  prime_turnend_seen "$state/winpause.turn-ended"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_pane_text "$(printf 'idle at the prompt\n')")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # The window's one recheck.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the vendor rate-limit reset' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the declared wait's first recheck was never delivered"
+  grep -F "awaiting external" "$out" >/dev/null || fail "first recheck missing: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the declared wait's first recheck"
+
+  # A completed turn lands while no watcher is running - the ordinary shape,
+  # since a handled wake relaunches the watcher - and is primed as already seen
+  # so the turn boundary itself cannot masquerade as a status signal.
+  touch "$state/winpause.turn-ended"
+  prime_turnend_seen "$state/winpause.turn-ended"
+
+  # A FRESH watcher now sees the same declaration through that completed turn and
+  # a busy repaint, which resets this window's pause bookkeeping. Neither is a new
+  # declaration, so neither may wake.
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the vendor rate-limit reset' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_BUSY_TURN_MAX_SECS=999999 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  printf 'checking the vendor status page\n' > "$capture_file"
+  record_pi_busy "$state" winpause
+  if ! wait_poll_cycle "$state" "$pid" || ! wait_poll_cycle "$state" "$pid"; then
+    reap "$pid"; fail "the repaint surfaced a wake instead of resetting pause bookkeeping: $(cat "$out")"
+  fi
+  [ ! -e "$state/.paused-resurfaced-$key" ] \
+    || { reap "$pid"; fail "the repaint did not reset the pause throttle, so this case cannot reproduce"; }
+  printf 'idle at the prompt\n' > "$capture_file"
+  record_pi_idle "$state" winpause
+  round=1
+  while [ "$round" -le 4 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "a declared wait inside its window woke a restarted watcher on round $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a declared wait inside its window printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "a declared wait inside its window queued $wakes wakes"
+  grep -Fq "absorbed stale (paused, awaiting external" "$state/.watch-triage.log" 2>/dev/null \
+    || fail "the absorbed sightings inside the window were never logged"
+  pass "a declared wait inside its window is absorbed and logged across a watcher restart, a repaint and a completed turn"
+}
+
+# Acceptance 2: past the re-surface window the same declaration earns its next
+# recheck, and EXACTLY one. Delivering re-arms the window, so the polls that
+# follow - and the watcher that re-arms between them - are absorbed again rather
+# than repeating the recheck the supervisor has just read.
+test_declared_pause_past_the_window_rechecks_exactly_once() {
+  local dir state fakebin out capture_file statusf window key pid wakes round back
+  dir=$(make_case pause-window-elapsed); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/elapsed.status"
+  window="test:fm-elapsed"
+  printf 'idle at the prompt\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\n' "$window" > "$state/elapsed.meta"
+  printf 'paused: waiting on the upstream release\n' > "$statusf"
+  back=$(( $(date +%s) - 5000 ))
+  if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
+  else touch -m -d "@$back" "$statusf"; fi
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-elapsed_status"
+  touch "$state/elapsed.turn-ended"
+  prime_turnend_seen "$state/elapsed.turn-ended"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_pane_text "$(printf 'idle at the prompt\n')")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+
+  # This window's recheck, delivered and read.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || fail "the declared wait's first recheck was never delivered"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the declared wait's first recheck"
+
+  # Age the whole pause chain past the window - the wait itself is unchanged, so
+  # the only thing that moved is the clock.
+  back=$(( $(date +%s) - 5000 ))
+  if [ "$(uname)" = Darwin ]; then
+    touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$state/.paused-nudged-$key" "$state/.paused-resurfaced-$key"
+  else
+    touch -m -d "@$back" "$state/.paused-nudged-$key" "$state/.paused-resurfaced-$key"
+  fi
+
+  # Exactly one recheck comes out of the elapsed window.
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "an elapsed re-surface window produced no recheck at all"; }
+  grep -F "awaiting external" "$out" >/dev/null \
+    || fail "the elapsed window's recheck did not name the wait: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null && fail "an elapsed re-surface window escalated a declared wait as a wedge"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 1 ] || fail "an elapsed re-surface window produced $wakes rechecks instead of exactly one"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the elapsed window's recheck"
+
+  # The delivery re-armed the window: everything after it is absorbed again.
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi FM_FAKE_CREW_STATE='state: paused · source: status-log · waiting on the upstream release' \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  round=1
+  while [ "$round" -le 3 ]; do
+    if ! wait_poll_cycle "$state" "$pid"; then
+      reap "$pid"
+      fail "the re-armed window repeated its recheck on round $round: $(cat "$out")"
+    fi
+    round=$((round + 1))
+  done
+  reap "$pid"
+  [ ! -s "$out" ] || fail "the re-armed window printed a wake reason: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 0 ] || fail "the re-armed window queued $wakes further rechecks"
+  pass "an elapsed re-surface window produces exactly one recheck, and delivering it re-arms the window"
+}
+
+# Acceptance 3: the widened absorb is keyed on the DECLARATION, so a pane that
+# declared nothing keeps today's stale behaviour exactly - it surfaces bare and
+# at once, opens no pause window, and surfaces again on genuinely new content.
+# This is the disconfirming case for the whole change: an absorb that leaked to
+# undeclared panes would be a wedge detector that stopped detecting.
+test_undeclared_stale_pane_keeps_its_bare_surface() {
+  local dir state fakebin out capture_file statusf window key pid wakes
+  dir=$(make_case undeclared-bare-stale); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"; statusf="$state/plain.status"
+  window="test:fm-plain"
+  printf 'idle at the prompt\n' > "$capture_file"
+  printf 'window=%s\nkind=ship\nharness=pi\nbackend=tmux\n' "$window" > "$state/plain.meta"
+  # A routine note, NOT a declared wait, and a crew that is not provably working.
+  printf 'working: mid-task note\n' > "$statusf"
+  printf '%s' "$(seen_sig "$statusf")" > "$state/.seen-plain_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_pane_text "$(printf 'idle at the prompt\n')")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  export FM_FAKE_CREW_STATE='state: stopped · source: pane · turn ended'
+
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "an undeclared quiet pane was absorbed instead of surfacing"; }
+  grep -Fx "stale: $window" "$out" >/dev/null \
+    || fail "an undeclared quiet pane did not surface a bare stale wake: $(cat "$out")"
+  [ ! -e "$state/.paused-$key" ] || fail "an undeclared pane was put on the declared-wait cadence"
+  [ ! -e "$state/.paused-nudged-$key" ] || fail "an undeclared pane recorded a declared-wait recheck"
+  [ ! -e "$state/.paused-resurfaced-$key" ] || fail "an undeclared pane opened a declared-wait re-surface window"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the undeclared bare stale"
+
+  # Genuinely new content, then quiet again: no window was opened, so this
+  # surfaces on the ordinary cadence exactly as it does today. The new content's
+  # own hash and count are seeded the same way the first stretch's were, so the
+  # assertion is about the triage decision rather than how many polls the machine
+  # gets through inside the wait budget.
+  : > "$out"
+  printf 'ran the suite: 3 failures\n' > "$capture_file"
+  printf '%s' "$(hash_pane_text "$(printf 'ran the suite: 3 failures\n')")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_FAKE_TMUX_CURRENT_COMMAND=pi \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_PAUSE_RESURFACE_SECS=3600 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" >> "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "new content on an undeclared pane stopped surfacing stale"; }
+  grep -Fx "stale: $window" "$out" >/dev/null \
+    || fail "new content on an undeclared pane did not surface a bare stale wake: $(cat "$out")"
+  wakes=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' "$state/.wake-queue" 2>/dev/null || echo 0)
+  [ "$wakes" -eq 1 ] || fail "an undeclared pane queued $wakes bare stale wakes for one quiet stretch"
+  unset FM_FAKE_CREW_STATE
+  pass "a pane with no declared wait keeps today's bare stale behaviour and opens no re-surface window"
 }
 
 # Regression for the parked terminal-status churn: a pane whose task status
@@ -4458,7 +4682,10 @@ test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_ticking_footer_only_change_is_idle
 test_idle_claude_status_footer_does_not_refire_stale
 test_live_declared_pause_never_surfaces_bare_stale
-test_duplicate_pause_nudge_within_a_turn_is_absorbed
+test_one_declaration_earns_one_recheck_per_window
+test_declared_pause_inside_the_window_absorbs_across_restarts
+test_declared_pause_past_the_window_rechecks_exactly_once
+test_undeclared_stale_pane_keeps_its_bare_surface
 test_terminal_parked_pane_escalates_stale_at_most_once
 test_progress_counters_above_the_footer_are_not_folded
 test_an_open_decision_is_never_deduped_by_the_finished_absorb
