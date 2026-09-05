@@ -189,7 +189,7 @@ SH
 # tests fake out or deliberately omit. It symlinks each tool by name into its
 # own private directory rather than adding any real tool's own directory to
 # PATH, so it never leaks an app-level tool a test means to keep off PATH.
-FM_TEST_CORE_TOOLS="bash sh cat mkdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum ps base64 mkfifo nohup"
+FM_TEST_CORE_TOOLS="bash sh cat mkdir rmdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum ps od base64 mkfifo nohup"
 fm_test_core_path() {
   local dir tool bin
   dir=$(fm_test_tmproot fm-test-core-path)
