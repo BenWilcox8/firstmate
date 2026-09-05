@@ -129,9 +129,14 @@ fm_task_inbox_lock_acquire() {  # <lock-path>
   case "$wait" in ''|*[!0-9]*) wait=$FM_TASK_INBOX_LOCK_WAIT_DEFAULT ;; esac
   probe=$(mktemp "${lock%/*}/.lock-probe.XXXXXX") || return 1
   rm -f "$probe" || return 1
+  # An uncontended-looking lock is worth one direct create attempt, but a
+  # failure here must fall through to the bounded retry loop rather than
+  # fail outright: another writer's own create can win the race, then still
+  # lose fm_lock_claim and rm its just-published symlink before this process
+  # rechecks for it, so "the lock looks absent right after our create
+  # failed" does not mean no one else is contending for it right now.
   if [ ! -e "$lock" ] && [ ! -L "$lock" ]; then
     fm_lock_try_create "$lock" && return 0
-    [ -e "$lock" ] || [ -L "$lock" ] || return 1
   fi
   deadline=$(( $(date +%s) + wait ))
   while ! fm_lock_try_acquire "$lock"; do
