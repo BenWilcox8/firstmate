@@ -20,6 +20,8 @@ OTHER_PID=
 RECOVERY_WORKER_PID=
 REPEAT_WORKER_PID=
 RESTART_SUPERVISOR_PID=
+PATH_SHIM_WORKER_PID=
+PATH_FALLBACK_WORKER_PID=
 mkdir -p "$REMOTE_ROOT/bin" "$REMOTE_HOME" "$ACCOUNT_HOME" "$RUNTIME_BIN"
 # worker.pid records the serving child, not its restart supervisor, so stopping
 # that pid alone leaves the supervisor to respawn - the leak
@@ -29,6 +31,8 @@ cleanup_remote_job_fixture() {
   [ -z "$RECOVERY_WORKER_PID" ] || kill "$RECOVERY_WORKER_PID" 2>/dev/null || true
   [ -z "$REPEAT_WORKER_PID" ] || kill "$REPEAT_WORKER_PID" 2>/dev/null || true
   [ -z "$RESTART_SUPERVISOR_PID" ] || kill -KILL "$RESTART_SUPERVISOR_PID" 2>/dev/null || true
+  [ -z "$PATH_SHIM_WORKER_PID" ] || fm_remote_job_stop_worker_tree "$PATH_SHIM_WORKER_PID" || true
+  [ -z "$PATH_FALLBACK_WORKER_PID" ] || fm_remote_job_stop_worker_tree "$PATH_FALLBACK_WORKER_PID" || true
   if [ -f "$STATE_ROOT/worker.pid" ]; then
     fm_remote_job_stop_worker_tree "$(cat "$STATE_ROOT/worker.pid")" || true
   fi
@@ -764,5 +768,72 @@ RESTART_SUPERVISOR_PID=
 assert_grep "remote job worker exited 3 times; stopping the supervisor" "$TMP_ROOT/restart-supervisor.err" \
   "the restart guard did not explain why it stopped"
 pass "barely healthy worker failures remain bounded by the restart guard"
+
+# A worker resolves ps from PATH first and from the standard system tool
+# directories only when PATH cannot answer. The FHS locations alone are not a
+# lookup: a NixOS host keeps sh in /bin and env in /usr/bin and every other
+# tool in its system profile, so an FHS-only lookup found no ps, ownership
+# could not be published, and the worker stopped before readiness. Both halves
+# run the worker entry point under a PATH that names no FHS directory at all,
+# so the behavior is pinned on an FHS host too.
+PATH_CORE_BIN=$(fm_test_core_path)
+PATH_SHIM_BIN="$TMP_ROOT/path-shim-bin"
+PATH_FALLBACK_BIN="$TMP_ROOT/path-fallback-bin"
+PATH_SHIM_LOG="$TMP_ROOT/path-shim-ps.log"
+mkdir -p "$PATH_SHIM_BIN" "$PATH_FALLBACK_BIN"
+for CORE_TOOL in "$PATH_CORE_BIN"/*; do
+  ln -sf "$CORE_TOOL" "$PATH_SHIM_BIN/$(basename "$CORE_TOOL")"
+  ln -sf "$CORE_TOOL" "$PATH_FALLBACK_BIN/$(basename "$CORE_TOOL")"
+done
+# The first PATH answers with a ps that records every call before delegating to
+# the real one, so an FHS ps standing in for it is observable rather than
+# invisible. The second PATH answers with no ps at all, which is the only way
+# the system-directory fallback can be the thing under test.
+rm -f "$PATH_FALLBACK_BIN/ps" "$PATH_SHIM_BIN/ps"
+{
+  printf '#!%s\n' "$(fm_test_tool bash)"
+  printf 'printf "invoked\\n" >> "%s"\n' "$PATH_SHIM_LOG"
+  printf 'exec "%s" "$@"\n' "$(fm_test_tool ps)"
+} > "$PATH_SHIM_BIN/ps"
+chmod +x "$PATH_SHIM_BIN/ps"
+
+PATH_SHIM_STATE="$TMP_ROOT/path-shim-jobs"
+PATH_SHIM_HOME="$TMP_ROOT/path-shim-account"
+mkdir -p "$PATH_SHIM_STATE" "$PATH_SHIM_HOME"
+chmod 700 "$PATH_SHIM_STATE" "$PATH_SHIM_HOME"
+HOME="$PATH_SHIM_HOME" PATH="$PATH_SHIM_BIN" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
+  FM_REMOTE_JOB_STATE_ROOT="$PATH_SHIM_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  > "$TMP_ROOT/path-shim-worker.out" 2> "$TMP_ROOT/path-shim-worker.err" &
+PATH_SHIM_WORKER_PID=$!
+for _ in $(seq 1 200); do
+  [ -f "$PATH_SHIM_STATE/worker.ready" ] && break
+  sleep 0.05
+done
+assert_present "$PATH_SHIM_STATE/worker.ready" \
+  "a PATH holding no FHS directory stopped the worker from becoming ready"
+assert_present "$PATH_SHIM_LOG" "the worker resolved ps somewhere other than PATH"
+fm_remote_job_stop_worker_tree "$PATH_SHIM_WORKER_PID" || true
+PATH_SHIM_WORKER_PID=
+pass "the worker resolves ps from PATH under an FHS-free PATH"
+
+PATH_FALLBACK_STATE="$TMP_ROOT/path-fallback-jobs"
+PATH_FALLBACK_HOME="$TMP_ROOT/path-fallback-account"
+mkdir -p "$PATH_FALLBACK_STATE" "$PATH_FALLBACK_HOME"
+chmod 700 "$PATH_FALLBACK_STATE" "$PATH_FALLBACK_HOME"
+HOME="$PATH_FALLBACK_HOME" PATH="$PATH_FALLBACK_BIN" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
+  FM_REMOTE_JOB_STATE_ROOT="$PATH_FALLBACK_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Linux \
+  "$REMOTE_ROOT/bin/fm-remote-job-worker.sh" \
+  > "$TMP_ROOT/path-fallback-worker.out" 2> "$TMP_ROOT/path-fallback-worker.err" &
+PATH_FALLBACK_WORKER_PID=$!
+for _ in $(seq 1 200); do
+  [ -f "$PATH_FALLBACK_STATE/worker.ready" ] && break
+  sleep 0.05
+done
+assert_present "$PATH_FALLBACK_STATE/worker.ready" \
+  "a PATH holding no ps left the worker without a system tool directory to fall back to"
+fm_remote_job_stop_worker_tree "$PATH_FALLBACK_WORKER_PID" || true
+PATH_FALLBACK_WORKER_PID=
+pass "the worker falls back to the system tool directories when PATH has no ps"
 
 echo "ALL TESTS PASSED"
