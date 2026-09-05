@@ -4,6 +4,8 @@ Date: 2026-07-23.
 Base: local `main` at `2b7da16`.
 Reason: the captain is switching his default primary harness from Claude Code to pi (`@earendil-works/pi-coding-agent`) and wants the workflow identical on any of the five verified adapters (`claude`, `codex`, `opencode`, `pi`, `grok`).
 
+2026-09-05: Ultracode mode was retired because it was available only in Claude Code.
+
 This audit sweeps the repo for Claude-Code-specific coupling and separates two categories:
 
 - **Correctly scoped** - claude-specific code that lives behind the claude adapter boundary (a `claude` case, `.claude/` glue, a claude-only doc section, a claude verification record).

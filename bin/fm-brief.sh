@@ -6,8 +6,8 @@
 # description, acceptance criteria, and context, and may adjust other sections
 # when the task genuinely deviates (e.g. working an existing external PR instead
 # of shipping a new one).
-# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab] [--ultracode]
-#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab] [--ultracode]
+# Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
+#        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
 #   --scout writes the scout contract instead: the deliverable is a report at
 #   data/<task-id>/report.md (no branch, no push, no PR) and the worktree is scratch.
@@ -24,14 +24,6 @@
 #   Set FM_SECONDMATE_SCOPE='<scope>' to write a routing scope distinct from the charter text.
 #   --herdr-lab is mandatory when the task will issue Herdr lifecycle commands.
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
-#   --ultracode marks a ship or scout brief for a crew spawned with
-#   bin/fm-spawn.sh --ultracode. It adds the mandatory verbatim workflow-subagent
-#   model-tier sentence from data/captain-shared.md to the Subagent model tier
-#   block. Refused on --secondmate charters, matching fm-spawn.sh's own
-#   restriction of --ultracode to disposable task worktrees.
-#   The flag must be explicit because {TASK} is filled after scaffolding and the
-#   caller-supplied repo string cannot reliably identify this repo. Briefs made
-#   without it carry a loud declaration so an omitted contract cannot be silent.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -115,7 +107,6 @@ else
 fi
 KIND=ship
 HERDR_LAB=0
-ULTRACODE=0
 NO_PROJECTS=0
 MODE=
 MODE_SET=0
@@ -137,7 +128,6 @@ for a in "$@"; do
     --scout) KIND=scout ;;
     --secondmate) KIND=secondmate ;;
     --herdr-lab) HERDR_LAB=1 ;;
-    --ultracode) ULTRACODE=1 ;;
     --no-projects) NO_PROJECTS=1 ;;
     --mode) want_value=mode ;;
     --mode=*) MODE=${a#--mode=}; MODE_SET=1 ;;
@@ -145,6 +135,7 @@ for a in "$@"; do
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
     --yolo|--yolo=*) echo "error: --yolo is not a brief input; pass it to bin/fm-spawn.sh, which records the task's merge posture" >&2; exit 1 ;;
+    --*) echo "error: unknown option '$a'" >&2; exit 1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -172,11 +163,6 @@ ID=${POS[0]}
 
 if [ "$KIND" = secondmate ] && [ "$HERDR_LAB" -eq 1 ]; then
   echo "error: --herdr-lab applies only to crewmate ship or scout briefs" >&2
-  exit 1
-fi
-
-if [ "$KIND" = secondmate ] && [ "$ULTRACODE" -eq 1 ]; then
-  echo "error: --ultracode applies only to crewmate ship or scout briefs" >&2
   exit 1
 fi
 
@@ -218,14 +204,8 @@ EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
 # The subagent model-tier block every scaffold kind carries comes from its
-# single owner, bin/fm-brief-blocks-lib.sh. An ultracode ship or scout brief
-# (--ultracode, refused above on a secondmate charter) additionally carries the
-# exact verbatim sentence data/captain-shared.md's quota-pacing rule requires.
+# single owner, bin/fm-brief-blocks-lib.sh.
 TIER_BLOCK=$(fm_brief_subagent_tier_block "$FM_ROOT")
-if [ "$ULTRACODE" -eq 1 ]; then
-  TIER_BLOCK="$TIER_BLOCK
-$(fm_brief_ultracode_tier_line)"
-fi
 
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
