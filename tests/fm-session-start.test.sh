@@ -39,6 +39,11 @@ set -u
 SESSION_START="$ROOT/bin/fm-session-start.sh"
 BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 TMP_ROOT=$(fm_test_tmproot fm-session-start-tests)
+# The real ps, by absolute path, for the fake ps files below to delegate their
+# parent-pid queries to. It cannot be a bare `ps` because those files occupy
+# that name on the PATH they are installed on, and it cannot be /bin/ps because
+# that path holds nothing on a host that keeps its tools outside the FHS tree.
+SESSION_START_REAL_PS=$(fm_test_tool ps)
 SESSION_START_TEST_HARNESS_PID=$$
 SESSION_START_SECOND_MATE_ID="fmtest-sm-${TMP_ROOT##*.}"
 SESSION_START_SECOND_MATE_TMP="/tmp/fm-$SESSION_START_SECOND_MATE_ID"
@@ -215,8 +220,10 @@ make_fake_ps_claude() {
 
 make_fake_ps_harness() {
   local fakebin=$1 harness=$2
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'REAL_PS="%s"\n' "$SESSION_START_REAL_PS"
+    cat <<'SH'
 set -u
 harness=${FM_FAKE_HARNESS:-claude}
 pid=
@@ -246,11 +253,12 @@ case "$*" in
     ;;
   *"ppid="*)
     [ -n "${FM_FAKE_HARNESS_PID:-}" ] || exit 1
-    /bin/ps -o ppid= -p "$pid"
+    "$REAL_PS" -o ppid= -p "$pid"
     ;;
 esac
 exit 1
 SH
+  } > "$fakebin/ps"
   chmod +x "$fakebin/ps"
   printf '%s\n' "$harness" > "$fakebin/.harness-name"
 }
@@ -1936,8 +1944,10 @@ EOF
   # fm-session-lock-lib.sh walks a BOUNDED sixteen parents to find it, and the
   # runtime bound spends some of that budget on its own wrapper processes, so
   # this pins that the budget still reaches a realistically deep session.
-  cat > "$fakebin/ps" <<'SH'
-#!/usr/bin/env bash
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'REAL_PS="%s"\n' "$SESSION_START_REAL_PS"
+    cat <<'SH'
 set -u
 pid=
 previous=
@@ -1954,10 +1964,11 @@ case "$*" in
     if [ "$pid" = "${FM_FAKE_HARNESS_PID:-}" ]; then printf '%s\n' claude
     else printf '%s\n' bash; fi
     ;;
-  *"ppid="*) /bin/ps -o ppid= -p "$pid" ;;
+  *"ppid="*) "$REAL_PS" -o ppid= -p "$pid" ;;
   *) exit 1 ;;
 esac
 SH
+  } > "$fakebin/ps"
   chmod +x "$fakebin/ps"
 
   # Each level forks rather than execs, so the counter really is process depth.
