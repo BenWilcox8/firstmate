@@ -1486,13 +1486,13 @@ ${context.command}
         .map((item) => normalizeOutcomesToolOutput(item.text))
         .join("\n");
       const shellState = context.state as OutcomesToolShellState;
-      // Keep each line's ANSI scope independent, matching Pi's stock fallback.
-      // Pi 0.84.4 no longer supplies an implicit reset at multiline boundaries.
       const lines = output.split("\n");
       const previewLines = getStockOutcomesPreviewLines();
       const displayLines = options.expanded || previewLines === undefined ? lines : lines.slice(0, previewLines);
       const remaining = lines.length - displayLines.length;
-      let renderedOutput = displayLines.map((line) => theme.fg("toolOutput", line)).join("\n");
+      // Match Pi's stock fallback exactly (installed: 0.81.1): one fg/reset
+      // pair around the whole multi-line block, not one per line.
+      let renderedOutput = theme.fg("toolOutput", displayLines.join("\n"));
       if (remaining > 0) {
         renderedOutput += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
       }

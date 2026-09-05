@@ -539,3 +539,21 @@ FM_TEST_END 2026-08-29T01:01:30Z tests/fm-pi-branch-extension.test.sh exit=0 dur
 ```
 
 The real renderer comparison exercised twelve outcome lines and reported collapsed and expanded parity with Pi stock, zero visible rows under Calm, restored stock parity after toggling Calm off, and delegated stock HTML export fallback.
+
+## 2026-09-05 Pi 0.81.1 outcome-renderer re-verification
+
+The installed `@earendil-works/pi-coding-agent` package is 0.81.1, not the 0.84.4 evidenced above.
+Its stock `ToolExecutionComponent` fallback (`createResultFallback`) renders every line of a text result unconditionally and ignores `setExpanded`, so this installed build offers no native collapsed preview.
+`fm_branch_outcomes` still probes the installed component's rendered capability once rather than branching on a version number, so it matches that no-preview shape (no truncation) exactly as it would match a build that does collapse, keeping the general contract in [`calm.md`](calm.md#pi-compatibility) accurate for both.
+
+```sh
+bin/fm-test-run.sh tests/fm-pi-branch-extension.test.sh
+```
+
+Observed against installed `@earendil-works/pi-coding-agent` 0.81.1:
+
+```text
+ok - fm_branch_outcomes hides through ToolExecutionComponent while Calm-off and HTML export stay stock
+ok - the installed Pi still bounds the picker's list and ranks its search
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=41000
+```

@@ -60,6 +60,19 @@ expect_silent_zero() {
   [ -z "$out" ] || fail "$label must be silent, got: $out"
 }
 
+# Node warns when it must guess a typeless extension source's module kind
+# (our fixtures import .ts/.mjs files with no package.json to declare it).
+# The warning is benign and unrelated to what these assertions check, so
+# strip its known four-line shape rather than asserting raw stderr is empty.
+strip_node_typeless_warning() {
+  # shellcheck disable=SC2016 # Backticks are literal Node warning text.
+  printf '%s' "$1" | grep -v \
+    -e '^(node:[0-9]\+) \[MODULE_TYPELESS_PACKAGE_JSON\] Warning: ' \
+    -e '^Reparsing as ES module because module syntax was detected\. This incurs a performance overhead\.$' \
+    -e '^To eliminate this warning, add "type": "module" to ' \
+    -e '^(Use `node --trace-warnings \.\.\.` to show where the warning was created)$'
+}
+
 test_genuine_primary_nudges() {
   local root="$TMP_ROOT/primary" out prefix_hex status=0
   make_primary "$root"
@@ -395,6 +408,7 @@ await fire([], [{ type: "message" }], oldTimestamp);
 JS
   ) || status=$?
   expect_code 0 "$status" "Pi continuation classification"
+  out=$(strip_node_typeless_warning "$out")
   [ -z "$out" ] || fail "Pi continuation classification printed output: $out"
   expected=$(printf '%s\n' \
     'startup' \
@@ -741,6 +755,7 @@ await waitDead(compactGrandchild, "shutdown left a compaction grandchild alive")
 JS
   ) || status=$?
   expect_code 0 "$status" "Pi session-start generation prerequisite"
+  out=$(strip_node_typeless_warning "$out")
   [ -z "$out" ] || fail "Pi session-start generation prerequisite printed output: $out"
   pass "Pi provider preflight owns one generation-bound startup prerequisite with deterministic fallback, replacement, cancellation, timeout, and truncation"
 }
@@ -871,6 +886,7 @@ for (let instance = 1; instance <= 2; instance += 1) {
 }
 JS
   ) || status=$?
+  out=$(strip_node_typeless_warning "$out")
   [ -z "$out" ] || fail "Pi reload exit-listener ownership printed output: $out"
   expect_code 0 "$status" "Pi reload exit-listener ownership"
   pass "Pi reload shutdown releases its exit listener and stale startup generation"
@@ -929,6 +945,7 @@ if (!content.includes("FIRSTMATE_OP: v1 session-start:")) throw new Error("opera
 JS
   ) || status=$?
   expect_code 0 "$status" "Pi large session-start delivery"
+  out=$(strip_node_typeless_warning "$out")
   [ -z "$out" ] || fail "Pi large session-start delivery printed output: $out"
   pass "Pi retains a bounded digest prefix and loudly marks oversized preflight delivery"
 }
