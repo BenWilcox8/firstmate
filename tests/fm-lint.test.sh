@@ -929,6 +929,102 @@ SH
   pass "fm-lint.sh still catches an unexported bash -c body var when its outer assignment's value ends in )"
 }
 
+test_hazard_scan_catches_bin_script_hit() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): bin/ script-side hazard check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-bin-script)
+  mkdir -p "$tmp/bin"
+  bad="$tmp/bin/hazard.sh"
+  cat > "$bad" <<'SH'
+#!/usr/bin/env bash
+set -u
+run_case() {
+  exec /bin/cat "$@"
+}
+run_case
+SH
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed a bin/ script that hardcodes an absent-tool path"$'\n'"$out"
+  assert_contains "$out" "$bad:4:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "hardcoded absolute path to a tool" \
+    "fm-lint.sh did not report the absent-tool-path hazard for a bin/ script"
+  pass "fm-lint.sh's hazard scan covers a bin/ script, not just tests/, naming the file and line"
+}
+
+test_hazard_scan_passes_clean_bin_script() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): bin/ clean script-side hazard check"
+    return
+  fi
+  local tmp good rc out
+  tmp=$(fm_test_tmproot fm-lint-hazard-bin-clean)
+  mkdir -p "$tmp/bin"
+  good="$tmp/bin/clean.sh"
+  cat > "$good" <<'SH'
+#!/usr/bin/env bash
+set -u
+CAT_BIN=$(command -v cat) || exit 1
+"$CAT_BIN" /etc/hostname
+SH
+  rc=0
+  out=$("$LINT" "$good" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "fm-lint.sh flagged a clean bin/ script (exit $rc)"$'\n'"$out"
+  pass "fm-lint.sh passes a bin/ script that resolves its tool through PATH"
+}
+
+test_hazard_scan_catches_extension_script_hit() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): extension script-side hazard check"
+    return
+  fi
+  local tmp bad out rc
+  tmp=$(fm_test_tmproot fm-lint-hazard-ext-script)
+  mkdir -p "$tmp/bin"
+  bad="$tmp/bin/hazard.mjs"
+  cat > "$bad" <<'JS'
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+function run() {
+  return execFileSync("/bin/cat", ["/etc/hostname"]);
+}
+run();
+JS
+  rc=0
+  out=$("$LINT" "$bad" 2>&1) || rc=$?
+  [ "$rc" -ne 0 ] || fail "fm-lint.sh passed an extension script that hardcodes an absent-tool path"$'\n'"$out"
+  assert_contains "$out" "$bad:4:" "fm-lint.sh did not name the offending line"
+  assert_contains "$out" "hardcoded absolute path to a tool" \
+    "fm-lint.sh did not report the absent-tool-path hazard for an extension script"
+  pass "fm-lint.sh's hazard scan covers a bin/ extension script (.mjs), naming the file and line, without handing it to ShellCheck"
+}
+
+test_hazard_scan_passes_clean_extension_script() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): extension script clean hazard check"
+    return
+  fi
+  local tmp good rc out
+  tmp=$(fm_test_tmproot fm-lint-hazard-ext-clean)
+  mkdir -p "$tmp/bin"
+  good="$tmp/bin/clean.mjs"
+  cat > "$good" <<'JS'
+#!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+function run() {
+  return execFileSync("cat", ["/etc/hostname"]);
+}
+run();
+JS
+  rc=0
+  out=$("$LINT" "$good" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "fm-lint.sh flagged a clean extension script (exit $rc)"$'\n'"$out"
+  pass "fm-lint.sh passes an extension script that resolves its tool through PATH"
+}
+
 test_jobs_are_deterministic_and_complete() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): deterministic bounded jobs check"
@@ -1178,6 +1274,10 @@ test_hazard_scan_passes_clean_fixture
 test_hazard_scan_catches_absent_tool_path
 test_hazard_scan_absent_tool_path_allows_guarded_use
 test_hazard_scan_case_label_guard_does_not_hide_quoted_assignment
+test_hazard_scan_catches_bin_script_hit
+test_hazard_scan_passes_clean_bin_script
+test_hazard_scan_catches_extension_script_hit
+test_hazard_scan_passes_clean_extension_script
 test_jobs_are_deterministic_and_complete
 test_worker_trees_stop_on_signal
 test_seeded_module_boundary_parity
