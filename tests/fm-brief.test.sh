@@ -276,7 +276,7 @@ test_ship_mode_is_explicit_not_registry() {
 # or charter carries no delivery contract. Each must refuse rather than accept and
 # discard the flag, which would look recorded but change nothing.
 test_delivery_flags_are_refused_where_they_do_not_apply() {
-  local home out status label args expect
+  local home out status label args expect id retired_flag
   home="$TMP_ROOT/refused-flags-home"
   mkdir -p "$home/data"
   while IFS='|' read -r label args expect; do
@@ -286,13 +286,23 @@ test_delivery_flags_are_refused_where_they_do_not_apply() {
     status=$?
     [ "$status" -ne 0 ] || fail "$label: expected a non-zero exit"
     assert_contains "$out" "$expect" "$label: refusal did not explain why"
+    # The task id is the first argument in every fixture and names the public
+    # scaffold path, which must stay absent after a refused CLI invocation.
+    id=${args%% *}
+    assert_absent "$home/data/$id/brief.md" "$label: refused invocation wrote a brief"
   done <<'ROWS'
 yolo on a ship brief|brief-refused-b1 some-proj --mode direct-PR --yolo on|--yolo is not a brief input
 yolo=value form on a ship brief|brief-refused-b2 some-proj --mode direct-PR --yolo=off|--yolo is not a brief input
 mode on a scout brief|brief-refused-b3 some-proj --scout --mode direct-PR|--mode applies only to ship briefs
 mode on a secondmate charter|brief-refused-b4 --secondmate --no-projects --mode no-mistakes|--mode applies only to ship briefs
 ROWS
-  pass "fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped"
+  retired_flag=$(printf '%s%s' '--ultra' 'code')
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-brief.sh" brief-refused-b5 some-proj --mode direct-PR "$retired_flag" 2>&1)
+  status=$?
+  [ "$status" -ne 0 ] || fail "retired mode flag: expected a non-zero exit"
+  assert_contains "$out" "unknown option '$retired_flag'" "retired mode flag: refusal did not name the unsupported option"
+  assert_absent "$home/data/brief-refused-b5/brief.md" "retired mode flag: refused invocation wrote a brief"
+  pass "fm-brief.sh: unsupported and inapplicable delivery flags are refused without scaffolding"
 }
 
 test_faster_paths_use_configured_authority_without_stacked_review() {

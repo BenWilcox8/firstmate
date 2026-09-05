@@ -429,6 +429,7 @@ for a in "$@"; do
     --session-name=*) SESSION_NAME=${a#--session-name=}; SESSION_NAME_SET=1 ;;
     --ticket) want_value=ticket ;;
     --ticket=*) TICKET=${a#--ticket=}; TICKET_SET=1 ;;
+    --*) echo "error: unknown option '$a'" >&2; exit 1 ;;
     *) POS+=("$a") ;;
   esac
 done
