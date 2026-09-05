@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--ultracode] [--session-name <text>] [--ticket <id>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--ultracode] [--session-name <text>] [--ticket <id>]
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
 #        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
@@ -80,35 +80,6 @@
 #   the task. An unpinned spawn writes no account= line. If a pin does not
 #   resolve, the spawn stops before it creates anything, so no agent ever starts
 #   on an unknown subscription.
-#   --ultracode starts a claude worker in Claude Code's durable ultracode
-#   session mode. The mode has no CLI flag: it is read from an "ultracode": true
-#   key in the .claude/settings.local.json of the directory claude launches in,
-#   so the spawn merges that key into the task worktree's file before launch and
-#   records ultracode=on in the task meta. The key is merged through a real JSON
-#   parse, never written over the top of the file, because the same file carries
-#   this task's turn-end and busy-state hooks.
-#   The flag refuses, before an endpoint, a worktree, or task metadata exists,
-#   on any harness other than claude, when node is absent (the merge needs it),
-#   on a --secondmate spawn (that home is persistent and cleanup leaves its
-#   settings file alone, so the mode would outlive the spawn that asked for it),
-#   and alongside --effort (the mode selects xhigh itself and a launch-effort pin
-#   would hold it down).
-#   A relaunch does NOT carry the mode. fm-control's relaunch retires this task's
-#   claude wiring and rewrites the settings file the key lives in, and it passes
-#   no --ultracode, so the replacement worker starts without the mode; ultracode=
-#   is therefore dropped from the rewritten metadata rather than preserved, so
-#   the record never claims a mode the running worker does not have. Re-request
-#   the mode with a fresh spawn.
-#   The settings key is the vendor's own contract, so it is version-scoped:
-#   verified against Claude Code 2.1.241, where a merged file carrying this key
-#   beside the busy-state hooks boots the session with the "ultracode - xhigh
-#   effort + dynamic workflows" banner. That version also states two conditions
-#   this script cannot check for the caller: the mode "requires workflows to be
-#   enabled and an xhigh-capable model", and it rejects any ultracode value that
-#   is not a boolean. A worker launched with an unsupported model, or in a home
-#   or organization with dynamic workflows off, therefore starts without the
-#   mode even though the key is present. Re-check all of this after a Claude
-#   Code upgrade.
 #   Spawn-capable backends are the reference tmux adapter and experimental
 #   herdr, zellij, orca, and cmux. Orca owns both the task worktree and
 #   terminal, so ship/scout Orca spawns do not run treehouse get; cmux is a
@@ -408,7 +379,6 @@ MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
 ACCOUNT_SET=0
-ULTRACODE=0
 SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
@@ -437,8 +407,6 @@ for a in "$@"; do
   fi
   case "$a" in
     --scout) KIND=scout; KIND_SET=1 ;;
-    --ultracode) ULTRACODE=1 ;;
-    --ultracode=*) echo "error: --ultracode is a switch and takes no value" >&2; exit 1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
     --harness) want_value=harness ;;
@@ -1080,7 +1048,6 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
-  [ "$ULTRACODE" -eq 0 ] || shared_args+=(--ultracode)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1545,51 +1512,6 @@ elif [ "$ACCOUNT_SET" -eq 1 ]; then
 fi
 
 
-# Ultracode is a claude-only session mode, and the refusals sit here with the
-# account resolution above for the same reason: nothing exists yet. A spawn that
-# cannot deliver the mode stops while it still has no endpoint, no worktree, and
-# no task metadata, rather than launching a worker that silently lacks the mode
-# the caller asked for while the task record says it has it. Placed BEFORE the
-# pi/cursor binary resolution so a missing pi binary does not shadow the
-# clearer claude-only error when both problems exist.
-if [ "$ULTRACODE" -eq 1 ]; then
-  # claude* matches the same set as the hook-install and busy-state arms below,
-  # so a variant claude launcher that gets this task's claude wiring is not
-  # refused the mode by a stricter test than the wiring itself uses.
-  case "$HARNESS" in
-    claude*) : ;;
-    *)
-      echo "error: --ultracode applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
-      exit 1
-      ;;
-  esac
-  # The merge below parses and re-serializes the settings file through node.
-  # bin/fm-bootstrap.sh reports a missing node rather than refusing to run, so
-  # check it HERE with the other refusals: without this the merge would fail
-  # after the endpoint, the worktree, and the harness wiring already exist,
-  # which is the orphaned half-spawn these early refusals exist to prevent.
-  if ! command -v node >/dev/null 2>&1; then
-    echo "error: --ultracode needs node to merge the session setting into the worktree settings file, and node is not on PATH" >&2
-    exit 1
-  fi
-  # A secondmate home is persistent, and fm-teardown deliberately leaves its
-  # settings file alone, so a key written there would outlive the spawn that
-  # asked for it: every later relaunch would keep booting in ultracode while its
-  # task record said nothing. The flag stays scoped to a disposable task
-  # worktree, which cleanup already clears.
-  if [ "$KIND" = secondmate ]; then
-    echo "error: --ultracode applies only to task worktrees; a secondmate home is persistent and would keep the mode after this spawn" >&2
-    exit 1
-  fi
-  # The mode selects xhigh effort itself. Claude pins the effort a launch asked
-  # for, so a spawn carrying both would start with the pin holding and the mode
-  # unable to raise it - the exact silent half-application this flag exists to
-  # avoid. The caller picks one.
-  if [ -n "$EFFORT" ]; then
-    echo "error: --ultracode selects xhigh effort itself; drop --effort '$EFFORT' or drop --ultracode" >&2
-    exit 1
-  fi
-fi
 case "$HARNESS" in
   pi|pi-signed)
     PI_BIN=$(resolve_pi_executable "$HARNESS") || {
@@ -3127,65 +3049,6 @@ EOF
   esac
 fi
 
-# Ultracode mode is carried by a top-level "ultracode": true key in the
-# .claude/settings.local.json of the directory claude launches in. This runs
-# AFTER the per-harness hook install above, and merges rather than writes, so the
-# busy-state and turn-end hooks the claude branch just wrote survive intact.
-#
-# The merge parses and re-serializes real JSON through node, which bootstrap
-# already requires of every home, rather than editing the file as text. A text
-# edit cannot tell a key from the same characters inside a string value, and it
-# cannot replace a prior ultracode key whose value is neither true nor false: the
-# vendor rejects such a value ("ultracode must be a boolean"), so leaving one
-# behind would start a worker with the mode off while the task record said on.
-# The new content lands through a temporary file, so a failed merge leaves the
-# settings claude reads exactly as it was.
-ultracode_settings_merge() {
-  local file=$1 tmp
-  tmp="$file.fm-ultracode.$$"
-  if ! node -e '
-    const fs = require("fs");
-    const [source, target] = process.argv.slice(1);
-    let doc = {};
-    let raw = "";
-    try {
-      raw = fs.readFileSync(source, "utf8");
-    } catch (err) {
-      if (err.code !== "ENOENT") throw err;
-    }
-    if (raw.trim() !== "") {
-      doc = JSON.parse(raw);
-      if (doc === null || typeof doc !== "object" || Array.isArray(doc)) {
-        throw new Error("settings file is not a JSON object");
-      }
-    }
-    doc.ultracode = true;
-    fs.writeFileSync(target, JSON.stringify(doc) + "\n");
-  ' "$file" "$tmp"; then
-    rm -f "$tmp"
-    return 1
-  fi
-  mv "$tmp" "$file" || {
-    rm -f "$tmp"
-    return 1
-  }
-}
-if [ "$ULTRACODE" -eq 1 ]; then
-  mkdir -p "$WT/.claude" || {
-    echo "error: could not create $WT/.claude for the ultracode session setting" >&2
-    exit 1
-  }
-  ultracode_settings_merge "$WT/.claude/settings.local.json" || {
-    echo "error: could not merge the ultracode session setting into $WT/.claude/settings.local.json" >&2
-    exit 1
-  }
-  exclude_path '.claude/settings.local.json'
-  # The merge lands through a sibling temporary file. A kill between the write
-  # and the rename leaves that file behind, so exclude its pattern too rather
-  # than let a leftover trip teardown's dirty check.
-  exclude_path '.claude/settings.local.json.fm-ultracode.*'
-fi
-
 # Delivery posture recorded in meta so fm-teardown's safety check and the
 # validate/merge stages can branch on it. A ship task carries the explicit
 # per-task decision validated above; a secondmate's posture is fixed; a scout
@@ -3270,7 +3133,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort ultracode busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)
@@ -3319,13 +3182,6 @@ spawn_retire_replaced_endpoint() {
   # account= is written only when the spawn pinned a cswap account, so an
   # unpinned spawn keeps byte-identical metadata.
   [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
-  # ultracode= is written only for an ultracode spawn, so an ordinary spawn keeps
-  # byte-identical metadata. It is also an OWNED key above, so a relaunch never
-  # carries it over: the relaunch path retires this task's claude wiring and
-  # rewrites the settings file the mode is carried in, so the key is gone from
-  # the worktree and the record must say so too rather than assert a mode the
-  # replacement worker does not have.
-  [ "$ULTRACODE" -eq 0 ] || echo "ultracode=on"
   # atlas_ticket= is the durable record the merge and teardown hooks read back,
   # so the crew never types a ticket id and a closed-out task cannot lose its
   # ticket. Written only when --ticket was passed, so an Atlas-free home keeps
