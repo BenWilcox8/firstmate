@@ -27,6 +27,14 @@ herdr_forget_inherited_pane
 herdr_forget_inherited_home
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
+# Pin the ambient-home default to a marker-free fixture: FM_HOME resolves to
+# the suite's own root when unset, and a secondmate-marked checkout (any
+# treehouse crew home carries .fm-secondmate-home) would flip the default
+# workspace label to 2ndmate-*, silently changing placement behavior for
+# every test that does not set FM_HOME itself. Per-test FM_HOME prefixes
+# still override this default.
+mkdir -p "$TMP_ROOT/ambient-home"
+export FM_HOME="$TMP_ROOT/ambient-home"
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
 # Force the NATIVE pane-lifecycle path by default: this suite runs on a machine
 # where agent-axi may be installed on PATH, and the phase-0 shim
