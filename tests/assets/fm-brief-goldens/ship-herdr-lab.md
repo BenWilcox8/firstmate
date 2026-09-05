@@ -23,6 +23,12 @@ A named non-`default` session plus a trailing `--session <name>` on every call i
 Never bypass the helper, even for a read-only lifecycle probe or cleanup after failure.
 The captain fleet uses the running `default` session.
 
+# Subagent model tier
+Every subagent or workflow `agent()` call must pass an explicit model.
+The default subagent tier is `claude-sonnet-5` unless this brief names another.
+A Fable-class model or Haiku must never run as a subagent.
+See `%FM_ROOT%/docs/configuration.md`, section "Crew dispatch profiles", for the full model-tier and dispatch-profile contract.
+
 # Setup
 You are in a disposable git worktree of some-proj, at a detached HEAD on a clean default branch.
 

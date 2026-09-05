@@ -14,6 +14,7 @@ Every subagent or workflow `agent()` call must pass an explicit model.
 The default subagent tier is `claude-sonnet-5` unless this brief names another.
 A Fable-class model or Haiku must never run as a subagent.
 See `%FM_ROOT%/docs/configuration.md`, section "Crew dispatch profiles", for the full model-tier and dispatch-profile contract.
+Workflow subagents run on claude-sonnet-5 (pass model: 'claude-sonnet-5' on every agent() call). Never spawn a subagent on a Fable-class model. Never use Haiku.
 
 # Setup
 You are in a disposable git worktree of some-proj, at a detached HEAD on a clean default branch.
@@ -22,14 +23,15 @@ You are in a disposable git worktree of some-proj, at a detached HEAD on a clean
 The path check is authoritative: `git rev-parse --git-dir` and `git rev-parse --git-common-dir` can help inspect the repo, but they do not prove you are outside the primary checkout.
 If the top-level path is the primary checkout or not the worktree you were launched in, STOP - do not branch or commit here - append `blocked: launched in primary checkout, not an isolated worktree` to the status file and stop.
 
-1. First action: create your branch: `git checkout -b fm/ship-local-only`
+1. First action: create your branch: `git checkout -b fm/ship-ultracode`
+2. Run `no-mistakes doctor`; if it reports the repo is not initialized here, run `no-mistakes init`.
 
 # Rules
-1. Never push to any remote and never open a PR. Work only on your `fm/ship-local-only` branch; firstmate handles the merge into local `main`.
+1. Never push to the default branch. Never merge a PR.
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
 4. Report status by appending one line:
-   `echo "{state}: {one short line}" >> '%FM_HOME%/state/ship-local-only.status'`
+   `echo "{state}: {one short line}" >> '%FM_HOME%/state/ship-ultracode.status'`
    States: working, needs-decision, blocked, paused, done, failed.
    Each append wakes firstmate, so report sparingly: only phase changes a supervisor
    would act on (setup done, bug reproduced, fix implemented, validation passed) and the
@@ -51,8 +53,8 @@ If the top-level path is the primary checkout or not the worktree you were launc
    daemon error, append `blocked: {the daemon error}` and stop; only firstmate manages the daemon.
 
 # Firstmate instruction inbox
-Firstmate steers you through durable message files in '%FM_HOME%/state/ship-local-only.inbox'.
-When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '%FM_HOME%/state/ship-local-only.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '%FM_HOME%/state/ship-local-only.inbox'/NNN.msg '%FM_HOME%/state/ship-local-only.inbox'/handled/`.
+Firstmate steers you through durable message files in '%FM_HOME%/state/ship-ultracode.inbox'.
+When a terminal message says an instruction is waiting there - and at any natural checkpoint when you are unsure - list '%FM_HOME%/state/ship-ultracode.inbox'/*.msg, read and act on each message in numeric order, then acknowledge each handled message by moving it: `mv '%FM_HOME%/state/ship-ultracode.inbox'/NNN.msg '%FM_HOME%/state/ship-ultracode.inbox'/handled/`.
 The move IS the acknowledgement: without it firstmate rings again and eventually treats you as stuck. An empty or absent inbox needs no action.
 
 # Project memory
@@ -63,9 +65,21 @@ If you touch a project `AGENTS.md` that lacks `## Maintaining this file`, add th
 Keep it proportionate: skip `AGENTS.md` edits for trivial tasks that produced no durable project knowledge.
 
 # Definition of done
-Delivery contract: mode=local-only
-This task ships **local-only**: no remote, no PR, no pipeline.
-The task is complete only when committed on your branch `fm/ship-local-only`. Do NOT push, do NOT open a PR, do NOT merge.
-Keep your branch a clean fast-forward onto the current default branch - if `main` has advanced, rebase onto it so the eventual merge stays a fast-forward.
-When it is implemented and committed, append `done: ready in branch fm/ship-local-only` to the status file and stop.
-The configured merge authority approves the ready branch, then firstmate merges it into local `main` through the guarded fast-forward path.
+Delivery contract: mode=no-mistakes
+The task is complete only when committed on your branch.
+When you believe it is complete, append `done: {summary}` to the status file and stop.
+Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
+
+You drive no-mistakes by responding to its gates, not by implementing fixes.
+Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and `no-mistakes axi run --help` plus the `help` lines in each `axi` response are authoritative and version-matched to the installed binary.
+When starting no-mistakes, make `--intent` preserve all relevant content from this brief's `# Task` section plus every later accepted Firstmate requirement, clarification, constraint, exclusion, and supersession, carrying only each requirement's current accepted form; retain direct requirements instead of substituting a diff summary, and exclude generic operational, status, delivery, and other scaffold boilerplate unless it is task-specific.
+Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
+
+Two firstmate-specific rules layer on top of that guidance:
+- ask-user findings are never yours to answer: escalate to firstmate (rule 6) and stop.
+  Firstmate applies `ask-user-authority` and obtains any required captain decision.
+  When the decision comes back, feed it to the gate with `no-mistakes axi respond` and let the pipeline apply it - do not route the question to "the user" or implement the fix yourself.
+- NEVER pass `--yes` (or `-y`) to `no-mistakes axi run` or `no-mistakes axi respond`. It is banned fleet-wide.
+  It auto-resolves every gate including ask-user findings with no escalation, and answering your own ask-user finding is a hard rule violation.
+
+After /no-mistakes reports CI green (the CI-ready return point - do not wait for it to keep monitoring in the background until merge), append `done: PR {url} checks green` and stop. You are finished.

@@ -9,6 +9,12 @@ If this worktree's AGENTS.md is firstmate's own, it is the supervisor job descri
 If the task will start, stop, delete, restart, profile, or otherwise drive Herdr lifecycle behavior, stop and regenerate the brief with `--herdr-lab` before dispatch.
 Do not add Herdr lifecycle commands to this unguarded brief by hand.
 
+# Subagent model tier
+Every subagent or workflow `agent()` call must pass an explicit model.
+The default subagent tier is `claude-sonnet-5` unless this brief names another.
+A Fable-class model or Haiku must never run as a subagent.
+See `%FM_ROOT%/docs/configuration.md`, section "Crew dispatch profiles", for the full model-tier and dispatch-profile contract.
+
 # Setup
 You are in a disposable git worktree of some-proj, at a detached HEAD on a clean default branch.
 
