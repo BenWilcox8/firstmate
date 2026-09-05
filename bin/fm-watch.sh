@@ -765,6 +765,10 @@ resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<re
   local win=$1 throttle=$2 age=$3 reason=$4 owed=${5-} record_file=${6-} record_id=${7-}
   if [ -n "$record_file" ] && [ "$(cat "$record_file" 2>/dev/null || true)" = "$record_id" ] \
     && [ "$(age_of "$record_file")" -lt "$PAUSE_RESURFACE_SECS" ]; then
+    # Two writes on purpose, not one redundant one: the first CREATES the
+    # throttle the reset destroyed and is the fallback that still leaves a usable
+    # marker if the second cannot run, and the second is what puts it on the
+    # record's clock. Only the mtime is ever read, never the content.
     date +%s > "$throttle"
     touch -r "$record_file" "$throttle" 2>/dev/null || true
     triage_log "absorbed duplicate nudge (this declaration's recheck already delivered inside the window): $win"
@@ -893,6 +897,11 @@ busy_turn_over_age() {  # <task>
 # plain bounded cadence. Either way the delivered recheck is recorded against the
 # DECLARATION, so one declared wait earns exactly one recheck per window however
 # often its pane repaints or its worker reaches another turn boundary.
+# A secondmate reaches this bound in away mode too: its own branch in the stale
+# backbone is decided before the afk handoff, so the daemon never sees a
+# secondmate's declared wait as a bare stale either way. The bound only ever
+# absorbs more than the per-turn identity it replaced, so no supervisor loses a
+# wake it used to get.
 handle_paused_stale() {  # <window> <task> <hash> [<class>]
   local win=$1 task=$2 h=$3 class=${4-} key statusf mtime age detail reason
   local owed='' nudge_id nudge_file throttlef
@@ -920,6 +929,11 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   # on the SAME wait, does not. The turn generation was deliberately dropped from
   # this identity: it made every completed turn re-earn the window's recheck,
   # which is the repeat the fleet paid for 116 times in three days.
+  # The signature is the observed file state the signal path already trusts, not
+  # a content hash, so what it really proves is that the log has not grown. That
+  # is enough here because a status log is only ever appended to, and it is the
+  # reason the floor below still bounds the absorb: a declaration that never
+  # changes is re-reported once per window rather than trusted forever.
   # Built only when it can be used, because this function is on the per-poll path
   # of every declared-paused window and that signature is not a cheap read.
   # resurface_absorbed can deliver, and so can need the identity, only while the
