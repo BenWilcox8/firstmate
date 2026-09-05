@@ -23,6 +23,12 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-startup-network-tests)
 FM_TEST_CLEANUP_DIRS+=("$TMP_ROOT")
+
+# The real ps, by absolute path, for this file's own process reads and for the
+# shim below to delegate to. It cannot be a bare `ps` because the shim occupies
+# that name on PATH, and it cannot be /bin/ps because that path does not exist
+# on a host that keeps its tools outside the FHS tree.
+REAL_PS=$(fm_test_tool ps)
 trap fm_test_cleanup EXIT
 
 # new_world <name>: an FM_HOME plus a fake code root whose bin/ is a real
@@ -63,8 +69,11 @@ fi
 exit "${FM_FAKE_BOOTSTRAP_RC:-0}"
 SH
   chmod +x "$root/bin/fm-bootstrap.sh"
-  cat > "$root/bin/ps" <<'SH'
-#!/usr/bin/env bash
+  # Everything this shim does not answer itself goes to the real ps.
+  {
+    printf '#!/usr/bin/env bash\n'
+    printf 'REAL_PS="%s"\n' "$REAL_PS"
+    cat <<'SH'
 pid=
 previous=
 for argument in "$@"; do
@@ -75,12 +84,13 @@ if [ "$pid" = "${FM_FAKE_HARNESS_PID:-}" ]; then
   case "$*" in
     *comm=*) printf '/usr/local/bin/claude\n' ;;
     *args=*) printf 'claude\n' ;;
-    *ppid=*) /bin/ps -o ppid= -p "$pid" ;;
+    *ppid=*) "$REAL_PS" -o ppid= -p "$pid" ;;
   esac
 else
-  /bin/ps "$@"
+  "$REAL_PS" "$@"
 fi
 SH
+  } > "$root/bin/ps"
   chmod +x "$root/bin/ps"
   printf '%s|%s|%s\n' "$home" "$root" "$w/bootstrap.log"
 }
@@ -497,7 +507,7 @@ EOF
     run_stage "$home" "$root" start --locked 1 --harvest-pid $$
   generation_one=$(sed -n 's/^generation=//p' "$home/state/.startup-network.status")
 
-  next_owner=$(/bin/ps -o ppid= -p $$ | tr -d ' ')
+  next_owner=$("$REAL_PS" -o ppid= -p $$ | tr -d ' ')
   printf '%s\n' "$next_owner" > "$home/state/.lock"
   FM_FAKE_HARNESS_PID_OVERRIDE="$next_owner" FM_FAKE_BOOTSTRAP_LOG="$log" FM_FAKE_BOOTSTRAP_SLEEP=1 \
     run_stage "$home" "$root" start --locked 1 --harvest-pid $$
@@ -523,7 +533,7 @@ EOF
   done
   [ -s "$log" ] || fail "the mutating sweep never started"
 
-  next_owner=$(/bin/ps -o ppid= -p $$ | tr -d ' ')
+  next_owner=$("$REAL_PS" -o ppid= -p $$ | tr -d ' ')
   started=$(date +%s)
   rc=0
   out=$(PATH="$root/bin:$PATH" FM_FAKE_HARNESS_PID="$next_owner" \
