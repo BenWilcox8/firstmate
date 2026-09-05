@@ -195,6 +195,7 @@ cpu_count() {
 # unclassified so new tests are still runnable and visible in summaries.
 family_for_basename() {
   case "$1" in
+    fm-action-pins-check.test.sh|\
     fm-agentsmd-ceiling.test.sh|fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|\
     fm-bearings-board.test.sh|\
     fm-brief.test.sh|fm-vendor-auth-probe.test.sh|\
