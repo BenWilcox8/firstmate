@@ -8,10 +8,9 @@
 # commit SHA, with the human-readable version kept as a trailing comment,
 # removes that trust dependency. This check is the "Repo invariants" job's
 # enforcement of that; ci.yml's invariants job calls this script's default
-# `check` verb so a newly introduced mutable tag fails CI, and a broken
-# ci.yml itself cannot report its own breakage, so this must also run
-# locally (bin/fm-lint.sh) rather than living only as an inline workflow
-# step.
+# `check` verb so a newly introduced mutable tag fails CI. It currently runs
+# only as that CI step, not from bin/fm-lint.sh, so a broken ci.yml would go
+# unchecked locally.
 #
 # A local composite action (uses: ./path or ../path) and a docker:// action
 # are exempt: they are not fetched from a mutable remote tag.
