@@ -313,6 +313,13 @@ pass "the remote doctor derives tool readiness from the installed worker"
 
 DOCTOR_BIN="$TMP_ROOT/doctor-bin"
 DOCTOR_HOME="$TMP_ROOT/doctor-home"
+# The doctor's PATH names the FHS directories, which hold almost nothing on a
+# host that keeps its tools elsewhere. Without the core-tool links the doctor
+# also cannot resolve git, jq and the rest, and it reports a different missing
+# set than the four app-level tools these assertions are about. The links carry
+# no app-level tool, so herdr, tasks-axi, treehouse and the harness stay missing
+# until this fixture supplies them itself.
+DOCTOR_PATH="$DOCTOR_BIN:$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"
 mkdir -p "$DOCTOR_BIN" "$DOCTOR_HOME"
 ln -sf "$(command -v bash)" "$DOCTOR_BIN/bash"
 # Report a non-darwin host so this file keeps testing tool resolution alone and
@@ -324,7 +331,7 @@ printf 'Linux\n'
 SH
 chmod +x "$DOCTOR_BIN/uname"
 set +e
-out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" 2>&1)
+out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_PATH" "$ROOT/bin/fm-remote-doctor.sh" 2>&1)
 rc=$?
 set -e
 [ "$rc" -ne 0 ] || fail "the remote doctor passed with a missing required tool"
@@ -350,11 +357,11 @@ printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/treehouse"
 printf '#!/usr/bin/env bash\nexit 0\n' > "$DOCTOR_BIN/claude"
 chmod +x "$DOCTOR_BIN/jq" "$DOCTOR_BIN/herdr" "$DOCTOR_BIN/tasks-axi" "$DOCTOR_BIN/treehouse" "$DOCTOR_BIN/claude"
 set +e
-out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" "$ROOT/bin/fm-remote-doctor.sh" 2>&1)
+out=$(HOME="$DOCTOR_HOME" PATH="$DOCTOR_PATH" "$ROOT/bin/fm-remote-doctor.sh" 2>&1)
 rc=$?
 set -e
 assert_contains "$out" "required git=$DOCTOR_BIN/git" "the remote doctor did not report where the required tool resolved"
-doctor_tmux=$(PATH="$DOCTOR_BIN:/usr/bin:/bin:/usr/sbin:/sbin" command -v tmux 2>/dev/null || true)
+doctor_tmux=$(PATH="$DOCTOR_PATH" command -v tmux 2>/dev/null || true)
 if [ -n "$doctor_tmux" ]; then
   assert_contains "$out" "optional tmux=$doctor_tmux" "the remote doctor did not report the resolved optional tool"
 else
