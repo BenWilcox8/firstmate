@@ -53,6 +53,16 @@ DRAIN="$ROOT/bin/fm-wake-drain.sh"
 TMP_ROOT=$(fm_test_tmproot fm-send-remote-delivery)
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd)
 
+# Every backend=herdr fixture in this file simulates a pane the doorbell
+# cannot reach (no real herdr session exists for these fabricated ids), so the
+# herdr composer/send checks must see herdr as absent, matching the graceful
+# degradation this file asserts. A host that has the real herdr CLI installed
+# (verified: herdr present on PATH on a NixOS dev box) would otherwise let the
+# doorbell genuinely attempt to reach a real daemon instead of failing fast,
+# so send_env's PATH stays a curated, herdr-free PATH rather than the host's
+# ambient one.
+BASE_PATH="$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"
+
 # Stub tmux for the local typed-plane legs: logs literal typed text to
 # FM_SEND_LOG. The default composer reads empty (clean submit);
 # FM_FAKE_TMUX_PENDING=1 keeps a proven pending composer with no busy footer,
@@ -217,7 +227,7 @@ drain_out() {  # <home>
 send_env() {  # <fakebin> <parent-home> <ssh-log> [extra env...] -- <cmd...>
   local fb=$1 home=$2 ssh_log=$3
   shift 3
-  env PATH="$fb:$PATH" \
+  env PATH="$fb:$BASE_PATH" \
     FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" FM_SEND_SETTLE=0 \
     FM_SSH_BIN="$fb/fake-ssh" FM_SSH_LOG="$ssh_log" \
     FM_SSH_COUNT="$ssh_log.count" FM_REMOTE_CODE_ROOT="$ROOT" \
