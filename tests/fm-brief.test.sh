@@ -692,8 +692,7 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
 # section 7 item 2): 96 percent of subagent spend ran off-tier because workflow
 # agent() calls omitted a model and inherited the orchestrator's Opus or Fable
 # session model. Every scaffold kind must carry the mandatory subagent
-# model-tier block, and an --ultracode ship or scout brief must additionally
-# carry the exact verbatim sentence data/captain-shared.md requires.
+# model-tier block.
 test_subagent_tier_block_in_every_scaffold_kind() {
   local home brief
   home="$TMP_ROOT/subagent-tier-home"
@@ -708,8 +707,6 @@ test_subagent_tier_block_in_every_scaffold_kind() {
     "ship brief lost the default subagent tier"
   assert_grep "A Fable-class model or Haiku must never run as a subagent." "$brief" \
     "ship brief lost the Fable-class/Haiku subagent exclusion"
-  assert_no_grep "Workflow subagents run on claude-sonnet-5" "$brief" \
-    "a non-ultracode ship brief must not carry the ultracode-only verbatim sentence"
 
   FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tier-scout some-proj --scout >/dev/null 2>&1
   brief="$home/data/tier-scout/brief.md"
@@ -721,33 +718,7 @@ test_subagent_tier_block_in_every_scaffold_kind() {
   assert_grep "# Subagent model tier" "$brief" \
     "secondmate charter is missing the subagent model-tier block"
 
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tier-ship-ultracode some-proj --mode no-mistakes --ultracode >/dev/null 2>&1
-  brief="$home/data/tier-ship-ultracode/brief.md"
-  assert_grep "# Subagent model tier" "$brief" \
-    "ultracode ship brief is missing the subagent model-tier block"
-  assert_grep "Workflow subagents run on claude-sonnet-5 (pass model: 'claude-sonnet-5' on every agent() call). Never spawn a subagent on a Fable-class model. Never use Haiku." "$brief" \
-    "ultracode ship brief lost the mandatory verbatim workflow-subagent sentence"
-
-  FM_HOME="$home" "$ROOT/bin/fm-brief.sh" tier-scout-ultracode some-proj --scout --ultracode >/dev/null 2>&1
-  brief="$home/data/tier-scout-ultracode/brief.md"
-  assert_grep "Workflow subagents run on claude-sonnet-5 (pass model: 'claude-sonnet-5' on every agent() call). Never spawn a subagent on a Fable-class model. Never use Haiku." "$brief" \
-    "ultracode scout brief lost the mandatory verbatim workflow-subagent sentence"
-
-  pass "fm-brief.sh: every scaffold kind carries the subagent model-tier block, and --ultracode adds the verbatim rule"
-}
-
-test_ultracode_is_refused_on_secondmate_charter() {
-  local home out status
-  home="$TMP_ROOT/ultracode-secondmate-home"
-  mkdir -p "$home/data"
-  out=$(FM_HOME="$home" FM_SECONDMATE_CHARTER=ops "$ROOT/bin/fm-brief.sh" tier-secondmate-ultracode --secondmate some-proj --ultracode 2>&1)
-  status=$?
-  expect_code 1 "$status" "secondmate --ultracode must be rejected"
-  assert_contains "$out" "--ultracode applies only to crewmate ship or scout briefs" \
-    "the secondmate --ultracode refusal did not explain why"
-  assert_absent "$home/data/tier-secondmate-ultracode/brief.md" \
-    "rejected secondmate --ultracode still wrote a brief"
-  pass "fm-brief.sh: --ultracode is refused on a secondmate charter"
+  pass "fm-brief.sh: every scaffold kind carries the subagent model-tier block"
 }
 
 # Pin the captain decision (2026-07-27): crewmate briefs carry no dashboard signal
@@ -934,10 +905,8 @@ ship-no-mistakes some-proj --mode no-mistakes
 ship-direct-pr some-proj --mode direct-PR
 ship-local-only some-proj --mode local-only
 ship-herdr-lab some-proj --mode no-mistakes --herdr-lab
-ship-ultracode some-proj --mode no-mistakes --ultracode
 scout some-proj --scout
 scout-herdr-lab some-proj --scout --herdr-lab
-scout-ultracode some-proj --scout --ultracode
 secondmate --secondmate alpha-proj beta-proj
 secondmate-no-projects --secondmate --no-projects
 VARIANTS
@@ -1045,7 +1014,6 @@ test_herdr_lab_omission_is_loud_for_ship_and_scout
 test_documented_global_replace_leaves_the_herdr_gate_intact
 test_herdr_lab_contract_applies_to_scouts_but_not_secondmates
 test_subagent_tier_block_in_every_scaffold_kind
-test_ultracode_is_refused_on_secondmate_charter
 test_no_dashboard_signals_in_any_scaffold
 test_secondmate_no_projects_charter
 test_secondmate_marked_request_reporting_contract

@@ -109,11 +109,3 @@ A Fable-class model or Haiku must never run as a subagent.
 See \`$fm_root/docs/configuration.md\`, section "Crew dispatch profiles", for the full model-tier and dispatch-profile contract.
 EOF
 }
-
-# fm_brief_ultracode_tier_line prints the exact sentence data/captain-shared.md
-# requires every ultracode brief to carry verbatim in its task section. Keep
-# this wording byte-identical to the captain's order; do not reword it here or
-# at either call site.
-fm_brief_ultracode_tier_line() {
-  printf '%s\n' "Workflow subagents run on claude-sonnet-5 (pass model: 'claude-sonnet-5' on every agent() call). Never spawn a subagent on a Fable-class model. Never use Haiku."
-}
