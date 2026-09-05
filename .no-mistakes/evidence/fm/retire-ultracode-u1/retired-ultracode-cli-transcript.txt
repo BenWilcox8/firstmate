@@ -1,0 +1,7 @@
+$ fm-brief.sh demo /project --mode no-mistakes --ultracode
+error: unknown option '--ultracode'
+exit=1; brief-created=no
+
+$ fm-spawn.sh demo /project --mode no-mistakes --yolo off --ultracode
+error: unknown option '--ultracode'
+exit=1; metadata-created=no
