@@ -65,6 +65,7 @@ expect_silent_zero() {
 # The warning is benign and unrelated to what these assertions check, so
 # strip its known four-line shape rather than asserting raw stderr is empty.
 strip_node_typeless_warning() {
+  # shellcheck disable=SC2016 # Backticks are literal Node warning text.
   printf '%s' "$1" | grep -v \
     -e '^(node:[0-9]\+) \[MODULE_TYPELESS_PACKAGE_JSON\] Warning: ' \
     -e '^Reparsing as ES module because module syntax was detected\. This incurs a performance overhead\.$' \
