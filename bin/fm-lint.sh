@@ -14,17 +14,20 @@
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
 #
-# Every tests/*.sh file in the canonical set, plus any *.test.sh path given
-# explicitly, is also scanned for three hazardous test-suite shapes: a
-# restricted-PATH fallback that names an FHS directory without the portable
-# tool-resolution helper; a hardcoded absolute path to a tool (e.g.
-# /bin/bash) used as a shebang, exec target, symlink target, recorded argv,
-# or subprocess argv element, which bypasses PATH resolution entirely; and a
-# single-quoted `bash -c '...'` body that reads an outer-scope shell variable
-# never exported or passed through that invocation's own prefix. All three
-# break silently rather than failing loudly, so ShellCheck alone cannot catch
-# them; this is the single lint entry point either way. The scan skips a
-# fixture literal that never executes.
+# Every tests/*.sh, bin/*.sh, and bin/backends/*.sh file in the canonical set,
+# every extension script (bin/*.mjs, .pi/extensions/**, .opencode/plugins/**),
+# plus any *.test.sh path given explicitly, is also scanned for three
+# hazardous shapes: a restricted-PATH fallback that names an FHS directory
+# without the portable tool-resolution helper; a hardcoded absolute path to a
+# tool (e.g. /bin/bash) used as a shebang, exec target, symlink target,
+# recorded argv, or subprocess argv element, which bypasses PATH resolution
+# entirely; and a single-quoted `bash -c '...'` body that reads an
+# outer-scope shell variable never exported or passed through that
+# invocation's own prefix. All three break silently rather than failing
+# loudly, so ShellCheck alone cannot catch them (and cannot even parse the
+# non-shell extension scripts); this is the single lint entry point either
+# way. The scan skips a fixture literal that never executes. Extension
+# scripts are hazard-scanned only, never handed to ShellCheck.
 #
 # With no explicit paths, the file set depends on context:
 #   - In CI (GITHUB_ACTIONS=true or CI=true), on the main branch, or when no
@@ -103,17 +106,30 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
   return "$rc"
 }
 
-# fm_lint_hazard_targets prints, one per line, the members of ROOTS the
-# hazard scan below reads: every tests/*.sh canonical root, so shared
-# helpers like tests/lib.sh and tests/wake-helpers.sh are covered by the
-# same "repo-wide net" as the suites themselves, plus any *.test.sh path
-# given explicitly, so a scratch fixture (the lint self-test) opts in by
-# name without needing to sit under a directory literally called tests/.
+# fm_lint_hazard_targets prints, one per line, the members of its argument
+# list the hazard scan below reads: every tests/*.sh, bin/*.sh, and
+# bin/backends/*.sh canonical root, so shared helpers like tests/lib.sh and
+# tests/wake-helpers.sh are covered by the same "repo-wide net" as the suites
+# themselves, plus every extension script (bin/*.mjs, .pi/extensions/**,
+# .opencode/plugins/**), plus any *.test.sh path given explicitly, so a
+# scratch fixture (the lint self-test) opts in by name without needing to
+# sit under a directory literally called tests/. Each pattern is paired with
+# a "*/"-prefixed twin so a fixture rooted anywhere (a self-test's own tmp
+# directory ending in bin/foo.sh or .pi/extensions/foo.ts) is recognized the
+# same way a real repo-relative path is; case patterns match "/" like any
+# other character, so bin/*.sh already covers bin/backends/*.sh and
+# .pi/extensions/*.ts already covers .pi/extensions/lib/*.ts.
 fm_lint_hazard_targets() {
   local path
   for path in "$@"; do
+    [ -f "$path" ] || continue
     case "$path" in
-      tests/*.sh|*.test.sh) [ -f "$path" ] && printf '%s\n' "$path" ;;
+      tests/*.sh|*.test.sh) printf '%s\n' "$path" ;;
+      bin/*.sh|*/bin/*.sh) printf '%s\n' "$path" ;;
+      bin/*.mjs|*/bin/*.mjs) printf '%s\n' "$path" ;;
+      .pi/extensions/*.ts|*/.pi/extensions/*.ts) printf '%s\n' "$path" ;;
+      .pi/extensions/*.mjs|*/.pi/extensions/*.mjs) printf '%s\n' "$path" ;;
+      .opencode/plugins/*.js|*/.opencode/plugins/*.js) printf '%s\n' "$path" ;;
     esac
   done
 }
@@ -516,8 +532,34 @@ fm_lint_is_canonical_root() {
   esac
 }
 
+# fm_lint_is_extension_root tests membership in the extension-script hazard
+# set: a direct *.mjs child of bin/, or a *.ts/*.mjs child of .pi/extensions/
+# (including its lib/ subdirectory), or a *.js child of .opencode/plugins/
+# (including its lib/ subdirectory). These are hazard-scanned only; ShellCheck
+# cannot parse them and never sees them (see SC_ROOTS below).
+fm_lint_is_extension_root() {
+  local path=$1 dir base
+  case "$path" in
+    */*) dir=${path%/*}; base=${path##*/} ;;
+    *) dir=; base=$path ;;
+  esac
+  case "$dir" in
+    bin)
+      case "$base" in *.mjs) return 0 ;; esac
+      ;;
+    .pi/extensions|.pi/extensions/lib)
+      case "$base" in *.ts|*.mjs) return 0 ;; esac
+      ;;
+    .opencode/plugins|.opencode/plugins/lib)
+      case "$base" in *.js) return 0 ;; esac
+      ;;
+  esac
+  return 1
+}
+
 CHANGED_MODE=0
 EXPLICIT_PATHS=0
+EXT_ROOTS=()
 if [ "$#" -gt 0 ]; then
   EXPLICIT_PATHS=1
   ROOTS=("$@")
@@ -535,17 +577,38 @@ else
 
   if [ "$full_lint" -eq 1 ]; then
     ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh)
+    for ext_pattern in bin/*.mjs .pi/extensions/*.ts .pi/extensions/*.mjs \
+      .pi/extensions/lib/*.ts .pi/extensions/lib/*.mjs \
+      .opencode/plugins/*.js .opencode/plugins/lib/*.js; do
+      [ -f "$ext_pattern" ] && EXT_ROOTS+=("$ext_pattern")
+    done
   else
     CHANGED_MODE=1
     ROOTS=()
     while IFS= read -r -d '' changed_path; do
-      fm_lint_is_canonical_root "$changed_path" || continue
       [ -f "$changed_path" ] || continue
-      ROOTS+=("$changed_path")
+      if fm_lint_is_canonical_root "$changed_path"; then
+        ROOTS+=("$changed_path")
+      elif fm_lint_is_extension_root "$changed_path"; then
+        EXT_ROOTS+=("$changed_path")
+      fi
     done < <(git diff --name-only --diff-filter=ACMR -z "$merge_base" -- 2>/dev/null | LC_ALL=C sort -z)
   fi
 fi
 ROOT_COUNT=${#ROOTS[@]}
+
+# SC_ROOTS is the subset of ROOTS ShellCheck actually reads: everything but
+# extension scripts. In the full and changed-file selections above ROOTS
+# already holds only *.sh paths, so SC_ROOTS is identical to ROOTS there; an
+# explicit invocation can name a non-shell extension script directly (the
+# lint self-test does this), and that file must reach the hazard scan below
+# without also being handed to ShellCheck, which cannot parse it.
+SC_ROOTS=()
+for path in "${ROOTS[@]}"; do
+  case "$path" in
+    *.sh) SC_ROOTS+=("$path") ;;
+  esac
+done
 
 if [ "$LIST_FILES" -eq 1 ]; then
   [ "$#" -eq 0 ] || {
@@ -580,7 +643,7 @@ else
   printf 'fm-lint.sh: full ShellCheck extended analysis enabled\n' >&2
 fi
 
-if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
+if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ] && [ "${#EXT_ROOTS[@]}" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
   overall_rc=0
   fm_lint_run_workflows || overall_rc=$?
@@ -633,7 +696,7 @@ done
 
 index=1
 : > "$WEIGHTS"
-for path in "${ROOTS[@]}"; do
+for path in "${SC_ROOTS[@]}"; do
   case "$path" in
     *"$TAB"*|*$'\n'*)
       printf 'fm-lint.sh: paths containing tabs or newlines are not supported: %s\n' "$path" >&2
@@ -777,7 +840,7 @@ while [ "$worker" -lt "$SHARD_COUNT" ]; do
   worker=$((worker + 1))
 done
 
-mapfile -t HAZARD_TARGETS < <(fm_lint_hazard_targets "${ROOTS[@]}")
+mapfile -t HAZARD_TARGETS < <(fm_lint_hazard_targets "${ROOTS[@]}" "${EXT_ROOTS[@]}")
 if [ "${#HAZARD_TARGETS[@]}" -gt 0 ]; then
   HAZARD_SCANNER="$TMP_ROOT/fm-lint-hazard-scan.pl"
   fm_lint_write_hazard_scanner "$HAZARD_SCANNER"
