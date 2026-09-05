@@ -390,6 +390,14 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
+### Subagent model tier
+
+A token audit found that most subagent spend ran off-tier because workflow `agent()` calls omitted a model and inherited the orchestrator's own session model.
+Every subagent or workflow `agent()` call must pass an explicit model.
+The default subagent tier is `claude-sonnet-5` unless a brief names another.
+A Fable-class model or Haiku must never run as a subagent.
+`bin/fm-brief-blocks-lib.sh`'s `fm_brief_subagent_tier_block` renders this rule into every generated brief and points back here; the fully authoritative tier and quota mechanics live in the captain's private, untracked `data/captain-shared.md`, which a generated brief cannot reference directly.
+
 `bin/fm-spawn.sh --ultracode` is a further launch axis that no dispatch profile carries: it starts a claude worker in Claude Code's durable ultracode session mode.
 The flag merges an `"ultracode": true` key into the task worktree's `.claude/settings.local.json` before launch and records `ultracode=on` in the task meta.
 It refuses on any other harness, when node is absent, on a secondmate spawn, and alongside `--effort`, because the mode selects xhigh effort itself.
