@@ -2923,7 +2923,7 @@ export default function (pi: any) {
     if (typeof event.name !== "string") return;
     return new Promise<void>((resolve) => {
       execFile("$FM_ROOT/bin/fm-session-name-sync.sh", [
-        "$STATE_REAL", "$ID", "$SPAWN_GEN", event.name,
+        "--event", "$STATE_REAL", "$ID", "$SPAWN_GEN", event.name,
       ], () => resolve());
     });
   });

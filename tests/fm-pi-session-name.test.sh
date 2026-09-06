@@ -7,6 +7,7 @@ set -u
 
 SPAWN="$ROOT/bin/fm-spawn.sh"
 CONTROL="$ROOT/bin/fm-control.sh"
+SYNC="$ROOT/bin/fm-session-name-sync.sh"
 TMP_ROOT=$(fm_test_tmproot fm-pi-session-name)
 
 make_fakebin() {
@@ -250,6 +251,39 @@ JS
   pass "a native Pi name update survives recovery"
 }
 
+test_existing_pi_worker_name_update_survives_relaunch() {
+  local rec id name out status=0 launch
+  id=pi-name-existing-z6
+  name="existing O'Brien, c574!"
+  rec=$(make_case existing pi "$id")
+  read_case "$rec"
+  {
+    printf 'window=firstmate:fm-%s\n' "$id"
+    printf 'endpoint_task_id=%s\n' "$id"
+    printf 'worktree=%s\n' "$WT_DIR"
+    printf 'project=%s\n' "$PROJ_DIR"
+    printf 'harness=pi\nkind=ship\nmode=no-mistakes\nyolo=off\n'
+    printf 'tasktmp=/tmp/fm-%s\nmodel=default\neffort=default\nspawn_gen=old\n' "$id"
+  } > "$HOME_DIR/state/$id.meta"
+  printf '%s\n' "fm-$id" > "$CASE_DIR/fake/windows"
+
+  out=$(FM_HOME="$HOME_DIR" FM_STATE_OVERRIDE="$HOME_DIR/state" \
+    "$SYNC" "$id" "$name" 2>&1) || status=$?
+  expect_code 0 "$status" "existing Pi worker name metadata synchronization"
+  [ -z "$out" ] || fail "existing Pi name synchronization printed output: $out"
+  assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" \
+    "the existing worker name was not recorded"
+  [ ! -s "$CASE_DIR/fake/literal" ] || fail "name metadata synchronization disturbed the worker pane"
+
+  out=$(run_control "$HOME_DIR" "$FAKEBIN_DIR" "$CASE_DIR/fake" \
+    "$id" relaunch --note "continue after existing worker name update") || status=$?
+  expect_code 0 "$status" "Pi relaunch after existing worker name update"
+  launch=$(tail -1 "$CASE_DIR/fake/literal")
+  assert_contains "$launch" "--name 'existing O'\\''Brien, c574!'" \
+    "the existing worker replacement did not receive the updated native name"
+  pass "an existing Pi worker name update survives recovery"
+}
+
 test_switch_to_an_unnamed_harness_drops_stale_metadata() {
   local rec id out status=0 launch
   id=pi-name-switch-z4
@@ -392,6 +426,7 @@ test_pi_worker_default_is_the_task_id
 test_pi_signed_secondmate_uses_the_conventional_name
 test_pi_relaunch_keeps_the_recorded_name
 test_pi_native_name_update_survives_relaunch
+test_existing_pi_worker_name_update_survives_relaunch
 test_switch_to_an_unnamed_harness_drops_stale_metadata
 test_primary_and_secondmate_names_are_safe_on_reload
 test_unmanaged_worktree_keeps_its_unnamed_session

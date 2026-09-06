@@ -1,13 +1,26 @@
 #!/usr/bin/env bash
 # Synchronize a Pi worker's native session name into its current task record.
-# Usage: fm-session-name-sync.sh <state-dir> <task-id> <spawn-gen> <name>
+# Usage: fm-session-name-sync.sh <task-id> <name>
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-STATE=$1
-ID=$2
-SPAWN_GEN=$3
-NAME=$4
+if [ "${1:-}" = --event ]; then
+  [ "$#" -eq 5 ] || exit 2
+  STATE=${2:-}
+  ID=${3:-}
+  SPAWN_GEN=${4:-}
+  NAME=${5:-}
+  EVENT=1
+else
+  [ "$#" -eq 2 ] || exit 2
+  FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+  FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+  STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+  ID=${1:-}
+  NAME=${2:-}
+  SPAWN_GEN=
+  EVENT=0
+fi
 
 case "$ID" in
   ''|*[!A-Za-z0-9._-]*) exit 0 ;;
@@ -34,7 +47,9 @@ cleanup() {
 }
 trap cleanup EXIT
 
-[ "$(meta_value "$META" spawn_gen)" = "$SPAWN_GEN" ] || exit 0
+if [ "$EVENT" = 1 ]; then
+  [ "$(meta_value "$META" spawn_gen)" = "$SPAWN_GEN" ] || exit 0
+fi
 case "$(meta_value "$META" harness)" in pi|pi-signed) ;; *) exit 0 ;; esac
 TMP=$(mktemp "$STATE/.$ID.meta.name.XXXXXX")
 awk -F= '$1 != "session_name"' "$META" > "$TMP"

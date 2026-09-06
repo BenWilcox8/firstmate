@@ -113,7 +113,7 @@ It assigns `Secondmate, <id>` to an unnamed second mate.
 The extension keeps an existing name across `/reload`, `/resume`, and `/fork`.
 A new session has a new identity, so the extension applies the role default after `/new`.
 
-Use Pi's `/name <name>` command to update an existing managed worker without a restart.
+To update an existing managed Pi worker, use `/name <name>`, then run `bin/fm-session-name-sync.sh <task-id> <name>` before recovery.
 Use `/reload` in an existing unnamed primary or second mate after Firstmate updates.
 These paths append native Pi name metadata and do not rewrite earlier transcript entries.
 Native Pi names are separate from terminal pane labels.
