@@ -108,14 +108,11 @@ grok --trust
 
 For Grok, `--trust` is needed once per clone so project hooks and the turn-end guard load; `/hooks-trust` inside Grok works too.
 For Pi, approve the project trust prompt once per clone so the tracked `.pi/extensions/*.ts` files load.
-The primary extension assigns `Firstmate` only when the native session has no explicit name.
-It assigns `Secondmate, <id>` to an unnamed second mate.
-The extension keeps an existing name across `/reload`, `/resume`, and `/fork`.
-A new session has a new identity, so the extension applies the role default after `/new`.
+[Pi's primary naming defaults and lifecycle behavior](docs/sessionstart-nudge.md#harness-transports) are documented with its session-start adapter.
 
 To update an existing managed Pi worker, use `/name <name>`, then run `bin/fm-session-name-sync.sh <task-id> <name>` before recovery.
 Use `/reload` in an existing unnamed primary or second mate after Firstmate updates.
-These paths append native Pi name metadata and do not rewrite earlier transcript entries.
+Pi records names as new native metadata and does not rewrite earlier transcript entries.
 Native Pi names are separate from terminal pane labels.
 Pi's `/calm` toggle hides supported transcript chrome, including canonically classified Firstmate operational user rows, and uses a Calm-only animated working boat during active runs while preserving all model context and session data.
 Those Calm-hidden operational inputs remain ordinary user-role messages with unchanged delivery, ordering, authority, persistence, and exports.

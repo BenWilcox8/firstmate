@@ -36,10 +36,9 @@ A worker defaults to its task id, and a second mate defaults to `Secondmate, <id
 The control plane passes the recorded name to a replacement.
 This keeps the name across recovery without resuming or rewriting the previous private session.
 Pi's native `/name <name>` command updates an existing managed session without a restart.
-The primary extension names an unnamed primary `Firstmate` and applies the second mate convention from its home marker.
-It does not replace a name that Pi provides on startup, reload, resume, or fork.
-A new session gets the role default because it has a new native identity.
-Native session identity does not own or change the terminal pane label.
+A current worker extension synchronizes that update into its task record for recovery.
+For a worker from before this support, follow the [existing-worker migration](../../../README.md#install-and-launch) after `/name` and before recovery.
+[`docs/sessionstart-nudge.md`](../../../docs/sessionstart-nudge.md#harness-transports) owns primary and secondmate naming.
 These facts were verified with Pi 0.85.1 on 2026-09-06.
 
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.
