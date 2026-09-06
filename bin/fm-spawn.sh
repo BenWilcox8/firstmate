@@ -2914,6 +2914,7 @@ const busyEvent = (state: string, event: string) =>
     ], () => resolve());
   });
 export default function (pi: any) {
+  let nameSync = Promise.resolve();
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
@@ -2921,11 +2922,12 @@ export default function (pi: any) {
   });
   pi.on("session_info_changed", (event: any) => {
     if (typeof event.name !== "string") return;
-    return new Promise<void>((resolve) => {
+    nameSync = nameSync.then(() => new Promise<void>((resolve) => {
       execFile("$FM_ROOT/bin/fm-session-name-sync.sh", [
         "--event", "$STATE_REAL", "$ID", "$SPAWN_GEN", event.name,
       ], () => resolve());
-    });
+    }));
+    return nameSync;
   });
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }

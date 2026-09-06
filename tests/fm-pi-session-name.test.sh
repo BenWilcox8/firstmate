@@ -251,6 +251,38 @@ JS
   pass "a native Pi name update survives recovery"
 }
 
+test_pi_rapid_native_name_updates_keep_the_latest_name() {
+  local rec id first second out status=0
+  id=pi-name-race-z7
+  first="first name, c574!"
+  second="second O'Brien, c574!"
+  rec=$(make_case race pi "$id")
+  read_case "$rec"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$CASE_DIR/fake" \
+    "$id" "$PROJ_DIR" --mode no-mistakes --yolo off) || status=$?
+  expect_code 0 "$status" "Pi spawn before rapid native name updates"
+  out=$(EXT="$HOME_DIR/state/$id.pi-ext.ts" FM_HOME="$HOME_DIR" FIRST="$first" SECOND="$second" NODE_NO_WARNINGS=1 \
+    node --input-type=module 2>&1 <<'JS'
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const pi = { on(event, handler) { handlers.set(event, handler); } };
+const extension = await import(`${pathToFileURL(process.env.EXT).href}?race=${Date.now()}`);
+extension.default(pi);
+const sync = handlers.get("session_info_changed");
+await Promise.all([
+  sync({ name: process.env.FIRST }),
+  sync({ name: process.env.SECOND }),
+]);
+JS
+  ) || status=$?
+  expect_code 0 "$status" "rapid Pi native name metadata synchronization"
+  [ -z "$out" ] || fail "rapid Pi name synchronization printed output: $out"
+  assert_grep "session_name=$second" "$HOME_DIR/state/$id.meta" \
+    "rapid Pi name updates did not retain the latest name"
+  pass "rapid native Pi name updates retain the latest name"
+}
+
 test_existing_pi_worker_name_update_survives_relaunch() {
   local rec id name out status=0 launch
   id=pi-name-existing-z6
@@ -426,6 +458,7 @@ test_pi_worker_default_is_the_task_id
 test_pi_signed_secondmate_uses_the_conventional_name
 test_pi_relaunch_keeps_the_recorded_name
 test_pi_native_name_update_survives_relaunch
+test_pi_rapid_native_name_updates_keep_the_latest_name
 test_existing_pi_worker_name_update_survives_relaunch
 test_switch_to_an_unnamed_harness_drops_stale_metadata
 test_primary_and_secondmate_names_are_safe_on_reload
