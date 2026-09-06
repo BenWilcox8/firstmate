@@ -300,6 +300,7 @@ BACKEND=$FM_BACKEND_VALIDATED_BACKEND
 T=$FM_BACKEND_VALIDATED_TARGET
 LABEL="fm-$ID"
 RECORDED_HARNESS=$(fm_meta_get "$META" harness)
+RECORDED_SESSION_NAME=$(fm_meta_get "$META" session_name)
 KIND=$(fm_meta_get "$META" kind)
 WT=$(fm_meta_get "$META" worktree)
 [ -n "$KIND" ] || KIND=ship
@@ -830,6 +831,7 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ -z "$RECORDED_SESSION_NAME" ] || spawn_args+=(--session-name "$RECORDED_SESSION_NAME")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1

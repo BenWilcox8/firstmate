@@ -77,6 +77,13 @@ A lock another session holds and a truncated digest therefore surface as digest 
 | Cursor | Run | `.cursor/hooks.json` registers `sessionStart`, anchored through `$CURSOR_PROJECT_DIR` with a 180s timeout, invoking `bin/fm-sessionstart-cursor.sh`. | Cursor's payload has no `source` field, so the registration supplies `--source` itself, and the adapter returns the digest as `additional_context`. Project hooks load only when the workspace is launched with `--trust`. |
 | Cursor compaction | Uncovered | None. | Cursor's `preCompact` response can return only `user_message` and is absent from Cursor's `additional_context` step set, so it cannot inject a re-emit digest. Delivering one needs its own design and is deliberately deferred to a follow-up; a Cursor primary does not re-emit its digest after a compaction. |
 
+Pi session naming is separate from digest delivery.
+The same primary extension assigns `Firstmate` to an unnamed primary and reads a second mate id from its home marker.
+It keeps a name that Pi already has.
+As a result, startup, reload, resume, and fork events do not replace a name that Pi provides.
+A new session gets the role default because it has a new native identity.
+Worker names remain owned by `bin/fm-spawn.sh`, not by this primary extension.
+
 Cursor's `sessionStart` fires at every session open with no source distinction, including a resumed session, so a resume re-runs the full digest; that is redundant and idempotent rather than a lost helm.
 Cursor's compaction surface is uncovered in the same sense as Codex's interactive TUI above: Firstmate registers nothing for `preCompact`, so a compacted Cursor session keeps whatever context survived rather than receiving a fresh digest.
 
@@ -101,6 +108,7 @@ That alternative expands trust and writes outside this repository, so Firstmate 
 It separately proves the run wrapper's silence for the gate environment and an unmarked linked worktree, including the internal Pi prerequisite's explicit silent stand-down.
 It proves the run wrapper's source routing end to end against a real `fm-session-start.sh`, including completion-gated `--reemit` selection, resume delegation, Pi CLI continuation classification, an unrecognized source falling through to the full digest, and bounded loud delivery of an oversized Pi digest.
 The same portable suite proves provider exclusion until settlement, exactly-one execution and context delivery, interruption, process-tree retirement, two rapid replacements, stale completion, eligible empty output, spawn error, wrapper timeout output, truncation, ineligible stand-down, and compaction cancellation through the extension's public event surface.
+`tests/fm-pi-session-name.test.sh` proves that reload assigns each role default once and preserves an explicit native Pi name.
 `tests/fm-session-start.test.sh` proves the runtime bound through the forced pure-Bash fallback: a TERM-resistant digest that exceeds its budget is force-killed with its grandchild, still emits its completed stages, names the incomplete stage and every stage it never reached, leaves no completion proof, and exits 0.
 `tests/fm-pi-primary-live-e2e.test.sh` and `tests/fm-opencode-primary-live-e2e.test.sh` exercise native startup paths with first-message and later-message Ahoy regressions.
 `tests/fm-cursor-primary.test.sh` proves the Cursor adapter over real processes: `sessionStart` emits the whole digest as `additional_context` with a caller-supplied `--source`, stays silent in a child worktree, lets the run wrapper stand down on the Cursor-delivered duplicate, and keeps `preCompact` unregistered so the deferred surface cannot be reintroduced unnoticed.

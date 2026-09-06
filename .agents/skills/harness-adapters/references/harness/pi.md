@@ -13,6 +13,7 @@ Verified on 2026-07-27 with Pi and Pi-signed 0.82.0 unless a fact gives another 
 | Skill invocation | No separate verified form beyond normal command behavior; use natural language when the exact command is uncertain. |
 | Model flag | `--model <model>`. |
 | Effort flag | `--thinking <low\|medium\|high\|xhigh\|max>`; both identities expose the same levels and completed the same model-qualified max-thinking smoke. |
+| Session name flag | `--name <text>`; both identities use Pi's native session metadata and selector. |
 | Model discovery | Run the selected executable as `<executable> --list-models [search]`; Pi's installed `docs/models.md` owns how built-in, extension-registered, and custom provider/model entries reach that list. |
 
 Pi has no permission system, so workers are always autonomous.
@@ -28,6 +29,18 @@ The router's Detection section owns how launch markers and ancestry select betwe
 
 Keep the instructions as one positional argument.
 Multiple positional arguments become separate queued messages; the spawn template already preserves the one-argument shape.
+
+`../../../bin/fm-spawn.sh` is the naming owner for workers and second mates.
+An explicit session name wins.
+A worker defaults to its task id, and a second mate defaults to `Secondmate, <id>`.
+The control plane passes the recorded name to a replacement.
+This keeps the name across recovery without resuming or rewriting the previous private session.
+Pi's native `/name <name>` command updates an existing managed session without a restart.
+The primary extension names an unnamed primary `Firstmate` and applies the second mate convention from its home marker.
+It does not replace a name that Pi provides on startup, reload, resume, or fork.
+A new session gets the role default because it has a new native identity.
+Native session identity does not own or change the terminal pane label.
+These facts were verified with Pi 0.85.1 on 2026-09-06.
 
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.
 Accept it with Enter and verify the instructions begin processing.

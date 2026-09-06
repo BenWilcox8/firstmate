@@ -1049,3 +1049,36 @@ The focused extension suite also exercised the installed Pi 0.84.4 picker and ou
 
 Scope of the earlier evidence: the installed signed `pi` CLI (0.82.0 at verification time) is a compiled binary whose bundled SDK is not importable from Node, so the importable npm package is the only surface the guard and the typecheck can pin.
 The extension executes inside the signed CLI's own runtime, so a CLI upgrade can drift ahead of the pinned npm surface; refresh this record after every Pi upgrade by re-running the live guard, picker regression, and strict typecheck above (point `FM_PI_PACKAGE_DIR` at a matching npm install when one exists) and by watching the branch's own fallback line - every branch failure degrades to the pre-branch wake-to-main path by construction, which `tests/fm-pi-branch-extension.test.sh` holds with a broken generator and the live guard holds with the real SDK.
+
+### 2026-09-06 Pi 0.85.1 native session-name verification
+
+The verification used Pi 0.85.1 with isolated session directories and a non-default Herdr lab.
+The lab used only `bin/fm-herdr-lab.sh`, and its teardown tripwire proved that the running default fleet did not change.
+
+A print-mode Pi launch used `--name "Initial Name, c574!"` and wrote that exact value as a native `session_info` entry.
+A supported `--session <file> --name "Firstmate, O'Brien: c574 / Pi"` resume appended one new metadata entry.
+A byte comparison proved that the resume did not rewrite the existing transcript prefix.
+Spaces, commas, apostrophes, colons, slashes, and exclamation marks remained unchanged.
+
+An isolated RPC probe used `set_session_name` twice and read the value through `get_state` after each call.
+The value remained exact after repeated application.
+A session-start extension probe applied a default only when `getSessionName()` was empty.
+After an in-process reload, the same probe kept the existing name and did not call `setSessionName()` again.
+
+The Pi selector showed these exact native names in its all-sessions view:
+
+```text
+Secondmate, atlas-core: c574!
+Firstmate, O'Brien: c574 / Pi
+```
+
+The Herdr agent record also showed the Pi terminal title, but no Herdr pane rename command ran.
+This proves that Firstmate's native session-name path does not mutate the backend pane label.
+Pi-signed was not installed on this host.
+The portable launch tests cover Pi-signed through its verified shared Pi CLI contract and exact executable identity.
+
+```sh
+bin/fm-test-run.sh tests/fm-spawn-session-name.test.sh
+bin/fm-test-run.sh tests/fm-pi-session-name.test.sh
+bin/fm-test-run.sh tests/fm-control-relaunch.test.sh
+```

@@ -89,7 +89,9 @@ Then launch one of the co-primary harnesses; AGENTS.md takes over from there:
 **Pi**
 
 ```sh
-pi
+pi --name Firstmate
+# or, when the signed wrapper is installed
+FM_PI_HARNESS=pi-signed pi-signed --name Firstmate
 ```
 
 **Claude Code**
@@ -104,16 +106,17 @@ claude
 grok --trust
 ```
 
-**Pi**
-
-```sh
-pi
-# or, when the signed wrapper is installed
-FM_PI_HARNESS=pi-signed pi-signed
-```
-
 For Grok, `--trust` is needed once per clone so project hooks and the turn-end guard load; `/hooks-trust` inside Grok works too.
-For Pi, approve the project trust prompt once per clone on first launch so the tracked `.pi/extensions/*.ts` files auto-load.
+For Pi, approve the project trust prompt once per clone so the tracked `.pi/extensions/*.ts` files load.
+The primary extension assigns `Firstmate` only when the native session has no explicit name.
+It assigns `Secondmate, <id>` to an unnamed second mate.
+The extension keeps an existing name across `/reload`, `/resume`, and `/fork`.
+A new session has a new identity, so the extension applies the role default after `/new`.
+
+Use Pi's `/name <name>` command to update an existing managed worker without a restart.
+Use `/reload` in an existing unnamed primary or second mate after Firstmate updates.
+These paths append native Pi name metadata and do not rewrite earlier transcript entries.
+Native Pi names are separate from terminal pane labels.
 Pi's `/calm` toggle hides supported transcript chrome, including canonically classified Firstmate operational user rows, and uses a Calm-only animated working boat during active runs while preserving all model context and session data.
 Those Calm-hidden operational inputs remain ordinary user-role messages with unchanged delivery, ordering, authority, persistence, and exports.
 The preference persists for the effective Firstmate home, and toggling it off restores ordinary rendering.

@@ -58,6 +58,25 @@ function markLoaded(): void {
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
 
+function assignedSessionName(): string {
+  try {
+    const secondmateId = readFileSync(`${fmHome}/.fm-secondmate-home`, "utf8").trim();
+    if (secondmateId) return `Secondmate, ${secondmateId}`;
+  } catch {
+  }
+  return "Firstmate";
+}
+
+function applyAssignedSessionName(pi: ExtensionAPI): void {
+  try {
+    if (pi.getSessionName()) return;
+    pi.setSessionName(assignedSessionName());
+  } catch {
+    // Session naming is useful metadata. A naming error must not disable the
+    // primary session-start and supervision safety paths in this extension.
+  }
+}
+
 // Pi's session_start reasons are startup | reload | new | resume | fork, and a
 // separate session_compact event fires after a compaction. "new" is Pi's /new
 // while reload, resume, and fork all keep prior context.
@@ -515,6 +534,7 @@ export default function (pi: ExtensionAPI) {
   registerSessionstartExitListener();
 
   pi.on?.("session_start", (event, ctx) => {
+    applyAssignedSessionName(pi);
     const reason = String((event as { reason?: unknown }).reason ?? "");
     const source = reason === "startup"
       ? startupRebuildSource(ctx) ?? "startup"
