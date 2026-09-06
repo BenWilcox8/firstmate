@@ -1,0 +1,50 @@
+Native Pi TUI evidence (isolated tmux session)
+=============================================
+
+Command: PI_CODING_AGENT_DIR=<isolated> pi --offline --no-extensions --no-skills --no-context-files --session-dir <isolated> --session-id c574-native-name --name "O'Brien, c574!" --no-tools
+
+Observed rendered Pi surface:
+
+Warning: No project session found with id 'c574-native-name'; creating a new session with that id.
+
+ pi v0.85.1
+ escape interrupt · ctrl+c/ctrl+d clear/exit · / commands · ! bash · ctrl+o more
+ Press ctrl+o to show full startup help and loaded resources.
+
+ Pi can explain its own features and look up its docs. Ask it how to use or extend Pi.
+
+
+ Warning: No models available. Use /login to log into a provider via OAuth or API key. See:
+   /home/ben/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/providers.md
+   /home/ben/.npm-global/lib/node_modules/@earendil-works/pi-coding-agent/docs/models.md
+
+ Warning: tmux extended-keys is off. Modified Enter keys may not work. Add `set -g extended-keys on` to ~/.tmux.conf and restart tmux.
+
+─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────  O'Brien, c574!  ─
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+~/.no-mistakes/worktrees/3665d600861c/01M1TGYYA364B5G4BGXJJ3AH6Z (detached) • O'Brien, c574!
+0.0%/0 (auto)                                                                                                                                            unknown
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+The native header and bottom status each render the exact requested display name.
