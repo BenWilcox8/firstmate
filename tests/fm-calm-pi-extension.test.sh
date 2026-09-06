@@ -703,7 +703,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const extPath = fileURLToPath(pathToFileURL(process.env.EXT).href);
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
-const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }, builtIns] = await Promise.all([
+const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }, { createReadToolDefinition, createBashToolDefinition, createEditToolDefinition, createWriteToolDefinition, createGrepToolDefinition, createFindToolDefinition, createLsToolDefinition }] = await Promise.all([
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/assistant-message.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/custom-entry.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/tool-execution.js`).href),
@@ -712,8 +712,22 @@ const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionC
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/theme/theme.js`).href),
   import(pathToFileURL(`${packageRoot}/node_modules/@earendil-works/pi-tui/dist/index.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/core/export-html/tool-renderer.js`).href),
-  import(pathToFileURL(`${packageRoot}/dist/index.js`).href),
+  // The calm-off equivalence baseline needs each built-in's REAL stock renderers.
+  // Pi 0.84 and older silently substituted the built-in definition when a
+  // ToolExecutionComponent was constructed without one, so a definition-less
+  // baseline used to read as stock; Pi 0.85 removed that substitution and the
+  // definition-less row now renders the generic text fallback instead.
+  import(pathToFileURL(`${packageRoot}/dist/core/tools/index.js`).href),
 ]);
+const stockDefinitions = {
+  read: createReadToolDefinition,
+  bash: createBashToolDefinition,
+  edit: createEditToolDefinition,
+  write: createWriteToolDefinition,
+  grep: createGrepToolDefinition,
+  find: createFindToolDefinition,
+  ls: createLsToolDefinition,
+};
 initTheme("dark");
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
 
@@ -887,28 +901,9 @@ const cases = [
 ];
 const renderUi = { requestRender() {} };
 const rows = [];
-// Pi built-ins now own their renderer slots. The baseline must use each
-// built-in definition, not the generic fallback, to compare Calm-off output.
-const baselineFactories = {
-  read: builtIns.createReadToolDefinition,
-  bash: builtIns.createBashToolDefinition,
-  edit: builtIns.createEditToolDefinition,
-  write: builtIns.createWriteToolDefinition,
-  grep: builtIns.createGrepToolDefinition,
-  find: builtIns.createFindToolDefinition,
-  ls: builtIns.createLsToolDefinition,
-};
 for (const [name, args, result] of cases) {
   const wrapped = tools.find((tool) => tool.name === name);
-  const baseline = new ToolExecutionComponent(
-    name,
-    `baseline-${name}`,
-    args,
-    { showImages: false },
-    baselineFactories[name](process.cwd()),
-    renderUi,
-    process.cwd(),
-  );
+  const baseline = new ToolExecutionComponent(name, `baseline-${name}`, args, { showImages: false }, stockDefinitions[name](process.cwd()), renderUi, process.cwd());
   const actual = new ToolExecutionComponent(name, `wrapped-${name}`, args, { showImages: false }, wrapped, renderUi, process.cwd());
   for (const row of [baseline, actual]) {
     row.markExecutionStarted();
@@ -941,14 +936,25 @@ const watchExtension = await import(`${pathToFileURL(process.env.WATCH_EXT).href
 watchExtension.default(watchPi);
 const watchTool = tools.find((tool) => tool.name === "fm_watch_arm_pi");
 if (!watchTool) throw new Error("Firstmate watcher extension did not register fm_watch_arm_pi");
+const stockWatchTool = { ...watchTool };
+delete stockWatchTool.renderCall;
+delete stockWatchTool.renderResult;
+delete stockWatchTool.renderShell;
 const watchArgs = {};
 const watchResult = {
   content: [{ type: "text", text: "watcher: started Pi extension arm child 1" }],
   details: { ok: true, message: "watcher: started Pi extension arm child 1" },
   isError: false,
 };
-// This Firstmate tool owns its renderer, so pin its required Calm-off call
-// and result instead of comparing it to Pi's unrelated generic fallback.
+const watchBaseline = new ToolExecutionComponent(
+  "fm_watch_arm_pi",
+  "watch-baseline",
+  watchArgs,
+  { showImages: false },
+  stockWatchTool,
+  renderUi,
+  process.cwd(),
+);
 const watchActual = new ToolExecutionComponent(
   "fm_watch_arm_pi",
   "watch-actual",
@@ -958,13 +964,13 @@ const watchActual = new ToolExecutionComponent(
   renderUi,
   process.cwd(),
 );
-watchActual.markExecutionStarted();
-watchActual.setArgsComplete();
-watchActual.updateResult(watchResult);
-const watchStockRows = watchActual.render(100);
-const watchStockText = watchStockRows.join("\n");
-if (!watchStockText.includes("fm_watch_arm_pi") || !watchStockText.includes("watcher: started Pi extension arm child 1")) {
-  throw new Error("Calm-off Firstmate watcher rendering lost its call or result");
+for (const row of [watchBaseline, watchActual]) {
+  row.markExecutionStarted();
+  row.setArgsComplete();
+  row.updateResult(watchResult);
+}
+if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
+  throw new Error("Firstmate watcher tool changed stock rendering while Calm was off");
 }
 
 const customDefinition = {
@@ -1136,11 +1142,11 @@ presentationComponent.setExpanded(!expanded);
 if (presentationComponent.hasContent() || presentationComponent.render(100).length !== 0) {
   throw new Error("Calm left a synthetic Firstmate presentation row or spacer visible");
 }
-if (JSON.stringify(operationalComponent.render(100)) !== JSON.stringify([""])) {
-  throw new Error("Calm did not retain only the standard visible-row separator for a current operational user row");
+if (operationalComponent.render(100).length !== 0) {
+  throw new Error("Calm left a current operational user row or its leading spacer visible");
 }
 if (legacyOperationalComponent.render(100).length !== 0) {
-  throw new Error("Calm left a separator beside an adjacent hidden legacy operational user row");
+  throw new Error("Calm left the supported bare-marker legacy user row visible");
 }
 const operationalNearMisses = [
   {
@@ -1272,8 +1278,8 @@ if (!customRow.render(100).join("\n").includes("CUSTOM_CALL")) {
 if (watchActual.render(100).length !== 0) {
   throw new Error("Calm left the fm_watch_arm_pi call/result shell visible");
 }
-if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
-  throw new Error("Calm-hidden thinking beside a tool call did not retain its standard transcript separator");
+if (assistantThinkingTool.render(100).length !== 0) {
+  throw new Error("Calm-hidden thinking beside a tool call retained vertical height");
 }
 if (JSON.stringify(assistantThinkingText.render(100)) !== JSON.stringify(assistantTextOnly.render(100))) {
   throw new Error("Calm-hidden thinking changed final assistant row geometry");
@@ -1283,8 +1289,8 @@ if (!assistantThinkingTool.render(100).join("\n").includes("HIDDEN_TOOL_THINKING
   throw new Error("expanding thinking did not restore the original reasoning content");
 }
 assistantThinkingTool.setHideThinkingBlock(true);
-if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
-  throw new Error("collapsing thinking again did not retain only its standard transcript separator");
+if (assistantThinkingTool.render(100).length !== 0) {
+  throw new Error("collapsing thinking again restored residual Calm rows");
 }
 if (JSON.stringify(sessionEntries) !== entriesBefore) {
   throw new Error("calm mode changed session entries or model context");
@@ -1313,8 +1319,8 @@ for (const { name, baseline, actual } of rows) {
 if (JSON.stringify(imageRow.render(100)) !== JSON.stringify(imageVisibleBefore)) {
   throw new Error("built-in read image row did not restore its ordinary call shell and image output");
 }
-if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchStockRows)) {
-  throw new Error("fm_watch_arm_pi did not restore its Calm-off call/result rendering");
+if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
+  throw new Error("fm_watch_arm_pi did not restore its stock call/result shell");
 }
 if (workingVisible !== true || hiddenThinkingLabel !== undefined || statuses.get("firstmate-calm") !== undefined) {
   throw new Error("turning Calm off did not restore stock presentation controls");
@@ -1349,7 +1355,6 @@ for (const reason of ["startup", "new", "resume", "fork", "reload"]) {
 await calmCommand.handler("", commandContext);
 
 const readWrapper = tools.find((tool) => tool.name === "read");
-const { createReadToolDefinition } = await import(pathToFileURL(`${packageRoot}/dist/index.js`).href);
 const originalRead = createReadToolDefinition(process.cwd());
 const executeContext = { cwd: process.cwd() };
 const [originalResult, wrappedResult] = await Promise.all([
@@ -1527,11 +1532,6 @@ const requireHidden = (name, needle, context) => {
     throw new Error(`${context}: ${name} still rendered ${needle}`);
   }
 };
-const requireCollapsedMidTurn = (context) => {
-  if (JSON.stringify(rendered("midTurn")) !== JSON.stringify([""])) {
-    throw new Error(`${context}: mid-turn working note did not retain only its standard transcript separator`);
-  }
-};
 
 let calm = await loadCalmExtension();
 if (calm.registeredTools.length !== 0) {
@@ -1548,7 +1548,9 @@ await calm.calmCommand.handler("", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("plain /calm from off did not persist on");
 }
-requireCollapsedMidTurn("Calm on");
+if (rendered("midTurn").length !== 0) {
+  throw new Error(`Calm on left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
+}
 requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm on");
 // Pi owns the wording of its truncation notice; Calm must leave that row's own notice
 // standing rather than collapsing an incomplete response to nothing.
@@ -1579,10 +1581,9 @@ for (const name of Object.keys(rows)) {
   }
 }
 await calm.calmCommand.handler("  MaX  ", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
+if (readFileSync(calmPreferencePath, "utf8") !== "on\n" || rendered("midTurn").length !== 0) {
   throw new Error("a spaced, mixed-case argument did not fall through to the plain toggle");
 }
-requireCollapsedMidTurn("a spaced, mixed-case argument");
 await calm.calmCommand.handler("unrecognized", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
   throw new Error("an unrecognized /calm argument did not fall back to the plain toggle");
@@ -1605,9 +1606,11 @@ for (const persisted of ["on\n", "max\n", "max"]) {
   }
   for (const reason of ["startup", "resume", "new", "fork", "reload"]) {
     await calm.sessionStart({ reason }, context);
-    requireCollapsedMidTurn(
-      `a ${reason} session restored from ${JSON.stringify(persisted)}`,
-    );
+    if (rendered("midTurn").length !== 0) {
+      throw new Error(
+        `a ${reason} session restored from ${JSON.stringify(persisted)} did not hide mid-turn working notes`,
+      );
+    }
     requireVisible("finalReply", "FINAL_REPLY_TEXT", `${reason} session`);
   }
   // A session restored as on toggles to off; one that had wrongly dropped to off would
@@ -1626,7 +1629,7 @@ JS
   out=$(cat "$output_file")
   [ "$status" -eq 0 ] || fail "Pi calm mid-turn contract failed: $out"
   [ -z "$out" ] || fail "Pi calm mid-turn test printed output: $out"
-  pass "Pi calm on hides mid-turn assistant working-note content while retaining its standard separator, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
+  pass "Pi calm on collapses mid-turn assistant working notes to zero height while Calm off keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
 }
 
 test_operational_followup_turn_e2e() {
@@ -1829,13 +1832,15 @@ TS
       fail "Pi follow-up $label case did not process the monitoring notification"
     fi
 
-    # The session file's durable write can land slightly ahead of the terminal's
-    # own redraw under load, so poll the render the same bounded way the checks
-    # above do rather than taking one immediate snapshot.
+    # The session file is written before the TUI repaints, so wait for the
+    # rendered rows themselves instead of capturing the pane right away.
     i=0
     while [ "$i" -lt 240 ]; do
       pane=$(tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S - 2>/dev/null || true)
-      [ "$(printf '%s\n' "$pane" | grep -Fc "CAPTAIN_ANSWER_$label" || true)" -eq 1 ] && break
+      if printf '%s\n' "$pane" | grep -Fq "CAPTAIN_ANSWER_$label" &&
+        printf '%s\n' "$pane" | grep -Fq "MONITOR_HANDLED_${label}_ONE"; then
+        break
+      fi
       sleep 0.05
       i=$((i + 1))
     done
@@ -2156,7 +2161,9 @@ TS
   i=0
   while [ "$i" -lt 120 ]; do
     capture_geometry_viewport "$snapshot"
-    tail -12 "$snapshot" | grep -Fq "Working" || break
+    # Pi <=0.84 rendered a "Working..." transcript row; Pi >=0.85 embeds the
+    # indicator in the editor border as "Working". Match either spelling.
+    tail -12 "$snapshot" | grep -Eq "Working(\\.\\.\\.)?([[:space:]]|─|$)" || break
     sleep 0.05
     i=$((i + 1))
   done
@@ -3846,12 +3853,18 @@ JS
     || fail "freeze frame never left the left edge (column '${boat_freeze_column:-empty}')"
 
   # Escape aborts the run, and the abort path removes the ship with no residue.
+  # Escape can land while the just-started run is not yet abortable, so retry
+  # until pi records the abort instead of assuming one keypress sufficed.
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" Escape
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_cleared_snapshot"
-    if ! grep -Fq '\__/' "$boat_cleared_snapshot"; then
+    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -600 >"$boat_cleared_snapshot"
+    if ! grep -Fq '\__/' "$boat_cleared_snapshot" &&
+      [ "$(grep -Fc 'Operation aborted' "$boat_cleared_snapshot" || true)" -ge 1 ]; then
       break
+    fi
+    if [ "$((active_screen_wait % 20))" -eq 19 ]; then
+      tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" Escape
     fi
     sleep 0.05
     active_screen_wait=$((active_screen_wait + 1))
@@ -3891,13 +3904,19 @@ JS
   assert_not_contains "$(cat "$boat_resume_snapshot")" "Working" \
     "the second working period left Pi's stock working row visible"
 
-  # Clear the resumed run before the Calm-off stock-row probe.
+  # Clear the resumed run before the Calm-off stock-row probe, with the same
+  # abort-recorded retry as the first boat so a swallowed Escape cannot leave
+  # the long-delay run occupying the agent.
   tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" Escape
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
-    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$boat_cleared_snapshot"
-    if ! grep -Fq '\__/' "$boat_cleared_snapshot"; then
+    tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" -S -600 >"$boat_cleared_snapshot"
+    if ! grep -Fq '\__/' "$boat_cleared_snapshot" &&
+      [ "$(grep -Fc 'Operation aborted' "$boat_cleared_snapshot" || true)" -ge 2 ]; then
       break
+    fi
+    if [ "$((active_screen_wait % 20))" -eq 19 ]; then
+      tmux -L "$TMUX_SOCKET" send-keys -t "$TMUX_SESSION" Escape
     fi
     sleep 0.05
     active_screen_wait=$((active_screen_wait + 1))
@@ -3921,7 +3940,7 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$working_snapshot"
-    if grep -Fq "Working" "$working_snapshot"; then
+    if grep -Eq "Working(\\.\\.\\.)?([[:space:]]|─|$)" "$working_snapshot"; then
       break
     fi
     sleep 0.025
