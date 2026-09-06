@@ -215,6 +215,41 @@ test_pi_relaunch_keeps_the_recorded_name() {
   pass "a Pi replacement keeps one exact native name"
 }
 
+test_pi_native_name_update_survives_relaunch() {
+  local rec id name out status=0 launch
+  id=pi-name-update-z5
+  name="renamed O'Brien, c574!"
+  rec=$(make_case update pi "$id")
+  read_case "$rec"
+
+  out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$CASE_DIR/fake" \
+    "$id" "$PROJ_DIR" --mode no-mistakes --yolo off) || status=$?
+  expect_code 0 "$status" "Pi spawn before a native name update"
+  out=$(EXT="$HOME_DIR/state/$id.pi-ext.ts" FM_HOME="$HOME_DIR" NAME="$name" NODE_NO_WARNINGS=1 \
+    node --input-type=module 2>&1 <<'JS'
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const pi = { on(event, handler) { handlers.set(event, handler); } };
+const extension = await import(`${pathToFileURL(process.env.EXT).href}?update=${Date.now()}`);
+extension.default(pi);
+await handlers.get("session_info_changed")({ name: process.env.NAME });
+JS
+  ) || status=$?
+  expect_code 0 "$status" "Pi native name metadata synchronization"
+  [ -z "$out" ] || fail "Pi native name synchronization printed output: $out"
+  assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" \
+    "a native Pi name update did not update task metadata"
+  printf '%s\n' "fm-$id" > "$CASE_DIR/fake/windows"
+
+  out=$(run_control "$HOME_DIR" "$FAKEBIN_DIR" "$CASE_DIR/fake" \
+    "$id" relaunch --note "continue after native name update") || status=$?
+  expect_code 0 "$status" "Pi relaunch after a native name update"
+  launch=$(tail -1 "$CASE_DIR/fake/literal")
+  assert_contains "$launch" "--name 'renamed O'\\''Brien, c574!'" \
+    "the replacement did not receive the updated native name"
+  pass "a native Pi name update survives recovery"
+}
+
 test_switch_to_an_unnamed_harness_drops_stale_metadata() {
   local rec id out status=0 launch
   id=pi-name-switch-z4
@@ -243,11 +278,17 @@ test_switch_to_an_unnamed_harness_drops_stale_metadata() {
 
 run_primary_name_case() {
   local fixture=$1
-  mkdir -p "$fixture/.pi/extensions/lib" "$fixture/state"
+  mkdir -p "$fixture/.pi/extensions/lib" "$fixture/state" "$fixture/bin"
+  printf '# Firstmate\n' > "$fixture/AGENTS.md"
   printf '{"type":"module"}\n' > "$fixture/package.json"
   cp "$ROOT/.pi/extensions/fm-primary-turnend-guard.ts" "$fixture/.pi/extensions/"
   cp "$ROOT/.pi/extensions/lib/fm-operational-input.ts" \
     "$ROOT/.pi/extensions/lib/fm-sessionstart-supervisor.mjs" "$fixture/.pi/extensions/lib/"
+  git -C "$fixture" init -q
+  git -C "$fixture" config user.email test@example.invalid
+  git -C "$fixture" config user.name test
+  git -C "$fixture" add .
+  git -C "$fixture" commit -qm fixture
 
   EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
     FM_HOME="$fixture" FM_ROOT_OVERRIDE="$fixture" \
@@ -313,11 +354,46 @@ test_primary_and_secondmate_names_are_safe_on_reload() {
   pass "Pi names an unnamed primary or second mate once and preserves explicit names on reload"
 }
 
+test_unmanaged_worktree_keeps_its_unnamed_session() {
+  local fixture unrelated out status=0
+  command -v node >/dev/null 2>&1 || return 0
+  fixture="$TMP_ROOT/unmanaged"
+  run_primary_name_case "$fixture" || fail "could not prepare the primary fixture"
+  unrelated="$fixture/unrelated"
+  git -C "$fixture" worktree add -q "$unrelated"
+  mkdir -p "$unrelated/state"
+
+  out=$(EXT="$fixture/.pi/extensions/fm-primary-turnend-guard.ts" \
+    FM_HOME="$unrelated" FM_ROOT_OVERRIDE="$fixture" \
+    node --input-type=module 2>&1 <<'JS'
+import { pathToFileURL } from "node:url";
+const handlers = new Map();
+const appliedNames = [];
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  getSessionName() { return undefined; },
+  setSessionName(name) { appliedNames.push(name); },
+  sendMessage() {},
+  sendUserMessage() {},
+};
+const extension = await import(`${pathToFileURL(process.env.EXT).href}?unmanaged=${Date.now()}`);
+extension.default(pi);
+handlers.get("session_start")({ reason: "startup" }, {});
+if (appliedNames.length) throw new Error(`unmanaged worktree was renamed: ${appliedNames}`);
+JS
+  ) || status=$?
+  expect_code 0 "$status" "unmanaged Pi worktree session naming"
+  [ -z "$out" ] || fail "unmanaged Pi naming printed output: $out"
+  pass "an unmanaged linked worktree keeps its unnamed Pi session"
+}
+
 test_pi_launch_names_are_native_and_exact
 test_pi_worker_default_is_the_task_id
 test_pi_signed_secondmate_uses_the_conventional_name
 test_pi_relaunch_keeps_the_recorded_name
+test_pi_native_name_update_survives_relaunch
 test_switch_to_an_unnamed_harness_drops_stale_metadata
 test_primary_and_secondmate_names_are_safe_on_reload
+test_unmanaged_worktree_keeps_its_unnamed_session
 
 echo "# all Pi session-name tests passed"

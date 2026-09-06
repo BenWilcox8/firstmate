@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -58,16 +58,33 @@ function markLoaded(): void {
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
 }
 
-function assignedSessionName(): string {
+function secondmateId(): string | undefined {
   try {
-    const secondmateId = readFileSync(`${fmHome}/.fm-secondmate-home`, "utf8").trim();
-    if (secondmateId) return `Secondmate, ${secondmateId}`;
+    const marker = `${fmHome}/.fm-secondmate-home`;
+    if (!lstatSync(marker).isFile()) return undefined;
+    const id = readFileSync(marker, "utf8").trim();
+    return /^[A-Za-z0-9._-]+$/.test(id) ? id : undefined;
   } catch {
+    return undefined;
   }
-  return "Firstmate";
+}
+
+function isManagedPrimaryOrSecondmateHome(): boolean {
+  if (!existsSync(`${fmHome}/AGENTS.md`) || !existsSync(`${fmHome}/bin`) || !existsSync(state)) {
+    return false;
+  }
+  if (secondmateId()) return true;
+  const gitDir = spawnSync("git", ["-C", fmHome, "rev-parse", "--git-dir"], { encoding: "utf8" });
+  const gitCommonDir = spawnSync("git", ["-C", fmHome, "rev-parse", "--git-common-dir"], { encoding: "utf8" });
+  return gitDir.status === 0 && gitCommonDir.status === 0 && gitDir.stdout.trim() === gitCommonDir.stdout.trim();
+}
+
+function assignedSessionName(): string {
+  return secondmateId() ? `Secondmate, ${secondmateId()}` : "Firstmate";
 }
 
 function applyAssignedSessionName(pi: ExtensionAPI): void {
+  if (!isManagedPrimaryOrSecondmateHome()) return;
   try {
     if (pi.getSessionName()) return;
     pi.setSessionName(assignedSessionName());

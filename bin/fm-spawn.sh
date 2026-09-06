@@ -2890,6 +2890,7 @@ EOF
       exclude_path '.opencode/plugins/fm-busy-state.js'
       ;;
     pi|pi-signed)
+      SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
       # Written OUTSIDE the worktree: pi's project-trust gate fires on any extension
       # loaded from inside the project (verified live), but an explicit -e path
       # elsewhere loads without a dialog. Lives in state/, cleaned by teardown.
@@ -2917,6 +2918,14 @@ export default function (pi: any) {
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
     return busyEvent("idle", "agent-settled");
+  });
+  pi.on("session_info_changed", (event: any) => {
+    if (typeof event.name !== "string") return;
+    return new Promise<void>((resolve) => {
+      execFile("$FM_ROOT/bin/fm-session-name-sync.sh", [
+        "$STATE_REAL", "$ID", "$SPAWN_GEN", event.name,
+      ], () => resolve());
+    });
   });
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }
@@ -3117,7 +3126,7 @@ esac
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
+[ -n "${SPAWN_GEN:-}" ] || SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
