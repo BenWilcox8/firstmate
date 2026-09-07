@@ -270,6 +270,7 @@ family_for_basename() {
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
+    fm-atlas-assignment-name.test.sh|\
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-tmux-agent-liveness.test.sh|\
     fm-control.test.sh|fm-control-relaunch.test.sh|fm-cswap.test.sh|\
@@ -506,6 +507,7 @@ tests/fm-afk-inject-e2e.test.sh 35900
 tests/fm-afk-pi-herdr-return-e2e.test.sh 66
 tests/fm-afk-return.test.sh 3974
 tests/fm-ask-user-authority.test.sh 83
+tests/fm-atlas-assignment-name.test.sh 8000
 tests/fm-backend-cmux-smoke.test.sh 30
 tests/fm-backend-cmux.test.sh 3351
 tests/fm-backend-herdr-focus-flash-e2e.test.sh 21

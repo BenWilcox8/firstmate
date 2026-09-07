@@ -97,7 +97,8 @@ run_receiver() {
   local event=$1
   printf '%s\n' "$event" | FM_HOME="$HOME_DIR" FM_FAKE_DIR="$CASE_DIR/fake" \
     FM_ASSIGNMENT_SUBMIT_RETRIES=2 FM_ASSIGNMENT_SUBMIT_SLEEP=0 \
-    FM_ASSIGNMENT_SUBMIT_SETTLE=0 PATH="$FAKEBIN_DIR:$PATH" \
+    FM_ASSIGNMENT_SUBMIT_SETTLE=0 FM_ASSIGNMENT_CONFIRM_SLEEP=0 \
+    PATH="$FAKEBIN_DIR:$PATH" \
     "$RECEIVER" accept
 }
 
@@ -124,6 +125,22 @@ test_new_assignment_sets_exact_native_name_without_changing_pane_label() {
     "receiver invoked a terminal label mutation"
   [ ! -e "$CASE_DIR/pwned" ] || fail "assignment title was evaluated as shell text"
   pass "a committed assignment applies its exact title without changing the pane label"
+}
+
+test_pi_signed_uses_the_same_assignment_receiver_contract() {
+  local rec title event out status=0
+  rec=$(make_case signed pi-signed)
+  read_case "$rec"
+  title="Signed Pi assignment title"
+  event=$(event_json assignment-125 125 c125 "$title")
+
+  out=$(run_receiver "$event" 2>&1) || status=$?
+  expect_code 0 "$status" "Pi-signed assignment receiver"
+  [ "$(printf '%s\n' "$out" | jq -r '.result')" = accepted ] \
+    || fail "Pi-signed assignment was not accepted: $out"
+  assert_grep "/name $title" "$CASE_DIR/fake/literal" \
+    "Pi-signed did not use the native assignment title"
+  pass "Pi-signed uses the same exact assignment-title contract as Pi"
 }
 
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous() {
@@ -399,6 +416,7 @@ test_retry_recovers_a_crash_between_event_and_name_publication() {
 }
 
 test_new_assignment_sets_exact_native_name_without_changing_pane_label
+test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
 test_busy_assignment_is_durable_and_retries_only_after_idle
