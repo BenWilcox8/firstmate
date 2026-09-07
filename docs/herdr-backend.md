@@ -180,7 +180,8 @@ The re-derived slot/geometry/label-scan bash that agent-axi's ledger now owns wa
 - The husk-classification heuristics that drove placement decisions: the tab-mode close-and-replace of a restored same-labelled husk tab, the cross-layout same-label scan, and `fm_backend_herdr_tab_is_husk`.
 
 `config/herdr-layout` and the `FM_HERDR_LAYOUT` / `FM_HERDR_SPLIT_MAX` / `FM_HERDR_SPLIT_RATIO` overrides no longer exist; agent-axi owns the plan (its own `--plan` / built-in `home` + `overflow` plans).
-`fm_backend_herdr_pane_agent_state` stays (it still backs the `fm_backend_herdr_agent_state` recovery verb and its `fm_backend_herdr_agent_alive` compatibility view), and the recovery/selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` stay - they are recovery scoping, not placement, and match every other backend's contract.
+`fm_backend_herdr_pane_agent_state` stays for presentation-husk checks, while `fm_backend_herdr_recovery_pane_agent_state` backs the recovery verb and its compatibility view with stronger process proof.
+The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` also stay because they provide recovery scoping, not placement, and match every other backend's contract.
 
 ### Native fallback contract
 
@@ -463,9 +464,14 @@ A restored same-labeled tab with a missing pane or no registered agent is a husk
 Create replaces only a confidently dead or no-agent husk, creates the replacement before closing the old tab, and refuses live or unknown states.
 This prevents closing the workspace's last tab before a replacement exists.
 
-The generic Herdr agent-liveness probe reuses the same classifier.
-A structurally gone pane becomes `missing`, a restored agent-less shell becomes `dead`, a registered agent becomes `alive`, and an unexpected read becomes `unreadable`.
-Unlike tmux process-name inspection, native registration can classify Pi without guessing from a generic interpreter name.
+The generic Herdr agent-liveness probe uses a separate recovery classifier.
+A structurally gone pane becomes `missing`.
+An existing pane becomes `dead` only when two stable samples prove the exact pane identity, registry result, process-info identity, and operating-system process tree, and that complete tree contains only recognized sleeping or idle shells.
+Nested launch shells are accepted when every descendant remains a recognized shell and the exact foreground process group agrees with Herdr's process list.
+An exact recognized agent process becomes `alive`, even when the hook registry is absent.
+A registered hook status is not process proof because a full-lifecycle hook record can remain after Pi exits.
+Other foreground commands, unreadable evidence, inconsistent process identities, and a pane or process that changes between samples become `unreadable`.
+These conservative results prevent recovery from replacing an active or ambiguous process while allowing an exited Pi process with stale hook status to recover.
 
 The session-start sweep uses this probe.
 Mid-session secondmate agent-process liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.

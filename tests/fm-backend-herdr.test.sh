@@ -52,6 +52,8 @@ SYSTEM_BASH=$(command -v /bin/bash 2>/dev/null || command -v bash)
 # of calls precisely. A missing response file means "succeed with empty
 # stdout" (mirrors send-text/send-keys/pane close/tab close, which are silent
 # on success in the real CLI - verified in herdr-verification-p2.md).
+# The fixture also supplies a no-op python3 command because capability checks
+# require it, while the relevant tests replace the Python mover with a shell fixture.
 make_herdr_fakebin() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -80,6 +82,11 @@ fi
 exit 0
 SH
   chmod +x "$fb/herdr"
+  cat > "$fb/python3" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fb/python3"
   printf '%s\n' "$fb"
 }
 

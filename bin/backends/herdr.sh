@@ -1926,15 +1926,195 @@ fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
   esac
 }
 
+# Read one agent-registry sample for recovery.
+# A recognized status proves only that a hook record exists, not that its
+# process still owns the pane.
+fm_backend_herdr_recovery_registry_sample() {  # <session> <pane-id>
+  local out code status
+  out=$(fm_backend_herdr_cli "$1" agent get "$2" 2>&1) || true
+  code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
+  if [ -n "$code" ]; then
+    [ "$code" = agent_not_found ] && printf 'absent' || printf 'unknown'
+    return 0
+  fi
+  status=$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null)
+  case "$status" in
+    working|idle|done|blocked) printf 'registered:%s' "$status" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# Read and normalize the exact pane process identity that Herdr reports.
+fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
+  local out
+  out=$(fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null) || return 1
+  printf '%s' "$out" | jq -ceS --arg pane "$2" '
+    def base:
+      split("/")[-1] | ltrimstr("-");
+    .result
+    | select(.type == "pane_process_info")
+    | .process_info
+    | select(.pane_id == $pane)
+    | select((.shell_pid | type) == "number" and .shell_pid > 1 and (.shell_pid | floor) == .shell_pid)
+    | select((.foreground_process_group_id | type) == "number" and .foreground_process_group_id > 1 and (.foreground_process_group_id | floor) == .foreground_process_group_id)
+    | select((.foreground_processes | type) == "array" and (.foreground_processes | length) > 0)
+    | select(all(.foreground_processes[];
+        (.pid | type) == "number" and .pid > 1 and (.pid | floor) == .pid
+        and (.name | type) == "string" and (.name | length) > 0
+        and (((.argv0 // .argv[0]) | type) == "string")
+        and (((.argv0 // .argv[0]) | length) > 0)))
+    | select(([.foreground_processes[].pid] | unique | length) == (.foreground_processes | length))
+    | {
+        pane_id,
+        shell_pid,
+        foreground_process_group_id,
+        foreground_processes: ([.foreground_processes[] | {
+          pid,
+          name: (.name | base),
+          argv0: ((.argv0 // .argv[0]) | base)
+        }] | sort_by(.pid))
+      }
+    | select(all(.foreground_processes[];
+        (.name | test("^[A-Za-z0-9._+-]+$"))
+        and (.argv0 | test("^[A-Za-z0-9._+-]+$"))))
+  ' 2>/dev/null
+}
+
+# Classify one normalized process snapshot against one operating-system process
+# table sample.
+# The output includes the anchored process rows so a second sample can detect a
+# changed target instead of accepting a result from two different processes.
+fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
+  local snapshot=$1 ps_bin rows shell_pid foreground_pgid foreground
+  ps_bin=${FM_HERDR_PS_BIN:-ps}
+  command -v "$ps_bin" >/dev/null 2>&1 || return 1
+  rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm= 2>/dev/null) || return 1
+  shell_pid=$(printf '%s' "$snapshot" | jq -er '.shell_pid' 2>/dev/null) || return 1
+  foreground_pgid=$(printf '%s' "$snapshot" | jq -er '.foreground_process_group_id' 2>/dev/null) || return 1
+  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0] | @tsv' 2>/dev/null) || return 1
+  {
+    printf '%s\n' "$foreground"
+    printf '%s\n' "$rows" | awk 'NF >= 5 { print "P\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 }'
+  } | awk -F '\t' -v root="$shell_pid" -v fg="$foreground_pgid" '
+    function base(value) {
+      sub(/^.*\//, "", value)
+      sub(/^-/, "", value)
+      return value
+    }
+    function is_shell(value) {
+      return value == "sh" || value == "bash" || value == "zsh" || value == "dash" || value == "ksh" || value == "fish"
+    }
+    function is_agent(value) {
+      return value == "claude" || value == "codex" || value == "opencode" || value == "pi" || value == "pi-signed" || value == "grok" || value == "kimi" || value == "muse"
+    }
+    $1 == "F" {
+      if ($2 !~ /^[0-9]+$/ || seen_foreground[$2]++) invalid = 1
+      foreground[$2] = 1
+      foreground_name[$2] = base($3)
+      foreground_argv[$2] = base($4)
+      next
+    }
+    $1 == "P" {
+      if ($2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/ || seen_process[$2]++) {
+        invalid = 1
+        next
+      }
+      order[++count] = $2
+      parent[$2] = $3
+      pgid[$2] = $4
+      stat[$2] = $5
+      comm[$2] = base($6)
+    }
+    END {
+      if (invalid || !(root in parent) || !is_shell(comm[root])) {
+        print "unknown"
+        exit
+      }
+      descendant[root] = 1
+      for (round = 0; round <= count; round++) {
+        changed = 0
+        for (i = 1; i <= count; i++) {
+          pid = order[i]
+          if (!descendant[pid] && descendant[parent[pid]]) {
+            descendant[pid] = 1
+            changed = 1
+          }
+        }
+        if (!changed) break
+      }
+      for (pid in foreground) {
+        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || foreground_argv[pid] != comm[pid]) invalid = 1
+      }
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid] && pgid[pid] == fg && !foreground[pid]) invalid = 1
+        if (!descendant[pid]) continue
+        if (is_agent(comm[pid])) agents++
+        else if (is_shell(comm[pid])) {
+          shells++
+          if (stat[pid] !~ /^[SI]/) active_shell = 1
+        } else others++
+      }
+      if (invalid) state = "unknown"
+      else if (agents > 0) state = "live-process"
+      else if (others > 0) state = "unknown"
+      else if (shells > 0 && !active_shell) state = "shell-only"
+      else state = "unknown"
+      print state
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid]) print pid, parent[pid], pgid[pid], stat[pid], comm[pid]
+      }
+    }
+  '
+}
+
+# Combine two exact pane, registry, process-info, and operating-system process
+# samples for recovery.
+# A stale hook status can no longer prove life by itself.
+fm_backend_herdr_recovery_pane_agent_state() {  # <session> <pane-id>
+  local session=$1 pane=$2 presence registry_before registry_after
+  local snapshot_before snapshot_after tree_before tree_after process_state
+  presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane")
+  case "$presence" in
+    dead) printf 'dead'; return 0 ;;
+    present) ;;
+    *) printf 'unknown'; return 0 ;;
+  esac
+  registry_before=$(fm_backend_herdr_recovery_registry_sample "$session" "$pane")
+  [ "$registry_before" != unknown ] || { printf 'unknown'; return 0; }
+  snapshot_before=$(fm_backend_herdr_recovery_process_snapshot "$session" "$pane") \
+    || { printf 'unknown'; return 0; }
+  tree_before=$(fm_backend_herdr_recovery_process_tree_sample "$snapshot_before") \
+    || { printf 'unknown'; return 0; }
+  registry_after=$(fm_backend_herdr_recovery_registry_sample "$session" "$pane")
+  snapshot_after=$(fm_backend_herdr_recovery_process_snapshot "$session" "$pane") \
+    || { printf 'unknown'; return 0; }
+  tree_after=$(fm_backend_herdr_recovery_process_tree_sample "$snapshot_after") \
+    || { printf 'unknown'; return 0; }
+  presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane")
+  [ "$presence" = present ] \
+    && [ "$registry_before" = "$registry_after" ] \
+    && [ "$snapshot_before" = "$snapshot_after" ] \
+    && [ "$tree_before" = "$tree_after" ] \
+    || { printf 'unknown'; return 0; }
+  process_state=${tree_before%%$'\n'*}
+  case "$process_state" in
+    live-process) printf 'live' ;;
+    shell-only) printf 'no-agent' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 # fm_backend_herdr_agent_state: recovery-grade state for the same session-start
-# sweep as the tmux classifier. It reuses fm_backend_herdr_pane_agent_state
-# rather than creating a second Herdr state machine: a structurally gone pane is
-# `missing`, a confirmed agent-less pane is `dead`, a registered agent is
-# `alive`, and an unexpected or failed API read is `unreadable`.
+# sweep as the tmux classifier.
+# A structurally gone pane is `missing`, an exact stable shell-only process tree
+# is `dead`, an exact stable agent process is `alive`, and every ambiguous or
+# unreadable observation is `unreadable`.
 fm_backend_herdr_agent_state() {  # <target>
   local target=$1
   fm_backend_herdr_parse_target "$target" || { printf 'unreadable'; return 0; }
-  case "$(fm_backend_herdr_pane_agent_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
+  case "$(fm_backend_herdr_recovery_pane_agent_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
     dead) printf 'missing' ;;
     no-agent) printf 'dead' ;;
     live) printf 'alive' ;;
