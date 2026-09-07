@@ -314,11 +314,54 @@ case "${BUSY%% *}" in
   *) retry "$ASSIGNMENT_ID" "task $ID idle state is not verified" ;;
 esac
 
+migrate_native_name_extension() {
+  local extension tmp
+  extension="$STATE/$ID.pi-ext.ts"
+  [ -f "$extension" ] && [ ! -L "$extension" ] || return 1
+  grep -F 'fm-set-assignment-name' "$extension" >/dev/null 2>&1 && return 2
+  tmp=$(mktemp "$STATE/.$ID.pi-ext.migrate.XXXXXX") || return 1
+  if ! {
+    cat "$extension"
+    cat <<EOF
+pi.on("session_info_changed", (event: any) => {
+  if (typeof event.name !== "string") return;
+  execFile("$FM_ROOT/bin/fm-session-name-sync.sh", ["--event", "$STATE", "$ID", "$SPAWN_GEN", event.name]);
+});
+pi.registerCommand("fm-set-assignment-name", {
+  handler: (args: string) => {
+    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
+    const name = Buffer.from(args, "base64").toString("utf8");
+    if (Buffer.from(name, "utf8").toString("base64") !== args) return;
+    pi.setSessionName(name);
+  },
+});
+EOF
+  } > "$tmp" \
+     || ! chmod 0600 "$tmp" \
+     || ! mv -f -- "$tmp" "$extension"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+}
+
 RETRIES=${FM_ASSIGNMENT_SUBMIT_RETRIES:-3}
 SLEEP_SECS=${FM_ASSIGNMENT_SUBMIT_SLEEP:-0.5}
 SETTLE_SECS=${FM_ASSIGNMENT_SUBMIT_SETTLE:-0.1}
 case "$RETRIES" in ''|*[!0-9]*|0) RETRIES=3 ;; esac
-VERDICT=$(fm_backend_send_text_submit "$BACKEND" "$TARGET" "/name $TITLE" \
+MIGRATED=0
+if migrate_native_name_extension; then
+  MIGRATED=1
+else
+  case "$?" in 2) ;; *) retry "$ASSIGNMENT_ID" "native name extension cannot be migrated for task $ID" ;; esac
+fi
+TITLE_B64=$(printf '%s' "$TITLE" | base64 | tr -d '\n') \
+  || retry "$ASSIGNMENT_ID" "native assignment name cannot be encoded for task $ID"
+if [ "$MIGRATED" = 1 ]; then
+  fm_backend_send_text_submit "$BACKEND" "$TARGET" "/reload" \
+    "$RETRIES" "$SLEEP_SECS" "$SETTLE_SECS" "fm-$ID" >/dev/null 2>&1 \
+    || retry "$ASSIGNMENT_ID" "native name extension reload failed for task $ID"
+fi
+VERDICT=$(fm_backend_send_text_submit "$BACKEND" "$TARGET" "/fm-set-assignment-name $TITLE_B64" \
   "$RETRIES" "$SLEEP_SECS" "$SETTLE_SECS" "fm-$ID" 2>/dev/null) \
   || retry "$ASSIGNMENT_ID" "native rename delivery failed for task $ID"
 if ! native_name_visible; then

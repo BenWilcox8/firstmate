@@ -1093,7 +1093,7 @@ This evidence separated successful native delivery from a confirmation mismatch.
 The active footer theme did not render the default path-and-name bullet that the first confirmation check expected.
 
 The repair added a read-only terminal-title operation for the tmux and Herdr backends.
-The receiver compares the exact native Pi title through this operation and keeps the bounded screen check as a fallback.
+The receiver compares the exact native Pi title through this operation, or waits for the current-generation Pi session event.
 This operation reads application metadata and does not change the tmux window name or Herdr agent name.
 
 A second guarded lab used a delayed local provider to put the Pi agent in a real `working` state.

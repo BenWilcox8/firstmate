@@ -29,6 +29,7 @@ kind=ship
 spawn_gen=test-generation
 session_name=manual before assignment
 EOF
+  printf 'pi.registerCommand("fm-set-assignment-name", {});\n' > "$home/state/$id.pi-ext.ts"
   "$ROOT/bin/fm-busy-event.sh" arm "$home/state" "$id" \
     --state idle --source pi-ext --event test-idle >/dev/null
   cat > "$fakebin/tmux" <<'SH'
@@ -47,7 +48,11 @@ case "${1:-}" in
         [ ! -e "$D/fail-send" ] || exit 1
         literal=${@: -1}
         printf '%s\n' "$literal" >> "$D/literal"
-        case "$literal" in /name\ *) printf '%s\n' "${literal#/name }" > "$D/pending-native-name" ;; esac
+        case "$literal" in
+          /fm-set-assignment-name\ *)
+            printf '%s' "${literal#/fm-set-assignment-name }" | base64 -d > "$D/pending-native-name"
+            ;;
+        esac
         printf '╭────────────╮\n│ > pending  │\n╰────────────╯\n' > "$D/composer"
         ;;
       *' Enter'*)
@@ -100,6 +105,10 @@ EOF
   : "$WORKTREE_DIR" "$PROJECT_DIR"
 }
 
+assignment_name_command() {
+  printf '/fm-set-assignment-name %s' "$(printf '%s' "$1" | base64 | tr -d '\n')"
+}
+
 event_json() {
   local assignment_id=$1 order=$2 ticket=$3 title=$4
   jq -cn \
@@ -139,8 +148,8 @@ test_new_assignment_sets_exact_native_name_without_changing_pane_label() {
     || fail "receiver did not accept the assignment: $out"
   assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
     "assignment title was not durable in task metadata"
-  assert_grep "/name $title" "$CASE_DIR/fake/literal" \
-    "receiver did not submit the exact native Pi name"
+  assert_grep "$(assignment_name_command "$title")" "$CASE_DIR/fake/literal" \
+    "receiver did not submit the encoded native Pi name command"
   assert_grep "window=firstmate:fm-$ID" "$HOME_DIR/state/$ID.meta" \
     "receiver changed the pane label identity"
   assert_no_grep "rename-window\|select-pane.*-T\|set-option.*title" "$CASE_DIR/fake/calls" \
@@ -160,8 +169,8 @@ test_pi_signed_uses_the_same_assignment_receiver_contract() {
   expect_code 0 "$status" "Pi-signed assignment receiver"
   [ "$(printf '%s\n' "$out" | jq -r '.result')" = accepted ] \
     || fail "Pi-signed assignment was not accepted: $out"
-  assert_grep "/name $title" "$CASE_DIR/fake/literal" \
-    "Pi-signed did not use the native assignment title"
+  assert_grep "$(assignment_name_command "$title")" "$CASE_DIR/fake/literal" \
+    "Pi-signed did not use the native assignment title command"
   pass "Pi-signed uses the same exact assignment-title contract as Pi"
 }
 
@@ -179,6 +188,24 @@ test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambig
   assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
     "the natively confirmed name was not durable"
   pass "a native Pi title confirms an otherwise ambiguous slash-command submission"
+}
+
+test_exact_whitespace_title_reaches_the_native_command() {
+  local rec title event out status=0
+  rec=$(make_case exact-whitespace)
+  read_case "$rec"
+  title="  Exact title, punctuation!  "
+  event=$(event_json assignment-155 155 c155 "$title")
+
+  out=$(run_receiver "$event" 2>&1) || status=$?
+  expect_code 0 "$status" "exact whitespace assignment"
+  [ "$(printf '%s\n' "$out" | jq -r '.result')" = accepted ] \
+    || fail "an exact whitespace title was not accepted: $out"
+  assert_grep "$(assignment_name_command "$title")" "$CASE_DIR/fake/literal" \
+    "leading or trailing title whitespace was not encoded for native delivery"
+  assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
+    "leading or trailing title whitespace was not durable"
+  pass "a native assignment command preserves exact title whitespace"
 }
 
 test_session_info_confirmation_accepts_without_a_terminal_title() {
@@ -340,7 +367,7 @@ test_busy_assignment_is_durable_and_retries_only_after_idle() {
   expect_code 0 "$status" "pending assignment retry after Pi becomes idle"
   [ "$(printf '%s\n' "$out" | jq -r '.result')" = accepted ] \
     || fail "idle retry was not accepted: $out"
-  assert_grep "/name $title" "$CASE_DIR/fake/literal" \
+  assert_grep "$(assignment_name_command "$title")" "$CASE_DIR/fake/literal" \
     "idle retry did not submit the retained title"
   [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = submitted ] \
     || fail "idle retry did not record confirmed submission"
@@ -526,7 +553,7 @@ test_retry_recovers_a_crash_between_event_and_name_publication() {
     || fail "stored assignment was not recovered: $out"
   assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
     "crash recovery did not publish the assignment name"
-  assert_grep "/name $title" "$CASE_DIR/fake/literal" \
+  assert_grep "$(assignment_name_command "$title")" "$CASE_DIR/fake/literal" \
     "crash recovery did not submit the assignment name"
   pass "a retry completes an assignment stored before a receiver crash"
 }
@@ -534,6 +561,7 @@ test_retry_recovers_a_crash_between_event_and_name_publication() {
 test_new_assignment_sets_exact_native_name_without_changing_pane_label
 test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
+test_exact_whitespace_title_reaches_the_native_command
 test_session_info_confirmation_accepts_without_a_terminal_title
 test_submit_confirmation_without_the_native_name_requests_a_retry
 test_ordinary_chat_cannot_confirm_a_native_name

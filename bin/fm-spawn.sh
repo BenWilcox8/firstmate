@@ -2929,6 +2929,14 @@ export default function (pi: any) {
     }));
     return nameSync;
   });
+  pi.registerCommand("fm-set-assignment-name", {
+    handler: (args: string) => {
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
+      const name = Buffer.from(args, "base64").toString("utf8");
+      if (Buffer.from(name, "utf8").toString("base64") !== args) return;
+      pi.setSessionName(name);
+    },
+  });
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }
 EOF
