@@ -82,11 +82,14 @@ The same primary extension assigns `Firstmate` to an unnamed primary and reads a
 It keeps a name that Pi already has.
 As a result, startup, reload, resume, and fork events do not replace a name that Pi provides.
 A new session gets the role default because it has a new native identity.
-Worker role defaults remain owned by `bin/fm-spawn.sh`, not by this primary extension.
+Worker role defaults remain owned by `bin/fm-spawn.sh`, not by this primary extension: a worker uses its task id, while a second mate uses `Secondmate, <id>`.
+A managed worker can use Pi's native `/name <name>` without restarting.
+The current worker extension records that name for recovery, while a worker created before this support needs `bin/fm-session-name-sync.sh <task-id> <name>` before recovery unless an assignment performs its in-place update.
 After the Dashboard commits a ticket assignment, it owns event emission and durable retry, while `bin/fm-atlas-assignment-name.sh` only accepts the delivered event and applies the exact ticket title to an idle Pi-family worker.
 The receiver neither queues nor emits assignment events.
+For an eligible legacy worker, the receiver updates only its recorded worker extension and sends native `/reload` before the rename.
 The committed Atlas sequence orders events, so a duplicate or stale delivery cannot restore an older title.
-The receiver records the accepted title for recovery and does not change the Herdr pane label.
+The receiver records the accepted title for recovery only after current-generation native session confirmation or an exact read-only terminal title, and it does not change the Herdr pane label.
 
 Cursor's `sessionStart` fires at every session open with no source distinction, including a resumed session, so a resume re-runs the full digest; that is redundant and idempotent rather than a lost helm.
 Cursor's compaction surface is uncovered in the same sense as Codex's interactive TUI above: Firstmate registers nothing for `preCompact`, so a compacted Cursor session keeps whatever context survived rather than receiving a fresh digest.

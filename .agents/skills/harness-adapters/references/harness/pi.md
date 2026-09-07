@@ -30,19 +30,8 @@ The router's Detection section owns how launch markers and ancestry select betwe
 Keep the instructions as one positional argument.
 Multiple positional arguments become separate queued messages; the spawn template already preserves the one-argument shape.
 
-`../../../../../bin/fm-spawn.sh` is the naming owner for workers and second mates.
-An explicit session name wins.
-A worker defaults to its task id, and a second mate defaults to `Secondmate, <id>`.
-A successful Atlas assignment replaces that default or a manual name with the exact ticket title after the target is verified idle.
-A later assignment replaces the current name, while a duplicate or older assignment leaves it unchanged.
-The Herdr pane label remains the agent name and is not a Pi session-name source.
-The control plane passes the recorded name to a replacement.
-This keeps the name across recovery without resuming or rewriting the previous private session.
-Pi's native `/name <name>` command updates an existing managed session without a restart.
-A current worker extension synchronizes that update into its task record for recovery.
-For a worker from before this support, follow the [existing-worker migration](../../../../../README.md#install-and-launch) after `/name` and before recovery.
-[`docs/sessionstart-nudge.md`](../../../../../docs/sessionstart-nudge.md#harness-transports) owns primary and secondmate naming.
-These facts were verified with Pi 0.85.1 on 2026-09-06.
+[`docs/sessionstart-nudge.md`](../../../../../docs/sessionstart-nudge.md#harness-transports) owns Pi primary, secondmate, and managed-worker naming, including assignment delivery and recovery.
+`../../../../../bin/fm-spawn.sh --help` owns the worker launch interface.
 
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.
 Accept it with Enter and verify the instructions begin processing.
