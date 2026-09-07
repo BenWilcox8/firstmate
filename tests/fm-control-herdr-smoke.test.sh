@@ -98,6 +98,15 @@ run_control() {
     "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
 
+fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" 'exec bash --noprofile --norc -i' \
+  || fail "could not establish the childless shell fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  STATE=$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")
+  [ "$STATE" = dead ] && break
+  sleep 0.1
+done
+[ "$STATE" = dead ] || fail "the childless shell fixture should classify as dead, got '$STATE'"
+
 # --- no registered agent: the endpoint exists but hosts no agent ------------
 
 OUT=$(run_control hsmoke exit) || fail "exit against an agent-free herdr pane should be idempotent success: $OUT"
@@ -133,7 +142,9 @@ pass "real herdr: stale lifecycle-hook status does not keep a shell-only pane al
 
 # --- an exact foreground agent process remains protected --------------------
 
-cp "$(readlink -f "$(command -v bash)")" "$SCRATCH/pi"
+BASH_BIN=$(command -v bash)
+[ -x "$BASH_BIN" ] || fail "could not find the Bash fixture executable"
+cp "$BASH_BIN" "$SCRATCH/pi"
 fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" "$SCRATCH/pi -c 'trap \"\" INT TERM HUP; while :; do sleep 300; done'" \
   || fail "could not start the foreground Pi process fixture"
 for _ in 1 2 3 4 5 6 7 8 9 10; do
