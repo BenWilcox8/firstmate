@@ -184,6 +184,15 @@ case "$HARNESS" in
 esac
 
 RECORD="$STATE/$ID.atlas-assignment-name.json"
+CONFIRMATION="$STATE/$ID.pi-name-confirmation"
+SPAWN_GEN=$(fm_meta_get "$META" spawn_gen)
+[ -n "$SPAWN_GEN" ] || retry "$ASSIGNMENT_ID" "task $ID has no current spawn generation"
+if [ -e "$CONFIRMATION" ]; then
+  [ -f "$CONFIRMATION" ] && [ ! -L "$CONFIRMATION" ] \
+    || retry "$ASSIGNMENT_ID" "native name confirmation is not a regular file for task $ID"
+  rm -f -- "$CONFIRMATION" \
+    || retry "$ASSIGNMENT_ID" "stale native name confirmation cannot be cleared for task $ID"
+fi
 decimal_order_cmp() {  # <left> <right>
   local left=$1 right=$2 LC_ALL=C
   if [ "${#left}" -lt "${#right}" ]; then printf '%s' -1; return; fi
@@ -210,12 +219,21 @@ publish_assignment_record() {  # <delivery> <prior-name>
   TMP=
 }
 
+native_name_confirmed() {
+  local confirmation_gen confirmation_name
+  [ -f "$CONFIRMATION" ] && [ ! -L "$CONFIRMATION" ] || return 1
+  confirmation_gen=$(awk -F= '$1 == "spawn_gen" { print substr($0, 11); exit }' "$CONFIRMATION")
+  confirmation_name=$(awk -F= '$1 == "name" { print substr($0, 6); exit }' "$CONFIRMATION")
+  [ "$confirmation_gen" = "$SPAWN_GEN" ] && [ "$confirmation_name" = "$TITLE" ]
+}
+
 native_name_visible() {
   local capture line terminal_title attempt=0
   local attempts=${FM_ASSIGNMENT_CONFIRM_RETRIES:-20}
   local sleep_secs=${FM_ASSIGNMENT_CONFIRM_SLEEP:-0.1}
   case "$attempts" in ''|*[!0-9]*|0) attempts=20 ;; esac
   while [ "$attempt" -lt "$attempts" ]; do
+    native_name_confirmed && return 0
     terminal_title=$(fm_backend_terminal_title "$BACKEND" "$TARGET" 2>/dev/null || true)
     case "$terminal_title" in
       "π - $TITLE - "*) return 0 ;;
@@ -317,4 +335,6 @@ fi
 
 publish_assignment_record submitted "$OLD_PRIOR_NAME" \
   || retry "$ASSIGNMENT_ID" "assignment acknowledgment cannot be published for task $ID"
+rm -f -- "$CONFIRMATION" \
+  || retry "$ASSIGNMENT_ID" "native name confirmation cannot be cleared for task $ID"
 ack "$ASSIGNMENT_ID" accepted 0

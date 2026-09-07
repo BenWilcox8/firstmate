@@ -26,6 +26,7 @@ worktree=$worktree
 project=$project
 harness=$harness
 kind=ship
+spawn_gen=test-generation
 session_name=manual before assignment
 EOF
   "$ROOT/bin/fm-busy-event.sh" arm "$home/state" "$id" \
@@ -52,6 +53,12 @@ case "${1:-}" in
       *' Enter'*)
         if [ "${FM_FAKE_NATIVE_NO_APPLY:-0}" != 1 ] && [ -f "$D/pending-native-name" ]; then
           mv "$D/pending-native-name" "$D/native-name"
+        fi
+        if [ "${FM_FAKE_EMIT_SESSION_INFO:-0}" = 1 ] && [ -f "$D/pending-native-name" ]; then
+          {
+            printf 'spawn_gen=%s\n' "$FM_NAME_GEN"
+            printf 'name=%s\n' "$(cat "$D/pending-native-name")"
+          } > "$FM_NAME_STATE/$FM_NAME_ID.pi-name-confirmation"
         fi
         if [ "${FM_FAKE_KEEP_PENDING:-0}" = 1 ]; then
           printf '╭────────────╮\n│ > pending  │\n╰────────────╯\n' > "$D/composer"
@@ -107,6 +114,8 @@ event_json() {
 run_receiver() {
   local event=$1
   printf '%s\n' "$event" | FM_HOME="$HOME_DIR" FM_FAKE_DIR="$CASE_DIR/fake" \
+    FM_NAME_STATE="$HOME_DIR/state" \
+    FM_NAME_ID="$ID" FM_NAME_GEN=test-generation \
     FM_ASSIGNMENT_SUBMIT_RETRIES=2 FM_ASSIGNMENT_SUBMIT_SLEEP=0 \
     FM_ASSIGNMENT_SUBMIT_SETTLE=0 FM_ASSIGNMENT_CONFIRM_SLEEP=0 \
     PATH="$FAKEBIN_DIR:$PATH" \
@@ -168,6 +177,26 @@ test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambig
   assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
     "the natively confirmed name was not durable"
   pass "a native Pi title confirms an otherwise ambiguous slash-command submission"
+}
+
+test_session_info_confirmation_accepts_without_a_terminal_title() {
+  local rec title event out status=0
+  rec=$(make_case event-confirm)
+  read_case "$rec"
+  title="Event-confirmed assignment title"
+  event=$(event_json assignment-160 160 c160 "$title")
+
+  out=$(FM_FAKE_NATIVE_NO_APPLY=1 FM_FAKE_EMIT_SESSION_INFO=1 run_receiver "$event" 2>&1) || status=$?
+  expect_code 0 "$status" "session_info_changed confirmation"
+  [ "$(printf '%s\n' "$out" | jq -r '.result')" = accepted ] \
+    || fail "a durable native name event did not confirm the assignment: $out"
+  "$ROOT/bin/fm-session-name-sync.sh" --event "$HOME_DIR/state" "$ID" test-generation "$title" \
+    || fail "the session_info_changed synchronizer did not accept the current task generation"
+  assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
+    "the confirmed native name was not durable"
+  [ ! -e "$HOME_DIR/state/$ID.pi-name-confirmation" ] \
+    || fail "the native name confirmation record was not cleaned up"
+  pass "a session_info_changed event confirms the exact name without a terminal title"
 }
 
 test_submit_confirmation_without_the_native_name_requests_a_retry() {
@@ -487,6 +516,7 @@ test_retry_recovers_a_crash_between_event_and_name_publication() {
 test_new_assignment_sets_exact_native_name_without_changing_pane_label
 test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
+test_session_info_confirmation_accepts_without_a_terminal_title
 test_submit_confirmation_without_the_native_name_requests_a_retry
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
 test_128_digit_stale_order_cannot_replace_the_current_title

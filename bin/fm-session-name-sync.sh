@@ -31,10 +31,27 @@ esac
 
 META="$STATE/$ID.meta"
 [ -f "$META" ] && [ ! -L "$META" ] || exit 0
+CONFIRMATION="$STATE/$ID.pi-name-confirmation"
 
 meta_value() {
   awk -F= -v key="$2" '$1 == key { print substr($0, length(key) + 2); exit }' "$1"
 }
+
+if [ "$EVENT" = 1 ]; then
+  [ "$(meta_value "$META" spawn_gen)" = "$SPAWN_GEN" ] || exit 0
+  case "$(meta_value "$META" harness)" in pi|pi-signed) ;; *) exit 0 ;; esac
+  TMP=$(mktemp "$STATE/.$ID.pi-name-confirmation.XXXXXX") || exit 0
+  if ! {
+    printf 'spawn_gen=%s\n' "$SPAWN_GEN"
+    printf 'name=%s\n' "$NAME"
+  } > "$TMP" \
+     || ! chmod 0600 "$TMP" \
+     || ! mv -f -- "$TMP" "$CONFIRMATION"; then
+    rm -f -- "$TMP"
+    exit 0
+  fi
+  TMP=
+fi
 
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
@@ -43,6 +60,7 @@ fm_lock_acquire_wait "$LOCK"
 TMP=
 cleanup() {
   [ -z "$TMP" ] || rm -f -- "$TMP"
+  [ "$EVENT" != 1 ] || rm -f -- "$CONFIRMATION"
   fm_lock_release "$LOCK"
 }
 trap cleanup EXIT
