@@ -469,6 +469,7 @@ A structurally gone pane becomes `missing`.
 An existing pane becomes `dead` only when two stable samples prove the exact pane identity, registry result, process-info identity, and operating-system process tree, and that complete tree contains only recognized sleeping or idle shells.
 Nested launch shells are accepted when every descendant remains a recognized shell and the exact foreground process group agrees with Herdr's process list.
 An exact recognized agent process becomes `alive`, even when the hook registry is absent.
+Pi launched through a Node or Python interpreter is recognized from its process arguments rather than the interpreter name alone.
 A registered hook status is not process proof because a full-lifecycle hook record can remain after Pi exits.
 Other foreground commands, unreadable evidence, inconsistent process identities, and a pane or process that changes between samples become `unreadable`.
 These conservative results prevent recovery from replacing an active or ambiguous process while allowing an exited Pi process with stale hook status to recover.
@@ -532,6 +533,8 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 
 ```sh
 tests/fm-backend-herdr.test.sh
+tests/fm-backend-herdr-recovery-state.test.sh
+tests/fm-control-herdr-smoke.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-send-strict.test.sh
 tests/fm-herdr-submit-confirm-live-e2e.test.sh
