@@ -43,6 +43,21 @@ case "${FM_RECOVERY_CASE:?}" in
   interpreter-pi)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '102 100 102 S node'
     ;;
+  codex-aarch64|kimi-code|muse-bin|cursor-agent|cursor-mainthread)
+    case "$FM_RECOVERY_CASE" in
+      codex-aarch64) process=codex-aarch64-a ;;
+      kimi-code) process=kimi-code ;;
+      muse-bin) process=muse-bin-0.1.0 ;;
+      cursor-agent) process=cursor-agent ;;
+      cursor-mainthread) process=MainThread ;;
+    esac
+    printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' "102 100 102 S $process"
+    ;;
+  interpreter-claude|interpreter-codex)
+    interpreter=python3
+    [ "$FM_RECOVERY_CASE" = interpreter-codex ] && interpreter=node
+    printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' "102 100 102 S $interpreter"
+    ;;
   other-command)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '103 100 103 S sleep'
     ;;
@@ -99,6 +114,27 @@ run_case() { # <case> <registry-status>
               interpreter-pi)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"node\",\"argv\":[\"/usr/local/bin/node\",\"/opt/pi/bin/pi\"]}]}}}"
                 ;;
+              codex-aarch64)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"codex-aarch64-a\",\"argv\":[\"codex-aarch64-a\"]}]}}}"
+                ;;
+              kimi-code)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"kimi-code\",\"argv\":[\"kimi-code\"]}]}}}"
+                ;;
+              muse-bin)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"muse-bin-0.1.0\",\"argv\":[\"muse-bin-0.1.0\"]}]}}}"
+                ;;
+              cursor-agent)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"cursor-agent\",\"argv\":[\"cursor-agent\"]}]}}}"
+                ;;
+              cursor-mainthread)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"MainThread\",\"argv\":[\"/home/test/.local/share/cursor-agent/versions/v1/cursor-agent\"]}]}}}"
+                ;;
+              interpreter-claude)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"python3\",\"argv\":[\"/usr/bin/python3\",\"/opt/claude/run.py\"]}]}}}"
+                ;;
+              interpreter-codex)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"node\",\"argv\":[\"/usr/bin/node\",\"/opt/codex/run.js\"]}]}}}"
+                ;;
               other-command)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":103,\"foreground_processes\":[{\"pid\":103,\"name\":\"sleep\",\"argv\":[\"sleep\",\"30\"]}]}}}"
                 ;;
@@ -133,11 +169,18 @@ pass "stale lifecycle status cannot keep an exited agent alive, including throug
 assert_case active-pi working alive
 assert_case absent-active-pi absent alive
 assert_case interpreter-pi idle alive
+assert_case codex-aarch64 idle alive
+assert_case kimi-code idle alive
+assert_case muse-bin idle alive
+assert_case cursor-agent idle alive
+assert_case cursor-mainthread idle alive
+assert_case interpreter-claude idle alive
+assert_case interpreter-codex idle alive
 assert_case other-command idle unreadable
 assert_case treehouse-other-args idle unreadable
 assert_case treehouse-active idle unreadable
 assert_case unreadable idle unreadable
-pass "active agents remain live, while other commands, an inexact or active Treehouse process, and unreadable evidence remain ambiguous"
+pass "active supported harnesses remain live, while other commands, an inexact or active Treehouse process, and unreadable evidence remain ambiguous"
 
 assert_case process-race idle unreadable
 assert_case pane-race idle unreadable

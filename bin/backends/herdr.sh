@@ -1976,9 +1976,13 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
           argv0: ((.argv0 // .argv[0]) | base),
           argv: (.argv // []),
           agent: ((.name | base) as $name
-            | (($name | test("^(claude|codex|opencode|pi|pi-signed|grok|kimi|muse)$"))
+            | (.argv[0] // .argv0) as $argv0
+            | (($name | test("^(claude|codex|opencode|grok)"))
+              or ($name | test("^pi(-signed)?$|^kimi(-code)?$|^muse(-bin-.+)?$|^cursor-agent$"))
+              or (($name | test("^(agent|MainThread|node|python)"))
+                and (($argv0 | base) == "cursor-agent" or ($argv0 | test("/cursor-agent/versions/[^/]+/cursor-agent$"))))
               or (($name | test("^(node|python)"))
-                and ((.argv // [] | join(" ")) | test("(^|[[:space:]])pi([[:space:]]|$)|/pi($|[[:space:]])")))))
+                and ((.argv // [] | join(" ")) | test("claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|/pi($|[[:space:]])")))))
         }] | sort_by(.pid))
       }
     | select(all(.foreground_processes[];
@@ -2018,8 +2022,10 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
     function is_shell(value) {
       return value == "sh" || value == "bash" || value == "zsh" || value == "dash" || value == "ksh" || value == "fish"
     }
-    function is_agent(value) {
-      return value == "claude" || value == "codex" || value == "opencode" || value == "pi" || value == "pi-signed" || value == "grok" || value == "kimi" || value == "muse"
+    function is_agent(value, args, fields, argv0) {
+      split(args, fields, " ")
+      argv0 = fields[1]
+      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
     }
     function is_shell_broker(value, args) {
       return value == "treehouse" && args == "treehouse get"
@@ -2070,13 +2076,13 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
         }
       }
       for (pid in foreground) {
-        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || foreground_argv[pid] != comm[pid]) invalid = 1
+        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || (foreground_argv[pid] != comm[pid] && !(foreground_agent[pid] == "true" && (comm[pid] == "agent" || comm[pid] == "MainThread")))) invalid = 1
       }
       for (i = 1; i <= count; i++) {
         pid = order[i]
         if (descendant[pid] && pgid[pid] == fg && !foreground[pid]) invalid = 1
         if (!descendant[pid]) continue
-        if (is_agent(comm[pid]) || foreground_agent[pid] == "true") agents++
+        if (is_agent(comm[pid], command_line[pid]) || foreground_agent[pid] == "true") agents++
         else if (is_shell(comm[pid])) {
           shells++
           if (stat[pid] !~ /^[SI]/) active_shell = 1
