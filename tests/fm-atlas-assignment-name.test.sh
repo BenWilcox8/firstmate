@@ -60,7 +60,9 @@ case "${1:-}" in
             printf 'name=%s\n' "$(cat "$D/pending-native-name")"
           } > "$FM_NAME_STATE/$FM_NAME_ID.pi-name-confirmation"
         fi
-        if [ "${FM_FAKE_KEEP_PENDING:-0}" = 1 ]; then
+        if [ -n "${FM_FAKE_CHAT_TITLE:-}" ]; then
+          printf 'ordinary chat\n• %s\n' "$FM_FAKE_CHAT_TITLE" > "$D/composer"
+        elif [ "${FM_FAKE_KEEP_PENDING:-0}" = 1 ]; then
           printf '╭────────────╮\n│ > pending  │\n╰────────────╯\n' > "$D/composer"
         else
           printf '╭─────╮\n│ >   │\n╰─────╯\n' > "$D/composer"
@@ -213,6 +215,22 @@ test_submit_confirmation_without_the_native_name_requests_a_retry() {
   [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = pending ] \
     || fail "unconfirmed assignment did not remain pending"
   pass "a submitted Enter is not acceptance until the native Pi name is visible"
+}
+
+test_ordinary_chat_cannot_confirm_a_native_name() {
+  local rec title event out status=0
+  rec=$(make_case chat-is-not-native)
+  read_case "$rec"
+  title="Ordinary chat ticket"
+  event=$(event_json assignment-180 180 c180 "$title")
+
+  out=$(FM_FAKE_NATIVE_NO_APPLY=1 FM_FAKE_CHAT_TITLE="$title" run_receiver "$event" 2>&1) || status=$?
+  expect_code 75 "$status" "ordinary chat native-name confirmation"
+  [ "$(printf '%s\n' "$out" | tail -1 | jq -r '.result')" = retry ] \
+    || fail "ordinary chat text was accepted as a native name: $out"
+  [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = pending ] \
+    || fail "ordinary chat text did not leave the assignment pending"
+  pass "ordinary captured chat cannot confirm a native Pi name"
 }
 
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name() {
@@ -518,6 +536,7 @@ test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
 test_session_info_confirmation_accepts_without_a_terminal_title
 test_submit_confirmation_without_the_native_name_requests_a_retry
+test_ordinary_chat_cannot_confirm_a_native_name
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
 test_128_digit_stale_order_cannot_replace_the_current_title
 test_busy_assignment_is_durable_and_retries_only_after_idle

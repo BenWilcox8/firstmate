@@ -228,7 +228,7 @@ native_name_confirmed() {
 }
 
 native_name_visible() {
-  local capture line terminal_title attempt=0
+  local terminal_title attempt=0
   local attempts=${FM_ASSIGNMENT_CONFIRM_RETRIES:-20}
   local sleep_secs=${FM_ASSIGNMENT_CONFIRM_SLEEP:-0.1}
   case "$attempts" in ''|*[!0-9]*|0) attempts=20 ;; esac
@@ -238,14 +238,6 @@ native_name_visible() {
     case "$terminal_title" in
       "π - $TITLE - "*) return 0 ;;
     esac
-    capture=$(fm_backend_capture "$BACKEND" "$TARGET" 30 2>/dev/null || true)
-    while IFS= read -r line; do
-      case "$line" in
-        *"• $TITLE") return 0 ;;
-      esac
-    done <<EOF
-$capture
-EOF
     attempt=$((attempt + 1))
     [ "$attempt" -ge "$attempts" ] || sleep "$sleep_secs"
   done
