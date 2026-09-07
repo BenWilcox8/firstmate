@@ -1,0 +1,13 @@
+Pi provider input measurement
+provider=openai-codex
+model=gpt-5.6-terra
+before={"input":15587,"output":80,"cacheRead":0,"cacheWrite":0,"reasoning":71,"totalTokens":15667,"cost":{"input":0.031174,"output":0.00096,"cacheRead":0,"cacheWrite":0,"total":0.032134}}
+after={"input":10838,"output":45,"cacheRead":0,"cacheWrite":0,"reasoning":38,"totalTokens":10883,"cost":{"input":0.021675999999999997,"output":0.00054,"cacheRead":0,"cacheWrite":0,"total":0.022215999999999996}}
+input_token_reduction=4749
+
+Byte estimator (separate local guard)
+estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate
+ceiling_tokens=17398
+file=AGENTS.md bytes=52192 estimated_tokens=17398
+ceiling_status=within-ceiling
+headroom_tokens=0
