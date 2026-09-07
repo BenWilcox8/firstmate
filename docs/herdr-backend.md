@@ -466,8 +466,10 @@ This prevents closing the workspace's last tab before a replacement exists.
 
 The generic Herdr agent-liveness probe uses a separate recovery classifier.
 A structurally gone pane becomes `missing`.
-An existing pane becomes `dead` only when two stable samples prove the exact pane identity, registry result, process-info identity, and operating-system process tree, and that complete tree contains only recognized sleeping or idle shells.
-Nested launch shells are accepted when every descendant remains a recognized shell and the exact foreground process group agrees with Herdr's process list.
+An existing pane becomes `dead` only when two stable samples prove the exact pane identity, registry result, process-info identity, and operating-system process tree.
+The complete tree must contain only recognized sleeping or idle shells and an optional exact sleeping `treehouse get` shell broker.
+The broker is accepted only between recognized shells, with its own process group, one shell child, and exact command arguments.
+Nested launch shells are accepted when every descendant has an allowed identity and the exact foreground process group agrees with Herdr's process list.
 An exact recognized agent process becomes `alive`, even when the hook registry is absent.
 Pi launched through a Node or Python interpreter is recognized from its process arguments rather than the interpreter name alone.
 A registered hook status is not process proof because a full-lifecycle hook record can remain after Pi exits.

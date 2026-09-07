@@ -1974,6 +1974,7 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
           pid,
           name: (.name | base),
           argv0: ((.argv0 // .argv[0]) | base),
+          argv: (.argv // []),
           agent: ((.name | base) as $name
             | (($name | test("^(claude|codex|opencode|pi|pi-signed|grok|kimi|muse)$"))
               or (($name | test("^(node|python)"))
@@ -1994,13 +1995,20 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
   local snapshot=$1 ps_bin rows shell_pid foreground_pgid foreground
   ps_bin=${FM_HERDR_PS_BIN:-ps}
   command -v "$ps_bin" >/dev/null 2>&1 || return 1
-  rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm= 2>/dev/null) || return 1
+  rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm=,args= 2>/dev/null) || return 1
   shell_pid=$(printf '%s' "$snapshot" | jq -er '.shell_pid' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$snapshot" | jq -er '.foreground_process_group_id' 2>/dev/null) || return 1
   foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0, (.agent | tostring)] | @tsv' 2>/dev/null) || return 1
   {
     printf '%s\n' "$foreground"
-    printf '%s\n' "$rows" | awk 'NF >= 5 { print "P\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 }'
+    printf '%s\n' "$rows" | awk '
+      NF >= 5 {
+        args = ""
+        for (field = 6; field <= NF; field++) args = args (field == 6 ? "" : " ") $field
+        gsub(/\t/, " ", args)
+        print "P\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" args
+      }
+    '
   } | awk -F '\t' -v root="$shell_pid" -v fg="$foreground_pgid" '
     function base(value) {
       sub(/^.*\//, "", value)
@@ -2012,6 +2020,9 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
     }
     function is_agent(value) {
       return value == "claude" || value == "codex" || value == "opencode" || value == "pi" || value == "pi-signed" || value == "grok" || value == "kimi" || value == "muse"
+    }
+    function is_shell_broker(value, args) {
+      return value == "treehouse" && args == "treehouse get"
     }
     $1 == "F" {
       if ($2 !~ /^[0-9]+$/ || seen_foreground[$2]++) invalid = 1
@@ -2032,6 +2043,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       pgid[$2] = $4
       stat[$2] = $5
       comm[$2] = base($6)
+      command_line[$2] = $7
     }
     END {
       if (invalid || !(root in parent) || !is_shell(comm[root])) {
@@ -2050,6 +2062,13 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
         }
         if (!changed) break
       }
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid] && pid != root) {
+          child_count[parent[pid]]++
+          only_child[parent[pid]] = pid
+        }
+      }
       for (pid in foreground) {
         if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || foreground_argv[pid] != comm[pid]) invalid = 1
       }
@@ -2061,6 +2080,12 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
         else if (is_shell(comm[pid])) {
           shells++
           if (stat[pid] !~ /^[SI]/) active_shell = 1
+        } else if (is_shell_broker(comm[pid], command_line[pid])) {
+          brokers++
+          child = only_child[pid]
+          if (stat[pid] !~ /^[SI]/ || pgid[pid] != pid || pid == fg \
+              || !is_shell(comm[parent[pid]]) || child_count[pid] != 1 \
+              || !is_shell(comm[child]) || pgid[child] != child) invalid = 1
         } else others++
       }
       if (invalid) state = "unknown"
@@ -2071,7 +2096,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       print state
       for (i = 1; i <= count; i++) {
         pid = order[i]
-        if (descendant[pid]) print pid, parent[pid], pgid[pid], stat[pid], comm[pid]
+        if (descendant[pid]) print pid, parent[pid], pgid[pid], stat[pid], comm[pid], command_line[pid]
       }
     }
   '

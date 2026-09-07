@@ -19,6 +19,24 @@ case "${FM_RECOVERY_CASE:?}" in
   nested-shell)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '101 100 101 S bash'
     ;;
+  treehouse-shell)
+    printf '%s\n' \
+      '1 0 1 S systemd /sbin/init' \
+      '100 1 100 S bash /bin/bash' \
+      '101 100 101 S bash /bin/bash -l' \
+      '103 101 103 Sl treehouse treehouse get' \
+      '104 103 104 S bash /bin/bash'
+    ;;
+  treehouse-other-args|treehouse-active)
+    broker_stat=Sl
+    [ "$FM_RECOVERY_CASE" != treehouse-active ] || broker_stat=Rl
+    printf '%s\n' \
+      '1 0 1 S systemd /sbin/init' \
+      '100 1 100 S bash /bin/bash' \
+      '101 100 101 S bash /bin/bash -l' \
+      "103 101 103 $broker_stat treehouse treehouse status" \
+      '104 103 104 S bash /bin/bash'
+    ;;
   active-pi|absent-active-pi)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '102 100 102 S pi'
     ;;
@@ -72,6 +90,9 @@ run_case() { # <case> <registry-status>
               nested-shell)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":101,\"foreground_processes\":[{\"pid\":101,\"name\":\"bash\",\"argv\":[\"/bin/bash\"]}]}}}"
                 ;;
+              treehouse-shell|treehouse-other-args|treehouse-active)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":104,\"foreground_processes\":[{\"pid\":104,\"name\":\"bash\",\"argv\":[\"/bin/bash\"]}]}}}"
+                ;;
               active-pi|absent-active-pi)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"pi\",\"argv\":[\"pi\"]}]}}}"
                 ;;
@@ -106,14 +127,17 @@ assert_case() { # <case> <registry-status> <expected>
 assert_case stale-shell idle dead
 assert_case absent-shell absent dead
 assert_case nested-shell 'done' dead
-pass "stale lifecycle status cannot keep an exited agent alive, including through nested launch shells"
+assert_case treehouse-shell working dead
+pass "stale lifecycle status cannot keep an exited agent alive, including through nested launch shells and the exact Treehouse shell broker"
 
 assert_case active-pi working alive
 assert_case absent-active-pi absent alive
 assert_case interpreter-pi idle alive
 assert_case other-command idle unreadable
+assert_case treehouse-other-args idle unreadable
+assert_case treehouse-active idle unreadable
 assert_case unreadable idle unreadable
-pass "active agents remain live, while other commands and unreadable process evidence remain ambiguous"
+pass "active agents remain live, while other commands, an inexact or active Treehouse process, and unreadable evidence remain ambiguous"
 
 assert_case process-race idle unreadable
 assert_case pane-race idle unreadable
