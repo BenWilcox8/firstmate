@@ -330,7 +330,7 @@ migrate_native_name_extension() {
     }));
     return nameSync;
   });
-  pi.registerCommand("fm-set-assignment-name", {
+  pi.registerCommand?.("fm-set-assignment-name", {
     handler: (args: string) => {
       if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
       const name = Buffer.from(args, "base64").toString("utf8");
