@@ -33,6 +33,9 @@ Multiple positional arguments become separate queued messages; the spawn templat
 `../../../../../bin/fm-spawn.sh` is the naming owner for workers and second mates.
 An explicit session name wins.
 A worker defaults to its task id, and a second mate defaults to `Secondmate, <id>`.
+A successful Atlas assignment replaces that default or a manual name with the exact ticket title after the target is verified idle.
+A later assignment replaces the current name, while a duplicate or older assignment leaves it unchanged.
+The Herdr pane label remains the agent name and is not a Pi session-name source.
 The control plane passes the recorded name to a replacement.
 This keeps the name across recovery without resuming or rewriting the previous private session.
 Pi's native `/name <name>` command updates an existing managed session without a restart.

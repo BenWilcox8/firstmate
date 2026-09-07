@@ -112,8 +112,11 @@ For Pi, approve the project trust prompt once per clone so the tracked `.pi/exte
 
 To update an existing managed Pi worker, use `/name <name>`, then run `bin/fm-session-name-sync.sh <task-id> <name>` before recovery.
 Use `/reload` in an existing unnamed primary or second mate after Firstmate updates.
+A successful Atlas ticket assignment changes an idle managed Pi or Pi-signed session name to the exact ticket title.
+A busy session requests a retry, and a queued-only ticket does not change the name.
+A later assignment replaces the current name, but a duplicate or older assignment does not replace a newer ticket title or a later manual name.
 Pi records names as new native metadata and does not rewrite earlier transcript entries.
-Native Pi names are separate from terminal pane labels.
+Native Pi names are separate from terminal pane labels, which continue to show the agent name.
 Pi's `/calm` toggle hides supported transcript chrome, including canonically classified Firstmate operational user rows, and uses a Calm-only animated working boat during active runs while preserving all model context and session data.
 Those Calm-hidden operational inputs remain ordinary user-role messages with unchanged delivery, ordering, authority, persistence, and exports.
 The preference persists for the effective Firstmate home, and toggling it off restores ordinary rendering.

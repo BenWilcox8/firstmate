@@ -2720,6 +2720,16 @@ fm_backend_herdr_agent_identity_raw() {  # <session> <pane> -> <agent>\t<status>
   printf '%s' "$out" | jq -r '[.result.agent.agent // "", .result.agent.agent_status // ""] | @tsv' 2>/dev/null
 }
 
+# fm_backend_herdr_terminal_title: read the terminal application's title from
+# Herdr's structured pane record without changing the independent agent label.
+fm_backend_herdr_terminal_title() {  # <target>
+  local out
+  fm_backend_herdr_parse_target "$1" || return 1
+  out=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" agent get "$FM_BACKEND_HERDR_PANE" 2>/dev/null) \
+    || return 1
+  printf '%s' "$out" | jq -er '.result.agent.terminal_title_stripped | select(type == "string")' 2>/dev/null
+}
+
 # fm_backend_herdr_composer_identity: the native agent identity/state probe
 # backing the shared classifier's separated (pi) shape - the genuine herdr
 # primitive no other backend has natively.

@@ -42,6 +42,12 @@ fm_backend_tmux_capture() {  # <target> <lines>
   tmux capture-pane -p -t "$1" -S -"$2"
 }
 
+# fm_backend_tmux_terminal_title: read the terminal application's OSC title.
+# The pane title is separate from Firstmate's pinned tmux window label.
+fm_backend_tmux_terminal_title() {  # <target>
+  tmux display-message -p -t "$1" '#{pane_title}'
+}
+
 # fm_backend_tmux_send_key: one named key. Mirrors fm-send.sh's --key path:
 # `tmux display-message -p -t "$T" '#{pane_id}' >/dev/null`, then
 # `tmux send-keys -t "$T" "$2"`.

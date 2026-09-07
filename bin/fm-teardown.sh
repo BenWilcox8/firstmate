@@ -3095,7 +3095,8 @@ remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 rm -f "$STATE/$ID.turn-ended" \
-  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.grok-turnend-token" \
+  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.atlas-assignment-name.json" \
+  "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \

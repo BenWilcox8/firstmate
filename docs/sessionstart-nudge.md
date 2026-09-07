@@ -82,7 +82,10 @@ The same primary extension assigns `Firstmate` to an unnamed primary and reads a
 It keeps a name that Pi already has.
 As a result, startup, reload, resume, and fork events do not replace a name that Pi provides.
 A new session gets the role default because it has a new native identity.
-Worker names remain owned by `bin/fm-spawn.sh`, not by this primary extension.
+Worker role defaults remain owned by `bin/fm-spawn.sh`, not by this primary extension.
+After the Dashboard commits a ticket assignment, `bin/fm-atlas-assignment-name.sh` accepts the durable assignment event and applies the exact ticket title to an idle Pi-family worker.
+The committed Atlas sequence orders events, so a duplicate or stale delivery cannot restore an older title.
+The receiver records the accepted title for recovery and does not change the Herdr pane label.
 
 Cursor's `sessionStart` fires at every session open with no source distinction, including a resumed session, so a resume re-runs the full digest; that is redundant and idempotent rather than a lost helm.
 Cursor's compaction surface is uncovered in the same sense as Codex's interactive TUI above: Firstmate registers nothing for `preCompact`, so a compacted Cursor session keeps whatever context survived rather than receiving a fresh digest.

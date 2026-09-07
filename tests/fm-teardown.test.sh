@@ -1325,6 +1325,8 @@ test_teardown_missing_busy_sidecar_completes() {
   write_meta "$case_dir" local-only ship
   gen=$("$ROOT/bin/fm-busy-event.sh" arm "$case_dir/state" task-x1)
   printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
+  printf '%s\n' '{"schema":"atlas.assignment.v1","assignmentId":"a1"}' \
+    > "$case_dir/state/task-x1.atlas-assignment-name.json"
   rm -f "$case_dir/state/task-x1.busy-gen"
 
   set +e
@@ -1337,6 +1339,8 @@ test_teardown_missing_busy_sidecar_completes() {
     "missing-busy-sidecar: teardown left the orphan busy record"
   assert_absent "$case_dir/state/task-x1.meta" \
     "missing-busy-sidecar: teardown remained incomplete"
+  assert_absent "$case_dir/state/task-x1.atlas-assignment-name.json" \
+    "missing-busy-sidecar: teardown left the assignment-name record"
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
