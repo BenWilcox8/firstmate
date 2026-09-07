@@ -1327,6 +1327,8 @@ test_teardown_missing_busy_sidecar_completes() {
   printf 'busy_gen=%s\n' "$gen" >> "$case_dir/state/task-x1.meta"
   printf '%s\n' '{"schema":"atlas.assignment.v1","assignmentId":"a1"}' \
     > "$case_dir/state/task-x1.atlas-assignment-name.json"
+  printf '%s\n' 'spawn_gen=test-generation' 'name=Assigned ticket' \
+    > "$case_dir/state/task-x1.pi-name-confirmation"
   rm -f "$case_dir/state/task-x1.busy-gen"
 
   set +e
@@ -1341,6 +1343,8 @@ test_teardown_missing_busy_sidecar_completes() {
     "missing-busy-sidecar: teardown remained incomplete"
   assert_absent "$case_dir/state/task-x1.atlas-assignment-name.json" \
     "missing-busy-sidecar: teardown left the assignment-name record"
+  assert_absent "$case_dir/state/task-x1.pi-name-confirmation" \
+    "missing-busy-sidecar: teardown left the native-name confirmation record"
   pass "teardown completes when an exact busy-state sidecar is already absent"
 }
 
@@ -2409,7 +2413,7 @@ test_own_autonomous_run_is_left_alone() {
 }
 
 test_leaked_worktree_process_is_reaped() {
-  local case_dir rc pid
+  local case_dir rc pid wt_path
   case_dir=$(make_case leaked-process-reap)
   write_meta "$case_dir" no-mistakes ship
   land_shippable_commit "$case_dir"
@@ -2423,6 +2427,14 @@ test_leaked_worktree_process_is_reaped() {
   disown
   sleep 0.3
   kill -0 "$pid" 2>/dev/null || fail "leaked-process-reap: setup sleeper did not start"
+  wt_path=$(cd "$case_dir/wt" && pwd -P)
+  cat > "$case_dir/fakebin/lsof" <<EOF
+#!/usr/bin/env bash
+if kill -0 '$pid' 2>/dev/null; then
+  printf 'p%s\\nfcwd\\nn%s\\n' '$pid' '$wt_path'
+fi
+EOF
+  chmod +x "$case_dir/fakebin/lsof"
 
   rc=0
   run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
@@ -2438,7 +2450,7 @@ test_leaked_worktree_process_is_reaped() {
 }
 
 test_leaked_tasktmp_process_is_reaped() {
-  local case_dir rc pid
+  local case_dir rc pid tasktmp_path
   case_dir=$(make_case leaked-tasktmp-reap)
   write_meta "$case_dir" no-mistakes ship
   printf '%s\n' "tasktmp=$case_dir/tasktmp" >> "$case_dir/state/task-x1.meta"
@@ -2450,6 +2462,14 @@ test_leaked_tasktmp_process_is_reaped() {
   disown
   sleep 0.3
   kill -0 "$pid" 2>/dev/null || fail "leaked-tasktmp-reap: setup sleeper did not start"
+  tasktmp_path=$(cd "$case_dir/tasktmp" && pwd -P)
+  cat > "$case_dir/fakebin/lsof" <<EOF
+#!/usr/bin/env bash
+if kill -0 '$pid' 2>/dev/null; then
+  printf 'p%s\\nfcwd\\nn%s\\n' '$pid' '$tasktmp_path'
+fi
+EOF
+  chmod +x "$case_dir/fakebin/lsof"
 
   rc=0
   run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
@@ -2618,14 +2638,17 @@ if [ "$count" -eq 2 ]; then
     i=$((i + 1))
   done
 fi
-exec "$REAL_LSOF_FOR_TEST" "$@"
+if kill -0 "$FM_FAKE_EXEC_PID" 2>/dev/null; then
+  printf 'p%s\nfcwd\nn%s\n' "$FM_FAKE_EXEC_PID" "$FM_FAKE_EXEC_WORKTREE"
+fi
 SH
   chmod +x "$case_dir/fakebin/ps" "$case_dir/fakebin/lsof"
 
   rc=0
   FM_PROC_ROOT_OVERRIDE="$case_dir/no-proc" \
   FM_FAKE_EXEC_PID="$pid" FM_FAKE_EXEC_MARKER="$marker" \
-  FM_FAKE_EXEC_DONE="$done_flag" FM_FAKE_LSOF_COUNT="$case_dir/lsof-count" \
+  FM_FAKE_EXEC_DONE="$done_flag" FM_FAKE_EXEC_WORKTREE="$case_dir/wt" \
+  FM_FAKE_LSOF_COUNT="$case_dir/lsof-count" \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   if kill -0 "$pid" 2>/dev/null; then
@@ -2660,9 +2683,23 @@ test_process_spawned_during_grace_is_reaped_on_later_pass() {
   pid=$!
   disown
   sleep 0.2
+  cat > "$case_dir/fakebin/lsof" <<'SH'
+#!/usr/bin/env bash
+if [ -e "$FM_FAKE_GRACE_CHILD_FILE" ]; then
+  child=$(cat "$FM_FAKE_GRACE_CHILD_FILE")
+  if kill -0 "$child" 2>/dev/null; then
+    printf 'p%s\nfcwd\nn%s\n' "$child" "$FM_FAKE_GRACE_WORKTREE"
+  fi
+elif kill -0 "$FM_FAKE_GRACE_PARENT_PID" 2>/dev/null; then
+  printf 'p%s\nfcwd\nn%s\n' "$FM_FAKE_GRACE_PARENT_PID" "$FM_FAKE_GRACE_WORKTREE"
+fi
+SH
+  chmod +x "$case_dir/fakebin/lsof"
 
   rc=0
-  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  FM_FAKE_GRACE_CHILD_FILE="$child_file" FM_FAKE_GRACE_PARENT_PID="$pid" \
+  FM_FAKE_GRACE_WORKTREE="$case_dir/wt" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   if [ -f "$child_file" ]; then child_pid=$(cat "$child_file"); fi
   if [ -n "$child_pid" ] && kill -0 "$child_pid" 2>/dev/null; then
@@ -2767,6 +2804,13 @@ test_run_abort_precedes_process_reap_precedes_worktree_removal() {
   disown
   sleep 0.3
   kill -0 "$pid" 2>/dev/null || fail "abort-then-reap-then-remove-order: setup sleeper did not start"
+  cat > "$case_dir/fakebin/lsof" <<EOF
+#!/usr/bin/env bash
+if kill -0 '$pid' 2>/dev/null; then
+  printf 'p%s\\nfcwd\\nn%s\\n' '$pid' '$case_dir/wt'
+fi
+EOF
+  chmod +x "$case_dir/fakebin/lsof"
 
   # A treehouse fake that snapshots, at the exact moment the destructive
   # worktree return runs, whether the run was already aborted and whether the

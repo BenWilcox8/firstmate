@@ -230,7 +230,10 @@ test_pi_native_name_update_survives_relaunch() {
     node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
-const pi = { on(event, handler) { handlers.set(event, handler); } };
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  registerCommand() {},
+};
 const extension = await import(`${pathToFileURL(process.env.EXT).href}?update=${Date.now()}`);
 extension.default(pi);
 await handlers.get("session_info_changed")({ name: process.env.NAME });
@@ -266,7 +269,10 @@ test_pi_rapid_native_name_updates_keep_the_latest_name() {
     node --input-type=module 2>&1 <<'JS'
 import { pathToFileURL } from "node:url";
 const handlers = new Map();
-const pi = { on(event, handler) { handlers.set(event, handler); } };
+const pi = {
+  on(event, handler) { handlers.set(event, handler); },
+  registerCommand() {},
+};
 const extension = await import(`${pathToFileURL(process.env.EXT).href}?race=${Date.now()}`);
 extension.default(pi);
 const sync = handlers.get("session_info_changed");
