@@ -1085,30 +1085,8 @@ bin/fm-test-run.sh tests/fm-control-relaunch.test.sh
 
 ### 2026-09-07 Pi 0.85.1 Atlas assignment-name verification
 
-A guarded non-default Herdr lab reproduced one native-submit confirmation mismatch before the confirmation repair.
-The receiver submitted the literal text `/name First assignment: O'Brien!` and returned exit 75 with a `retry` acknowledgment because the backend verdict was `unknown`.
-The same attempt wrote native Pi metadata with `"name":"First assignment: O'Brien!"`, changed the structured terminal title to `π - First assignment: O'Brien! - worktree`, and rendered `Session name set: First assignment: O'Brien!`.
-The Herdr agent name remained `fm-assignment-e2e`.
-This evidence separated successful native delivery from a confirmation mismatch.
-The active footer theme did not render the default path-and-name bullet that the first confirmation check expected.
-
-The repair added a read-only terminal-title operation for the tmux and Herdr backends.
-The receiver compares the exact native Pi title through this operation, or waits for the current-generation Pi session event.
-This operation reads application metadata and does not change the tmux window name or Herdr agent name.
-
-A second guarded lab used a delayed local provider to put the Pi agent in a real `working` state.
-The first assignment returned a retry while the worker was busy and left the native name unchanged.
-After the agent became idle, the identical event was accepted.
-A second assignment was accepted with the exact title `Second assignment / exact, v2!`, and replaying the older event returned `superseded`.
-The durable task name and native terminal title matched the second title, while the Herdr agent name remained `fm-assignment-e2e`.
-The lab teardown tripwire removed the isolated session after the test.
-
-```text
-busy_ack={"schema":"firstmate.atlas-assignment.ack.v1","assignmentId":"e2e-1001","result":"retry"}
-first_ack={"schema":"firstmate.atlas-assignment.ack.v1","assignmentId":"e2e-1001","result":"accepted"}
-second_ack={"schema":"firstmate.atlas-assignment.ack.v1","assignmentId":"e2e-1002","result":"accepted"}
-stale_ack={"schema":"firstmate.atlas-assignment.ack.v1","assignmentId":"e2e-1001","result":"superseded"}
-agent_name=fm-assignment-e2e
-session_name=Second assignment / exact, v2!
-native_terminal_title=π - Second assignment / exact, v2! - worktree
-```
+`tests/fm-atlas-assignment-name.test.sh` is the portable regression for committed Dashboard assignment delivery.
+It proves that the receiver sends the exact UTF-8 title through its registered native Pi command without passing it through ordinary chat or shell interpolation.
+It accepts the rename only after either a current-generation `session_info_changed` confirmation or an exact read-only native terminal-title value.
+Captured chat and a terminal-title prefix are not confirmation.
+The suite covers exact leading and trailing whitespace, Pi-signed, busy retry, duplicate and stale order handling including a one-unit 128-digit stale order, recovery, and independent pane labels.
