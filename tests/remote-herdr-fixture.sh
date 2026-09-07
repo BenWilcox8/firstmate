@@ -97,7 +97,15 @@ case "${1:-} ${2:-}" in
     [ ! -f "$SEND_FAIL" ] || exit 1
     jq_state --arg p "${3:-}" '.typed[$p] = true | .working[$p] = true' | save ;;
   "pane read") printf '\n' ;;
-  "pane process-info") printf '{"result":{"process":{"name":"codex"}}}\n' ;;
+  "pane process-info")
+    pane=${4:-}
+    jq_state --arg p "$pane" '.probe = $p' | save
+    if [ "$(jq_state -r --arg p "$pane" '.typed[$p] // false')" = true ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}\n' "$pane"
+    else
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}\n' "$pane"
+    fi
+    ;;
   "agent get")
     pane=${3:-}
     if [ "$(jq_state -r --arg p "$pane" '.working[$p] // false')" = true ]; then
@@ -115,6 +123,16 @@ esac
 exit 0
 SH
   chmod +x "$script"
+  cat > "$remote_root/bin/ps" <<SH
+#!/usr/bin/env bash
+STATE='$state'
+pane=\$(jq -r '.probe // empty' "\$STATE")
+printf '%s\\n' '1 0 1 S systemd' '100 1 100 S bash'
+if [ "\$(jq -r --arg p "\$pane" '.typed[\$p] // false' "\$STATE")" = true ]; then
+  printf '%s\\n' '102 100 102 S pi'
+fi
+SH
+  chmod +x "$remote_root/bin/ps"
   reset_remote_herdr_fixture "$state"
 }
 

@@ -632,6 +632,14 @@ case "\$cmd \$sub" in
       printf '{"error":{"code":"agent_not_found","message":"gone"}}\n' >&2
     fi
     ;;
+  "pane process-info")
+    pane=\${4:-}
+    if [ "\$pane" = "${stale#*:}" ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}\n' "\$pane"
+    elif [ "\$pane" = "${fresh#*:}" ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":200,"foreground_process_group_id":202,"foreground_processes":[{"pid":202,"name":"pi","argv":["pi"]}]}}}\n' "\$pane"
+    fi
+    ;;
   "pane send-text"|"pane run"|"pane send-keys")
     if [ "\$arg" = "${stale#*:}" ]; then
       exit 1
@@ -642,6 +650,11 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/herdr"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '200 1 200 S bash' '202 200 202 S pi'
+SH
+  chmod +x "$fakebin/ps"
   printf '%s\n' "$fakebin"
 }
 
@@ -685,7 +698,7 @@ SH
     return
   fi
   out=$(PATH="$herdrfb:$toolchain:$BASE_PATH" HERDR_ENV=1 FM_BACKEND=herdr \
-    FM_SEND_SETTLE=0 \
+    FM_HERDR_PS_BIN="$herdrfb/ps" FM_SEND_SETTLE=0 \
     FM_HOME="$w/home" FM_ROOT_OVERRIDE="$w/main" \
     "$ROOT/bin/fm-bootstrap.sh" 2>/dev/null)
 
