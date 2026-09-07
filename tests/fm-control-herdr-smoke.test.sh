@@ -26,7 +26,7 @@ pass() { printf 'ok - %s\n' "$1"; }
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 
-LAB_HELPER=${FM_HERDR_LAB_HELPER:-/home/ben/firstmate/bin/fm-herdr-lab.sh}
+LAB_HELPER=${FM_HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 [ -x "$LAB_HELPER" ] || { echo "skip: guarded Herdr lab helper not found"; exit 0; }
 SESSION=$("$LAB_HELPER" name "control-smoke-$$") \
   || { echo "skip: could not generate a guarded Herdr lab name"; exit 0; }
