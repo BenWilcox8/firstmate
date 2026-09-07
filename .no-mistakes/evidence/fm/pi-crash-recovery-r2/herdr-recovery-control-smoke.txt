@@ -1,0 +1,6 @@
+ok - real herdr: exit on a pane with no registered agent is idempotent success
+ok - real herdr: interrupt refuses when herdr's own agent registry reports no agent
+ok - real herdr: stale lifecycle-hook status does not keep a shell-only pane alive
+ok - real herdr: interrupt protects an exact foreground agent process
+ok - real herdr: no control verb removed the endpoint or the task's local copy
+ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
