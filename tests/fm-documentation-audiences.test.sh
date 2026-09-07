@@ -24,12 +24,12 @@ run_expect_failure() {
 
 mutate_inventory() {
   local source=$1 destination=$2 mode=$3
-  python3 - "$source" "$destination" "$mode" <<'PY'
+  python3 - "$source" "$destination" "$mode" "$ROOT" <<'PY'
 import json
 import sys
 from pathlib import Path
 
-source, destination, mode = map(Path, sys.argv[1:])
+source, destination, mode, root = map(Path, sys.argv[1:])
 data = json.loads(source.read_text(encoding="utf-8"))
 if mode.name == "duplicate":
     data["surfaces"].append(dict(data["surfaces"][0]))
@@ -39,9 +39,15 @@ elif mode.name == "bad-setup-audience":
             entry["audience"] = "maintainer-verification"
             break
 elif mode.name == "missing-owner-pointer":
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    target = next(
+        entry["path"]
+        for entry in data["surfaces"]
+        if entry["path"].startswith("docs/") and entry["path"] not in readme
+    )
     data["requiredOwnerPointers"][0] = {
         "source": "README.md",
-        "target": "docs/sessionstart-nudge.md",
+        "target": target,
     }
 elif mode.name == "shrink-scope":
     data["scope"]["trackedPatterns"] = ["README.md"]
