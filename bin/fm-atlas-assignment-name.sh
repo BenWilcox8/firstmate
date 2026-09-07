@@ -55,10 +55,10 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 PAYLOAD=$(cat)
+ASSIGNMENT_ID=$(printf '%s' "$PAYLOAD" | jq -r '.assignmentId // empty' 2>/dev/null || true)
 PAYLOAD_BYTES=$(printf '%s' "$PAYLOAD" | wc -c | tr -d ' ')
 case "$PAYLOAD_BYTES" in ''|*[!0-9]*) PAYLOAD_BYTES=65537 ;; esac
-[ "$PAYLOAD_BYTES" -le 65536 ] || reject "" "event exceeds 65536 bytes"
-ASSIGNMENT_ID=$(printf '%s' "$PAYLOAD" | jq -r '.assignmentId // empty' 2>/dev/null || true)
+[ "$PAYLOAD_BYTES" -le 65536 ] || reject "$ASSIGNMENT_ID" "event exceeds 65536 bytes"
 if ! printf '%s' "$PAYLOAD" | jq -e '
   type == "object"
   and .schema == "atlas.assignment.v1"
@@ -309,8 +309,8 @@ case "$RETRIES" in ''|*[!0-9]*|0) RETRIES=3 ;; esac
 VERDICT=$(fm_backend_send_text_submit "$BACKEND" "$TARGET" "/name $TITLE" \
   "$RETRIES" "$SLEEP_SECS" "$SETTLE_SECS" "fm-$ID" 2>/dev/null) \
   || retry "$ASSIGNMENT_ID" "native rename delivery failed for task $ID"
-if [ "$VERDICT" != empty ] && ! native_name_visible; then
-  retry "$ASSIGNMENT_ID" "native rename delivery was not confirmed for task $ID"
+if ! native_name_visible; then
+  retry "$ASSIGNMENT_ID" "native rename was not confirmed for task $ID (submit verdict: ${VERDICT:-unknown})"
 fi
 
 publish_assignment_record submitted "$OLD_PRIOR_NAME" \

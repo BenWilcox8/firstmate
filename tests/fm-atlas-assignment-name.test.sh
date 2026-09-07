@@ -44,10 +44,15 @@ case "${1:-}" in
     case "$*" in
       *' -l '*)
         [ ! -e "$D/fail-send" ] || exit 1
-        printf '%s\n' "${@: -1}" >> "$D/literal"
+        literal=${@: -1}
+        printf '%s\n' "$literal" >> "$D/literal"
+        case "$literal" in /name\ *) printf '%s\n' "${literal#/name }" > "$D/pending-native-name" ;; esac
         printf '╭────────────╮\n│ > pending  │\n╰────────────╯\n' > "$D/composer"
         ;;
       *' Enter'*)
+        if [ "${FM_FAKE_NATIVE_NO_APPLY:-0}" != 1 ] && [ -f "$D/pending-native-name" ]; then
+          mv "$D/pending-native-name" "$D/native-name"
+        fi
         if [ "${FM_FAKE_KEEP_PENDING:-0}" = 1 ]; then
           printf '╭────────────╮\n│ > pending  │\n╰────────────╯\n' > "$D/composer"
         else
@@ -58,7 +63,13 @@ case "${1:-}" in
     ;;
   display-message)
     case "$*" in
-      *pane_title*) printf 'π - %s - worktree\n' "${FM_FAKE_NATIVE_NAME:-Default}" ;;
+      *pane_title*)
+        if [ -f "$D/native-name" ]; then
+          printf 'π - %s - worktree\n' "$(cat "$D/native-name")"
+        else
+          printf 'π - %s - worktree\n' "${FM_FAKE_NATIVE_NAME:-Default}"
+        fi
+        ;;
       *cursor_y*) printf '1\n' ;;
       *) printf '%%1\n' ;;
     esac
@@ -157,6 +168,22 @@ test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambig
   assert_grep "session_name=$title" "$HOME_DIR/state/$ID.meta" \
     "the natively confirmed name was not durable"
   pass "a native Pi title confirms an otherwise ambiguous slash-command submission"
+}
+
+test_submit_confirmation_without_the_native_name_requests_a_retry() {
+  local rec title event out status=0
+  rec=$(make_case native-required)
+  read_case "$rec"
+  title="Must be natively confirmed"
+  event=$(event_json assignment-175 175 c175 "$title")
+
+  out=$(FM_FAKE_NATIVE_NO_APPLY=1 run_receiver "$event" 2>&1) || status=$?
+  expect_code 75 "$status" "native-name confirmation requirement"
+  [ "$(printf '%s\n' "$out" | tail -1 | jq -r '.result')" = retry ] \
+    || fail "missing native name did not request a retry: $out"
+  [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = pending ] \
+    || fail "unconfirmed assignment did not remain pending"
+  pass "a submitted Enter is not acceptance until the native Pi name is visible"
 }
 
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name() {
@@ -290,6 +317,23 @@ test_invalid_missing_and_unrelated_targets_do_not_mutate_sessions() {
   pass "invalid, unbound, and unrelated targets cannot mutate another session"
 }
 
+test_oversized_event_rejects_with_its_assignment_identity() {
+  local rec title event out status=0
+  rec=$(make_case oversized)
+  read_case "$rec"
+  title=$(printf '%065600d' 0 | tr 0 x)
+  event=$(event_json assignment-425 425 c425 "$title")
+
+  out=$(run_receiver "$event" 2>&1) || status=$?
+  expect_code 64 "$status" "oversized assignment event"
+  [ "$(printf '%s\n' "$out" | tail -1 | jq -r '.assignmentId + " " + .result')" = \
+      'assignment-425 rejected' ] \
+    || fail "oversized event acknowledgment lost its assignment identity: $out"
+  [ ! -s "$CASE_DIR/fake/literal" ] \
+    || fail "oversized event reached the native session"
+  pass "an oversized event is rejected with its stable assignment identity"
+}
+
 test_receiver_revalidates_the_target_after_waiting_for_its_lock() {
   local rec event out lock held release lock_pid receiver_pid status=0
   rec=$(make_case endpoint-race)
@@ -418,9 +462,11 @@ test_retry_recovers_a_crash_between_event_and_name_publication() {
 test_new_assignment_sets_exact_native_name_without_changing_pane_label
 test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
+test_submit_confirmation_without_the_native_name_requests_a_retry
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
 test_busy_assignment_is_durable_and_retries_only_after_idle
 test_invalid_missing_and_unrelated_targets_do_not_mutate_sessions
+test_oversized_event_rejects_with_its_assignment_identity
 test_receiver_revalidates_the_target_after_waiting_for_its_lock
 test_local_secondmate_uses_its_authoritative_parent_atlas_binding
 test_primary_receiver_resolves_one_registered_local_secondmate_task
