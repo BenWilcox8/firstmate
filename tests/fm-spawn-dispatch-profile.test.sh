@@ -124,6 +124,22 @@ assert_meta_profile() {
   assert_grep "effort=$effort" "$meta" "meta missing effort=$effort"
 }
 
+test_retired_mode_flag_refuses_before_spawn_side_effects() {
+  local rec id out status retired_flag
+  id=retired-mode-flag-z0
+  rec=$(make_spawn_case retired-mode-flag pi "$id")
+  read_case_record "$rec"
+  retired_flag=$(printf '%s%s' '--ultra' 'code')
+
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" "$retired_flag")
+  status=$?
+  expect_code 1 "$status" "retired mode flag must refuse"
+  assert_contains "$out" "unknown option '$retired_flag'" "spawn did not name the unsupported option"
+  assert_absent "$HOME_DIR/state/$id.meta" "retired mode flag wrote task metadata"
+  [ ! -s "$LAUNCH_LOG" ] || fail "retired mode flag typed a worker launch"
+  pass "retired mode flag refuses before spawn metadata or worker launch"
+}
+
 test_no_profile_keeps_claude_profile_defaults() {
   local rec id out status expected launch
   id=profile-off-z1
@@ -941,6 +957,7 @@ test_unpinned_claude_spawn_records_no_account() {
     "an unpinned spawn should launch claude directly on whatever account is active"
   pass "an unpinned claude spawn rides the active account and records no account"
 }
+test_retired_mode_flag_refuses_before_spawn_side_effects
 test_no_profile_keeps_claude_profile_defaults
 test_non_cursor_launch_clears_inherited_cursor_markers
 test_relative_home_overrides_launch_with_absolute_cross_process_paths

@@ -398,13 +398,6 @@ The default subagent tier is `claude-sonnet-5` unless a brief names another.
 A Fable-class model or Haiku must never run as a subagent.
 `bin/fm-brief-blocks-lib.sh`'s `fm_brief_subagent_tier_block` renders this rule into every generated brief and points back here; the fully authoritative tier and quota mechanics live in the captain's private, untracked `data/captain-shared.md`, which a generated brief cannot reference directly.
 
-`bin/fm-spawn.sh --ultracode` is a further launch axis that no dispatch profile carries: it starts a claude worker in Claude Code's durable ultracode session mode.
-The flag merges an `"ultracode": true` key into the task worktree's `.claude/settings.local.json` before launch and records `ultracode=on` in the task meta.
-It refuses on any other harness, when node is absent, on a secondmate spawn, and alongside `--effort`, because the mode selects xhigh effort itself.
-Claude Code also requires dynamic workflows to be enabled and an xhigh-capable model before it applies the mode, and neither condition is visible to the spawn; `bin/fm-spawn.sh`'s header owns the exact mechanics.
-A relaunch does not carry the mode: it rewrites the settings file the key lives in and passes no `--ultracode`, so both the key and the `ultracode=on` record are dropped and the replacement worker is described accurately.
-Ask for the mode again with a fresh spawn.
-
 ## Claude accounts (cswap)
 
 A captain with more than one Claude subscription manages the accounts with [claude-swap](https://github.com/realiti4/claude-swap).

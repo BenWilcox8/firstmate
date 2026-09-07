@@ -501,10 +501,6 @@
       "audience": "maintainer-verification"
     },
     {
-      "path": "tests/assets/fm-brief-goldens/scout-ultracode.md",
-      "audience": "maintainer-verification"
-    },
-    {
       "path": "tests/assets/fm-brief-goldens/scout.md",
       "audience": "maintainer-verification"
     },
@@ -530,10 +526,6 @@
     },
     {
       "path": "tests/assets/fm-brief-goldens/ship-no-mistakes.md",
-      "audience": "maintainer-verification"
-    },
-    {
-      "path": "tests/assets/fm-brief-goldens/ship-ultracode.md",
       "audience": "maintainer-verification"
     }
   ]
