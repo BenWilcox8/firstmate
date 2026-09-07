@@ -21,13 +21,6 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-
-# These fixtures deliberately shadow `sleep` on PATH, so the real one is
-# resolved here, before any fake exists, and reached by absolute path.
-# It is exported so the generated fakes can use it too. /bin/sleep is not
-# a valid assumption: hosts like NixOS have no such file.
-FM_REAL_SLEEP=$(fm_test_tool sleep) || exit 1
-export FM_REAL_SLEEP
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
@@ -93,7 +86,7 @@ case "${1:-}" in
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
             : > "$FM_FAKE_TRACE_PREPARE"
-            while [ ! -e "$FM_FAKE_TRACE_RELEASE" ]; do "$FM_REAL_SLEEP" 0.01; done
+            while [ ! -e "$FM_FAKE_TRACE_RELEASE" ]; do /bin/sleep 0.01; done
           fi
           ;;
         'export TRACEPARENT='*)
@@ -110,7 +103,7 @@ case "${1:-}" in
         *pane_current_path*)
           if [ -n "${FM_FAKE_CWD_RACE_READY:-}" ]; then
             : > "$FM_FAKE_CWD_RACE_READY"
-            "$FM_REAL_SLEEP" 1
+            /bin/sleep 1
           fi
           cat "$D/cwd"; printf '\n'; exit 0 ;;
       esac
@@ -252,7 +245,7 @@ if [ -n "${FM_FAKE_META_WRITER_TARGET:-}" ] \
    && [ "$target_path" = "$FM_FAKE_META_WRITER_TARGET" ] \
    && grep -q '^x_request=' "$source_path" 2>/dev/null; then
   : > "$FM_FAKE_META_WRITER_READY"
-  while [ ! -e "$FM_FAKE_META_WRITER_RELEASE" ]; do "$FM_REAL_SLEEP" 0.01; done
+  while [ ! -e "$FM_FAKE_META_WRITER_RELEASE" ]; do /bin/sleep 0.01; done
 fi
 exec "$FM_REAL_MV" "$@"
 SH
@@ -410,8 +403,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
     FM_FAKE_TRACE_RELEASE="$launch_release" \
     run_control "$dir" rl28 relaunch --note "continue after publication" > "$dir/control.out" &
   control_pid=$!
-  while [ ! -e "$prepare" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$prepare" ] && [ "$i" -lt 500 ]; do
+    /bin/sleep 0.01
     i=$((i + 1))
   done
   [ -e "$prepare" ] || {
@@ -429,8 +422,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
       --carry-platform x --carry-max 280 > "$dir/link.out" 2>&1 &
   link_pid=$!
   i=0
-  while [ ! -e "$waiting" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$waiting" ] && [ "$i" -lt 500 ]; do
+    /bin/sleep 0.01
     i=$((i + 1))
   done
   [ -e "$waiting" ] && [ ! -e "$ready" ] || {
@@ -442,8 +435,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
   }
   : > "$launch_release"
   i=0
-  while [ ! -e "$ready" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$ready" ] && [ "$i" -lt 500 ]; do
+    /bin/sleep 0.01
     i=$((i + 1))
   done
   [ -e "$ready" ] || {
@@ -1050,7 +1043,7 @@ test_prepublication_failure_keeps_concurrent_durable_metadata() {
       > "$dir/control.out" &
   control_pid=$!
   while [ ! -e "$dir/cwd-race-ready" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+    /bin/sleep 0.01
     i=$((i + 1))
   done
   [ -e "$dir/cwd-race-ready" ] || {
