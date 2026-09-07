@@ -29,7 +29,7 @@ kind=ship
 spawn_gen=test-generation
 session_name=manual before assignment
 EOF
-  printf 'pi.registerCommand("fm-set-assignment-name", {});\n' > "$home/state/$id.pi-ext.ts"
+  printf 'export default function (pi: any) {\n  pi.registerCommand("fm-set-assignment-name", {});\n}\n' > "$home/state/$id.pi-ext.ts"
   "$ROOT/bin/fm-busy-event.sh" arm "$home/state" "$id" \
     --state idle --source pi-ext --event test-idle >/dev/null
   cat > "$fakebin/tmux" <<'SH'
@@ -242,6 +242,22 @@ test_submit_confirmation_without_the_native_name_requests_a_retry() {
   [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = pending ] \
     || fail "unconfirmed assignment did not remain pending"
   pass "a submitted Enter is not acceptance until the native Pi name is visible"
+}
+
+test_terminal_title_prefix_cannot_confirm_a_native_name() {
+  local rec title event out status=0
+  rec=$(make_case terminal-prefix)
+  read_case "$rec"
+  title="Ticket"
+  event=$(event_json assignment-177 177 c177 "$title")
+
+  out=$(FM_FAKE_NATIVE_NO_APPLY=1 FM_FAKE_NATIVE_NAME="$title - stale" run_receiver "$event" 2>&1) || status=$?
+  expect_code 75 "$status" "terminal title prefix confirmation"
+  [ "$(printf '%s\n' "$out" | tail -1 | jq -r '.result')" = retry ] \
+    || fail "a terminal title prefix was accepted as an exact native name: $out"
+  [ "$(jq -r '.delivery' "$HOME_DIR/state/$ID.atlas-assignment-name.json")" = pending ] \
+    || fail "a terminal title prefix did not leave the assignment pending"
+  pass "a terminal title prefix cannot confirm a native Pi name"
 }
 
 test_ordinary_chat_cannot_confirm_a_native_name() {
@@ -564,6 +580,7 @@ test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambig
 test_exact_whitespace_title_reaches_the_native_command
 test_session_info_confirmation_accepts_without_a_terminal_title
 test_submit_confirmation_without_the_native_name_requests_a_retry
+test_terminal_title_prefix_cannot_confirm_a_native_name
 test_ordinary_chat_cannot_confirm_a_native_name
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
 test_128_digit_stale_order_cannot_replace_the_current_title

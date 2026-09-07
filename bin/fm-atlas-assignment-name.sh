@@ -235,9 +235,7 @@ native_name_visible() {
   while [ "$attempt" -lt "$attempts" ]; do
     native_name_confirmed && return 0
     terminal_title=$(fm_backend_terminal_title "$BACKEND" "$TARGET" 2>/dev/null || true)
-    case "$terminal_title" in
-      "π - $TITLE - "*) return 0 ;;
-    esac
+    [ "$terminal_title" = "π - $TITLE - worktree" ] && return 0
     attempt=$((attempt + 1))
     [ "$attempt" -ge "$attempts" ] || sleep "$sleep_secs"
   done
@@ -320,21 +318,23 @@ migrate_native_name_extension() {
   [ -f "$extension" ] && [ ! -L "$extension" ] || return 1
   grep -F 'fm-set-assignment-name' "$extension" >/dev/null 2>&1 && return 2
   tmp=$(mktemp "$STATE/.$ID.pi-ext.migrate.XXXXXX") || return 1
+  [ "$(tail -n 1 "$extension")" = '}' ] || return 1
   if ! {
-    cat "$extension"
+    sed '$d' "$extension"
     cat <<EOF
-pi.on("session_info_changed", (event: any) => {
-  if (typeof event.name !== "string") return;
-  execFile("$FM_ROOT/bin/fm-session-name-sync.sh", ["--event", "$STATE", "$ID", "$SPAWN_GEN", event.name]);
-});
-pi.registerCommand("fm-set-assignment-name", {
-  handler: (args: string) => {
-    if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
-    const name = Buffer.from(args, "base64").toString("utf8");
-    if (Buffer.from(name, "utf8").toString("base64") !== args) return;
-    pi.setSessionName(name);
-  },
-});
+  pi.on("session_info_changed", (event: any) => {
+    if (typeof event.name !== "string") return;
+    execFile("$FM_ROOT/bin/fm-session-name-sync.sh", ["--event", "$STATE", "$ID", "$SPAWN_GEN", event.name]);
+  });
+  pi.registerCommand("fm-set-assignment-name", {
+    handler: (args: string) => {
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
+      const name = Buffer.from(args, "base64").toString("utf8");
+      if (Buffer.from(name, "utf8").toString("base64") !== args) return;
+      pi.setSessionName(name);
+    },
+  });
+}
 EOF
   } > "$tmp" \
      || ! chmod 0600 "$tmp" \
