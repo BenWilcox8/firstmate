@@ -866,7 +866,7 @@ fm_backend_herdr_projection_close_pane_focus_preserving() {  # <session> <pane-i
     return 1
   fi
   if [ -n "$required_agent_state" ]; then
-    state=$(fm_backend_herdr_pane_agent_state "$session" "$pane_id")
+    state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane_id")
     FM_BACKEND_HERDR_PROJECTION_CLOSE_AGENT_STATE=$state
     [ "$state" = "$required_agent_state" ] || return 1
   fi
@@ -2538,14 +2538,14 @@ fm_backend_herdr_projection_live_binding_matches() {  # <session> <token> <works
 
 fm_backend_herdr_projection_reclaim_rollback() {  # <session> <new-pane>
   local session=$1 new_pane=$2 state
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$new_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$new_pane")
   case "$state" in
     dead) return 0 ;;
     no-agent) ;;
     live|unknown) return 1 ;;
   esac
   fm_backend_herdr_projection_close_pane_focus_preserving "$session" "$new_pane" no-agent || return 1
-  [ "$(fm_backend_herdr_pane_agent_state "$session" "$new_pane")" = dead ]
+  [ "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$new_pane")" = dead ]
 }
 
 # fm_backend_herdr_projection_reclaim_task: replace one exact agent-free
@@ -2587,7 +2587,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation binding for $id has an ambiguous, renamed, foreign, or non-nested live shape; spawning flat" >&2
     return 2
   fi
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")
   case "$state" in
     no-agent) ;;
     dead)
@@ -2640,7 +2640,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation reclaim for $id could not verify its replacement pane; spawning flat" >&2
     return 2
   fi
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")
   case "$state" in
     no-agent) ;;
     live|unknown)
@@ -2674,7 +2674,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation reclaim for $id could not close the exact old husk; spawning flat" >&2
     return 2
   fi
-  if [ "$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")" != dead ]; then
+  if [ "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")" != dead ]; then
     fm_backend_herdr_projection_reclaim_rollback "$session" "$new_pane" || return 1
     return 1
   fi
@@ -2745,7 +2745,7 @@ fm_backend_herdr_projection_recovery_allows_flat() {  # <session> <journal> <tas
     pane_ids=$(printf '%s' "$panes" | jq -r '.result.panes[]? | .pane_id' 2>/dev/null)
     while IFS= read -r pane; do
       [ -n "$pane" ] || continue
-      state=$(fm_backend_herdr_pane_agent_state "$session" "$pane")
+      state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane")
       case "$state" in
         dead|no-agent) : ;;
         live|unknown)

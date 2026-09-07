@@ -1241,7 +1241,7 @@ test_projection_close_rechecks_required_agent_state_at_boundary() {
   out=$(ROOT="$ROOT" LOG="$log" bash -c '
     . "$ROOT/bin/backends/herdr.sh"
     fm_backend_herdr_projection_focus_snapshot() { printf "w1\tw1:t1"; }
-    fm_backend_herdr_pane_agent_state() { printf live; }
+    fm_backend_herdr_recovery_pane_agent_state() { printf live; }
     fm_backend_herdr_cli() {
       printf "%s\n" "$*" >> "$LOG"
       case "$2 $3" in
@@ -2363,7 +2363,7 @@ test_projection_reclaim_refusal_matrix_is_non_mutating() {
         fm_backend_herdr_projection_live_binding_matches() {
           [ "$mode" != ambiguous ]
         }
-        fm_backend_herdr_pane_agent_state() {
+        fm_backend_herdr_recovery_pane_agent_state() {
           case "$mode" in
             live) printf live ;;
             unknown) printf unknown ;;
@@ -2446,9 +2446,21 @@ test_projection_reclaim_replaces_only_exact_husk_and_advances_binding() {
   printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t3","label":"fm-fm-hibit-r1"}]}}' > "$resp/27.out"
   printf '%s\n' '{"result":{"panes":[{"pane_id":"w2:p3","tab_id":"w2:t3"}]}}' > "$resp/28.out"
   fb=$(make_herdr_fakebin "$dir")
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+  out=$(PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_COUNT="$dir/recovery-count" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '
       . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_recovery_pane_agent_state() {
+        recovery_calls=$(cat "$FM_PROJECTION_RECOVERY_COUNT" 2>/dev/null || printf 0)
+        recovery_calls=$((recovery_calls + 1))
+        printf "%s" "$recovery_calls" > "$FM_PROJECTION_RECOVERY_COUNT"
+        fm_backend_herdr_cli "$1" pane get "$2" >/dev/null
+        if [ "$recovery_calls" -eq 4 ]; then
+          printf dead
+          return
+        fi
+        fm_backend_herdr_cli "$1" agent get "$2" >/dev/null
+        printf no-agent
+      }
       fm_backend_herdr_projection_reclaim_task \
         fmtest "$1" fm-hibit-r1 "$2" w2 w2:t2 w2:p2 firstmate fm-fm-hibit-r1 /tmp/project || exit 1
       printf "%s %s" "$FM_BACKEND_HERDR_PROJECTION_TAB_ID" "$FM_BACKEND_HERDR_PROJECTION_PANE_ID"
@@ -2484,14 +2496,12 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
   journal="$state/task-p3.herdr-presentation"
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate/task-p3 · p:%s"},{"workspace_id":"w2","label":"copy/task-p3 · p:%s"}]}}\n' "$token" "$token" > "$resp/1.out"
   printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p1"}}}\n' > "$resp/3.out"
-  printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/4.out"
-  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/5.out"
+  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/3.out"
   printf '{"result":{"pane":{"pane_id":"w2:p1"}}}\n' > "$resp/6.out"
   printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/7.out"
   fb=$(make_herdr_fakebin "$dir")
-  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" \
+  PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_STATE=no-agent FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_PROJECTION_RECOVERY_STATE"; }; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" \
     >/dev/null || fail "agent-free duplicate token matches should allow flat fallback"
   calls=$(cat "$log")
   assert_not_contains "$calls" $'workspace\x1fcreate' "recovery inspection created a workspace"
@@ -2503,12 +2513,11 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
   : > "$log"; rm -f "$resp"/*.out "$resp"/*.exit "$resp/.count"
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate/task-p3 · p:%s"}]}}\n' "$token" > "$resp/1.out"
   printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p1"}}}\n' > "$resp/3.out"
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/4.out"
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" 2>&1)
+  printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/3.out"
+  out=$(PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_STATE=live FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_PROJECTION_RECOVERY_STATE"; }; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "a token match with a live registered agent must refuse duplicate launch"
+  [ "$status" -ne 0 ] || fail "a token match with a live hookless process must refuse duplicate launch"
   assert_contains "$out" "has a live pane" "live duplicate refusal did not explain the risk"
   assert_not_contains "$(cat "$log")" $'pane\x1fclose' "live duplicate refusal closed a pane"
   pass "herdr presentation recovery: duplicate-token inspection is read-only and live-agent risk refuses fallback"
