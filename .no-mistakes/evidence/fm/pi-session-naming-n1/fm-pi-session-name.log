@@ -1,0 +1,11 @@
+ok - Pi gets an exact native name with spaces and punctuation
+ok - a Pi worker uses its task id as the native default name
+ok - Pi-signed uses the 'Secondmate, <id>' native name
+ok - a Pi replacement keeps one exact native name
+ok - a native Pi name update survives recovery
+ok - rapid native Pi name updates retain the latest name
+ok - an existing Pi worker name update survives recovery
+ok - an unnamed replacement harness drops stale native-name metadata
+ok - Pi names an unnamed primary or second mate once and preserves explicit names on reload
+ok - an unmanaged linked worktree keeps its unnamed Pi session
+# all Pi session-name tests passed

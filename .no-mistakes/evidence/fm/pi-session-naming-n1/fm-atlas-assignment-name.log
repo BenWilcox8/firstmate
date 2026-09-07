@@ -1,0 +1,18 @@
+ok - a committed assignment applies its exact title without changing the pane label
+ok - Pi-signed uses the same exact assignment-title contract as Pi
+ok - a native Pi title confirms an otherwise ambiguous slash-command submission
+ok - a native assignment command preserves exact title whitespace
+ok - a session_info_changed event confirms the exact name without a terminal title
+ok - a submitted Enter is not acceptance until the native Pi name is visible
+ok - a terminal title prefix cannot confirm a native Pi name
+ok - ordinary captured chat cannot confirm a native Pi name
+ok - duplicate, stale, and conflicting events cannot replace a newer or manual name
+ok - a one-unit stale 128-digit order cannot replace the current title
+ok - a busy assignment stays durable and submits only after verified idle
+ok - invalid, unbound, and unrelated targets cannot mutate another session
+ok - an oversized event is rejected with its stable assignment identity
+ok - the receiver revalidates target ownership after waiting for metadata custody
+ok - a local second mate resolves the Atlas store through its authoritative parent binding
+ok - the primary receiver resolves one exact task in a registered local second-mate home
+ok - a retry completes an assignment stored before a receiver crash
+# all Atlas assignment-name tests passed

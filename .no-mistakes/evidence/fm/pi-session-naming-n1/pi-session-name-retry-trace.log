@@ -1,0 +1,696 @@
++ set -u
+++ dirname tests/fm-pi-session-name.test.sh
++ . tests/lib.sh
+++ '[' -n '' ']'
+++ FM_TEST_LIB_SOURCED=1
+++ export FM_GATE_REFUSE_BYPASS=1
+++ FM_GATE_REFUSE_BYPASS=1
+++++ dirname tests/lib.sh
++++ cd tests/..
++++ pwd
+++ ROOT=/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN
+++ FM_TEST_CLEANUP_DIRS=()
++++ mktemp /tmp/.fm-test-cleanup.3441552.XXXXXX
+++ FM_TEST_CLEANUP_REGISTRY=/tmp/.fm-test-cleanup.3441552.rDGTtV
++++ fm_test_pid_identity 3441552
++++ local pid=3441552
++++ FM_STATE_OVERRIDE=/tmp
++++ bash -c '. "$1"; fm_pid_identity "$2"' _ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-wake-lib.sh 3441552
+++ FM_TEST_OWNER_IDENTITY='linux-starttime=350025010 cmdline-hex=62617368002d780074657374732f666d2d70692d73657373696f6e2d6e616d652e746573742e736800'
+++ trap fm_test_cleanup EXIT
+++ trap 'fm_test_cleanup; exit 130' INT
+++ trap 'fm_test_cleanup; exit 143' TERM
+++ FM_TEST_ORPHAN_MAX_AGE_SECONDS=3600
+++ '[' 0 '!=' 1 ']'
+++ fm_test_reap_orphans
+++ local marker dir mtime now owner_pid owner_identity current_identity
++++ date +%s
+++ now=1788776377
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-atlas-assignment-name.xsOK3e/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-atlas-assignment-name.xsOK3e/.fm-test-fixture
+++ owner_pid=1013078
++++ sed -n '2,$p' /tmp/fm-atlas-assignment-name.xsOK3e/.fm-test-fixture
+++ owner_identity='linux-starttime=349808977 cmdline-hex=626173680074657374732f666d2d61746c61732d61737369676e6d656e742d6e616d652e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1013078
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349808977 cmdline-hex=626173680074657374732f666d2d61746c61732d61737369676e6d656e742d6e616d652e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349808977 cmdline-hex=626173680074657374732f666d2d61746c61732d61737369676e6d656e742d6e616d652e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-atlas-assignment-name.xsOK3e/.fm-test-fixture
+++ mtime=1788774217
+++ '[' 2160 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-backend-herdr-tests.ejMSpa/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-backend-herdr-tests.ejMSpa/.fm-test-fixture
+++ owner_pid=937918
++++ sed -n '2,$p' /tmp/fm-backend-herdr-tests.ejMSpa/.fm-test-fixture
+++ owner_identity='linux-starttime=349802805 cmdline-hex=626173680074657374732f666d2d6261636b656e642d68657264722e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 937918
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349802805 cmdline-hex=626173680074657374732f666d2d6261636b656e642d68657264722e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349802805 cmdline-hex=626173680074657374732f666d2d6261636b656e642d68657264722e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-backend-herdr-tests.ejMSpa/.fm-test-fixture
+++ mtime=1788774155
+++ '[' 2222 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-backend-herdr-tests.FswQ8I/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-backend-herdr-tests.FswQ8I/.fm-test-fixture
+++ owner_pid=1007876
++++ sed -n '2,$p' /tmp/fm-backend-herdr-tests.FswQ8I/.fm-test-fixture
+++ owner_identity='linux-starttime=349808601 cmdline-hex=626173680074657374732f2e746d702d6f6e652d68657264722e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1007876
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349808601 cmdline-hex=626173680074657374732f2e746d702d6f6e652d68657264722e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349808601 cmdline-hex=626173680074657374732f2e746d702d6f6e652d68657264722e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-backend-herdr-tests.FswQ8I/.fm-test-fixture
+++ mtime=1788774213
+++ '[' 2164 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-control-auth.FtGeGc/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-control-auth.FtGeGc/.fm-test-fixture
+++ owner_pid=1226237
++++ sed -n '2,$p' /tmp/fm-control-auth.FtGeGc/.fm-test-fixture
+++ owner_identity='linux-starttime=349827241 cmdline-hex=626173680074657374732f666d2d636f6e74726f6c2d72656c61756e63682e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1226237
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349827241 cmdline-hex=626173680074657374732f666d2d636f6e74726f6c2d72656c61756e63682e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349827241 cmdline-hex=626173680074657374732f666d2d636f6e74726f6c2d72656c61756e63682e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-control-auth.FtGeGc/.fm-test-fixture
+++ mtime=1788774429
+++ '[' 1948 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-endpoint-retire.A2xU2f/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-endpoint-retire.A2xU2f/.fm-test-fixture
+++ owner_pid=1458330
++++ sed -n '2,$p' /tmp/fm-endpoint-retire.A2xU2f/.fm-test-fixture
+++ owner_identity='linux-starttime=349847457 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1458330
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349847457 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349847457 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-endpoint-retire.A2xU2f/.fm-test-fixture
+++ mtime=1788774602
+++ '[' 1775 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-endpoint-retire.MWUcD7/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-endpoint-retire.MWUcD7/.fm-test-fixture
+++ owner_pid=1514142
++++ sed -n '2,$p' /tmp/fm-endpoint-retire.MWUcD7/.fm-test-fixture
+++ owner_identity='linux-starttime=349852926 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1514142
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349852926 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349852926 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-endpoint-retire.MWUcD7/.fm-test-fixture
+++ mtime=1788774657
+++ '[' 1720 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-endpoint-retire.nB5ZzT/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-endpoint-retire.nB5ZzT/.fm-test-fixture
+++ owner_pid=1571157
++++ sed -n '2,$p' /tmp/fm-endpoint-retire.nB5ZzT/.fm-test-fixture
+++ owner_identity='linux-starttime=349857591 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 1571157
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349857591 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349857591 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-endpoint-retire.nB5ZzT/.fm-test-fixture
+++ mtime=1788774703
+++ '[' 1674 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-endpoint-retire.sslv8g/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-endpoint-retire.sslv8g/.fm-test-fixture
+++ owner_pid=2667718
++++ sed -n '2,$p' /tmp/fm-endpoint-retire.sslv8g/.fm-test-fixture
+++ owner_identity='linux-starttime=349957754 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 2667718
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349957754 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349957754 cmdline-hex=626173680074657374732f666d2d656e64706f696e742d7265746972652e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-endpoint-retire.sslv8g/.fm-test-fixture
+++ mtime=1788775705
+++ '[' 672 -ge 3600 ']'
+++ continue
+++ for marker in "${TMPDIR:-/tmp}"/fm-*/.fm-test-fixture
+++ '[' -e /tmp/fm-teardown-tests.cAhF1F/.fm-test-fixture ']'
++++ sed -n 1p /tmp/fm-teardown-tests.cAhF1F/.fm-test-fixture
+++ owner_pid=2249892
++++ sed -n '2,$p' /tmp/fm-teardown-tests.cAhF1F/.fm-test-fixture
+++ owner_identity='linux-starttime=349921506 cmdline-hex=626173680074657374732f666d2d74656172646f776e2e746573742e736800'
+++ case "$owner_pid" in
++++ fm_test_pid_identity 2249892
+++ current_identity=
+++ current_identity=
+++ '[' -n 'linux-starttime=349921506 cmdline-hex=626173680074657374732f666d2d74656172646f776e2e746573742e736800' ']'
+++ '[' '' = 'linux-starttime=349921506 cmdline-hex=626173680074657374732f666d2d74656172646f776e2e746573742e736800' ']'
++++ stat -c %Y /tmp/fm-teardown-tests.cAhF1F/.fm-test-fixture
+++ mtime=1788775343
+++ '[' 1034 -ge 3600 ']'
+++ continue
+++ FM_TEST_CORE_TOOLS='bash sh cat mkdir rmdir rm cp mv chmod chown mktemp dirname basename sed grep egrep fgrep find sort head tail wc tr cut date ln touch awk xargs jq perl git uname cmp diff readlink stat sleep expr uniq seq timeout printf env true false shasum sha256sum cksum ps od base64 mkfifo nohup id'
++ SPAWN=/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-spawn.sh
++ CONTROL=/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-control.sh
++ SYNC=/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-session-name-sync.sh
+++ fm_test_tmproot fm-pi-session-name
+++ local prefix=fm-pi-session-name root
++++ mktemp -d /tmp/fm-pi-session-name.XXXXXX
+++ root=/tmp/fm-pi-session-name.5riAi1
+++ printf '%s\n%s\n' 3441552 'linux-starttime=350025010 cmdline-hex=62617368002d780074657374732f666d2d70692d73657373696f6e2d6e616d652e746573742e736800'
+++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1
+++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1
++ TMP_ROOT=/tmp/fm-pi-session-name.5riAi1
++ test_pi_launch_names_are_native_and_exact
++ local rec id out status=0 launch name
++ id=pi-name-explicit-z1
++ name='restore O'\''Brien, c574!'
+++ make_case explicit pi pi-name-explicit-z1
+++ local name=explicit harness=pi id=pi-name-explicit-z1 dir home proj wt fakebin
+++ dir=/tmp/fm-pi-session-name.5riAi1/explicit
+++ home=/tmp/fm-pi-session-name.5riAi1/explicit/home
+++ proj=/tmp/fm-pi-session-name.5riAi1/explicit/project
+++ wt=/tmp/fm-pi-session-name.5riAi1/explicit/wt
++++ make_fakebin /tmp/fm-pi-session-name.5riAi1/explicit/fake
++++ local dir=/tmp/fm-pi-session-name.5riAi1/explicit/fake fakebin pi_bin
+++++ fm_fakebin /tmp/fm-pi-session-name.5riAi1/explicit/fake
+++++ local dir=/tmp/fm-pi-session-name.5riAi1/explicit/fake fakebin=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
+++++ mkdir -p /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
+++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
++++ fakebin=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/tmux
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/pi
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/pi-signed
++++ fm_fake_exit0 /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin treehouse
++++ local fakebin=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin tool
++++ shift
++++ for tool in "$@"
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/treehouse
++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
+++ fakebin=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/explicit/home/data/pi-name-explicit-z1 /tmp/fm-pi-session-name.5riAi1/explicit/home/projects /tmp/fm-pi-session-name.5riAi1/explicit/home/state /tmp/fm-pi-session-name.5riAi1/explicit/home/config
+++ printf '%s\n' pi
+++ printf 'instructions for %s\n' pi-name-explicit-z1
+++ fm_git_worktree /tmp/fm-pi-session-name.5riAi1/explicit/project /tmp/fm-pi-session-name.5riAi1/explicit/wt wt-explicit
+++ local repo=/tmp/fm-pi-session-name.5riAi1/explicit/project worktree=/tmp/fm-pi-session-name.5riAi1/explicit/wt branch=wt-explicit
+++ fm_git_init_commit /tmp/fm-pi-session-name.5riAi1/explicit/project
+++ local dir=/tmp/fm-pi-session-name.5riAi1/explicit/project
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/explicit/project
+++ git -C /tmp/fm-pi-session-name.5riAi1/explicit/project init -q
++++ basename /tmp/fm-pi-session-name.5riAi1/explicit/project
+++ printf '# %s\n' project
+++ git -C /tmp/fm-pi-session-name.5riAi1/explicit/project add README.md
+++ git -C /tmp/fm-pi-session-name.5riAi1/explicit/project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
+++ fm_git_add_origin /tmp/fm-pi-session-name.5riAi1/explicit/project /tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git
+++ local repo=/tmp/fm-pi-session-name.5riAi1/explicit/project remote=/tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git remote_abs
+++ git clone --quiet --bare /tmp/fm-pi-session-name.5riAi1/explicit/project /tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git
++++ cd /tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git
++++ pwd
+++ remote_abs=/tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/explicit/project remote add origin file:///tmp/fm-pi-session-name.5riAi1/explicit/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/explicit/project worktree add --quiet -b wt-explicit /tmp/fm-pi-session-name.5riAi1/explicit/wt
+++ printf %s /tmp/fm-pi-session-name.5riAi1/explicit/wt
+++ printf %s pi
+++ :
+++ :
+++ touch /tmp/fm-pi-session-name.5riAi1/explicit/home/state/.last-watcher-beat
+++ printf '%s\n' '/tmp/fm-pi-session-name.5riAi1/explicit|/tmp/fm-pi-session-name.5riAi1/explicit/home|/tmp/fm-pi-session-name.5riAi1/explicit/project|/tmp/fm-pi-session-name.5riAi1/explicit/wt|/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin'
++ rec='/tmp/fm-pi-session-name.5riAi1/explicit|/tmp/fm-pi-session-name.5riAi1/explicit/home|/tmp/fm-pi-session-name.5riAi1/explicit/project|/tmp/fm-pi-session-name.5riAi1/explicit/wt|/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin'
++ read_case '/tmp/fm-pi-session-name.5riAi1/explicit|/tmp/fm-pi-session-name.5riAi1/explicit/home|/tmp/fm-pi-session-name.5riAi1/explicit/project|/tmp/fm-pi-session-name.5riAi1/explicit/wt|/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin'
++ IFS='|'
++ read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR
+++ run_spawn /tmp/fm-pi-session-name.5riAi1/explicit/home /tmp/fm-pi-session-name.5riAi1/explicit/wt /tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin /tmp/fm-pi-session-name.5riAi1/explicit/fake pi-name-explicit-z1 /tmp/fm-pi-session-name.5riAi1/explicit/project --mode no-mistakes --yolo off --session-name 'restore O'\''Brien, c574!'
+++ local home=/tmp/fm-pi-session-name.5riAi1/explicit/home wt=/tmp/fm-pi-session-name.5riAi1/explicit/wt fakebin=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin fake=/tmp/fm-pi-session-name.5riAi1/explicit/fake
+++ shift 4
+++ FM_ROOT_OVERRIDE=
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/explicit/home
+++ FM_STATE_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/explicit/home/state
+++ FM_DATA_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/explicit/home/data
+++ FM_PROJECTS_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/explicit/home/projects
+++ FM_CONFIG_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/explicit/home/config
+++ FM_SPAWN_NO_GUARD=1
+++ FM_FAKE_DIR=/tmp/fm-pi-session-name.5riAi1/explicit/fake
+++ FM_FAKE_PANE_PATH=/tmp/fm-pi-session-name.5riAi1/explicit/wt
+++ FM_CONTROL_POLL=0.01
+++ FM_CONTROL_EXIT_WAIT=0.1
+++ FM_CONTROL_LAUNCH_WAIT=0.1
+++ TMUX=fake,1,0
+++ GROK_HOME=/tmp/fm-pi-session-name.5riAi1/explicit/home/grok-home
+++ PATH=/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin:/home/ben/.pi/agent/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/run/wrappers/bin:/home/ben/.nix-profile/bin:/nix/profile/bin:/home/ben/.local/state/nix/profile/bin:/etc/profiles/per-user/ben/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/home/ben/go/bin:/home/ben/.cargo/bin:/home/ben/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+++ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-spawn.sh pi-name-explicit-z1 /tmp/fm-pi-session-name.5riAi1/explicit/project --mode no-mistakes --yolo off --session-name 'restore O'\''Brien, c574!'
++ out=$'warning: /tmp/fm-pi-session-name.5riAi1/explicit/home/data/pi-name-explicit-z1/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches\nspawned pi-name-explicit-z1 harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-pi-name-explicit-z1 worktree=/tmp/fm-pi-session-name.5riAi1/explicit/wt'
++ expect_code 0 0 'Pi spawn with an explicit native name'
++ local expected=0 actual=0 'label=Pi spawn with an explicit native name'
++ '[' 0 = 0 ']'
++ assert_contains $'warning: /tmp/fm-pi-session-name.5riAi1/explicit/home/data/pi-name-explicit-z1/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches\nspawned pi-name-explicit-z1 harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-pi-name-explicit-z1 worktree=/tmp/fm-pi-session-name.5riAi1/explicit/wt' 'spawned pi-name-explicit-z1 harness=pi' 'spawn did not report Pi'
++ case "$1" in
++ :
+++ tail -1 /tmp/fm-pi-session-name.5riAi1/explicit/fake/literal
++ launch='env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/pi'\'' --tui-mode regular --name '\''restore O'\''\'\'''\''Brien, c574!'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/explicit/home/state/pi-name-explicit-z1.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/explicit/home/data/pi-name-explicit-z1/brief.md'\'')"'
++ assert_contains 'env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/explicit/fake/fakebin/pi'\'' --tui-mode regular --name '\''restore O'\''\'\'''\''Brien, c574!'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/explicit/home/state/pi-name-explicit-z1.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/explicit/home/data/pi-name-explicit-z1/brief.md'\'')"' '--name '\''restore O'\''\'\'''\''Brien, c574!'\'' -e ' 'Pi did not receive the exact native name before its extension'
++ case "$1" in
++ :
++ assert_grep 'session_name=restore O'\''Brien, c574!' /tmp/fm-pi-session-name.5riAi1/explicit/home/state/pi-name-explicit-z1.meta 'Pi metadata does not contain the exact applied name'
++ grep -F -- 'session_name=restore O'\''Brien, c574!' /tmp/fm-pi-session-name.5riAi1/explicit/home/state/pi-name-explicit-z1.meta
++ pass 'Pi gets an exact native name with spaces and punctuation'
++ printf 'ok - %s\n' 'Pi gets an exact native name with spaces and punctuation'
+ok - Pi gets an exact native name with spaces and punctuation
++ test_pi_worker_default_is_the_task_id
++ local rec id out status=0 launch
++ id=pi-name-default-z2
+++ make_case default pi pi-name-default-z2
+++ local name=default harness=pi id=pi-name-default-z2 dir home proj wt fakebin
+++ dir=/tmp/fm-pi-session-name.5riAi1/default
+++ home=/tmp/fm-pi-session-name.5riAi1/default/home
+++ proj=/tmp/fm-pi-session-name.5riAi1/default/project
+++ wt=/tmp/fm-pi-session-name.5riAi1/default/wt
++++ make_fakebin /tmp/fm-pi-session-name.5riAi1/default/fake
++++ local dir=/tmp/fm-pi-session-name.5riAi1/default/fake fakebin pi_bin
+++++ fm_fakebin /tmp/fm-pi-session-name.5riAi1/default/fake
+++++ local dir=/tmp/fm-pi-session-name.5riAi1/default/fake fakebin=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
+++++ mkdir -p /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
+++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
++++ fakebin=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/tmux
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/pi
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/pi-signed
++++ fm_fake_exit0 /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin treehouse
++++ local fakebin=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin tool
++++ shift
++++ for tool in "$@"
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/treehouse
++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
+++ fakebin=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/default/home/data/pi-name-default-z2 /tmp/fm-pi-session-name.5riAi1/default/home/projects /tmp/fm-pi-session-name.5riAi1/default/home/state /tmp/fm-pi-session-name.5riAi1/default/home/config
+++ printf '%s\n' pi
+++ printf 'instructions for %s\n' pi-name-default-z2
+++ fm_git_worktree /tmp/fm-pi-session-name.5riAi1/default/project /tmp/fm-pi-session-name.5riAi1/default/wt wt-default
+++ local repo=/tmp/fm-pi-session-name.5riAi1/default/project worktree=/tmp/fm-pi-session-name.5riAi1/default/wt branch=wt-default
+++ fm_git_init_commit /tmp/fm-pi-session-name.5riAi1/default/project
+++ local dir=/tmp/fm-pi-session-name.5riAi1/default/project
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/default/project
+++ git -C /tmp/fm-pi-session-name.5riAi1/default/project init -q
++++ basename /tmp/fm-pi-session-name.5riAi1/default/project
+++ printf '# %s\n' project
+++ git -C /tmp/fm-pi-session-name.5riAi1/default/project add README.md
+++ git -C /tmp/fm-pi-session-name.5riAi1/default/project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
+++ fm_git_add_origin /tmp/fm-pi-session-name.5riAi1/default/project /tmp/fm-pi-session-name.5riAi1/default/project.origin.git
+++ local repo=/tmp/fm-pi-session-name.5riAi1/default/project remote=/tmp/fm-pi-session-name.5riAi1/default/project.origin.git remote_abs
+++ git clone --quiet --bare /tmp/fm-pi-session-name.5riAi1/default/project /tmp/fm-pi-session-name.5riAi1/default/project.origin.git
++++ cd /tmp/fm-pi-session-name.5riAi1/default/project.origin.git
++++ pwd
+++ remote_abs=/tmp/fm-pi-session-name.5riAi1/default/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/default/project remote add origin file:///tmp/fm-pi-session-name.5riAi1/default/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/default/project worktree add --quiet -b wt-default /tmp/fm-pi-session-name.5riAi1/default/wt
+++ printf %s /tmp/fm-pi-session-name.5riAi1/default/wt
+++ printf %s pi
+++ :
+++ :
+++ touch /tmp/fm-pi-session-name.5riAi1/default/home/state/.last-watcher-beat
+++ printf '%s\n' '/tmp/fm-pi-session-name.5riAi1/default|/tmp/fm-pi-session-name.5riAi1/default/home|/tmp/fm-pi-session-name.5riAi1/default/project|/tmp/fm-pi-session-name.5riAi1/default/wt|/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin'
++ rec='/tmp/fm-pi-session-name.5riAi1/default|/tmp/fm-pi-session-name.5riAi1/default/home|/tmp/fm-pi-session-name.5riAi1/default/project|/tmp/fm-pi-session-name.5riAi1/default/wt|/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin'
++ read_case '/tmp/fm-pi-session-name.5riAi1/default|/tmp/fm-pi-session-name.5riAi1/default/home|/tmp/fm-pi-session-name.5riAi1/default/project|/tmp/fm-pi-session-name.5riAi1/default/wt|/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin'
++ IFS='|'
++ read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR
+++ run_spawn /tmp/fm-pi-session-name.5riAi1/default/home /tmp/fm-pi-session-name.5riAi1/default/wt /tmp/fm-pi-session-name.5riAi1/default/fake/fakebin /tmp/fm-pi-session-name.5riAi1/default/fake pi-name-default-z2 /tmp/fm-pi-session-name.5riAi1/default/project --mode no-mistakes --yolo off
+++ local home=/tmp/fm-pi-session-name.5riAi1/default/home wt=/tmp/fm-pi-session-name.5riAi1/default/wt fakebin=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin fake=/tmp/fm-pi-session-name.5riAi1/default/fake
+++ shift 4
+++ FM_ROOT_OVERRIDE=
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/default/home
+++ FM_STATE_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/default/home/state
+++ FM_DATA_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/default/home/data
+++ FM_PROJECTS_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/default/home/projects
+++ FM_CONFIG_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/default/home/config
+++ FM_SPAWN_NO_GUARD=1
+++ FM_FAKE_DIR=/tmp/fm-pi-session-name.5riAi1/default/fake
+++ FM_FAKE_PANE_PATH=/tmp/fm-pi-session-name.5riAi1/default/wt
+++ FM_CONTROL_POLL=0.01
+++ FM_CONTROL_EXIT_WAIT=0.1
+++ FM_CONTROL_LAUNCH_WAIT=0.1
+++ TMUX=fake,1,0
+++ GROK_HOME=/tmp/fm-pi-session-name.5riAi1/default/home/grok-home
+++ PATH=/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin:/home/ben/.pi/agent/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/run/wrappers/bin:/home/ben/.nix-profile/bin:/nix/profile/bin:/home/ben/.local/state/nix/profile/bin:/etc/profiles/per-user/ben/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/home/ben/go/bin:/home/ben/.cargo/bin:/home/ben/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+++ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-spawn.sh pi-name-default-z2 /tmp/fm-pi-session-name.5riAi1/default/project --mode no-mistakes --yolo off
++ out=$'warning: /tmp/fm-pi-session-name.5riAi1/default/home/data/pi-name-default-z2/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches\nspawned pi-name-default-z2 harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-pi-name-default-z2 worktree=/tmp/fm-pi-session-name.5riAi1/default/wt'
++ expect_code 0 0 'Pi spawn with its default native name'
++ local expected=0 actual=0 'label=Pi spawn with its default native name'
++ '[' 0 = 0 ']'
+++ tail -1 /tmp/fm-pi-session-name.5riAi1/default/fake/literal
++ launch='env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/pi'\'' --tui-mode regular --name '\''pi-name-default-z2'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/default/home/state/pi-name-default-z2.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/default/home/data/pi-name-default-z2/brief.md'\'')"'
++ assert_contains 'env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/default/fake/fakebin/pi'\'' --tui-mode regular --name '\''pi-name-default-z2'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/default/home/state/pi-name-default-z2.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/default/home/data/pi-name-default-z2/brief.md'\'')"' '--name '\''pi-name-default-z2'\'' -e ' 'Pi did not use the task id as its default name'
++ case "$1" in
++ :
++ assert_grep session_name=pi-name-default-z2 /tmp/fm-pi-session-name.5riAi1/default/home/state/pi-name-default-z2.meta 'Pi metadata does not contain the default task name'
++ grep -F -- session_name=pi-name-default-z2 /tmp/fm-pi-session-name.5riAi1/default/home/state/pi-name-default-z2.meta
++ pass 'a Pi worker uses its task id as the native default name'
++ printf 'ok - %s\n' 'a Pi worker uses its task id as the native default name'
+ok - a Pi worker uses its task id as the native default name
++ test_pi_signed_secondmate_uses_the_conventional_name
++ local rec id sm out status=0 launch
++ id=atlas-core
+++ make_case secondmate pi-signed atlas-core
+++ local name=secondmate harness=pi-signed id=atlas-core dir home proj wt fakebin
+++ dir=/tmp/fm-pi-session-name.5riAi1/secondmate
+++ home=/tmp/fm-pi-session-name.5riAi1/secondmate/home
+++ proj=/tmp/fm-pi-session-name.5riAi1/secondmate/project
+++ wt=/tmp/fm-pi-session-name.5riAi1/secondmate/wt
++++ make_fakebin /tmp/fm-pi-session-name.5riAi1/secondmate/fake
++++ local dir=/tmp/fm-pi-session-name.5riAi1/secondmate/fake fakebin pi_bin
+++++ fm_fakebin /tmp/fm-pi-session-name.5riAi1/secondmate/fake
+++++ local dir=/tmp/fm-pi-session-name.5riAi1/secondmate/fake fakebin=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
+++++ mkdir -p /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
+++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
++++ fakebin=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/tmux
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/pi
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/pi-signed
++++ fm_fake_exit0 /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin treehouse
++++ local fakebin=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin tool
++++ shift
++++ for tool in "$@"
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/treehouse
++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
+++ fakebin=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/secondmate/home/data/atlas-core /tmp/fm-pi-session-name.5riAi1/secondmate/home/projects /tmp/fm-pi-session-name.5riAi1/secondmate/home/state /tmp/fm-pi-session-name.5riAi1/secondmate/home/config
+++ printf '%s\n' pi-signed
+++ printf 'instructions for %s\n' atlas-core
+++ fm_git_worktree /tmp/fm-pi-session-name.5riAi1/secondmate/project /tmp/fm-pi-session-name.5riAi1/secondmate/wt wt-secondmate
+++ local repo=/tmp/fm-pi-session-name.5riAi1/secondmate/project worktree=/tmp/fm-pi-session-name.5riAi1/secondmate/wt branch=wt-secondmate
+++ fm_git_init_commit /tmp/fm-pi-session-name.5riAi1/secondmate/project
+++ local dir=/tmp/fm-pi-session-name.5riAi1/secondmate/project
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/secondmate/project
+++ git -C /tmp/fm-pi-session-name.5riAi1/secondmate/project init -q
++++ basename /tmp/fm-pi-session-name.5riAi1/secondmate/project
+++ printf '# %s\n' project
+++ git -C /tmp/fm-pi-session-name.5riAi1/secondmate/project add README.md
+++ git -C /tmp/fm-pi-session-name.5riAi1/secondmate/project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
+++ fm_git_add_origin /tmp/fm-pi-session-name.5riAi1/secondmate/project /tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git
+++ local repo=/tmp/fm-pi-session-name.5riAi1/secondmate/project remote=/tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git remote_abs
+++ git clone --quiet --bare /tmp/fm-pi-session-name.5riAi1/secondmate/project /tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git
++++ cd /tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git
++++ pwd
+++ remote_abs=/tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/secondmate/project remote add origin file:///tmp/fm-pi-session-name.5riAi1/secondmate/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/secondmate/project worktree add --quiet -b wt-secondmate /tmp/fm-pi-session-name.5riAi1/secondmate/wt
+++ printf %s /tmp/fm-pi-session-name.5riAi1/secondmate/wt
+++ printf %s pi-signed
+++ :
+++ :
+++ touch /tmp/fm-pi-session-name.5riAi1/secondmate/home/state/.last-watcher-beat
+++ printf '%s\n' '/tmp/fm-pi-session-name.5riAi1/secondmate|/tmp/fm-pi-session-name.5riAi1/secondmate/home|/tmp/fm-pi-session-name.5riAi1/secondmate/project|/tmp/fm-pi-session-name.5riAi1/secondmate/wt|/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin'
++ rec='/tmp/fm-pi-session-name.5riAi1/secondmate|/tmp/fm-pi-session-name.5riAi1/secondmate/home|/tmp/fm-pi-session-name.5riAi1/secondmate/project|/tmp/fm-pi-session-name.5riAi1/secondmate/wt|/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin'
++ read_case '/tmp/fm-pi-session-name.5riAi1/secondmate|/tmp/fm-pi-session-name.5riAi1/secondmate/home|/tmp/fm-pi-session-name.5riAi1/secondmate/project|/tmp/fm-pi-session-name.5riAi1/secondmate/wt|/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin'
++ IFS='|'
++ read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR
++ sm=/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home
++ make_secondmate_home /tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home atlas-core
++ local home=/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home id=atlas-core
++ mkdir -p /tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/bin /tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/data
++ printf '# Firstmate\n'
++ printf '%s\n' atlas-core
++ printf 'charter for %s\n' atlas-core
+++ run_spawn /tmp/fm-pi-session-name.5riAi1/secondmate/home /tmp/fm-pi-session-name.5riAi1/secondmate/wt /tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin /tmp/fm-pi-session-name.5riAi1/secondmate/fake atlas-core /tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home --secondmate
+++ local home=/tmp/fm-pi-session-name.5riAi1/secondmate/home wt=/tmp/fm-pi-session-name.5riAi1/secondmate/wt fakebin=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin fake=/tmp/fm-pi-session-name.5riAi1/secondmate/fake
+++ shift 4
+++ FM_ROOT_OVERRIDE=
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/secondmate/home
+++ FM_STATE_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/secondmate/home/state
+++ FM_DATA_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/secondmate/home/data
+++ FM_PROJECTS_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/secondmate/home/projects
+++ FM_CONFIG_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/secondmate/home/config
+++ FM_SPAWN_NO_GUARD=1
+++ FM_FAKE_DIR=/tmp/fm-pi-session-name.5riAi1/secondmate/fake
+++ FM_FAKE_PANE_PATH=/tmp/fm-pi-session-name.5riAi1/secondmate/wt
+++ FM_CONTROL_POLL=0.01
+++ FM_CONTROL_EXIT_WAIT=0.1
+++ FM_CONTROL_LAUNCH_WAIT=0.1
+++ TMUX=fake,1,0
+++ GROK_HOME=/tmp/fm-pi-session-name.5riAi1/secondmate/home/grok-home
+++ PATH=/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin:/home/ben/.pi/agent/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/run/wrappers/bin:/home/ben/.nix-profile/bin:/nix/profile/bin:/home/ben/.local/state/nix/profile/bin:/etc/profiles/per-user/ben/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/home/ben/go/bin:/home/ben/.cargo/bin:/home/ben/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+++ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-spawn.sh atlas-core /tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home --secondmate
++ out=$'warning: secondmate atlas-core sync skipped before launch: primary default-branch commit cannot be resolved\nspawned atlas-core harness=pi-signed kind=secondmate mode=secondmate yolo=off window=firstmate:fm-atlas-core worktree=/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home'
++ expect_code 0 0 'Pi-signed second mate spawn'
++ local expected=0 actual=0 'label=Pi-signed second mate spawn'
++ '[' 0 = 0 ']'
+++ tail -1 /tmp/fm-pi-session-name.5riAi1/secondmate/fake/literal
++ launch='FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HOME='\''/tmp/fm-pi-session-name.5riAi1/secondmate/home'\'' FM_HOME='\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home'\'' FM_TRACE_CONTEXT=off FM_SUPERVISION_MODEL=persistent env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi-signed '\''/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/pi-signed'\'' --tui-mode regular --name '\''Secondmate, atlas-core'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/.pi/extensions/fm-primary-turnend-guard.ts'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/.pi/extensions/fm-primary-pi-watch.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/data/charter.md'\'')"'
++ assert_contains 'FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_PUBLIC_FOLLOWUP_PRIMARY_HOME='\''/tmp/fm-pi-session-name.5riAi1/secondmate/home'\'' FM_HOME='\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home'\'' FM_TRACE_CONTEXT=off FM_SUPERVISION_MODEL=persistent env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi-signed '\''/tmp/fm-pi-session-name.5riAi1/secondmate/fake/fakebin/pi-signed'\'' --tui-mode regular --name '\''Secondmate, atlas-core'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/.pi/extensions/fm-primary-turnend-guard.ts'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/.pi/extensions/fm-primary-pi-watch.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/secondmate/secondmate-home/data/charter.md'\'')"' '--name '\''Secondmate, atlas-core'\'' -e ' 'Pi-signed did not receive the conventional second mate name'
++ case "$1" in
++ :
++ assert_grep 'session_name=Secondmate, atlas-core' /tmp/fm-pi-session-name.5riAi1/secondmate/home/state/atlas-core.meta 'Pi-signed metadata does not contain the second mate name'
++ grep -F -- 'session_name=Secondmate, atlas-core' /tmp/fm-pi-session-name.5riAi1/secondmate/home/state/atlas-core.meta
++ pass 'Pi-signed uses the '\''Secondmate, <id>'\'' native name'
++ printf 'ok - %s\n' 'Pi-signed uses the '\''Secondmate, <id>'\'' native name'
+ok - Pi-signed uses the 'Secondmate, <id>' native name
++ test_pi_relaunch_keeps_the_recorded_name
++ local rec id out status=0 launch name
++ id=pi-name-relaunch-z3
++ name='restore O'\''Brien, c574!'
+++ make_case relaunch pi pi-name-relaunch-z3
+++ local name=relaunch harness=pi id=pi-name-relaunch-z3 dir home proj wt fakebin
+++ dir=/tmp/fm-pi-session-name.5riAi1/relaunch
+++ home=/tmp/fm-pi-session-name.5riAi1/relaunch/home
+++ proj=/tmp/fm-pi-session-name.5riAi1/relaunch/project
+++ wt=/tmp/fm-pi-session-name.5riAi1/relaunch/wt
++++ make_fakebin /tmp/fm-pi-session-name.5riAi1/relaunch/fake
++++ local dir=/tmp/fm-pi-session-name.5riAi1/relaunch/fake fakebin pi_bin
+++++ fm_fakebin /tmp/fm-pi-session-name.5riAi1/relaunch/fake
+++++ local dir=/tmp/fm-pi-session-name.5riAi1/relaunch/fake fakebin=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
+++++ mkdir -p /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
+++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
++++ fakebin=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/tmux
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/pi
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/pi-signed
++++ fm_fake_exit0 /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin treehouse
++++ local fakebin=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin tool
++++ shift
++++ for tool in "$@"
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/treehouse
++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
+++ fakebin=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/relaunch/home/data/pi-name-relaunch-z3 /tmp/fm-pi-session-name.5riAi1/relaunch/home/projects /tmp/fm-pi-session-name.5riAi1/relaunch/home/state /tmp/fm-pi-session-name.5riAi1/relaunch/home/config
+++ printf '%s\n' pi
+++ printf 'instructions for %s\n' pi-name-relaunch-z3
+++ fm_git_worktree /tmp/fm-pi-session-name.5riAi1/relaunch/project /tmp/fm-pi-session-name.5riAi1/relaunch/wt wt-relaunch
+++ local repo=/tmp/fm-pi-session-name.5riAi1/relaunch/project worktree=/tmp/fm-pi-session-name.5riAi1/relaunch/wt branch=wt-relaunch
+++ fm_git_init_commit /tmp/fm-pi-session-name.5riAi1/relaunch/project
+++ local dir=/tmp/fm-pi-session-name.5riAi1/relaunch/project
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/relaunch/project
+++ git -C /tmp/fm-pi-session-name.5riAi1/relaunch/project init -q
++++ basename /tmp/fm-pi-session-name.5riAi1/relaunch/project
+++ printf '# %s\n' project
+++ git -C /tmp/fm-pi-session-name.5riAi1/relaunch/project add README.md
+++ git -C /tmp/fm-pi-session-name.5riAi1/relaunch/project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
+++ fm_git_add_origin /tmp/fm-pi-session-name.5riAi1/relaunch/project /tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git
+++ local repo=/tmp/fm-pi-session-name.5riAi1/relaunch/project remote=/tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git remote_abs
+++ git clone --quiet --bare /tmp/fm-pi-session-name.5riAi1/relaunch/project /tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git
++++ cd /tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git
++++ pwd
+++ remote_abs=/tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/relaunch/project remote add origin file:///tmp/fm-pi-session-name.5riAi1/relaunch/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/relaunch/project worktree add --quiet -b wt-relaunch /tmp/fm-pi-session-name.5riAi1/relaunch/wt
+++ printf %s /tmp/fm-pi-session-name.5riAi1/relaunch/wt
+++ printf %s pi
+++ :
+++ :
+++ touch /tmp/fm-pi-session-name.5riAi1/relaunch/home/state/.last-watcher-beat
+++ printf '%s\n' '/tmp/fm-pi-session-name.5riAi1/relaunch|/tmp/fm-pi-session-name.5riAi1/relaunch/home|/tmp/fm-pi-session-name.5riAi1/relaunch/project|/tmp/fm-pi-session-name.5riAi1/relaunch/wt|/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin'
++ rec='/tmp/fm-pi-session-name.5riAi1/relaunch|/tmp/fm-pi-session-name.5riAi1/relaunch/home|/tmp/fm-pi-session-name.5riAi1/relaunch/project|/tmp/fm-pi-session-name.5riAi1/relaunch/wt|/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin'
++ read_case '/tmp/fm-pi-session-name.5riAi1/relaunch|/tmp/fm-pi-session-name.5riAi1/relaunch/home|/tmp/fm-pi-session-name.5riAi1/relaunch/project|/tmp/fm-pi-session-name.5riAi1/relaunch/wt|/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin'
++ IFS='|'
++ read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR
++ printf 'window=firstmate:fm-%s\n' pi-name-relaunch-z3
++ printf 'endpoint_task_id=%s\n' pi-name-relaunch-z3
++ printf 'worktree=%s\n' /tmp/fm-pi-session-name.5riAi1/relaunch/wt
++ printf 'project=%s\n' /tmp/fm-pi-session-name.5riAi1/relaunch/project
++ printf 'harness=pi\nkind=ship\nmode=no-mistakes\nyolo=off\n'
++ printf 'tasktmp=/tmp/fm-%s\nmodel=default\neffort=default\n' pi-name-relaunch-z3
++ printf 'session_name=%s\n' 'restore O'\''Brien, c574!'
++ printf '%s\n' fm-pi-name-relaunch-z3
+++ run_control /tmp/fm-pi-session-name.5riAi1/relaunch/home /tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin /tmp/fm-pi-session-name.5riAi1/relaunch/fake pi-name-relaunch-z3 relaunch --note 'continue the named Pi task'
+++ local home=/tmp/fm-pi-session-name.5riAi1/relaunch/home fakebin=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin fake=/tmp/fm-pi-session-name.5riAi1/relaunch/fake
+++ shift 3
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/relaunch/home
+++ FM_SPAWN_NO_GUARD=1
+++ FM_FAKE_DIR=/tmp/fm-pi-session-name.5riAi1/relaunch/fake
+++ FM_CONTROL_POLL=0.01
+++ FM_CONTROL_EXIT_WAIT=0.1
+++ FM_CONTROL_LAUNCH_WAIT=0.1
+++ GROK_HOME=/tmp/fm-pi-session-name.5riAi1/relaunch/home/grok-home
+++ PATH=/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin:/home/ben/.pi/agent/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/run/wrappers/bin:/home/ben/.nix-profile/bin:/nix/profile/bin:/home/ben/.local/state/nix/profile/bin:/etc/profiles/per-user/ben/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/home/ben/go/bin:/home/ben/.cargo/bin:/home/ben/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+++ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-control.sh pi-name-relaunch-z3 relaunch --note 'continue the named Pi task'
++ out=$'warning: /tmp/fm-pi-session-name.5riAi1/relaunch/home/data/pi-name-relaunch-z3/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches\nrelaunched pi-name-relaunch-z3 harness=pi from=pi model=default effort=default backend=tmux endpoint=firstmate:fm-pi-name-relaunch-z3 worktree=/tmp/fm-pi-session-name.5riAi1/relaunch/wt'
++ expect_code 0 0 'Pi relaunch with a recorded native name'
++ local expected=0 actual=0 'label=Pi relaunch with a recorded native name'
++ '[' 0 = 0 ']'
+++ tail -1 /tmp/fm-pi-session-name.5riAi1/relaunch/fake/literal
++ launch='unset TRACEPARENT; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/pi'\'' --tui-mode regular --name '\''restore O'\''\'\'''\''Brien, c574!'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/relaunch/home/state/pi-name-relaunch-z3.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/relaunch/home/data/pi-name-relaunch-z3/brief.md'\'')"'
++ assert_contains 'unset TRACEPARENT; env -u CURSOR_AGENT -u CURSOR_INVOKED_AS FM_PI_HARNESS=pi '\''/tmp/fm-pi-session-name.5riAi1/relaunch/fake/fakebin/pi'\'' --tui-mode regular --name '\''restore O'\''\'\'''\''Brien, c574!'\'' -e '\''/tmp/fm-pi-session-name.5riAi1/relaunch/home/state/pi-name-relaunch-z3.pi-ext.ts'\'' "$('\''/home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-operational-input.sh'\'' encode launch-brief < '\''/tmp/fm-pi-session-name.5riAi1/relaunch/home/data/pi-name-relaunch-z3/brief.md'\'')"' '--name '\''restore O'\''\'\'''\''Brien, c574!'\''' 'the replacement did not receive the recorded native name'
++ case "$1" in
++ :
++ assert_grep 'session_name=restore O'\''Brien, c574!' /tmp/fm-pi-session-name.5riAi1/relaunch/home/state/pi-name-relaunch-z3.meta 'the replacement metadata lost the native name'
++ grep -F -- 'session_name=restore O'\''Brien, c574!' /tmp/fm-pi-session-name.5riAi1/relaunch/home/state/pi-name-relaunch-z3.meta
+++ grep -c '^session_name=' /tmp/fm-pi-session-name.5riAi1/relaunch/home/state/pi-name-relaunch-z3.meta
++ '[' 1 -eq 1 ']'
++ pass 'a Pi replacement keeps one exact native name'
++ printf 'ok - %s\n' 'a Pi replacement keeps one exact native name'
+ok - a Pi replacement keeps one exact native name
++ test_pi_native_name_update_survives_relaunch
++ local rec id name out status=0 launch
++ id=pi-name-update-z5
++ name='renamed O'\''Brien, c574!'
+++ make_case update pi pi-name-update-z5
+++ local name=update harness=pi id=pi-name-update-z5 dir home proj wt fakebin
+++ dir=/tmp/fm-pi-session-name.5riAi1/update
+++ home=/tmp/fm-pi-session-name.5riAi1/update/home
+++ proj=/tmp/fm-pi-session-name.5riAi1/update/project
+++ wt=/tmp/fm-pi-session-name.5riAi1/update/wt
++++ make_fakebin /tmp/fm-pi-session-name.5riAi1/update/fake
++++ local dir=/tmp/fm-pi-session-name.5riAi1/update/fake fakebin pi_bin
+++++ fm_fakebin /tmp/fm-pi-session-name.5riAi1/update/fake
+++++ local dir=/tmp/fm-pi-session-name.5riAi1/update/fake fakebin=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
+++++ mkdir -p /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
+++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
++++ fakebin=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin/tmux
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin/pi
++++ for pi_bin in pi pi-signed
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin/pi-signed
++++ fm_fake_exit0 /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin treehouse
++++ local fakebin=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin tool
++++ shift
++++ for tool in "$@"
++++ cat
++++ chmod +x /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin/treehouse
++++ printf '%s\n' /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
+++ fakebin=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/update/home/data/pi-name-update-z5 /tmp/fm-pi-session-name.5riAi1/update/home/projects /tmp/fm-pi-session-name.5riAi1/update/home/state /tmp/fm-pi-session-name.5riAi1/update/home/config
+++ printf '%s\n' pi
+++ printf 'instructions for %s\n' pi-name-update-z5
+++ fm_git_worktree /tmp/fm-pi-session-name.5riAi1/update/project /tmp/fm-pi-session-name.5riAi1/update/wt wt-update
+++ local repo=/tmp/fm-pi-session-name.5riAi1/update/project worktree=/tmp/fm-pi-session-name.5riAi1/update/wt branch=wt-update
+++ fm_git_init_commit /tmp/fm-pi-session-name.5riAi1/update/project
+++ local dir=/tmp/fm-pi-session-name.5riAi1/update/project
+++ mkdir -p /tmp/fm-pi-session-name.5riAi1/update/project
+++ git -C /tmp/fm-pi-session-name.5riAi1/update/project init -q
++++ basename /tmp/fm-pi-session-name.5riAi1/update/project
+++ printf '# %s\n' project
+++ git -C /tmp/fm-pi-session-name.5riAi1/update/project add README.md
+++ git -C /tmp/fm-pi-session-name.5riAi1/update/project -c 'user.name=Firstmate Tests' -c user.email=tests@example.invalid commit -qm initial
+++ fm_git_add_origin /tmp/fm-pi-session-name.5riAi1/update/project /tmp/fm-pi-session-name.5riAi1/update/project.origin.git
+++ local repo=/tmp/fm-pi-session-name.5riAi1/update/project remote=/tmp/fm-pi-session-name.5riAi1/update/project.origin.git remote_abs
+++ git clone --quiet --bare /tmp/fm-pi-session-name.5riAi1/update/project /tmp/fm-pi-session-name.5riAi1/update/project.origin.git
++++ cd /tmp/fm-pi-session-name.5riAi1/update/project.origin.git
++++ pwd
+++ remote_abs=/tmp/fm-pi-session-name.5riAi1/update/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/update/project remote add origin file:///tmp/fm-pi-session-name.5riAi1/update/project.origin.git
+++ git -C /tmp/fm-pi-session-name.5riAi1/update/project worktree add --quiet -b wt-update /tmp/fm-pi-session-name.5riAi1/update/wt
+++ printf %s /tmp/fm-pi-session-name.5riAi1/update/wt
+++ printf %s pi
+++ :
+++ :
+++ touch /tmp/fm-pi-session-name.5riAi1/update/home/state/.last-watcher-beat
+++ printf '%s\n' '/tmp/fm-pi-session-name.5riAi1/update|/tmp/fm-pi-session-name.5riAi1/update/home|/tmp/fm-pi-session-name.5riAi1/update/project|/tmp/fm-pi-session-name.5riAi1/update/wt|/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin'
++ rec='/tmp/fm-pi-session-name.5riAi1/update|/tmp/fm-pi-session-name.5riAi1/update/home|/tmp/fm-pi-session-name.5riAi1/update/project|/tmp/fm-pi-session-name.5riAi1/update/wt|/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin'
++ read_case '/tmp/fm-pi-session-name.5riAi1/update|/tmp/fm-pi-session-name.5riAi1/update/home|/tmp/fm-pi-session-name.5riAi1/update/project|/tmp/fm-pi-session-name.5riAi1/update/wt|/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin'
++ IFS='|'
++ read -r CASE_DIR HOME_DIR PROJ_DIR WT_DIR FAKEBIN_DIR
+++ run_spawn /tmp/fm-pi-session-name.5riAi1/update/home /tmp/fm-pi-session-name.5riAi1/update/wt /tmp/fm-pi-session-name.5riAi1/update/fake/fakebin /tmp/fm-pi-session-name.5riAi1/update/fake pi-name-update-z5 /tmp/fm-pi-session-name.5riAi1/update/project --mode no-mistakes --yolo off
+++ local home=/tmp/fm-pi-session-name.5riAi1/update/home wt=/tmp/fm-pi-session-name.5riAi1/update/wt fakebin=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin fake=/tmp/fm-pi-session-name.5riAi1/update/fake
+++ shift 4
+++ FM_ROOT_OVERRIDE=
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/update/home
+++ FM_STATE_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/update/home/state
+++ FM_DATA_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/update/home/data
+++ FM_PROJECTS_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/update/home/projects
+++ FM_CONFIG_OVERRIDE=/tmp/fm-pi-session-name.5riAi1/update/home/config
+++ FM_SPAWN_NO_GUARD=1
+++ FM_FAKE_DIR=/tmp/fm-pi-session-name.5riAi1/update/fake
+++ FM_FAKE_PANE_PATH=/tmp/fm-pi-session-name.5riAi1/update/wt
+++ FM_CONTROL_POLL=0.01
+++ FM_CONTROL_EXIT_WAIT=0.1
+++ FM_CONTROL_LAUNCH_WAIT=0.1
+++ TMUX=fake,1,0
+++ GROK_HOME=/tmp/fm-pi-session-name.5riAi1/update/home/grok-home
+++ PATH=/tmp/fm-pi-session-name.5riAi1/update/fake/fakebin:/home/ben/.pi/agent/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/home/ben/.npm-global/bin:/home/ben/.local/bin:/run/wrappers/bin:/home/ben/.nix-profile/bin:/nix/profile/bin:/home/ben/.local/state/nix/profile/bin:/etc/profiles/per-user/ben/bin:/nix/var/nix/profiles/default/bin:/run/current-system/sw/bin:/home/ben/go/bin:/home/ben/.cargo/bin:/home/ben/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/local/sbin:/usr/bin:/bin:/usr/sbin:/sbin
+++ /home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/bin/fm-spawn.sh pi-name-update-z5 /tmp/fm-pi-session-name.5riAi1/update/project --mode no-mistakes --yolo off
++ out=$'warning: /tmp/fm-pi-session-name.5riAi1/update/home/data/pi-name-update-z5/brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches\nspawned pi-name-update-z5 harness=pi kind=ship mode=no-mistakes yolo=off window=firstmate:fm-pi-name-update-z5 worktree=/tmp/fm-pi-session-name.5riAi1/update/wt'
++ expect_code 0 0 'Pi spawn before a native name update'
++ local expected=0 actual=0 'label=Pi spawn before a native name update'
++ '[' 0 = 0 ']'
+++ EXT=/tmp/fm-pi-session-name.5riAi1/update/home/state/pi-name-update-z5.pi-ext.ts
+++ FM_HOME=/tmp/fm-pi-session-name.5riAi1/update/home
+++ NAME='renamed O'\''Brien, c574!'
+++ NODE_NO_WARNINGS=1
+++ node --input-type=module
++ out=$'file:///tmp/fm-pi-session-name.5riAi1/update/home/state/pi-name-update-z5.pi-ext.ts?update=1788776399608:35\n  pi.registerCommand("fm-set-assignment-name", {\n     ^\n\nTypeError: pi.registerCommand is not a function\n    at Module.default (file:///tmp/fm-pi-session-name.5riAi1/update/home/state/pi-name-update-z5.pi-ext.ts?update=1788776399608:35:6)\n    at file:///home/ben/.no-mistakes/worktrees/3665d600861c/01M1XJZXWY0M57DP2AN2A6BSEN/[eval1]:5:18\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)\n\nNode.js v24.18.0'
++ status=1
++ expect_code 0 1 'Pi native name metadata synchronization'
++ local expected=0 actual=1 'label=Pi native name metadata synchronization'
++ '[' 1 = 0 ']'
++ fail 'Pi native name metadata synchronization: expected exit 0, got 1'
++ printf 'not ok - %s\n' 'Pi native name metadata synchronization: expected exit 0, got 1'
+not ok - Pi native name metadata synchronization: expected exit 0, got 1
++ exit 1
++ fm_test_cleanup
++ local d
++ for d in "${FM_TEST_CLEANUP_DIRS[@]:-}"
++ '[' -n '' ']'
++ '[' -f /tmp/.fm-test-cleanup.3441552.rDGTtV ']'
++ IFS=
++ read -r d
++ '[' -n /tmp/fm-pi-session-name.5riAi1 ']'
++ rm -rf /tmp/fm-pi-session-name.5riAi1
++ IFS=
++ read -r d
++ rm -f /tmp/.fm-test-cleanup.3441552.rDGTtV

@@ -1,0 +1,11 @@
+ok - claude threads an explicit --session-name and records session_name= in meta
+ok - a crewmate defaults its session name to the task id
+ok - a scout defaults its session name to the task id
+ok - a secondmate defaults its session name to 'Secondmate, <id>'
+ok - an unsupported harness (codex) launches byte-identically and records no session_name
+ok - a session name with spaces and single quotes is safely quoted and recorded verbatim
+ok - a session name containing an ampersand is substituted literally
+ok - batch id=repo dispatch refuses --session-name
+ok - a raw launch command gets no --name flag and records no session_name
+ok - an empty --session-name value is rejected
+# all fm-spawn-session-name tests passed
