@@ -19,7 +19,7 @@ Verified on 2026-07-27 with Pi and Pi-signed 0.82.0 unless a fact gives another 
 Pi has no permission system, so workers are always autonomous.
 Pi's installed `packages/coding-agent/docs/settings.md` UI and display section documents `regular` as the `tuiMode` default and `fullscreen` as experimental.
 Fullscreen can bury steering messages by rewriting scrollback, so Firstmate avoids it when the installed CLI supports the override.
-`../../../../../bin/fm-spawn.sh --help` owns the executable-pinning and version-safe launch mechanics.
+`../../../../bin/fm-spawn.sh --help` owns the executable-pinning and version-safe launch mechanics.
 
 Pi-signed is the signed wrapper identity verified on version 0.82.0.
 Firstmate records `pi-signed` without normalization and refuses rather than falling back to `pi` when that wrapper is unavailable.
@@ -30,7 +30,7 @@ The router's Detection section owns how launch markers and ancestry select betwe
 Keep the instructions as one positional argument.
 Multiple positional arguments become separate queued messages; the spawn template already preserves the one-argument shape.
 
-`../../../../../bin/fm-spawn.sh` is the naming owner for workers and second mates.
+`../../../../bin/fm-spawn.sh` is the naming owner for workers and second mates.
 An explicit session name wins.
 A worker defaults to its task id, and a second mate defaults to `Secondmate, <id>`.
 A successful Atlas assignment replaces that default or a manual name with the exact ticket title after the target is verified idle.
@@ -40,8 +40,8 @@ The control plane passes the recorded name to a replacement.
 This keeps the name across recovery without resuming or rewriting the previous private session.
 Pi's native `/name <name>` command updates an existing managed session without a restart.
 A current worker extension synchronizes that update into its task record for recovery.
-For a worker from before this support, follow the [existing-worker migration](../../../../../README.md#install-and-launch) after `/name` and before recovery.
-[`docs/sessionstart-nudge.md`](../../../../../docs/sessionstart-nudge.md#harness-transports) owns primary and secondmate naming.
+For a worker from before this support, follow the [existing-worker migration](../../../../README.md#install-and-launch) after `/name` and before recovery.
+[`docs/sessionstart-nudge.md`](../../../../docs/sessionstart-nudge.md#harness-transports) owns primary and secondmate naming.
 These facts were verified with Pi 0.85.1 on 2026-09-06.
 
 A project trust dialog can appear on the first Pi run in any not-yet-trusted directory, including a clean worktree.

@@ -322,9 +322,13 @@ migrate_native_name_extension() {
   if ! {
     sed '$d' "$extension"
     cat <<EOF
+  let nameSync = Promise.resolve();
   pi.on("session_info_changed", (event: any) => {
     if (typeof event.name !== "string") return;
-    execFile("$FM_ROOT/bin/fm-session-name-sync.sh", ["--event", "$STATE", "$ID", "$SPAWN_GEN", event.name]);
+    nameSync = nameSync.then(() => new Promise<void>((resolve) => {
+      execFile("$FM_ROOT/bin/fm-session-name-sync.sh", ["--event", "$STATE", "$ID", "$SPAWN_GEN", event.name], () => resolve());
+    }));
+    return nameSync;
   });
   pi.registerCommand("fm-set-assignment-name", {
     handler: (args: string) => {
