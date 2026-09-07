@@ -241,6 +241,31 @@ test_duplicate_stale_and_equal_order_events_keep_the_latest_name() {
   pass "duplicate, stale, and conflicting events cannot replace a newer or manual name"
 }
 
+test_128_digit_stale_order_cannot_replace_the_current_title() {
+  local rec current_order stale_order current_title stale_title event out status=0
+  rec=$(make_case long-ordering)
+  read_case "$rec"
+  current_order="1$(printf '%0126d' 0)1"
+  stale_order="1$(printf '%0127d' 0)"
+  current_title="128-digit current title"
+  stale_title="128-digit stale title"
+
+  event=$(event_json assignment-251 "$current_order" c251 "$current_title")
+  run_receiver "$event" >/dev/null || fail "could not apply the 128-digit current assignment"
+  : > "$CASE_DIR/fake/literal"
+
+  event=$(event_json assignment-250 "$stale_order" c250 "$stale_title")
+  out=$(run_receiver "$event" 2>&1) || status=$?
+  expect_code 0 "$status" "128-digit stale assignment"
+  [ "$(printf '%s\n' "$out" | jq -r '.result')" = superseded ] \
+    || fail "a one-unit stale 128-digit assignment was not superseded: $out"
+  assert_grep "session_name=$current_title" "$HOME_DIR/state/$ID.meta" \
+    "a stale 128-digit assignment replaced the current title"
+  [ ! -s "$CASE_DIR/fake/literal" ] \
+    || fail "a stale 128-digit assignment reached the Pi session"
+  pass "a one-unit stale 128-digit order cannot replace the current title"
+}
+
 test_busy_assignment_is_durable_and_retries_only_after_idle() {
   local rec title event out status=0
   rec=$(make_case busy-retry)
@@ -464,6 +489,7 @@ test_pi_signed_uses_the_same_assignment_receiver_contract
 test_native_name_observation_confirms_a_slash_command_when_submit_state_is_ambiguous
 test_submit_confirmation_without_the_native_name_requests_a_retry
 test_duplicate_stale_and_equal_order_events_keep_the_latest_name
+test_128_digit_stale_order_cannot_replace_the_current_title
 test_busy_assignment_is_durable_and_retries_only_after_idle
 test_invalid_missing_and_unrelated_targets_do_not_mutate_sessions
 test_oversized_event_rejects_with_its_assignment_identity

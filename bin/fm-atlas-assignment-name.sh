@@ -2,8 +2,9 @@
 # Apply one committed Atlas assignment title to its managed Pi session.
 # Usage: fm-atlas-assignment-name.sh accept
 #
-# The command reads one atlas.assignment.v1 JSON object from standard input.
-# It returns one firstmate.atlas-assignment.ack.v1 JSON object.
+# Dashboard owns post-commit event emission and durable retry.
+# This receiver only accepts one delivered atlas.assignment.v1 JSON object from standard input.
+# It neither queues nor emits assignment events and returns one firstmate.atlas-assignment.ack.v1 JSON object.
 # Exit 0 is a terminal acknowledgment.
 # Exit 75 requests a retry for a temporary condition.
 # Exit 64 rejects a permanent input error.
@@ -184,10 +185,11 @@ esac
 
 RECORD="$STATE/$ID.atlas-assignment-name.json"
 decimal_order_cmp() {  # <left> <right>
-  if [ "${#1}" -lt "${#2}" ]; then printf '%s' -1; return; fi
-  if [ "${#1}" -gt "${#2}" ]; then printf '%s' 1; return; fi
-  if [ "$1" = "$2" ]; then printf '%s' 0; return; fi
-  if LC_ALL=C awk -v left="$1" -v right="$2" 'BEGIN { exit !(left < right) }'; then
+  local left=$1 right=$2 LC_ALL=C
+  if [ "${#left}" -lt "${#right}" ]; then printf '%s' -1; return; fi
+  if [ "${#left}" -gt "${#right}" ]; then printf '%s' 1; return; fi
+  if [ "$left" = "$right" ]; then printf '%s' 0; return; fi
+  if [[ "$left" < "$right" ]]; then
     printf '%s' -1
   else
     printf '%s' 1
