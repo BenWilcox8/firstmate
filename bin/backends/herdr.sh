@@ -1962,7 +1962,9 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
         (.pid | type) == "number" and .pid > 1 and (.pid | floor) == .pid
         and (.name | type) == "string" and (.name | length) > 0
         and (((.argv0 // .argv[0]) | type) == "string")
-        and (((.argv0 // .argv[0]) | length) > 0)))
+        and (((.argv0 // .argv[0]) | length) > 0)
+        and ((.argv // []) | type == "array")
+        and all((.argv // [])[]; type == "string" and length > 0)))
     | select(([.foreground_processes[].pid] | unique | length) == (.foreground_processes | length))
     | {
         pane_id,
@@ -1971,7 +1973,11 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
         foreground_processes: ([.foreground_processes[] | {
           pid,
           name: (.name | base),
-          argv0: ((.argv0 // .argv[0]) | base)
+          argv0: ((.argv0 // .argv[0]) | base),
+          agent: ((.name | base) as $name
+            | (($name | test("^(claude|codex|opencode|pi|pi-signed|grok|kimi|muse)$"))
+              or (($name | test("^(node|python)"))
+                and ((.argv // [] | join(" ")) | test("(^|[[:space:]])pi([[:space:]]|$)|/pi($|[[:space:]])")))))
         }] | sort_by(.pid))
       }
     | select(all(.foreground_processes[];
@@ -1991,7 +1997,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
   rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm= 2>/dev/null) || return 1
   shell_pid=$(printf '%s' "$snapshot" | jq -er '.shell_pid' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$snapshot" | jq -er '.foreground_process_group_id' 2>/dev/null) || return 1
-  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0] | @tsv' 2>/dev/null) || return 1
+  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0, (.agent | tostring)] | @tsv' 2>/dev/null) || return 1
   {
     printf '%s\n' "$foreground"
     printf '%s\n' "$rows" | awk 'NF >= 5 { print "P\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 }'
@@ -2012,6 +2018,8 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       foreground[$2] = 1
       foreground_name[$2] = base($3)
       foreground_argv[$2] = base($4)
+      foreground_agent[$2] = $5
+      if ($5 != "true" && $5 != "false") invalid = 1
       next
     }
     $1 == "P" {
@@ -2049,7 +2057,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
         pid = order[i]
         if (descendant[pid] && pgid[pid] == fg && !foreground[pid]) invalid = 1
         if (!descendant[pid]) continue
-        if (is_agent(comm[pid])) agents++
+        if (is_agent(comm[pid]) || foreground_agent[pid] == "true") agents++
         else if (is_shell(comm[pid])) {
           shells++
           if (stat[pid] !~ /^[SI]/) active_shell = 1

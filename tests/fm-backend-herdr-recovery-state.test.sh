@@ -22,6 +22,9 @@ case "${FM_RECOVERY_CASE:?}" in
   active-pi|absent-active-pi)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '102 100 102 S pi'
     ;;
+  interpreter-pi)
+    printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '102 100 102 S node'
+    ;;
   other-command)
     printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '103 100 103 S sleep'
     ;;
@@ -72,6 +75,9 @@ run_case() { # <case> <registry-status>
               active-pi|absent-active-pi)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"pi\",\"argv\":[\"pi\"]}]}}}"
                 ;;
+              interpreter-pi)
+                printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":102,\"foreground_processes\":[{\"pid\":102,\"name\":\"node\",\"argv\":[\"/usr/local/bin/node\",\"/opt/pi/bin/pi\"]}]}}}"
+                ;;
               other-command)
                 printf "%s\n" "{\"result\":{\"type\":\"pane_process_info\",\"process_info\":{\"pane_id\":\"w1:p2\",\"shell_pid\":100,\"foreground_process_group_id\":103,\"foreground_processes\":[{\"pid\":103,\"name\":\"sleep\",\"argv\":[\"sleep\",\"30\"]}]}}}"
                 ;;
@@ -104,6 +110,7 @@ pass "stale lifecycle status cannot keep an exited agent alive, including throug
 
 assert_case active-pi working alive
 assert_case absent-active-pi absent alive
+assert_case interpreter-pi idle alive
 assert_case other-command idle unreadable
 assert_case unreadable idle unreadable
 pass "active agents remain live, while other commands and unreadable process evidence remain ambiguous"
