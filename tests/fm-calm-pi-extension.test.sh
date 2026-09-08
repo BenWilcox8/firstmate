@@ -1271,8 +1271,8 @@ if (!customRow.render(100).join("\n").includes("CUSTOM_CALL")) {
 if (watchActual.render(100).length !== 0) {
   throw new Error("Calm left the fm_watch_arm_pi call/result shell visible");
 }
-if (assistantThinkingTool.render(100).length !== 0) {
-  throw new Error("Calm-hidden thinking beside a tool call retained vertical height");
+if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
+  throw new Error("Calm-hidden thinking beside a tool call did not retain its standard transcript separator");
 }
 if (JSON.stringify(assistantThinkingText.render(100)) !== JSON.stringify(assistantTextOnly.render(100))) {
   throw new Error("Calm-hidden thinking changed final assistant row geometry");
@@ -1282,8 +1282,8 @@ if (!assistantThinkingTool.render(100).join("\n").includes("HIDDEN_TOOL_THINKING
   throw new Error("expanding thinking did not restore the original reasoning content");
 }
 assistantThinkingTool.setHideThinkingBlock(true);
-if (assistantThinkingTool.render(100).length !== 0) {
-  throw new Error("collapsing thinking again restored residual Calm rows");
+if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
+  throw new Error("collapsing thinking again did not retain only its standard transcript separator");
 }
 if (JSON.stringify(sessionEntries) !== entriesBefore) {
   throw new Error("calm mode changed session entries or model context");
@@ -1526,6 +1526,11 @@ const requireHidden = (name, needle, context) => {
     throw new Error(`${context}: ${name} still rendered ${needle}`);
   }
 };
+const requireCollapsedMidTurn = (context) => {
+  if (JSON.stringify(rendered("midTurn")) !== JSON.stringify([""])) {
+    throw new Error(`${context}: mid-turn working note did not retain only its standard transcript separator`);
+  }
+};
 
 let calm = await loadCalmExtension();
 if (calm.registeredTools.length !== 0) {
@@ -1542,9 +1547,7 @@ await calm.calmCommand.handler("", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("plain /calm from off did not persist on");
 }
-if (rendered("midTurn").length !== 0) {
-  throw new Error(`Calm on left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
-}
+requireCollapsedMidTurn("Calm on");
 requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm on");
 // Pi owns the wording of its truncation notice; Calm must leave that row's own notice
 // standing rather than collapsing an incomplete response to nothing.
@@ -1575,9 +1578,10 @@ for (const name of Object.keys(rows)) {
   }
 }
 await calm.calmCommand.handler("  MaX  ", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "on\n" || rendered("midTurn").length !== 0) {
+if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("a spaced, mixed-case argument did not fall through to the plain toggle");
 }
+requireCollapsedMidTurn("a spaced, mixed-case argument");
 await calm.calmCommand.handler("unrecognized", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
   throw new Error("an unrecognized /calm argument did not fall back to the plain toggle");
@@ -1600,11 +1604,9 @@ for (const persisted of ["on\n", "max\n", "max"]) {
   }
   for (const reason of ["startup", "resume", "new", "fork", "reload"]) {
     await calm.sessionStart({ reason }, context);
-    if (rendered("midTurn").length !== 0) {
-      throw new Error(
-        `a ${reason} session restored from ${JSON.stringify(persisted)} did not hide mid-turn working notes`,
-      );
-    }
+    requireCollapsedMidTurn(
+      `a ${reason} session restored from ${JSON.stringify(persisted)}`,
+    );
     requireVisible("finalReply", "FINAL_REPLY_TEXT", `${reason} session`);
   }
   // A session restored as on toggles to off; one that had wrongly dropped to off would
@@ -1623,7 +1625,7 @@ JS
   out=$(cat "$output_file")
   [ "$status" -eq 0 ] || fail "Pi calm mid-turn contract failed: $out"
   [ -z "$out" ] || fail "Pi calm mid-turn test printed output: $out"
-  pass "Pi calm on collapses mid-turn assistant working notes to zero height while Calm off keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
+  pass "Pi calm on hides mid-turn assistant working-note content while retaining its standard separator, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
 }
 
 test_operational_followup_turn_e2e() {
