@@ -3000,7 +3000,7 @@ test_absorbed_replacement_wait_does_not_inherit_the_old_throttle() {
     else touch -m -d "@$back" "$statusf"; fi
     sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-held_status"
     key=$(printf '%s' "$window" | tr ':/.' '___')
-    printf '%s' "$(hash_text 'idle after agent exit')" > "$state/.hash-$key"
+    printf '%s' "$(hash_pane_text 'idle after agent exit')" > "$state/.hash-$key"
     printf '1\n' > "$state/.count-$key"
 
     PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
@@ -3101,7 +3101,7 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
     # inconclusive and firstmate has to look at it.
     text='parked, elapsed 1s'
     printf '%s' "$text" > "$capture_file"
-    printf '%s' "$(hash_text "$text")" > "$state/.hash-$key"
+    printf '%s' "$(hash_pane_text "$text")" > "$state/.hash-$key"
     printf '1\n' > "$state/.count-$key"
     parked_watch_round "$state" "$fakebin" "$out" "$capture_file" "$window" exit \
       || fail "[$name] first sight of a parked live worker did not surface"
@@ -3260,12 +3260,19 @@ hold_watch_surface() {  # <dir> <out> <capture> <pane-text>
 # poll cycles: one to see the new hash, one to count it stable and classify, one
 # to prove the classification held. The watcher must stay in the loop throughout.
 hold_watch_churn() {  # <dir> <out> <capture> <label> <count>
-  local dir=$1 out=$2 capture=$3 label=$4 count=$5 i=1 c
+  local dir=$1 out=$2 capture=$3 label=$4 count=$5 i=1 c text previous_hash
   local state="$dir/state"
-  printf '%s 0\n' "$label" > "$capture"
+  text=$label
+  printf '%s\n' "$text" > "$capture"
   hold_watch_launch "$dir" "$out" "$capture"
   while [ "$i" -le "$count" ]; do
-    printf '%s %s\n' "$label" "$i" > "$capture"
+    # Numeric footer changes intentionally normalize to the same pane hash.
+    # Change words so each round exercises a genuinely different capture.
+    previous_hash=$(hash_pane_text "$text")
+    text="$text repainted"
+    [ "$previous_hash" != "$(hash_pane_text "$text")" ] \
+      || { reap "$HOLD_WATCH_PID"; fail "the repaint fixture did not change the normalized pane hash"; }
+    printf '%s\n' "$text" > "$capture"
     c=0
     while [ "$c" -lt 3 ]; do
       wait_poll_cycle "$state" "$HOLD_WATCH_PID" 300 \
@@ -3369,7 +3376,7 @@ test_unheld_completed_result_suppresses_only_duplicate_alarms() {
 # Without an open call, blockers and inconclusive work still alarm on each new
 # pane hash. Completed-result suppression must not hide unfinished work.
 test_stale_churn_without_a_captain_call_still_alarms() {
-  local spec name line dir state out capture round wakes
+  local spec name line dir state out capture round wakes text
   command -v tasks-axi >/dev/null 2>&1 \
     || { echo "skip: tasks-axi not found (unheld stale alarm)"; return 0; }
   for spec in \
@@ -3382,8 +3389,10 @@ test_stale_churn_without_a_captain_call_still_alarms() {
       || fail "[$name] could not build an unheld backlog fixture"
     state="$dir/state"; out="$dir/watch.out"; capture="$dir/pane.txt"
     round=1
+    text='unheld work'
     while [ "$round" -le 2 ]; do
-      hold_watch_surface "$dir" "$out" "$capture" "idle, elapsed ${round}s" \
+      text="$text repainted"
+      hold_watch_surface "$dir" "$out" "$capture" "$text" \
         || fail "[$name] an unheld stale window stopped alarming on round $round"
       wakes=$(hold_stale_wakes "$state")
       [ "$wakes" -eq 1 ] \
