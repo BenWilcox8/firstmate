@@ -1,0 +1,17 @@
+-- hold --
+archive-evidence-call
+-- answer --
+answered: archive-evidence-call
+-- archived durable record --
+
+## Archived 2026-09-07
+- [x] archive-evidence-call - Choose the relocated archive window (repo: sample) (kind: scout) (done 2026-09-07) (hold: captain archive choice pending) (hold-kind: captain)
+  Resolution recorded by fm-captain-hold.
+  Decision digest: d0a57dfe8419b02b9783c96c78ddcf00bb1ae768ad2b7a13bafc7d097c3c147a
+  Resolution mode: answered
+
+  Captain decision:
+  Keep ten.
+
+-- idempotent archived retry --
+answered: archive-evidence-call
