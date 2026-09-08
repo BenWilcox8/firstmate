@@ -27,6 +27,14 @@ A post-teardown visual review can complete against the surviving report and dura
 It accepts `--none` as an explicit semantic inventory result, refused while the origin still has a lifecycle-open keyed status decision, and verifies every listed task against tasks-axi before recording completion.
 With a non-empty inventory it appends a `captain-held [key=<key>]: tracked by <inventory>` transfer event for every still-open keyed status decision, which `bin/fm-classify-lib.sh` recognizes as closing the live status copy without claiming that the captain has answered it.
 
+The backlog is two files.
+tasks-axi retention moves a closed task out of the active configured backlog into the archive named by the home's `archive =` setting, resolving a relative archive path from that backlog's configured root and carrying its resolution block and captain-hold annotations verbatim.
+Every read of a call's resolution state therefore consults the archive when the live backlog has no entry, so a correctly answered and correctly archived call satisfies the gate exactly as it would from the live backlog.
+The live backlog always wins and the archive is only a fallback.
+Mutations still run through tasks-axi, which writes the live backlog only, so an archived call is readable but not writable: the retroactive answer path names the archive and the restore rather than reporting the call absent.
+Reads about ownership or live work stay on the live backlog deliberately - the origin-ownership check, the post-mutation confirmations, and the record-divergence scan.
+A call absent from both files, and an archived call carrying no resolution record, still fail.
+
 Scout teardown calls the read-only `verify` subcommand after checking for the report and before removing any source state.
 `verify` requires the recorded attestation, requires every recorded inventory entry to still be durable (actively captain-held, or carrying a recorded answer), and fails on any keyed status decision that opened after the last `complete`, which makes re-running `complete` the repair.
 The `--force` path remains the explicit captain-approved discard escape hatch.
@@ -187,6 +195,8 @@ The captured-source coverage proves Lavish deduplicates each card before separat
 The board's half is pinned in `tests/fm-bearings-board.test.sh`: every published decision card carries exactly one reconcile option, authored options reserve that value across every card type, recommendations name authored options, a decision card whose structured subject appears in the payload's landed rows is dropped while a genuinely open one is kept even when an unrelated landed id contains its key after a newline, a build requires a fresh authoritative listed-open result before binding or arming, a reopen retires the pre-reopen source generation and waits for a fresh live listener, and a rebuild of an already-armed board with no live listener starts one.
 That suite drives its Lavish session through a protocol-shaped stub, and `tests/fm-bearings-board-lavish-live-e2e.test.sh` is the default-on capability guard for the installed provider; [`verification/process-event-sources.md`](verification/process-event-sources.md) owns the version-scoped evidence.
 `tests/fm-procevent.test.sh` pins the ownership half: a dead generation whose recorded state-root identity no longer matches is reclaimed by reconcile into a replacement that actually runs, `retire` releases the same claim instead of refusing, and neither a live generation nor a crashed leader whose owned group survives is reclaimed under that same drift.
+
+The archive cases also verify answered calls after pruning, refuse re-holding closed calls, and reject archived calls without recorded answers.
 
 `tests/fm-classify-decision-key.test.sh` pins `status_key_closing_verb` itself: it separates a resolution from the durable-transfer close and from a still-open key, reports the last real transition across re-openings and both key positions, and treats a prose mention as no transition.
 
