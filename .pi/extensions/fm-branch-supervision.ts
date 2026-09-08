@@ -121,6 +121,7 @@ const wakeGrantScript = join(fmRoot, "bin", "fm-wake-grant.sh");
 const loadedMarker = join(state, ".pi-branch-extension-loaded");
 const modelPinFile = join(config, "supervision-branch-model");
 const effortPinFile = join(config, "supervision-branch-effort");
+const routineNotesPreferenceFile = join(config, "routine-supervision-notes");
 
 // Same tool set in the same order on every request (part of the cached
 // prefix). "bash" resolves to the customTools override below, which injects
@@ -243,6 +244,18 @@ function writePinFile(pinFile: string, selection: string): void {
 
 function clearPinFile(pinFile: string): void {
   rmSync(pinFile, { force: true });
+}
+
+// This is deliberately a rendering-only preference. Merge notes remain
+// displayable session entries so Pi keeps their delivery, restoration, and
+// acknowledgement behavior unchanged. The renderer checks it on every pass,
+// which covers existing and restored routine rows after Pi reloads extensions.
+function routineNotesAreHidden(): boolean {
+  try {
+    return readFileSync(routineNotesPreferenceFile, "utf8").trim() === "on";
+  } catch {
+    return false;
+  }
 }
 
 function modelLabel(model: { provider: string; id: string }): string {
@@ -1452,7 +1465,7 @@ ${context.command}
       : context.isError
         ? (text: string) => theme.bg("toolErrorBg", text)
         : (text: string) => theme.bg("toolSuccessBg", text);
-    const shell = shellState.shell ?? new Box(1, 1, background);
+    const shell = shellState.shell ?? new Box(1, 0, background);
     shellState.shell = shell;
     shell.setBgFn(background);
     shell.clear();
@@ -1490,9 +1503,8 @@ ${context.command}
       const previewLines = getStockOutcomesPreviewLines();
       const displayLines = options.expanded || previewLines === undefined ? lines : lines.slice(0, previewLines);
       const remaining = lines.length - displayLines.length;
-      // Match Pi's stock fallback exactly (installed: 0.81.1): one fg/reset
-      // pair around the whole multi-line block, not one per line.
-      let renderedOutput = theme.fg("toolOutput", displayLines.join("\n"));
+      // Match the stock fallback: each line owns its foreground color and reset.
+      let renderedOutput = displayLines.map((line) => theme.fg("toolOutput", line)).join("\n");
       if (remaining > 0) {
         renderedOutput += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
       }
@@ -1524,6 +1536,7 @@ ${context.command}
   pi.registerMessageRenderer?.("fm-branch-merge", (message, _options, theme) => {
     const note = textOfContent(message.content);
     const hasGlyph = note.startsWith(MERGE_NOTE_BOAT);
+    if (hasGlyph && routineNotesAreHidden()) return new Container();
     const rest = hasGlyph ? note.slice(MERGE_NOTE_BOAT.length) : note;
     const outputPad = 1;
     return new Text(

@@ -702,7 +702,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const extPath = fileURLToPath(pathToFileURL(process.env.EXT).href);
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
-const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }] = await Promise.all([
+const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }, builtIns] = await Promise.all([
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/assistant-message.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/custom-entry.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/tool-execution.js`).href),
@@ -711,6 +711,7 @@ const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionC
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/theme/theme.js`).href),
   import(pathToFileURL(`${packageRoot}/node_modules/@earendil-works/pi-tui/dist/index.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/core/export-html/tool-renderer.js`).href),
+  import(pathToFileURL(`${packageRoot}/dist/index.js`).href),
 ]);
 initTheme("dark");
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
@@ -885,9 +886,28 @@ const cases = [
 ];
 const renderUi = { requestRender() {} };
 const rows = [];
+// Pi built-ins now own their renderer slots. The baseline must use each
+// built-in definition, not the generic fallback, to compare Calm-off output.
+const baselineFactories = {
+  read: builtIns.createReadToolDefinition,
+  bash: builtIns.createBashToolDefinition,
+  edit: builtIns.createEditToolDefinition,
+  write: builtIns.createWriteToolDefinition,
+  grep: builtIns.createGrepToolDefinition,
+  find: builtIns.createFindToolDefinition,
+  ls: builtIns.createLsToolDefinition,
+};
 for (const [name, args, result] of cases) {
   const wrapped = tools.find((tool) => tool.name === name);
-  const baseline = new ToolExecutionComponent(name, `baseline-${name}`, args, { showImages: false }, undefined, renderUi, process.cwd());
+  const baseline = new ToolExecutionComponent(
+    name,
+    `baseline-${name}`,
+    args,
+    { showImages: false },
+    baselineFactories[name](process.cwd()),
+    renderUi,
+    process.cwd(),
+  );
   const actual = new ToolExecutionComponent(name, `wrapped-${name}`, args, { showImages: false }, wrapped, renderUi, process.cwd());
   for (const row of [baseline, actual]) {
     row.markExecutionStarted();
@@ -920,25 +940,14 @@ const watchExtension = await import(`${pathToFileURL(process.env.WATCH_EXT).href
 watchExtension.default(watchPi);
 const watchTool = tools.find((tool) => tool.name === "fm_watch_arm_pi");
 if (!watchTool) throw new Error("Firstmate watcher extension did not register fm_watch_arm_pi");
-const stockWatchTool = { ...watchTool };
-delete stockWatchTool.renderCall;
-delete stockWatchTool.renderResult;
-delete stockWatchTool.renderShell;
 const watchArgs = {};
 const watchResult = {
   content: [{ type: "text", text: "watcher: started Pi extension arm child 1" }],
   details: { ok: true, message: "watcher: started Pi extension arm child 1" },
   isError: false,
 };
-const watchBaseline = new ToolExecutionComponent(
-  "fm_watch_arm_pi",
-  "watch-baseline",
-  watchArgs,
-  { showImages: false },
-  stockWatchTool,
-  renderUi,
-  process.cwd(),
-);
+// This Firstmate tool owns its renderer, so pin its required Calm-off call
+// and result instead of comparing it to Pi's unrelated generic fallback.
 const watchActual = new ToolExecutionComponent(
   "fm_watch_arm_pi",
   "watch-actual",
@@ -948,13 +957,13 @@ const watchActual = new ToolExecutionComponent(
   renderUi,
   process.cwd(),
 );
-for (const row of [watchBaseline, watchActual]) {
-  row.markExecutionStarted();
-  row.setArgsComplete();
-  row.updateResult(watchResult);
-}
-if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
-  throw new Error("Firstmate watcher tool changed stock rendering while Calm was off");
+watchActual.markExecutionStarted();
+watchActual.setArgsComplete();
+watchActual.updateResult(watchResult);
+const watchStockRows = watchActual.render(100);
+const watchStockText = watchStockRows.join("\n");
+if (!watchStockText.includes("fm_watch_arm_pi") || !watchStockText.includes("watcher: started Pi extension arm child 1")) {
+  throw new Error("Calm-off Firstmate watcher rendering lost its call or result");
 }
 
 const customDefinition = {
@@ -1126,11 +1135,11 @@ presentationComponent.setExpanded(!expanded);
 if (presentationComponent.hasContent() || presentationComponent.render(100).length !== 0) {
   throw new Error("Calm left a synthetic Firstmate presentation row or spacer visible");
 }
-if (operationalComponent.render(100).length !== 0) {
-  throw new Error("Calm left a current operational user row or its leading spacer visible");
+if (JSON.stringify(operationalComponent.render(100)) !== JSON.stringify([""])) {
+  throw new Error("Calm did not retain only the standard visible-row separator for a current operational user row");
 }
 if (legacyOperationalComponent.render(100).length !== 0) {
-  throw new Error("Calm left the supported bare-marker legacy user row visible");
+  throw new Error("Calm left a separator beside an adjacent hidden legacy operational user row");
 }
 const operationalNearMisses = [
   {
@@ -1262,8 +1271,8 @@ if (!customRow.render(100).join("\n").includes("CUSTOM_CALL")) {
 if (watchActual.render(100).length !== 0) {
   throw new Error("Calm left the fm_watch_arm_pi call/result shell visible");
 }
-if (assistantThinkingTool.render(100).length !== 0) {
-  throw new Error("Calm-hidden thinking beside a tool call retained vertical height");
+if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
+  throw new Error("Calm-hidden thinking beside a tool call did not retain its standard transcript separator");
 }
 if (JSON.stringify(assistantThinkingText.render(100)) !== JSON.stringify(assistantTextOnly.render(100))) {
   throw new Error("Calm-hidden thinking changed final assistant row geometry");
@@ -1273,8 +1282,8 @@ if (!assistantThinkingTool.render(100).join("\n").includes("HIDDEN_TOOL_THINKING
   throw new Error("expanding thinking did not restore the original reasoning content");
 }
 assistantThinkingTool.setHideThinkingBlock(true);
-if (assistantThinkingTool.render(100).length !== 0) {
-  throw new Error("collapsing thinking again restored residual Calm rows");
+if (JSON.stringify(assistantThinkingTool.render(100)) !== JSON.stringify([""])) {
+  throw new Error("collapsing thinking again did not retain only its standard transcript separator");
 }
 if (JSON.stringify(sessionEntries) !== entriesBefore) {
   throw new Error("calm mode changed session entries or model context");
@@ -1303,8 +1312,8 @@ for (const { name, baseline, actual } of rows) {
 if (JSON.stringify(imageRow.render(100)) !== JSON.stringify(imageVisibleBefore)) {
   throw new Error("built-in read image row did not restore its ordinary call shell and image output");
 }
-if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
-  throw new Error("fm_watch_arm_pi did not restore its stock call/result shell");
+if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchStockRows)) {
+  throw new Error("fm_watch_arm_pi did not restore its Calm-off call/result rendering");
 }
 if (workingVisible !== true || hiddenThinkingLabel !== undefined || statuses.get("firstmate-calm") !== undefined) {
   throw new Error("turning Calm off did not restore stock presentation controls");
@@ -1517,6 +1526,11 @@ const requireHidden = (name, needle, context) => {
     throw new Error(`${context}: ${name} still rendered ${needle}`);
   }
 };
+const requireCollapsedMidTurn = (context) => {
+  if (JSON.stringify(rendered("midTurn")) !== JSON.stringify([""])) {
+    throw new Error(`${context}: mid-turn working note did not retain only its standard transcript separator`);
+  }
+};
 
 let calm = await loadCalmExtension();
 if (calm.registeredTools.length !== 0) {
@@ -1533,9 +1547,7 @@ await calm.calmCommand.handler("", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("plain /calm from off did not persist on");
 }
-if (rendered("midTurn").length !== 0) {
-  throw new Error(`Calm on left mid-turn working-note rows: ${JSON.stringify(rendered("midTurn"))}`);
-}
+requireCollapsedMidTurn("Calm on");
 requireHidden("truncatedMidTurn", "TRUNCATED_MIDTURN_NOTE", "Calm on");
 // Pi owns the wording of its truncation notice; Calm must leave that row's own notice
 // standing rather than collapsing an incomplete response to nothing.
@@ -1566,9 +1578,10 @@ for (const name of Object.keys(rows)) {
   }
 }
 await calm.calmCommand.handler("  MaX  ", context);
-if (readFileSync(calmPreferencePath, "utf8") !== "on\n" || rendered("midTurn").length !== 0) {
+if (readFileSync(calmPreferencePath, "utf8") !== "on\n") {
   throw new Error("a spaced, mixed-case argument did not fall through to the plain toggle");
 }
+requireCollapsedMidTurn("a spaced, mixed-case argument");
 await calm.calmCommand.handler("unrecognized", context);
 if (readFileSync(calmPreferencePath, "utf8") !== "off\n") {
   throw new Error("an unrecognized /calm argument did not fall back to the plain toggle");
@@ -1591,11 +1604,9 @@ for (const persisted of ["on\n", "max\n", "max"]) {
   }
   for (const reason of ["startup", "resume", "new", "fork", "reload"]) {
     await calm.sessionStart({ reason }, context);
-    if (rendered("midTurn").length !== 0) {
-      throw new Error(
-        `a ${reason} session restored from ${JSON.stringify(persisted)} did not hide mid-turn working notes`,
-      );
-    }
+    requireCollapsedMidTurn(
+      `a ${reason} session restored from ${JSON.stringify(persisted)}`,
+    );
     requireVisible("finalReply", "FINAL_REPLY_TEXT", `${reason} session`);
   }
   // A session restored as on toggles to off; one that had wrongly dropped to off would
@@ -1614,7 +1625,7 @@ JS
   out=$(cat "$output_file")
   [ "$status" -eq 0 ] || fail "Pi calm mid-turn contract failed: $out"
   [ -z "$out" ] || fail "Pi calm mid-turn test printed output: $out"
-  pass "Pi calm on collapses mid-turn assistant working notes to zero height while Calm off keeps them, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
+  pass "Pi calm on hides mid-turn assistant working-note content while retaining its standard separator, leaves streaming, truncated-final, and genuine final replies untouched, never mutates the messages, ignores every /calm argument, and restores a legacy persisted max as ordinary Calm on"
 }
 
 test_operational_followup_turn_e2e() {
@@ -2144,7 +2155,7 @@ TS
   i=0
   while [ "$i" -lt 120 ]; do
     capture_geometry_viewport "$snapshot"
-    tail -12 "$snapshot" | grep -Fq "Working..." || break
+    tail -12 "$snapshot" | grep -Fq "Working" || break
     sleep 0.05
     i=$((i + 1))
   done
@@ -3669,7 +3680,7 @@ JS
   done
   cp "$working_snapshot" "$boat_frame_one"
   assert_contains "$(cat "$boat_frame_one")" '\__/' "Calm did not show the working ship during a real provider wait"
-  assert_not_contains "$(cat "$boat_frame_one")" "Working..." "Calm left Pi's stock working row visible while the ship was shown"
+  assert_not_contains "$(cat "$boat_frame_one")" "Working" "Calm left Pi's stock working row visible while the ship was shown"
   assert_not_contains "$(cat "$boat_frame_one")" "calm transcript" "the real provider wait showed a persistent Calm status row"
   assert_not_contains "$(cat "$boat_frame_one")" "FIRSTMATE WATCHER WAKE: signal: /tmp/probe.status" "the real provider wait restored a hidden operational row"
   boat_hull_line=$(grep -F '\__/' "$boat_frame_one" | head -1)
@@ -3875,7 +3886,7 @@ JS
     || fail "the second working period reset the boat from column $boat_freeze_column to $boat_resume_column instead of resuming"
   [ "$boat_resume_sail" = "$boat_freeze_sail" ] \
     || fail "the second working period changed sail from $boat_freeze_sail to $boat_resume_sail"
-  assert_not_contains "$(cat "$boat_resume_snapshot")" "Working..." \
+  assert_not_contains "$(cat "$boat_resume_snapshot")" "Working" \
     "the second working period left Pi's stock working row visible"
 
   # Clear the resumed run before the Calm-off stock-row probe.
@@ -3908,13 +3919,13 @@ JS
   active_screen_wait=0
   while [ "$active_screen_wait" -lt 200 ]; do
     tmux -L "$TMUX_SOCKET" capture-pane -p -t "$TMUX_SESSION" >"$working_snapshot"
-    if grep -Fq "Working..." "$working_snapshot"; then
+    if grep -Fq "Working" "$working_snapshot"; then
       break
     fi
     sleep 0.025
     active_screen_wait=$((active_screen_wait + 1))
   done
-  assert_contains "$(cat "$working_snapshot")" "Working..." "Calm off did not keep Pi's stock working row"
+  assert_contains "$(cat "$working_snapshot")" "Working" "Calm off did not keep Pi's stock working row"
   assert_not_contains "$(cat "$working_snapshot")" '\__/' "Calm off showed the working ship"
   wait_for_text "$working_response_snapshot" "CALM_WORKING_E2E_RESPONSE" \
     || fail "the deterministic provider did not settle after proving Pi's stock working row"

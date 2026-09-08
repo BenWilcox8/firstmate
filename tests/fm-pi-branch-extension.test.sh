@@ -700,7 +700,7 @@ const renderContext = { state: {}, isError: false, isPartial: false };
 const stockResult = { content: [{ type: "text", text: "OUTCOME_DUMP" }] };
 const calmOffCall = outcomesTool.renderCall({}, renderTheme, renderContext);
 const calmOffResult = outcomesTool.renderResult(stockResult, { expanded: false, isPartial: false }, renderTheme, renderContext);
-if (calmOffCall.constructor.name !== "Box" || calmOffCall.paddingX !== 1 || calmOffCall.paddingY !== 1) {
+if (calmOffCall.constructor.name !== "Box" || calmOffCall.paddingX !== 1 || calmOffCall.paddingY !== 0) {
   throw new Error("fm_branch_outcomes changed its ordinary shell rendering");
 }
 if (calmOffResult.constructor.name !== "Container" || calmOffCall.children[0]?.text !== "fm_branch_outcomes" || calmOffCall.children[1]?.text !== "OUTCOME_DUMP") {
@@ -786,6 +786,26 @@ const assertRenderedNote = (note, glyph) => {
     throw new Error(`note remainder must be dim: ${JSON.stringify(fgCalls)}`);
   }
 };
+assertRenderedNote(sentToMain[0].message.content, "⛵");
+
+// The home-local preference hides only routine-note rendering. The message
+// still has display=true, and the already-asserted store row and read cursor
+// prove that delivery and acknowledgement remain unchanged. Calling the
+// registered renderer and then its Pi-compatible Component.render boundary
+// covers both newly appended and restored custom rows.
+writeFileSync(`${home}/config/routine-supervision-notes`, "on\n");
+const hiddenRoutineNote = renderers.get("fm-branch-merge")(
+  { content: sentToMain[0].message.content },
+  { expanded: false },
+  renderTheme,
+);
+if (hiddenRoutineNote.constructor.name !== "Container" || hiddenRoutineNote.render(100).length !== 0) {
+  throw new Error("routine supervision note remained visible when the home preference was on");
+}
+if (sentToMain[0].message.display !== true) {
+  throw new Error("quiet presentation changed routine delivery semantics");
+}
+writeFileSync(`${home}/config/routine-supervision-notes`, "off\n");
 assertRenderedNote(sentToMain[0].message.content, "⛵");
 process.exit(0);
 EOF
