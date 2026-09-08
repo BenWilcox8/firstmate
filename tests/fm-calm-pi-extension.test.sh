@@ -2274,15 +2274,17 @@ TS
 import { readFileSync } from "node:fs";
 import { stripVTControlCharacters } from "node:util";
 import { pathToFileURL } from "node:url";
-const { AssistantMessageComponent, UserMessageComponent, getMarkdownTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
+const { AssistantMessageComponent, SkillInvocationMessageComponent, parseSkillBlock, getMarkdownTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
 const { initTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/modes/interactive/theme/theme.js`).href);
 initTheme("dark");
 const entries = readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
 const user = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
 if (!user) throw new Error("stock skill spacing probe has no user message");
 const text = user.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
+const skillBlock = parseSkillBlock(text);
+if (!skillBlock || skillBlock.userMessage) throw new Error("stock skill spacing probe expected one skill invocation");
 const rows = [
-  ...new UserMessageComponent(text, getMarkdownTheme(), 1).render(100),
+  ...new SkillInvocationMessageComponent(skillBlock, getMarkdownTheme()).render(100),
   ...new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text: "CALM_GEOMETRY_FINAL\n\n- visible row one\n- visible row two" }], stopReason: "stop" }).render(100),
 ];
 const skill = rows.findIndex((line) => stripVTControlCharacters(line).includes("[skill] ahoy"));
