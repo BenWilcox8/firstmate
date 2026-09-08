@@ -72,6 +72,14 @@ run_captain() {  # <home> <command args...>
     FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-captain-hold.sh" "$@"
 }
 
+run_captain_data() {  # <home> <data> <command args...>
+  local home=$1 data=$2
+  shift 2
+  PATH="$home/fakebin:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-captain-hold.sh" "$@"
+}
+
 request_reconciles() {  # <home> <source-id> <task-id>...
   local home=$1 source_id=$2 id
   shift 2
@@ -2346,6 +2354,160 @@ EOF
   pass "a captain call with no routed work, a verified transfer, an open decision, and an answered call all stay silent"
 }
 
+# An answered captain call keeps its durable record after tasks-axi prunes the
+# closed row out of the live backlog and into the archive. Both guards that read
+# the inventory - the completion gate and its verifier - must still resolve it,
+# so cleanup timing can never turn a recorded captain answer into a missing one.
+test_archived_call_stays_resolvable() {
+  local home id call answer
+  home=$(make_home archived-call)
+  id=sample-archive-review
+  call=sample-archive-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate sample archiving" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the investigation fixture"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+
+  run_captain "$home" hold "$call" \
+    --title "Choose the sample archive window" --reason "captain archive choice pending" \
+    --repo sample --origin "$id" >/dev/null || fail "could not register the captain-held task"
+  answer="$home/answer.txt"
+  printf 'Keep ten.\n' > "$answer"
+  run_captain "$home" answer "$call" --decision-file "$answer" >/dev/null \
+    || fail "could not record the captain answer"
+  run_captain "$home" complete "$id" "$call" >/dev/null \
+    || fail "completion failed while the answered call was still live"
+
+  tasks_in "$home" prune --keep 0 >/dev/null || fail "could not archive the closed captain call"
+  assert_no_grep "$call" "$home/data/backlog.md" "setup error: the call must leave the live backlog"
+  assert_grep "$call" "$home/data/done-archive.md" "setup error: the call must land in the archive"
+
+  run_captain "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err" \
+    || fail "verify failed for an archived captain call: $(cat "$home/verify.err")"
+  run_captain "$home" complete "$id" "$call" > "$home/recomplete.out" 2> "$home/recomplete.err" \
+    || fail "completion failed for an archived captain call: $(cat "$home/recomplete.err")"
+  if run_captain "$home" hold "$call" --title "Choose the sample archive window" \
+    --reason "captain archive choice pending" --repo sample > "$home/rehold.out" 2> "$home/rehold.err"; then
+    fail "hold reopened an archived captain call instead of demanding its own task"
+  fi
+  assert_grep "already closed" "$home/rehold.err" \
+    "re-holding an archived call must say the call is closed"
+  pass "an archived captain call still verifies and completes"
+}
+
+# A failed inventory resolution must abort with the diagnostic that names the
+# unresolved entry, never continue into the next guard with an empty task id and
+# report a task that was never asked about.
+test_archived_call_stays_resolvable_from_a_relocated_backlog() {
+  local home root data call answer
+  home=$(make_home archived-relocated-call)
+  root="$home/relocated"
+  data="$root/data"
+  call=sample-relocated-archive-call
+  mkdir -p "$data"
+  cat > "$root/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "archives/closed.md"
+done_keep = 10
+EOF
+  cat > "$data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+
+## Done
+EOF
+  (cd "$root" && tasks-axi add "$call" "Choose the relocated archive window" \
+    --kind scout --repo sample) >/dev/null \
+    || fail "could not create the relocated captain-held task"
+
+  run_captain_data "$home" "$data" hold "$call" \
+    --title "Choose the relocated archive window" --reason "captain archive choice pending" \
+    --repo sample >/dev/null || fail "could not register the relocated captain-held task"
+  answer="$home/answer.txt"
+  printf 'Keep ten.\n' > "$answer"
+  run_captain_data "$home" "$data" answer "$call" --decision-file "$answer" >/dev/null \
+    || fail "could not record the relocated captain answer"
+  (cd "$root" && tasks-axi prune --keep 0 >/dev/null) \
+    || fail "could not archive the relocated captain call"
+  assert_grep "$call" "$root/archives/closed.md" \
+    "setup error: the call must land in the relocated archive"
+  assert_no_grep "$call" "$data/backlog.md" \
+    "setup error: the call must leave the relocated live backlog"
+
+  out=$(run_captain_data "$home" "$data" answer "$call" --decision-file "$answer") \
+    || fail "an archived relocated captain call did not replay: $out"
+  assert_contains "$out" "answered: $call" \
+    "the archived relocated call was not resolved through its configured archive"
+  pass "an archived relocated captain call remains replayable"
+}
+
+test_unresolvable_entry_aborts_with_its_own_diagnostic() {
+  local home id
+  home=$(make_home unresolved-entry)
+  id=sample-unresolved-review
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate sample resolution" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the investigation fixture"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+
+  if run_captain "$home" complete "$id" sample-missing-call > "$home/miss.out" 2> "$home/miss.err"; then
+    fail "completion accepted an inventory entry that resolves to no task"
+  fi
+  assert_grep "no captain-held task sample-missing-call" "$home/miss.err" \
+    "the failure must name the entry that could not be resolved"
+  assert_no_grep "captain-held task  is absent" "$home/miss.err" \
+    "a swallowed resolution error must not be reported as an empty task id"
+  pass "an unresolvable inventory entry aborts with its own diagnostic"
+}
+
+# The archive is durable evidence, not a second place to write. An archived call
+# that carries no recorded captain answer must still fail the gate, and the
+# retroactive answer path must say the entry is archived rather than fail deep
+# inside a mutation that can never reach it.
+test_archived_call_without_an_answer_still_fails() {
+  local home id call answer
+  home=$(make_home archived-unanswered)
+  id=sample-unanswered-review
+  call=sample-unanswered-call
+  mkdir -p "$home/data/$id"
+  tasks_in "$home" add "$id" "Investigate sample archiving" --kind scout --repo sample --start >/dev/null \
+    || fail "could not create the investigation fixture"
+  write_origin_meta "$home" "$id"
+  printf 'done: report complete\n' > "$home/state/$id.status"
+
+  run_captain "$home" hold "$call" \
+    --title "Choose the sample retention window" --reason "captain retention choice pending" \
+    --repo sample --origin "$id" >/dev/null || fail "could not register the captain-held task"
+  run_captain "$home" complete "$id" "$call" >/dev/null \
+    || fail "completion failed while the call was still held"
+  tasks_in "$home" "done" "$call" >/dev/null || fail "could not close the call out of band"
+  tasks_in "$home" prune --keep 0 >/dev/null || fail "could not archive the closed call"
+  assert_grep "$call" "$home/data/done-archive.md" "setup error: the call must land in the archive"
+
+  if run_captain "$home" verify "$id" > "$home/verify.out" 2> "$home/verify.err"; then
+    fail "an archived call with no recorded captain answer passed the gate"
+  fi
+  assert_grep "recorded captain answer" "$home/verify.err" \
+    "the refusal must name the missing captain answer"
+
+  answer="$home/answer.txt"
+  printf 'Keep ten.\n' > "$answer"
+  if run_captain "$home" answer "$call" --decision-file "$answer" \
+    > "$home/answer.out" 2> "$home/answer.err"; then
+    fail "an archived entry was rewritten with a retroactive captain answer"
+  fi
+  assert_grep "archived" "$home/answer.err" \
+    "the refusal must name the archive rather than report the call absent"
+  assert_no_grep "$call" "$home/data/backlog.md" "the refused answer must not resurrect the call"
+  pass "an archived call with no recorded answer fails the gate and refuses a rewrite"
+}
+
 # The originating work item is itself the captain call, which is what the policy
 # prefers ("hold the work item the question gates"). Cleanup of that finished
 # work must never be the act that closes the captain's own row: the deliverable
@@ -2627,6 +2789,10 @@ test_chat_channel_feeds_the_same_keyed_answer_intake
 test_origin_slug_validation_precedes_path_construction
 test_status_resolution_over_an_open_hold_is_signalled
 test_legitimate_holds_produce_no_divergence_signal
+test_archived_call_stays_resolvable
+test_archived_call_stays_resolvable_from_a_relocated_backlog
+test_unresolvable_entry_aborts_with_its_own_diagnostic
+test_archived_call_without_an_answer_still_fails
 test_teardown_never_closes_a_captain_held_task
 test_interrupted_cleanup_keeps_the_captain_call_recoverable
 test_teardown_retains_captain_calls_in_a_relocated_backlog
