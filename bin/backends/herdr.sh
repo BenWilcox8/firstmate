@@ -2258,10 +2258,10 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
 # one plain tab per task in the home's own workspace, no split layout. Split
 # layouts REQUIRE agent-axi (docs/herdr-backend.md "Native fallback contract").
 # Herdr does not enforce label uniqueness (verified: two tabs may share a label),
-# so the fallback checks for same-labeled duplicates: live-agent duplicates are
-# refused; husks (dead pane or no registered agent - the restored-layout shape)
-# are close-and-replaced by creating the new tab FIRST then closing the husk tab,
-# so the workspace never drops to zero tabs during the transition.
+# so the fallback checks for same-labeled duplicates: only panes proved dead or
+# to have a stable shell-only process tree are close-and-replaced by creating the
+# new tab FIRST then closing the husk tab, so the workspace never drops to zero
+# tabs during the transition.
 #
 # --no-focus: verified tab create never focuses by default regardless of sibling
 # tabs, so this is defense in depth rather than a behavior change.
@@ -2291,10 +2291,17 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     while IFS= read -r dup; do
       [ -n "$dup" ] || continue
       dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
-      if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
+      if [ -z "$dup_pane" ]; then
         echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
         return 1
       fi
+      case "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$dup_pane")" in
+        dead|no-agent) ;;
+        *)
+          echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
+          return 1
+          ;;
+      esac
       dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
     done <<EOF
 $dup_tabs
