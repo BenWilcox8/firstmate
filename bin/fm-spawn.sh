@@ -957,13 +957,16 @@ trap spawn_abort_cleanup EXIT
 # One bounded lock per live Herdr session/socket, shared across all homes.
 # <session> is required so secondmate and primary spawns serialize against the
 # same session without writing any other home's state directory.
-spawn_herdr_presentation_order_lock_acquire() {
-  local session=${1:-} attempt lock_path
+spawn_herdr_presentation_order_lock_acquire() {  # <session> [<attempt-limit>]
+  local session=${1:-} attempt_limit=${2:-50} attempt lock_path
   [ -n "$session" ] || session=$(fm_backend_herdr_session)
+  case "$attempt_limit" in
+    ''|*[!0-9]*) return 1 ;;
+  esac
   lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session") || return 1
   HERDR_PRESENTATION_ORDER_LOCK="$lock_path"
   attempt=0
-  while [ "$attempt" -lt 50 ]; do
+  while [ "$attempt" -lt "$attempt_limit" ]; do
     if fm_lock_try_acquire "$HERDR_PRESENTATION_ORDER_LOCK"; then
       HERDR_PRESENTATION_ORDER_LOCK_HELD=1
       return 0
@@ -2382,7 +2385,10 @@ case "$BACKEND" in
           echo "error: herdr presentation recovery could not ensure its exact named session" >&2
           exit 1
         }
-        spawn_herdr_presentation_order_lock_acquire "$HERDR_SES" || {
+        # Recovery samples exact pane and process ownership while holding this
+        # lock, so a peer recovery needs a longer bounded wait than a new
+        # projection, which may safely fall back flat after ordinary contention.
+        spawn_herdr_presentation_order_lock_acquire "$HERDR_SES" 150 || {
           echo "error: herdr presentation recovery could not acquire its session lock; refusing a concurrent resume" >&2
           exit 1
         }

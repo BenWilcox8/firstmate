@@ -35,8 +35,10 @@ herdr_forget_inherited_pane
 SESSION="fm-lab-backend-smoke-$$"
 export HERDR_SESSION="$SESSION"
 SM_SCRATCH=
+LIVE_AGENT_DIR=
 cleanup_all() {
   [ -n "$SM_SCRATCH" ] && rm -rf "$SM_SCRATCH"
+  [ -n "$LIVE_AGENT_DIR" ] && rm -rf "$LIVE_AGENT_DIR"
   herdr_safe_stop_and_delete "$SESSION"
 }
 trap cleanup_all EXIT
@@ -119,8 +121,9 @@ pass "real herdr: create_task prunes the freshly-created workspace's seeded defa
 # $PANE_ID/$TARGET (this suite's primary task, which the rest of the file
 # still depends on) so neither scenario disturbs it.
 
-# 1. A genuinely LIVE duplicate (a real registered agent, via herdr's own
-#    `pane report-agent`) must still refuse exactly as before.
+# 1. A genuinely LIVE duplicate must still refuse exactly as before.
+#    The hook record alone is deliberately insufficient recovery evidence, so
+#    this fixture also runs a foreground process with Pi's executable identity.
 LIVE_DUP_LABEL="fm-smoke-livedup"
 LIVE_DUP_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$LIVE_DUP_LABEL" /tmp) || fail "could not create the live-duplicate scenario's tab"
 read -r LIVE_DUP_TAB_ID LIVE_DUP_PANE_ID <<EOF
@@ -130,13 +133,24 @@ if [ -z "$LIVE_DUP_TAB_ID" ] || [ -z "$LIVE_DUP_PANE_ID" ]; then
   fail "live-duplicate scenario tab creation did not return ids"
 fi
 herdr pane report-agent "$LIVE_DUP_PANE_ID" --source fm-smoke-test --agent fm-smoke-live-agent --state idle --session "$SESSION" >/dev/null 2>&1 \
-  || fail "could not register a live agent on the live-duplicate scenario's pane"
+  || fail "could not register the live-duplicate scenario's lifecycle hook"
+LIVE_AGENT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-herdr-smoke-live.XXXXXX")
+BASH_BIN=$(command -v bash) || fail "could not find the Bash fixture executable"
+cp "$BASH_BIN" "$LIVE_AGENT_DIR/pi" || fail "could not create the Pi process fixture"
+fm_backend_herdr_send_text_line "$SESSION:$LIVE_DUP_PANE_ID" "$LIVE_AGENT_DIR/pi -c 'trap \"\" INT TERM HUP; while :; do sleep 300; done'" \
+  || fail "could not start the live Pi process fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(fm_backend_herdr_recovery_pane_agent_state "$SESSION" "$LIVE_DUP_PANE_ID")" = live ] && break
+  sleep 0.1
+done
+[ "$(fm_backend_herdr_recovery_pane_agent_state "$SESSION" "$LIVE_DUP_PANE_ID")" = live ] \
+  || fail "live Pi process fixture was not recognized as live"
 if fm_backend_herdr_create_task "$CONTAINER" "$LIVE_DUP_LABEL" /tmp >/dev/null 2>&1; then
-  fail "REGRESSION: create_task should refuse a duplicate label whose pane hosts a genuinely live registered agent (idle counts as live)"
+  fail "REGRESSION: create_task should refuse a duplicate label whose pane hosts a genuinely live Pi process"
 fi
 herdr pane get "$LIVE_DUP_PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
   || fail "REGRESSION: the live-duplicate scenario's pane should have survived the refused create_task call untouched"
-pass "real herdr: create_task refuses a same-labeled tab whose pane hosts a genuinely live registered agent (unchanged behavior)"
+pass "real herdr: create_task refuses a same-labeled tab whose pane hosts a genuinely live Pi process (unchanged behavior)"
 fm_backend_herdr_kill "$SESSION:$LIVE_DUP_PANE_ID"
 
 # 2. A husk (no registered agent at all - the restored-plain-shell shape)

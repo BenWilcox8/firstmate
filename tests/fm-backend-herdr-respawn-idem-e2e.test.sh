@@ -18,8 +18,8 @@
 # the pane survives alive, but agent_status resets and nothing is registered
 # in it - exactly the restored-plain-shell husk shape), then proves
 # fm_backend_herdr_create_task now closes-and-replaces the resulting husk
-# instead of refusing, while a GENUINELY live duplicate (a real registered
-# agent, via herdr's own `pane report-agent`) still refuses exactly as
+# instead of refusing, while a GENUINELY live duplicate (an exact foreground
+# Pi-shaped process, plus its Herdr lifecycle hook) still refuses exactly as
 # before. Adapter-level (fm_backend_herdr_container_ensure/create_task), not
 # through the full bin/fm-spawn.sh + treehouse pipeline - mirrors
 # tests/fm-backend-herdr-prune-safety-e2e.test.sh's own style, and avoids any
@@ -159,21 +159,30 @@ WS_COUNT=$(printf '%s' "$WS_TABS" | jq -r '.result.tabs? // [] | length')
 pass "fixed: the workspace holds exactly the 2 replacement tabs after both respawns - no leaked husk tabs, no destroyed workspace"
 
 # --- 4. a GENUINELY live duplicate still refuses, unchanged -----------------
-# Register a real agent (herdr's own native registration primitive) on one of
-# the freshly-respawned panes, then confirm a further same-labeled spawn
-# attempt refuses exactly as before - the husk fix must never touch a pane
-# that actually has something registered in it.
+# A hook record alone is deliberately insufficient recovery evidence.
+# Start an exact Pi-shaped foreground process as well, then confirm a further
+# same-labeled spawn refuses without touching the live pane.
 
 herdr pane report-agent "$NEW_CREW_PANE_ID" --source fm-respawn-e2e --agent fm-respawn-live-agent --state idle --session "$SESSION" >/dev/null 2>&1 \
-  || fail "could not register a live agent on the respawned crewmate-shaped pane"
+  || fail "could not register the respawned crewmate-shaped pane's lifecycle hook"
+BASH_BIN=$(command -v bash) || fail "could not find the Bash fixture executable"
+cp "$BASH_BIN" "$SCRATCH/pi" || fail "could not create the Pi process fixture"
+fm_backend_herdr_send_text_line "$SESSION:$NEW_CREW_PANE_ID" "$SCRATCH/pi -c 'trap \"\" INT TERM HUP; while :; do sleep 300; done'" \
+  || fail "could not start the live Pi process fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(fm_backend_herdr_recovery_pane_agent_state "$SESSION" "$NEW_CREW_PANE_ID")" = live ] && break
+  sleep 0.1
+done
+[ "$(fm_backend_herdr_recovery_pane_agent_state "$SESSION" "$NEW_CREW_PANE_ID")" = live ] \
+  || fail "live Pi process fixture was not recognized as live"
 
 if fm_backend_herdr_create_task "$CONTAINER" "$CREW_LABEL" "$PROJ_CWD" >/dev/null 2>&1; then
-  fail "REGRESSION: create_task should refuse a same-labeled tab whose pane hosts a genuinely live registered agent"
+  fail "REGRESSION: create_task should refuse a same-labeled tab whose pane hosts a genuinely live Pi process"
 fi
 if ! herdr pane get "$NEW_CREW_PANE_ID" --session "$SESSION" >/dev/null 2>&1; then
   fail "REGRESSION: the live-agent pane should have survived the refused create_task call untouched"
 fi
-pass "fixed: a genuinely live duplicate (a real registered agent) still refuses exactly as before - the husk fix never closes a live pane"
+pass "fixed: a genuinely live Pi process still refuses exactly as before - the husk fix never closes a live pane"
 
 fm_backend_herdr_kill "$SESSION:$NEW_CREW_PANE_ID"
 fm_backend_herdr_kill "$SESSION:$NEW_SM_PANE_ID"
