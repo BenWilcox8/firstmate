@@ -28,7 +28,7 @@ It accepts `--none` as an explicit semantic inventory result, refused while the 
 With a non-empty inventory it appends a `captain-held [key=<key>]: tracked by <inventory>` transfer event for every still-open keyed status decision, which `bin/fm-classify-lib.sh` recognizes as closing the live status copy without claiming that the captain has answered it.
 
 The backlog is two files.
-tasks-axi retention moves a closed task out of `data/backlog.md` into the archive named by the home's own `archive =` setting, carrying its resolution block and its captain-hold annotations verbatim.
+tasks-axi retention moves a closed task out of the active configured backlog into the archive named by the home's `archive =` setting, resolving a relative archive path from that backlog's configured root and carrying its resolution block and captain-hold annotations verbatim.
 Every read of a call's resolution state therefore consults the archive when the live backlog has no entry, so a correctly answered and correctly archived call satisfies the gate exactly as it would from the live backlog.
 The live backlog always wins and the archive is only a fallback.
 Mutations still run through tasks-axi, which writes the live backlog only, so an archived call is readable but not writable: the retroactive answer path names the archive and the restore rather than reporting the call absent.
