@@ -2278,7 +2278,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
     return
   fi
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_bindings out tab_id pane_id remaining_dup_tabs state
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -2286,7 +2286,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
-  dup_tab_ids=""
+  dup_bindings=""
   if [ -n "$dup_tabs" ]; then
     while IFS= read -r dup; do
       [ -n "$dup" ] || continue
@@ -2302,7 +2302,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
           return 1
           ;;
       esac
-      dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
+      dup_bindings="${dup_bindings}${dup}"$'\t'"${dup_pane}"$'\n'
     done <<EOF
 $dup_tabs
 EOF
@@ -2314,12 +2314,24 @@ EOF
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
   fi
-  if [ -n "$dup_tab_ids" ]; then
-    while IFS= read -r dup; do
+  if [ -n "$dup_bindings" ]; then
+    while IFS=$'\t' read -r dup dup_pane; do
       [ -n "$dup" ] || continue
+      [ "$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")" = "$dup_pane" ] || {
+        echo "error: herdr tab '$label' changed while replacing its husk in workspace $wsid (session $session)" >&2
+        return 1
+      }
+      state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$dup_pane")
+      case "$state" in
+        dead|no-agent) ;;
+        *)
+          echo "error: herdr tab '$label' became $state while replacing its husk in workspace $wsid (session $session)" >&2
+          return 1
+          ;;
+      esac
       fm_backend_herdr_cli "$session" tab close "$dup" >/dev/null 2>&1 || true
     done <<EOF
-$dup_tab_ids
+$dup_bindings
 EOF
     list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
       echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2

@@ -630,10 +630,17 @@ SH
     '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '' \
     '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-dup1","workspace_id":"w1"}]}}' > "$resp/1.out"
   split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
-  for n in $(seq 0 10); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  for n in $(seq 0 17); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
   cat > "$dir/ps" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash'
@@ -651,15 +658,54 @@ SH
     '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
     '{"error":{"code":"pane_not_found"}}' \
     '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"error":{"code":"pane_not_found"}}' \
     '' \
     '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-dup1","workspace_id":"w1"}]}}' > "$resp/1.out"
   split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
-  for n in $(seq 0 5); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  for n in $(seq 0 7); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" )
   [ "$out" = "w1:t3 w1:p3" ] || fail "create_task should replace a dead duplicate, got '$out'"
   assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the proved dead duplicate"
+
+  dir="$TMP_ROOT/dup-start-race"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' > "$resp/1.out"
+  split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
+  for n in $(seq 0 15); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  cat > "$dir/ps" <<'SH'
+#!/usr/bin/env bash
+count=$(cat "$FM_HERDR_RACE_PS_COUNT" 2>/dev/null || printf 0)
+count=$((count + 1))
+printf '%s' "$count" > "$FM_HERDR_RACE_PS_COUNT"
+printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash'
+[ "$count" -le 2 ] || printf '%s\n' '102 100 102 S pi pi'
+SH
+  chmod +x "$dir/ps"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_PS_BIN="$dir/ps" FM_HERDR_RACE_PS_COUNT="$dir/ps-count" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" 2>&1 )
+  status=$?
+  [ "$status" -ne 0 ] || fail "create_task should refuse when the proved husk starts Pi before close"
+  assert_contains "$out" "became live" "create_task did not report the changed duplicate pane"
+  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "a pane that started Pi before close must stay untouched"
   pass "fm_backend_herdr_create_task: refuses hookless live Pi panes and replaces only proved shell-only or dead duplicates"
 }
 
