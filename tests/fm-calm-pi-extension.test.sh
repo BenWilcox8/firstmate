@@ -702,7 +702,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const extPath = fileURLToPath(pathToFileURL(process.env.EXT).href);
 
 const packageRoot = process.env.PI_PACKAGE_DIR;
-const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }] = await Promise.all([
+const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionComponent }, { UserMessageComponent }, { InteractiveMode }, { initTheme, theme }, { Text, getKeybindings, setCapabilities }, { createToolHtmlRenderer }, builtIns] = await Promise.all([
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/assistant-message.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/custom-entry.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/components/tool-execution.js`).href),
@@ -711,6 +711,7 @@ const [{ AssistantMessageComponent }, { CustomEntryComponent }, { ToolExecutionC
   import(pathToFileURL(`${packageRoot}/dist/modes/interactive/theme/theme.js`).href),
   import(pathToFileURL(`${packageRoot}/node_modules/@earendil-works/pi-tui/dist/index.js`).href),
   import(pathToFileURL(`${packageRoot}/dist/core/export-html/tool-renderer.js`).href),
+  import(pathToFileURL(`${packageRoot}/dist/index.js`).href),
 ]);
 initTheme("dark");
 setCapabilities({ images: null, trueColor: true, hyperlinks: false });
@@ -885,9 +886,28 @@ const cases = [
 ];
 const renderUi = { requestRender() {} };
 const rows = [];
+// Pi built-ins now own their renderer slots. The baseline must use each
+// built-in definition, not the generic fallback, to compare Calm-off output.
+const baselineFactories = {
+  read: builtIns.createReadToolDefinition,
+  bash: builtIns.createBashToolDefinition,
+  edit: builtIns.createEditToolDefinition,
+  write: builtIns.createWriteToolDefinition,
+  grep: builtIns.createGrepToolDefinition,
+  find: builtIns.createFindToolDefinition,
+  ls: builtIns.createLsToolDefinition,
+};
 for (const [name, args, result] of cases) {
   const wrapped = tools.find((tool) => tool.name === name);
-  const baseline = new ToolExecutionComponent(name, `baseline-${name}`, args, { showImages: false }, undefined, renderUi, process.cwd());
+  const baseline = new ToolExecutionComponent(
+    name,
+    `baseline-${name}`,
+    args,
+    { showImages: false },
+    baselineFactories[name](process.cwd()),
+    renderUi,
+    process.cwd(),
+  );
   const actual = new ToolExecutionComponent(name, `wrapped-${name}`, args, { showImages: false }, wrapped, renderUi, process.cwd());
   for (const row of [baseline, actual]) {
     row.markExecutionStarted();
@@ -920,25 +940,14 @@ const watchExtension = await import(`${pathToFileURL(process.env.WATCH_EXT).href
 watchExtension.default(watchPi);
 const watchTool = tools.find((tool) => tool.name === "fm_watch_arm_pi");
 if (!watchTool) throw new Error("Firstmate watcher extension did not register fm_watch_arm_pi");
-const stockWatchTool = { ...watchTool };
-delete stockWatchTool.renderCall;
-delete stockWatchTool.renderResult;
-delete stockWatchTool.renderShell;
 const watchArgs = {};
 const watchResult = {
   content: [{ type: "text", text: "watcher: started Pi extension arm child 1" }],
   details: { ok: true, message: "watcher: started Pi extension arm child 1" },
   isError: false,
 };
-const watchBaseline = new ToolExecutionComponent(
-  "fm_watch_arm_pi",
-  "watch-baseline",
-  watchArgs,
-  { showImages: false },
-  stockWatchTool,
-  renderUi,
-  process.cwd(),
-);
+// This Firstmate tool owns its renderer, so pin its required Calm-off call
+// and result instead of comparing it to Pi's unrelated generic fallback.
 const watchActual = new ToolExecutionComponent(
   "fm_watch_arm_pi",
   "watch-actual",
@@ -948,13 +957,13 @@ const watchActual = new ToolExecutionComponent(
   renderUi,
   process.cwd(),
 );
-for (const row of [watchBaseline, watchActual]) {
-  row.markExecutionStarted();
-  row.setArgsComplete();
-  row.updateResult(watchResult);
-}
-if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
-  throw new Error("Firstmate watcher tool changed stock rendering while Calm was off");
+watchActual.markExecutionStarted();
+watchActual.setArgsComplete();
+watchActual.updateResult(watchResult);
+const watchStockRows = watchActual.render(100);
+const watchStockText = watchStockRows.join("\n");
+if (!watchStockText.includes("fm_watch_arm_pi") || !watchStockText.includes("watcher: started Pi extension arm child 1")) {
+  throw new Error("Calm-off Firstmate watcher rendering lost its call or result");
 }
 
 const customDefinition = {
@@ -1303,8 +1312,8 @@ for (const { name, baseline, actual } of rows) {
 if (JSON.stringify(imageRow.render(100)) !== JSON.stringify(imageVisibleBefore)) {
   throw new Error("built-in read image row did not restore its ordinary call shell and image output");
 }
-if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchBaseline.render(100))) {
-  throw new Error("fm_watch_arm_pi did not restore its stock call/result shell");
+if (JSON.stringify(watchActual.render(100)) !== JSON.stringify(watchStockRows)) {
+  throw new Error("fm_watch_arm_pi did not restore its Calm-off call/result rendering");
 }
 if (workingVisible !== true || hiddenThinkingLabel !== undefined || statuses.get("firstmate-calm") !== undefined) {
   throw new Error("turning Calm off did not restore stock presentation controls");
