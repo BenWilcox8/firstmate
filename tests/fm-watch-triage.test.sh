@@ -3132,6 +3132,9 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
       captain-held-churn) replacement='captain-held [key=release]: awaiting the captain on the release call' ;;
     esac
     printf '%s\n' "$replacement" >> "$statusf"
+    # Keep the declaration older than the delivery window before recording it.
+    # Later expiry then changes only the delivery clocks, not its identity.
+    set_mtime "$(( $(date +%s) - 2000 ))" "$statusf"
     sig=$(seen_sig "$statusf"); printf '%s' "$sig" > "$state/.seen-parked_status"
     printf 'replacement wait, elapsed 1s' > "$capture_file"
     parked_watch_round "$state" "$fakebin" "$out" "$capture_file" "$window" exit \
@@ -3141,7 +3144,8 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
     bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' \
       "$state/.wake-queue" 2>/dev/null || echo 0)
     [ "$wakes" -eq 1 ] || fail "[$name] replacement declared wait produced $wakes first wakes instead of one"
-    [ "$bare" -eq 1 ] || fail "[$name] replacement declared wait changed the wake identity: $(cat "$state/.wake-queue")"
+    [ "$bare" -eq 0 ] || fail "[$name] replacement declared wait lost its labeled recheck"
+    assert_grep 'awaiting' "$state/.wake-queue" "[$name] replacement wake did not name the wait"
     ack_stopped_cycle "$state" || fail "[$name] could not acknowledge the replacement wait's first surface"
 
     printf 'replacement wait, elapsed 2s' > "$capture_file"
@@ -3151,9 +3155,10 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
       "$state/.wake-queue" 2>/dev/null || echo 0)
     [ "$wakes" -eq 0 ] || fail "[$name] replacement wait re-alarmed $wakes time(s) inside its own re-surface window"
 
-    # End of the window: the wait must re-surface exactly once, on the same plain
-    # identity as before, so absorbing churn never becomes silence.
+    # Expire both records of the last delivery, without changing the declaration.
+    # The next recheck must still name the wait and occur exactly once.
     set_mtime "$(( $(date +%s) - 2000 ))" "$throttle"
+    set_mtime "$(( $(date +%s) - 2000 ))" "$state/.paused-nudged-$key"
     printf 'parked, elapsed 5s' > "$capture_file"
     parked_watch_round "$state" "$fakebin" "$out" "$capture_file" "$window" exit \
       || fail "[$name] a parked worker did not re-surface once its re-surface window elapsed"
@@ -3162,7 +3167,8 @@ test_live_declared_wait_churn_honors_the_resurface_throttle() {
     bare=$(awk -F '\t' -v w="$window" '$3 == "stale" && $4 == w && $5 == "stale: " w { n++ } END { print n + 0 }' \
       "$state/.wake-queue" 2>/dev/null || echo 0)
     [ "$wakes" -eq 1 ] || fail "[$name] elapsed re-surface window produced $wakes wakes instead of one"
-    [ "$bare" -eq 1 ] || fail "[$name] elapsed re-surface changed the wake identity: $(cat "$state/.wake-queue")"
+    [ "$bare" -eq 0 ] || fail "[$name] elapsed recheck lost its wait label"
+    assert_grep 'awaiting' "$state/.wake-queue" "[$name] elapsed recheck did not name the wait"
   done
   pass "a parked live worker surfaces once, absorbs pane churn for the whole re-surface window, then re-surfaces when it elapses"
 }

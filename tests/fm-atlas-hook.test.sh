@@ -798,8 +798,8 @@ SH
   printf 'claude\n' > "$home/config/crew-harness"
   printf '%s\n' "$$" > "$home/state/.lock"
   touch "$home/state/.last-watcher-beat"
-  mkdir -p "$home/projects" "$home/data/task-a1"
-  printf 'brief for task-a1\n' > "$home/data/task-a1/brief.md"
+  mkdir -p "$home/projects" "$home/data/task-a1" "$home/user-home"
+  printf '# Task\nExercise Atlas dispatch.\n' > "$home/data/task-a1/brief.md"
   rm -f "$home/state/task-a1.meta"
   fm_git_worktree "$proj" "$wt" wt-spawn
   printf '%s\n' "$home"
@@ -808,8 +808,8 @@ SH
 run_spawn() {  # <home> <spawn args...>
   local home=$1
   shift
-  env -u FM_TRACE_CONTEXT FM_BACKEND=tmux \
-    FM_ROOT_OVERRIDE='' FM_HOME="$home" \
+  env -u FM_TRACE_CONTEXT -u CLAUDE_CONFIG_DIR FM_BACKEND=tmux \
+    HOME="$home/user-home" FM_ROOT_OVERRIDE='' FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
     FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
     FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$home/wt" TMUX="fake,1,0" \

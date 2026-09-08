@@ -17,12 +17,15 @@ Busy hooks verified 2026-07-28 on Claude Code 2.1.220.
 
 Claude gates a folder it has never seen behind an interactive workspace-trust dialog, so every fresh task worktree would hit it.
 `--dangerously-skip-permissions` does not cover that gate: `claude --help` records that the dialog is skipped only in non-interactive mode, through `-p` or a non-TTY stdout, and a crewmate pane is interactive.
-A ship or scout spawn therefore pre-registers the worktree before launch, and the dialog does not appear.
-`../../../bin/fm-claude-trust.sh` records `hasTrustDialogAccepted` for that worktree path in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`, and `../../../bin/fm-spawn.sh` refuses the spawn when the write fails rather than launching a worker that would wedge.
+An unpinned ship or scout spawn registers workspace trust before launch.
+Explicit account pins retain their prior trust-dialog procedure, without a trust grant in the supervisor store.
+`../../../../../bin/fm-spawn.sh` owns this scoped exception.
+`../../../../../bin/fm-claude-trust.sh` owns the store, structural scope checks, atomic write, and refusal rules.
 
 Never try to answer the trust dialog with a key.
 Firstmate's key plane carries only Enter, Escape, and C-c with no arrow navigation, so it cannot move a dialog's selection at all, and the observed rendering starts on `No, exit`, which means a sent Enter ends the session instead of accepting.
-A visible trust dialog means pre-registration did not take effect, so inspect the store and the spawn's error output rather than sending keys.
+For an unpinned launch, a visible trust dialog means registration did not take effect.
+For a pinned launch, report the dialog without inferring the account store or changing its permissions.
 
 The once-per-machine bypass-permissions confirmation is a separate dialog, scoped to the machine rather than the path, and pre-registration does not address it.
 Never send Enter to that one either: it was observed rendering in the same shape as the trust dialog, with the selection on `No, exit` and the footer `Enter to confirm . Esc to cancel`, so Enter ends the session rather than accepting.
@@ -49,8 +52,9 @@ The suppression needs the marker, an interactive session, and the marker to be a
 That forgiveness is why the symptom shows on panes whose daemon exports no tmux global marker while a hand-made tmux repro can look healthy, and why a repro must clear the global variable first.
 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` is checked before every other condition, so it alone is decisive; stripping the inherited marker also removes the trigger and stays as the second line of defense.
 Print mode (`--print`) always writes a transcript and cannot reproduce or verify this - use a real interactive session.
-`../../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
-`../../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
+`../../../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
+`../../../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
+
 ## Feedback drafts
 
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
