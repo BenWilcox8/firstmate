@@ -3330,15 +3330,50 @@ test_open_captain_call_bounds_stale_churn() {
 
 
 
-# The other half of the same bound, and the one that decides whether widening the
-# wait was safe: the identical fixtures with NO hold must keep alarming on every
-# new hash, on both branches.
+# Completed work without an open call needs one notification per status record.
+# Pane changes alone must not repeat it, but a new result must still surface.
+test_unheld_completed_result_suppresses_only_duplicate_alarms() {
+  local dir state out capture wakes
+  command -v tasks-axi >/dev/null 2>&1 \
+    || fail "tasks-axi is required for the unheld completed-result regression"
+  dir=$(make_hold_home unheld-delivery 'done: PR https://example.invalid/pull/1 checks green' nohold) \
+    || fail "could not build an unheld completed-result fixture"
+  state="$dir/state"; out="$dir/watch.out"; capture="$dir/pane.txt"
+
+  hold_watch_surface "$dir" "$out" "$capture" 'completed result, first sight' \
+    || fail "the unheld completed result did not surface"
+  wakes=$(hold_stale_wakes "$state")
+  [ "$wakes" -eq 1 ] || fail "the completed result produced $wakes first wakes instead of one"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the completed result"
+
+  hold_watch_churn "$dir" "$out" "$capture" 'completed result, repaint' 2 \
+    || fail "pane changes repeated the already-delivered completed result"
+  wakes=$(hold_stale_wakes "$state")
+  [ "$wakes" -eq 0 ] || fail "pane changes produced $wakes duplicate completion wakes"
+
+  printf 'done: PR https://example.invalid/pull/2 replacement checks green\n' >> "$state/held-merge.status"
+  printf '%s' "$(seen_sig "$state/held-merge.status")" > "$state/.seen-held-merge_status"
+  hold_watch_surface "$dir" "$out" "$capture" 'replacement completed result' \
+    || fail "completed-result suppression hid a changed status record"
+  wakes=$(hold_stale_wakes "$state")
+  [ "$wakes" -eq 1 ] || fail "the changed result produced $wakes wakes instead of one"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the changed result"
+
+  hold_watch_churn "$dir" "$out" "$capture" 'replacement result, repaint' 2 \
+    || fail "pane changes repeated the replacement result after delivery"
+  wakes=$(hold_stale_wakes "$state")
+  [ "$wakes" -eq 0 ] || fail "the replacement result produced $wakes duplicate wakes"
+  pass "an unheld completed result surfaces once per status record, not once per pane change"
+}
+
+# Without an open call, blockers and inconclusive work still alarm on each new
+# pane hash. Completed-result suppression must not hide unfinished work.
 test_stale_churn_without_a_captain_call_still_alarms() {
   local spec name line dir state out capture round wakes
   command -v tasks-axi >/dev/null 2>&1 \
     || { echo "skip: tasks-axi not found (unheld stale alarm)"; return 0; }
   for spec in \
-    'unheld-delivery|done: PR https://example.invalid/pull/1 checks green' \
+    'unheld-decision|needs-decision [key=release]: select a release destination' \
     'unheld-blocker|blocked: cannot reach the release host' \
     'unheld-worker-line|working: still tidying the branch'
   do
@@ -3357,7 +3392,7 @@ test_stale_churn_without_a_captain_call_still_alarms() {
       round=$((round + 1))
     done
   done
-  pass "a stale window with no open captain call keeps alarming on every new hash"
+  pass "unheld decisions, blockers, and inconclusive work keep alarming on every new hash"
 }
 
 
@@ -5277,6 +5312,7 @@ test_an_open_decision_is_never_deduped_by_the_finished_absorb
 test_absorbed_replacement_wait_does_not_inherit_the_old_throttle
 test_live_declared_wait_churn_honors_the_resurface_throttle
 test_open_captain_call_bounds_stale_churn
+test_unheld_completed_result_suppresses_only_duplicate_alarms
 test_stale_churn_without_a_captain_call_still_alarms
 test_failed_wake_append_does_not_arm_the_captain_hold_throttle
 test_reheld_captain_call_starts_its_own_resurface_window
