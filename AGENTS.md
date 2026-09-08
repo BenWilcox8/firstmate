@@ -471,7 +471,8 @@ The skill owns the daemon procedure; these safety facts remain inline:
 
 ### Stuck-worker trigger
 
-For the full `stuck-crewmate-recovery` trigger, including a live worker claiming its no-mistakes pipeline is dead, unreachable, or timed out, follow section 13.
+Load `stuck-crewmate-recovery` after a stale wake, looping or confused pane, answered-by-brief question, unresponsive worker, or failed steer.
+Also load it when a live worker reports its no-mistakes pipeline dead, unreachable, or timed out; section 13 owns the full trigger.
 
 ## 9. Escalation and captain etiquette
 
@@ -544,6 +545,7 @@ Preserve durable structured identifiers, dependencies, and completion artifact l
 
 `bin/fm-brief.sh` and its help own scaffold syntax, generated variants, status protocol, delivery-mode definitions of done, and exact safety mechanics.
 Use its scaffold as the contract, then fill `## Captain's intent` (`{TASK}`) with the captain's own ask plus the context needed to read it, including the substance of any report, decision, or PR the ask refers to, and fill `## Firstmate spec` (`{FIRSTMATE_SPEC}`) with Firstmate's build instructions.
+Keep the task description, acceptance criteria, constraints, exclusions, and necessary context explicit across those subsections.
 `bin/fm-dod-lib.sh` owns what a no-mistakes worker may pass as `--intent` and its rule that the string must be self-sufficient.
 Keep additions task-specific rather than repeating lifecycle instructions, and alter generated sections only when the task genuinely differs from the standard shape.
 
@@ -561,7 +563,8 @@ The scaffold is a safety contract, not a suggestion.
 Firstmate's shared instruction surface reaches running homes only after it lands on the default branch and those homes fast-forward.
 Only `AGENTS.md`, `bin/`, and `.agents/skills/` are loaded by a running firstmate; public `skills/` is an installer-facing surface.
 When the captain invokes `/updatefirstmate` or asks to update firstmate, load the `/updatefirstmate` skill.
-The skill owns the guarded fleet update and restart procedure; it never touches anything under `projects/`.
+It performs guarded fast-forward updates of firstmate and registered secondmate homes, refreshes instructions, and never touches anything under `projects/`.
+The skill also owns the guarded fleet restart procedure.
 
 ## 13. Agent-only reference skills
 
