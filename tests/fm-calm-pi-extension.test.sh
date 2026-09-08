@@ -2272,6 +2272,7 @@ TS
   PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module - "$session_file" > "$TMP_ROOT/stock-skill-gap" <<'JS' \
     || fail "could not measure stock Pi skill-to-reply spacing"
 import { readFileSync } from "node:fs";
+import { stripVTControlCharacters } from "node:util";
 import { pathToFileURL } from "node:url";
 const { AssistantMessageComponent, UserMessageComponent, getMarkdownTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
 const { initTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/modes/interactive/theme/theme.js`).href);
@@ -2284,8 +2285,8 @@ const rows = [
   ...new UserMessageComponent(text, getMarkdownTheme(), 1).render(100),
   ...new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text: "CALM_GEOMETRY_FINAL\n\n- visible row one\n- visible row two" }], stopReason: "stop" }).render(100),
 ];
-const skill = rows.findIndex((line) => line.includes("[skill] ahoy"));
-const final = rows.findIndex((line) => line.includes("CALM_GEOMETRY_FINAL"));
+const skill = rows.findIndex((line) => stripVTControlCharacters(line).includes("[skill] ahoy"));
+const final = rows.findIndex((line) => stripVTControlCharacters(line).includes("CALM_GEOMETRY_FINAL"));
 if (skill < 0 || final <= skill) throw new Error("stock skill spacing probe lost a visible row");
 console.log(final - skill - 1);
 JS
