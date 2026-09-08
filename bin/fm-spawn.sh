@@ -282,13 +282,15 @@
 # park owns that home's supervision (docs/supervision-protocols/cursor.md).
 # claude is the one harness whose pre-launch setup can REFUSE the spawn: before
 # any per-task state exists, and before its worktree .claude/settings.local.json
-# hooks are written, a non-secondmate claude launch pre-registers the worktree in
+# hooks are written, an unpinned non-secondmate claude launch registers the worktree in
 # the launching user's own Claude trust store through bin/fm-claude-trust.sh,
 # because Claude's interactive workspace-trust dialog gates a fresh worktree and
 # firstmate cannot answer it. That helper's header owns the structural scope test
 # and every refusal; a failed registration stops this spawn rather than launching
 # a worker that would wedge on the dialog. A --secondmate launch never runs it,
 # so a claude secondmate home keeps its own one-time trust decision.
+# An explicit --account launch also retains its prior trust-dialog procedure:
+# cswap selects that store, so the supervisor store cannot authorize it.
 # Every claude launch also carries the attribution-off policy in its per-launch
 # --settings JSON, so a spawned worker never writes a Co-Authored-By trailer,
 # Claude-Session link, or generated-with line into a commit or PR body;
@@ -3099,7 +3101,10 @@ fi
 # class as the two worktree refusals just above: no temp root, no retired
 # relaunch wiring and no busy record exists yet to strand, so the refusal names
 # the endpoint the same way they do and leaves nothing else behind.
-if [ "$KIND" != secondmate ]; then
+# cswap selects the store for an explicit account pin. Do not infer that path
+# or grant trust in the supervisor store. Pinned launches retain their prior
+# trust-dialog procedure until an authoritative store binding is available.
+if [ "$KIND" != secondmate ] && [ -z "$ACCOUNT_NUMBER" ]; then
   case "$HARNESS" in
     claude*)
       if ! "$FM_ROOT/bin/fm-claude-trust.sh" "$WT" "$PROJ_ABS" >/dev/null; then

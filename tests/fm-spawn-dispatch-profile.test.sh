@@ -896,17 +896,20 @@ SH
 }
 
 test_claude_account_pin_launches_through_cswap() {
-  local rec id out status launch cswap
+  local rec id out status launch cswap supervisor_store
   id=account-pin-c1
   rec=$(make_spawn_case account-pin claude "$id")
   read_case_record "$rec"
   cswap=$(make_fake_cswap "$CASE_DIR/cswap")
 
-  # A firstmate-side CLAUDE_CONFIG_DIR is deliberately set here: cswap picks the
-  # account's own store, so a pinned launch must not also carry a config-dir
-  # prefix for cswap to override.
+  # The supervisor store is writable, but cswap selects another account.
+  # A pinned spawn must neither grant trust here nor forward this store.
+  supervisor_store="$CASE_DIR/supervisor-store"
+  mkdir -p "$supervisor_store"
+  printf '{"projects":{},"sentinel":"preserve"}\n' > "$supervisor_store/.claude.json"
+  cp "$supervisor_store/.claude.json" "$CASE_DIR/store-before.json"
   out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
-    FM_TEST_CLAUDE_CONFIG_DIR="/opt/test/claude-work" \
+    FM_TEST_CLAUDE_CONFIG_DIR="$supervisor_store" \
     run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
       "$id" "$PROJ_DIR" --account parent)
   status=$?
@@ -923,6 +926,8 @@ test_claude_account_pin_launches_through_cswap() {
     "a pinned launch must not also set a config dir for cswap to override"
   assert_absent "$HOME_DIR/user-home/.claude.json" \
     "a pinned launch must not grant trust in the unrelated default account store"
+  cmp -s "$CASE_DIR/store-before.json" "$supervisor_store/.claude.json" \
+    || fail "a pinned launch changed trust in the supervisor account store"
   assert_contains "$launch" "encode launch-brief" \
     "a pinned launch should still deliver the brief through the canonical encoder"
   pass "a pinned claude spawn launches through cswap and records the account it resolved"

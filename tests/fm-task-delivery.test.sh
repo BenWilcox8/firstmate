@@ -505,7 +505,7 @@ EOF
     "legacy no-mistakes spawn rejected explicitly marked captain words"
   assert_present "$home/data/$id/launch-brief.md" \
     "marked legacy spawn did not render a current launch contract"
-  assert_grep 'The Definition of done owns the `--intent` contract' \
+  assert_grep "The Definition of done owns the \`--intent\` contract" \
     "$home/data/$id/launch-brief.md" "legacy launch omitted the intent owner"
   assert_grep "plus later accepted requirements, constraints, exclusions, and clarifications" \
     "$home/data/$id/launch-brief.md" "legacy launch excluded later accepted requirements"
@@ -533,7 +533,7 @@ EOF
   authorized=$(awk '$0 == "## Accepted task requirements for --intent" { emit=1; next } emit && /^Resolve referenced reports/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
   assert_contains "$authorized" "Fix the migrated dispatch boundary." "migrated launch omitted Captain's intent"
   assert_contains "$authorized" "Preserve the existing compatibility path." "migrated launch dropped Firstmate spec"
-  assert_grep 'The Definition of done owns the `--intent` contract' \
+  assert_grep "The Definition of done owns the \`--intent\` contract" \
     "$home/data/$id/launch-brief.md" "migrated launch omitted the intent owner"
   assert_grep "plus later accepted requirements, constraints, exclusions, and clarifications" \
     "$home/data/$id/launch-brief.md" "migrated launch excluded later requirements"
