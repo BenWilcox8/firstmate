@@ -4234,7 +4234,7 @@ for (const row of [stockRow, actualRow]) {
 const collapsedStock = stockRow.render(100);
 const collapsedActual = actualRow.render(100);
 if (JSON.stringify(collapsedActual) !== JSON.stringify(collapsedStock)) {
-  throw new Error("Calm-off ToolExecutionComponent rendering differs from Pi stock");
+  throw new Error(`Calm-off ToolExecutionComponent rendering differs from Pi stock\n${JSON.stringify({ stock: collapsedStock, actual: collapsedActual })}`);
 }
 // The installed Pi's stock ToolExecutionComponent fallback (createResultFallback)
 // renders the whole text result unconditionally and ignores setExpanded, so a
