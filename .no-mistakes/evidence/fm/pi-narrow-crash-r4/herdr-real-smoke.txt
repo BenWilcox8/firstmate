@@ -1,0 +1,7 @@
+$ bash tests/fm-backend-herdr-smoke.test.sh
+ok - real herdr: version_check accepts the installed binary's protocol
+ok - real herdr: container_ensure starts the isolated session's server, creates the firstmate workspace (fm-lab-backend-smoke-65935:w1), and reports its seeded default tab id (w1:t1)
+ok - real herdr: container_ensure is idempotent (reuses/adopts the existing firstmate workspace, reports no seeded default tab on adoption)
+error: agent-axi spawn failed for fm-smoke1 (session fm-lab-backend-smoke-65935)
+not ok - create_task failed
+fm-herdr-lab: missing fleet-state tripwire for 'fm-lab-backend-smoke-65935'; refusing destructive calls

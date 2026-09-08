@@ -1,0 +1,8 @@
+$ bash tests/fm-backend-herdr-recovery-state.test.sh
+ok - stale lifecycle status cannot keep an exited agent alive, including through nested launch shells and the exact Treehouse shell broker
+ok - active supported harnesses remain live, while other commands, an inexact or active Treehouse process, and unreadable evidence remain ambiguous
+ok - changed process ownership or pane identity refuses recovery
+$ bash tests/fm-backend-herdr-native-recovery.test.sh
+ok - shell-only first pane with a live sibling refuses tab replacement
+ok - post-create old-pane change rolls back the exact shell-only replacement
+ok - replacement rollback refuses changed identity or state
