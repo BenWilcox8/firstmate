@@ -625,17 +625,17 @@ SH
     '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
     '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '' \
     '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-dup1","workspace_id":"w1"}]}}' > "$resp/1.out"
@@ -676,9 +676,9 @@ SH
     '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"error":{"code":"agent_not_found"}}' \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
     '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
     '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
     '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
