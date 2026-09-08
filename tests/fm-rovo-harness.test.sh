@@ -158,7 +158,7 @@ $1
 EOF
 }
 
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH="$(fm_test_core_path):${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}"
 
 run_spawn() {
   local case_dir=$1 home=$2 proj=$3 wt=$4 fakebin=$5 id=$6

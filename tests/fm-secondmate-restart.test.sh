@@ -661,14 +661,14 @@ test_unpublished_worker_result_is_accounted_for() {
   while [ "$i" -lt 200 ]; do
     result_dir=$(find "$dir/home/state" -maxdepth 1 -type d -name '.secondmate-restart.*' -print -quit)
     [ -e "$dir/fake/remote-relaunch-start" ] && [ -n "$result_dir" ] && break
-    /bin/sleep 0.01
+    "$(fm_test_tool sleep)" 0.01
     i=$((i + 1))
   done
   [ -n "$result_dir" ] || { kill "$driver" 2>/dev/null || true; fail "restart result directory never appeared"; }
   rm -rf -- "$result_dir"
   i=0
   while kill -0 "$driver" 2>/dev/null && [ "$i" -lt 400 ]; do
-    /bin/sleep 0.01
+    "$(fm_test_tool sleep)" 0.01
     i=$((i + 1))
   done
   if kill -0 "$driver" 2>/dev/null; then

@@ -52,6 +52,37 @@ $1
 EOF
 }
 
+# Same shape as make_case, but the project has NO remotes at all (a registered
+# local-only project): no origin bare repo and no publisher clone.
+# The primary checkout's own default branch is then advanced past the pooled
+# worktree's allocation base, so a refresh has real work to prove.
+make_remoteless_case() {
+  local name=$1 id=$2 default=${3:-main} case_dir home project pool fakebin initial
+  case_dir="$TMP_ROOT/$name"
+  home="$case_dir/home"
+  project="$case_dir/project"
+  pool="$case_dir/pool"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+
+  mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
+  printf 'codex\n' > "$home/config/crew-harness"
+  fm_test_spawn_brief "$home" "$id"
+  touch "$home/state/.last-watcher-beat"
+
+  git init --quiet -b "$default" "$project"
+  printf 'base\n' > "$project/README.md"
+  git -C "$project" add README.md
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
+  initial=$(git -C "$project" rev-parse HEAD)
+  git -C "$project" worktree add --quiet --detach "$pool" "$initial"
+
+  printf 'must survive a newly spawned branch\n' > "$project/advanced-local.txt"
+  git -C "$project" add advanced-local.txt
+  git -C "$project" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm advance-local
+
+  printf '%s\n' "$case_dir|$home|$project|$pool|$fakebin|$initial|$default"
+}
+
 run_spawn() {
   local id=$1
   shift
@@ -453,6 +484,73 @@ test_unresolved_remote_default_refuses_pool() {
   pass "an unresolved remote default branch refuses the pooled worktree"
 }
 
+test_remoteless_ship_and_scout_refresh_to_primary_default_tip() {
+  local rec id out status contract current branch_head
+  for contract in ship scout; do
+    id="pool-remoteless-${contract}-r6"
+    rec=$(make_remoteless_case "remoteless-$contract" "$id")
+    read_case_record "$rec"
+    if [ "$contract" = scout ]; then
+      out=$(run_spawn "$id" --scout)
+    else
+      out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+    fi
+    status=$?
+    expect_code 0 "$status" "$contract spawn should refresh a remoteless pooled worktree from the primary's default branch"
+    assert_contains "$out" "spawned $id" "$contract spawn did not report success for a remoteless project"
+    current=$(git -C "$PROJECT_DIR" rev-parse "refs/heads/$DEFAULT_BRANCH")
+    branch_head=$(git -C "$POOL_DIR" rev-parse HEAD)
+    [ "$branch_head" = "$current" ] || fail "$contract spawn did not start at the primary's current default-branch tip"
+    [ "$branch_head" != "$INITIAL_SHA" ] || fail "fixture did not prove the primary's default branch advanced past the pool base"
+    assert_grep 'must survive a newly spawned branch' "$POOL_DIR/advanced-local.txt" \
+      "$contract spawn omitted content committed to the remoteless primary after pool allocation"
+    if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+      printf '# observed remoteless %s spawn: %s\n' "$contract" "$(printf '%s\n' "$out" | tail -n 1)"
+      printf '# observed remoteless base: HEAD=%s primary/%s=%s\n' "$branch_head" "$DEFAULT_BRANCH" "$current"
+    fi
+  done
+  pass "remoteless ships and scouts refresh pooled worktrees to the primary's default-branch tip"
+}
+
+test_remoteless_dirty_pool_refuses_without_discarding_work() {
+  local rec id out status before
+  id='pool-remoteless-dirty-r7'
+  rec=$(make_remoteless_case remoteless-dirty "$id")
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+  printf 'keep this local work\n' > "$POOL_DIR/uncommitted.txt"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn succeeded despite a dirty remoteless pooled worktree"
+  assert_contains "$out" "is not clean" "spawn did not clearly refuse a dirty remoteless pooled worktree"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD while refusing a dirty remoteless pooled worktree"
+  assert_grep 'keep this local work' "$POOL_DIR/uncommitted.txt" \
+    "spawn discarded uncommitted work while refusing the remoteless pool"
+  pass "a dirty remoteless pooled worktree is refused without discarding its local work"
+}
+
+test_remoteless_unresolvable_default_refuses_pool() {
+  local rec id out status before
+  id='pool-remoteless-nodefault-r8'
+  rec=$(make_remoteless_case remoteless-nodefault "$id" trunk)
+  read_case_record "$rec"
+  before=$(git -C "$POOL_DIR" rev-parse HEAD)
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  [ "$status" -ne 0 ] || fail "spawn succeeded despite an unresolvable remoteless default branch"
+  assert_contains "$out" "could not determine the default branch of remoteless primary checkout" \
+    "spawn did not clearly refuse an unresolvable remoteless default branch"
+  [ "$(git -C "$POOL_DIR" rev-parse HEAD)" = "$before" ] \
+    || fail "spawn moved HEAD after failing to resolve the remoteless default branch"
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# observed remoteless nodefault refusal: %s\n' "$(printf '%s\n' "$out" | tail -n 1)"
+  fi
+  pass "an unresolvable default branch refuses the remoteless pooled worktree rather than guessing a base"
+}
+
 # A slot left on a stale submodule pin is the field failure this diagnosis exists
 # for: a refresh moved the superproject and left the submodule behind, so the
 # refusal fires a spawn later, on a slot whose own `git status` looks clean to the
@@ -684,6 +782,9 @@ test_direct_pr_and_scout_refresh_before_launch
 test_dirty_pool_refuses_without_discarding_work
 test_unresolved_remote_default_refuses_pool
 test_unreachable_origin_refuses_stale_pool_base
+test_remoteless_ship_and_scout_refresh_to_primary_default_tip
+test_remoteless_dirty_pool_refuses_without_discarding_work
+test_remoteless_unresolvable_default_refuses_pool
 test_originless_pool_launches_without_a_freshness_fetch
 test_originless_dirty_pool_refuses_without_discarding_work
 test_origin_config_without_url_refuses_pool

@@ -341,22 +341,22 @@ test_no_mistakes_dod_wording() {
   # shellcheck disable=SC2016  # single quotes are deliberate: the backticks must stay literal
   assert_grep '`help`' "$brief" \
     "no-mistakes DOD must render literal backticks around help"
-  assert_grep "pass \`--intent\` as only this brief's \`## Captain's intent\`" "$brief" \
-    "no-mistakes DOD must require --intent to be the Captain's intent subsection"
-  assert_grep "plus any later words the captain actually said" "$brief" \
-    "no-mistakes DOD must allow later captain words in --intent"
-  assert_grep "Do not include \`## Firstmate spec\`" "$brief" \
-    "no-mistakes DOD must keep Firstmate spec out of --intent"
-  assert_grep "or your own decisions and tradeoffs" "$brief" \
-    "no-mistakes DOD must keep worker tradeoffs out of --intent"
-  assert_grep "This replaces the no-mistakes skill's advice to enrich \`--intent\`" "$brief" \
-    "no-mistakes DOD must override the external skill's enrich-with-decisions guidance"
+  assert_grep "preserve all relevant content from this brief's \`# Task\` section in \`--intent\`" "$brief" \
+    "no-mistakes DOD must preserve the accepted task"
+  assert_grep "Include every later accepted Firstmate requirement, clarification, constraint, exclusion, and supersession" "$brief" \
+    "no-mistakes DOD must preserve later accepted requirements"
+  assert_grep "Include accepted requirements from both \`## Captain's intent\` and \`## Firstmate spec\`" "$brief" \
+    "no-mistakes DOD must preserve accepted Firstmate requirements"
+  assert_grep "Retain direct requirements instead of substituting a diff summary or your own tradeoffs" "$brief" \
+    "no-mistakes DOD must exclude unapproved worker tradeoffs"
+  assert_grep "Only accepted decisions and tradeoffs belong in the validation contract" "$brief" \
+    "no-mistakes DOD must distinguish accepted decisions from worker proposals"
   # A bare reference cannot preserve the captain's ask, so the rendered DOD states
   # the self-sufficiency rule and requires referenced material to be resolved into
   # its substance.
   assert_grep "The \`--intent\` string you pass must be self-sufficient" "$brief" \
     "no-mistakes DOD must require a self-sufficient --intent string"
-  assert_grep "write the substance of the referenced items into \`--intent\`" "$brief" \
+  assert_grep "include the relevant substance in \`--intent\`, not only its pointer" "$brief" \
     "no-mistakes DOD must tell the worker to resolve report, decision, and PR references into substance"
 
   # The --yes ban is a fleet-wide prohibition, not a preference, and it must not
