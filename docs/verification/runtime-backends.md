@@ -672,6 +672,17 @@ The real-Herdr guard is:
 tests/fm-control-herdr-smoke.test.sh
 ```
 
+Historical lifecycle verification was first measured on 2026-08-02 with Herdr 0.7.5 and reverified on 2026-08-08 with Herdr 0.8.0:
+
+```text
+ok - real herdr: exit on a pane with no registered agent is idempotent success
+ok - real herdr: interrupt refuses when herdr's own agent registry reports no agent
+ok - real herdr: interrupt delivers the harness's key and proves the agent survived it
+ok - real herdr: no control verb removed the endpoint or the task's local copy
+ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
+```
+
+At those versions, the registry read through `herdr pane report-agent` was the source `fm_backend_herdr_agent_state` classified, so registering and not registering an agent on a plain shell pane exercised the lifecycle gate without launching a real agent.
 It requires stable lifecycle-registry evidence, including confirmed hook absence, and a stable exact foreground-process tree.
 It proves that a stale hook over a childless shell is agent-free, while an active Pi process remains protected from lifecycle control.
 The guard runs in a guarded private lab session and skips when Herdr, `jq`, or the lab helper is unavailable.
