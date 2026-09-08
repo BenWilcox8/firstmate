@@ -115,7 +115,7 @@ function refreshWatchToolShell(
     : context.isError
       ? (text: string) => theme.bg("toolErrorBg", text)
       : (text: string) => theme.bg("toolSuccessBg", text);
-  const shell = state.shell ?? new Box(1, 1, background);
+  const shell = state.shell ?? new Box(1, 0, background);
   state.shell = shell;
   shell.setBgFn(background);
   shell.clear();
@@ -1143,12 +1143,13 @@ export default function (pi: ExtensionAPI) {
         .filter((item) => item.type === "text")
         .map((item) => item.text)
         .join("\n");
+      const renderedOutput = output.split("\n").map((line) => theme.fg("toolOutput", line)).join("\n");
       if (calmPresentation.stockExportRendering) {
-        return new Text(theme.fg("toolOutput", output), 0, 0);
+        return new Text(renderedOutput, 0, 0);
       }
       const state = context.state as WatchToolShellState;
       state.result = output
-        ? new Text(theme.fg("toolOutput", output), 0, 0)
+        ? new Text(renderedOutput, 0, 0)
         : new Container();
       refreshWatchToolShell(state, theme, context);
       return new Container();
