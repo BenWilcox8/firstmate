@@ -22,11 +22,11 @@ fm_brief_states_line() {  # <paused-verb>
   echo "States: working, needs-decision, blocked, $paused_verb, done, failed."
 }
 
-# fm_brief_worker_rules <ship|scout> <paused-verb> <shell-quoted status file>
+# fm_brief_worker_rules <ship|scout> <paused-verb> <shell-quoted status file> [ask-user-block]
 # prints rules 4 through 7 of a crewmate brief on stdout with no trailing blank
 # line. A secondmate charter has its own escalation contract and does not use it.
-fm_brief_worker_rules() {  # <kind> <paused-verb> <status-file>
-  local kind=$1 paused_verb=$2 status_file=$3
+fm_brief_worker_rules() {  # <kind> <paused-verb> <status-file> [ask-user-block]
+  local kind=$1 paused_verb=$2 status_file=$3 ask_user_block=${4:-}
   case "$kind" in
     ship|scout) ;;
     *)
@@ -66,6 +66,8 @@ EOF
   fi
 
   cat <<EOF
+   Whenever you mention a PR, write its full https:// URL exactly as the forge printed it.
+   Firstmate copies that URL rather than assembling one from a bare number.
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 EOF
 
@@ -81,11 +83,19 @@ EOF
 
   cat <<EOF
    append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
+$ask_user_block
    A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
    Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
 7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. On ANY no-mistakes
-   daemon error, append \`blocked: {the daemon error}\` and stop; only firstmate manages the daemon.
+   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. Only firstmate manages the daemon.
+   Before reporting a pipeline blocker, run \`no-mistakes daemon status\` and \`no-mistakes axi status\`.
+   If the daemon socket refuses connections or is missing, append \`blocked: {the daemon error}\` and stop.
+   A local record that still says running or fixing can be stale after the daemon exits.
+   A failed run record with a daemon error is also a real blocker.
+   After ruling out socket refusal, reattach and continue if the run is running or fixing.
+   A drive-call timeout, slow read, or generic unreachability alone does not prove a daemon error.
+   The daemon accepts \`respond\` immediately and runs the round in the background.
+   A killed or timed-out drive call can stop waiting while the run continues.
 EOF
 }
 
