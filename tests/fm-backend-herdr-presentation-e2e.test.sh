@@ -1362,7 +1362,7 @@ pass "real Herdr lab: multi-home exact-pane teardowns restore captain focus with
 
 # Missing, renamed, and duplicate tokens are read-only recovery diagnostics.
 # The duplicate case allows flat fallback only when every matching pane is
-# positively agent-free.
+# positively agent-free or shell-only.
 # shellcheck source=/dev/null
 . "$ROOT/bin/backends/herdr.sh"
 
@@ -1401,11 +1401,30 @@ assert_no_projection_mutation_since "$START" "agent-free duplicate-token recover
 lab workspace get "$DUP1_WSID" >/dev/null 2>&1 || fail "duplicate-token recovery removed the first quarantined workspace"
 lab workspace get "$DUP2_WSID" >/dev/null 2>&1 || fail "duplicate-token recovery removed the second quarantined workspace"
 
-lab pane report-agent "$DUP1_PANE" --source fm-projection-e2e --agent test-agent --state idle >/dev/null \
-  || fail "could not register the duplicate-live-agent risk fixture"
+# A stale registry record over a shell-only pane must not prevent recovery.
+lab pane report-agent "$DUP1_PANE" --source fm-projection-e2e --agent pi --state idle >/dev/null \
+  || fail "could not register the duplicate-live-agent lifecycle hook"
+START=$(log_line_count)
+fm_backend_herdr_projection_recovery_allows_flat "$HERDR_LAB_SESSION" "$DUP_JOURNAL" duplicate1 \
+  || fail "a stale hook over a shell-only duplicate pane should permit flat fallback"
+assert_no_projection_mutation_since "$START" "stale-hook duplicate-token recovery"
+
+# A hook record alone is deliberately insufficient recovery evidence.
+# Pair it with an exact Pi-shaped foreground process to prove the live pane
+# cannot be displaced by fallback.
+BASH_BIN=$(command -v bash) || fail "could not find the Bash fixture executable"
+cp "$BASH_BIN" "$TMP_ROOT/pi" || fail "could not create the Pi process fixture"
+fm_backend_herdr_send_text_line "$HERDR_LAB_SESSION:$DUP1_PANE" "$TMP_ROOT/pi -c 'trap \"\" INT TERM HUP; while :; do sleep 300; done'" \
+  || fail "could not start the duplicate-live-agent Pi fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  [ "$(fm_backend_herdr_recovery_pane_agent_state "$HERDR_LAB_SESSION" "$DUP1_PANE")" = live ] && break
+  sleep 0.1
+done
+[ "$(fm_backend_herdr_recovery_pane_agent_state "$HERDR_LAB_SESSION" "$DUP1_PANE")" = live ] \
+  || fail "the duplicate-live-agent Pi fixture was not recognized as live"
 START=$(log_line_count)
 if fm_backend_herdr_projection_recovery_allows_flat "$HERDR_LAB_SESSION" "$DUP_JOURNAL" duplicate1; then
-  fail "a duplicate token match with a registered agent should refuse fallback"
+  fail "a duplicate token match with a live Pi process should refuse fallback"
 fi
 assert_no_projection_mutation_since "$START" "live duplicate-token recovery"
 lab workspace get "$DUP1_WSID" >/dev/null 2>&1 || fail "live duplicate refusal removed the first workspace"

@@ -169,7 +169,7 @@ Both recorded runtime identities now classify the exact `pi-launcher` foreground
 
 Backend applicability was reviewed across every spawn adapter.
 Tmux needs the exact `pi-launcher`, `pi-signed`, `pi`, and `Pi` process identities for recovery-grade liveness.
-Herdr uses native registered-agent state and needs no process-name branch.
+Herdr combines two stable native pane and registry reads with Herdr process information and an operating-system process-tree sample; a Pi process launched through Node or Python is recognized from its arguments, not just its executable name.
 Zellij has no verified recovery-grade agent process probe, while Orca and cmux do not support secondmate spawns, so those three retain their existing generic ordinary-launch semantics without a new liveness matcher.
 
 The current classifier matrix and its refresh guard are recorded in [Composer classification matrix](#composer-classification-matrix), with portable shape coverage in `tests/fm-composer-lib.test.sh` and `tests/fm-composer-ghost.test.sh`.
@@ -368,7 +368,7 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
   tests/fm-backend-herdr-respawn-idem-e2e.test.sh
 ```
 
-Observed guarantee: a restored no-agent tab was replaced create-before-close, while a registered live agent caused refusal.
+Observed guarantee: a restored shell-only tab was replaced create-before-close, while an active Pi process caused refusal.
 
 ### Launcher workspace placement
 
@@ -664,13 +664,15 @@ Polling remained active and is covered as the fallback for capability, connect, 
 
 ### Agent lifecycle control
 
-Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)), so its lifecycle gating is measured against the real binary; reverified 2026-08-08 on Herdr 0.8.0, and first measured 2026-08-02 on Herdr 0.7.5 with identical results:
+Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)).
+The portable regression `tests/fm-backend-herdr-recovery-state.test.sh` covers stale hooks, nested shells, Treehouse brokers, recognized foreground agents including interpreter-backed Pi, ambiguity, and identity races.
+The real-Herdr guard is:
 
 ```sh
 tests/fm-control-herdr-smoke.test.sh
 ```
 
-Observed output:
+Historical lifecycle verification was first measured on 2026-08-02 with Herdr 0.7.5 and reverified on 2026-08-08 with Herdr 0.8.0:
 
 ```text
 ok - real herdr: exit on a pane with no registered agent is idempotent success
@@ -680,8 +682,11 @@ ok - real herdr: no control verb removed the endpoint or the task's local copy
 ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
 ```
 
-The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on, with no real agent launched.
-That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
+At those versions, the registry read through `herdr pane report-agent` was the source `fm_backend_herdr_agent_state` classified, so registering and not registering an agent on a plain shell pane exercised the lifecycle gate without launching a real agent.
+It requires stable lifecycle-registry reads and a stable exact foreground-process tree; hook status alone is not process proof.
+It proves that a stale hook over a childless shell is agent-free, while an active Pi process remains protected from lifecycle control.
+The guard runs in a guarded private lab session and skips when Herdr, `jq`, or the lab helper is unavailable.
+Run it after every Herdr upgrade to refresh this record.
 
 ### Away-mode transport
 

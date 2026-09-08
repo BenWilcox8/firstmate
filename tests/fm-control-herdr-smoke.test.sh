@@ -7,15 +7,15 @@
 # agent-state classifier the control plane is allowed to trust, so its
 # behavior is pinned here against the REAL binary rather than a stub: whether
 # an agent is running, and therefore whether a lifecycle verb may act at all,
-# comes from herdr's own agent registry.
+# requires stable lifecycle-registry evidence and exact process ownership.
 #
-# No real agent is launched. herdr's `pane report-agent` is the same registry
-# the adapter reads, so registering and not registering an agent on a plain
-# shell pane exercises exactly the classification the control plane gates on.
+# No model-backed agent is launched.
+# A process named `pi` models the exact foreground-process identity that the
+# recovery classifier requires in addition to Herdr's hook registry.
 #
-# Always runs on a private, named, throwaway lab session, never the default
-# one (tests/herdr-test-safety.sh; the 2026-07-02 incident). Skips cleanly
-# when herdr or jq is missing.
+# Always runs through the guarded helper on a private, named, throwaway lab
+# session, never the default one.
+# It skips cleanly when Herdr, jq, or the helper is missing.
 set -u
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -26,19 +26,20 @@ pass() { printf 'ok - %s\n' "$1"; }
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the herdr adapter)"; exit 0; }
 
-# shellcheck source=tests/herdr-test-safety.sh
-. "$ROOT/tests/herdr-test-safety.sh"
-herdr_forget_inherited_pane
-
-SESSION="fm-lab-control-smoke-$$"
+LAB_HELPER=${FM_HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
+[ -x "$LAB_HELPER" ] || { echo "skip: guarded Herdr lab helper not found"; exit 0; }
+SESSION=$("$LAB_HELPER" name "control-smoke-$$") \
+  || { echo "skip: could not generate a guarded Herdr lab name"; exit 0; }
 export HERDR_SESSION="$SESSION"
+unset HERDR_PANE_ID HERDR_TERMINAL_ID HERDR_WORKSPACE_ID HERDR_TAB_ID
 SCRATCH=
 cleanup_all() {
   [ -n "$SCRATCH" ] && rm -rf "$SCRATCH"
-  herdr_safe_stop_and_delete "$SESSION"
+  "$LAB_HELPER" teardown "$SESSION" >/dev/null 2>&1 || true
 }
 trap cleanup_all EXIT
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+"$LAB_HELPER" provision "$SESSION" >/dev/null \
+  || fail "could not prepare isolated Herdr lab session"
 
 SCRATCH=$(mktemp -d "${TMPDIR:-/tmp}/fm-control-herdr.XXXXXX")
 SCRATCH=$(cd "$SCRATCH" && pwd)
@@ -56,6 +57,8 @@ git -C "$PROJ" add README.md
 git -C "$PROJ" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm initial
 git -C "$PROJ" worktree add --quiet -b hsmoke "$WT"
 
+# Keep this lifecycle smoke on the adapter's native one-pane path.
+export FM_BACKEND_HERDR_AXI_BIN=
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
 fm_backend_source herdr || fail "fm_backend_source herdr failed"
@@ -76,7 +79,7 @@ EOF
   echo "endpoint_task_id=hsmoke"
   echo "worktree=$WT"
   echo "project=$PROJ"
-  echo "harness=claude"
+  echo "harness=pi"
   echo "kind=ship"
   echo "mode=no-mistakes"
   echo "yolo=off"
@@ -90,10 +93,19 @@ EOF
 } > "$HOME_DIR/state/hsmoke.meta"
 
 run_control() {
-  env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
+  env FM_GATE_REFUSE_BYPASS=1 FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
     FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=2 \
     "$ROOT/bin/fm-control.sh" "$@" 2>&1
 }
+
+fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" 'exec bash --noprofile --norc -i' \
+  || fail "could not establish the childless shell fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  STATE=$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")
+  [ "$STATE" = dead ] && break
+  sleep 0.1
+done
+[ "$STATE" = dead ] || fail "the childless shell fixture should classify as dead, got '$STATE'"
 
 # --- no registered agent: the endpoint exists but hosts no agent ------------
 
@@ -113,30 +125,49 @@ case "$OUT" in
 esac
 pass "real herdr: interrupt refuses when herdr's own agent registry reports no agent"
 
-# --- a registered agent: classification flips, and the verbs follow ---------
+# --- a stale hook cannot replace process evidence ---------------------------
 
-herdr pane report-agent "$PANE_ID" --source fm-control-smoke --agent fm-control-smoke-agent \
-  --state idle --session "$SESSION" >/dev/null 2>&1 \
-  || fail "could not register a live agent on the task pane"
+"$LAB_HELPER" run "$SESSION" pane report-agent "$PANE_ID" \
+  --source full_lifecycle_hook_authority --agent pi --state idle >/dev/null 2>&1 \
+  || fail "could not register the stale lifecycle-hook fixture"
 
 STATE=$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")
-[ "$STATE" = alive ] || fail "herdr should classify a registered agent as alive, got '$STATE'"
-
-OUT=$(run_control hsmoke interrupt) || fail "interrupt against a registered agent should succeed: $OUT"
+[ "$STATE" = dead ] || fail "a stale hook over a shell-only pane should classify as dead, got '$STATE'"
+OUT=$(run_control hsmoke exit) || fail "exit should accept the proved shell-only stale record: $OUT"
 case "$OUT" in
-  *"interrupt-delivered hsmoke harness=claude backend=herdr verified=agent-alive cancel=unconfirmed"*) : ;;
+  "already-stopped hsmoke"*) : ;;
+  *) fail "the stale hook should not keep the exited agent alive, got: $OUT" ;;
+esac
+pass "real herdr: stale lifecycle-hook status does not keep a shell-only pane alive"
+
+# --- an exact foreground agent process remains protected --------------------
+
+BASH_BIN=$(command -v bash)
+[ -x "$BASH_BIN" ] || fail "could not find the Bash fixture executable"
+cp "$BASH_BIN" "$SCRATCH/pi"
+fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" "$SCRATCH/pi -c 'trap \"\" INT TERM HUP; while :; do sleep 300; done'" \
+  || fail "could not start the foreground Pi process fixture"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  STATE=$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")
+  [ "$STATE" != alive ] || break
+  sleep 0.1
+done
+[ "$STATE" = alive ] || fail "the exact foreground Pi process should classify as alive, got '$STATE'"
+
+OUT=$(run_control hsmoke interrupt) || fail "interrupt against an active agent process should succeed: $OUT"
+case "$OUT" in
+  *"interrupt-delivered hsmoke harness=pi backend=herdr verified=agent-alive cancel=unconfirmed"*) : ;;
   *) fail "interrupt should report the agent-alive proof on herdr, got: $OUT" ;;
 esac
-pass "real herdr: interrupt delivers the harness's key and proves the agent survived it"
+pass "real herdr: interrupt protects an exact foreground agent process"
 
-herdr pane get "$PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
+"$LAB_HELPER" run "$SESSION" pane get "$PANE_ID" >/dev/null 2>&1 \
   || fail "the control plane must never remove the endpoint it was operating on"
 [ -d "$WT" ] || fail "the control plane must never remove the task's local copy"
 pass "real herdr: no control verb removed the endpoint or the task's local copy"
 
-# Last, because it deliberately types a harness command into a pane that hosts
-# a plain shell: the registered agent cannot actually be stopped that way, and
-# the control plane must say so rather than report a stop it did not achieve.
+# Last, because the fake Pi process does not implement Pi's exit command.
+# The control plane must report that it remains alive.
 if OUT=$(run_control hsmoke exit 2>&1); then
   fail "exit should fail closed when the agent does not stop: $OUT"
 fi

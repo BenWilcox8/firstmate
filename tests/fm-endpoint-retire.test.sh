@@ -86,6 +86,15 @@ case "${1:-} ${2:-}" in
       printf '%s\n' '{"error":{"code":"agent_not_found"}}'
       exit 1
     fi ;;
+  "pane process-info")
+    pane=${4:-}
+    if grep -qxF "$pane" "$D/agents"; then
+      printf '%s' agent > "$D/process-kind"
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}\n' "$pane"
+    else
+      printf '%s' shell > "$D/process-kind"
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}\n' "$pane"
+    fi ;;
   "pane close")
     if [ "${FM_FAKE_HERDR_STUCK:-}" != "${3:-}" ]; then
       grep -vxF "${3:-}" "$D/panes" > "$D/panes.next" || :
@@ -96,6 +105,15 @@ esac
 exit 0
 SH
   chmod +x "$fakebin/herdr"
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+if [ "$(cat "$FM_FAKE_HERDR_DIR/process-kind" 2>/dev/null)" = agent ]; then
+  printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash' '102 100 102 S pi'
+else
+  printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash'
+fi
+SH
+  chmod +x "$fakebin/ps"
   printf '%s\n' "$fakebin"
 }
 
@@ -527,6 +545,9 @@ case "\${1:-} \${2:-}" in
       printf '%s\n' '{"error":{"code":"agent_not_found"}}'
       exit 1
     fi ;;
+  "pane process-info")
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["/bin/bash"]}]}}}\n' "\${4:-}"
+    ;;
   "pane close")
     grep -vxF "\${3:-}" "\$D/panes" > "\$D/panes.next" || :
     mv "\$D/panes.next" "\$D/panes" ;;
@@ -536,6 +557,11 @@ exit 0
 SH
   chmod +x "$fakebin/herdr"
   fm_fake_exit0 "$fakebin" pi node
+  cat > "$fakebin/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S systemd' '100 1 100 S bash'
+SH
+  chmod +x "$fakebin/ps"
   printf '%s\n' "$fakebin"
 }
 

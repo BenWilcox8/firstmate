@@ -259,6 +259,7 @@ publish_healthy_watcher_identity() { # <state> <home> <watch-script>
 remote_env() {
   FM_HOME="$PARENT" \
   FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
+  FM_HERDR_PS_BIN="$REMOTE_ROOT/bin/ps" \
   FM_PROCEVENT_CLAIM_ROOT="$CLAIMS" \
   FM_SSH_BIN="$FAKEBIN/fake-ssh" \
   FM_FAKE_SSH_COUNT="$SSH_COUNT" \

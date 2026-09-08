@@ -866,7 +866,7 @@ fm_backend_herdr_projection_close_pane_focus_preserving() {  # <session> <pane-i
     return 1
   fi
   if [ -n "$required_agent_state" ]; then
-    state=$(fm_backend_herdr_pane_agent_state "$session" "$pane_id")
+    state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane_id")
     FM_BACKEND_HERDR_PROJECTION_CLOSE_AGENT_STATE=$state
     [ "$state" = "$required_agent_state" ] || return 1
   fi
@@ -1914,11 +1914,10 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
   esac
 }
 
-# fm_backend_herdr_tab_is_husk: true (0) only for the two conservative husk
-# states (dead, no-agent) fm_backend_herdr_pane_agent_state can positively
-# confirm; live and unknown both refuse (1), so an inconclusive read never
-# licenses closing anything. Restored-layout recovery depends on this
-# fail-safe-toward-refusal behavior.
+# fm_backend_herdr_tab_is_husk: legacy registry-only view of the two
+# conservative husk states (dead, no-agent). It is not recovery authority:
+# recovery must use fm_backend_herdr_recovery_pane_agent_state for exact stable
+# process ownership, while live and unknown still refuse (1).
 fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
   case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
     dead|no-agent) return 0 ;;
@@ -1926,15 +1925,234 @@ fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
   esac
 }
 
+# Read one agent-registry sample for recovery.
+# A recognized status proves only that a hook record exists, not that its
+# process still owns the pane.
+fm_backend_herdr_recovery_registry_sample() {  # <session> <pane-id>
+  local out code status
+  out=$(fm_backend_herdr_cli "$1" agent get "$2" 2>&1) || true
+  code=$(printf '%s' "$out" | jq -r '.error.code // empty' 2>/dev/null)
+  if [ -n "$code" ]; then
+    [ "$code" = agent_not_found ] && printf 'absent' || printf 'unknown'
+    return 0
+  fi
+  status=$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null)
+  case "$status" in
+    working|idle|done|blocked) printf 'registered:%s' "$status" ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
+# Read and normalize the exact pane process identity that Herdr reports.
+fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
+  local out
+  out=$(fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null) || return 1
+  printf '%s' "$out" | jq -ceS --arg pane "$2" '
+    def base:
+      split("/")[-1] | ltrimstr("-");
+    .result
+    | select(.type == "pane_process_info")
+    | .process_info
+    | select(.pane_id == $pane)
+    | select((.shell_pid | type) == "number" and .shell_pid > 1 and (.shell_pid | floor) == .shell_pid)
+    | select((.foreground_process_group_id | type) == "number" and .foreground_process_group_id > 1 and (.foreground_process_group_id | floor) == .foreground_process_group_id)
+    | select((.foreground_processes | type) == "array" and (.foreground_processes | length) > 0)
+    | select(all(.foreground_processes[];
+        (.pid | type) == "number" and .pid > 1 and (.pid | floor) == .pid
+        and (.name | type) == "string" and (.name | length) > 0
+        and (((.argv0 // .argv[0]) | type) == "string")
+        and (((.argv0 // .argv[0]) | length) > 0)
+        and ((.argv // []) | type == "array")
+        and all((.argv // [])[]; type == "string" and length > 0)))
+    | select(([.foreground_processes[].pid] | unique | length) == (.foreground_processes | length))
+    | {
+        pane_id,
+        shell_pid,
+        foreground_process_group_id,
+        foreground_processes: ([.foreground_processes[] | {
+          pid,
+          name: (.name | base),
+          argv0: ((.argv0 // .argv[0]) | base),
+          argv: (.argv // []),
+          agent: ((.name | base) as $name
+            | (.argv[0] // .argv0) as $argv0
+            | (($name | test("^(claude|codex|opencode|grok)"))
+              or ($name | test("^pi(-signed)?$|^kimi(-code)?$|^muse(-bin-.+)?$|^cursor-agent$"))
+              or (($name | test("^(agent|MainThread|node|python)"))
+                and (($argv0 | base) == "cursor-agent" or ($argv0 | test("/cursor-agent/versions/[^/]+/cursor-agent$"))))
+              or (($name | test("^(node|python)"))
+                and ((.argv // [] | join(" ")) | test("claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|/pi($|[[:space:]])")))))
+        }] | sort_by(.pid))
+      }
+    | select(all(.foreground_processes[];
+        (.name | test("^[A-Za-z0-9._+-]+$"))
+        and (.argv0 | test("^[A-Za-z0-9._+-]+$"))))
+  ' 2>/dev/null
+}
+
+# Classify one normalized process snapshot against one operating-system process
+# table sample.
+# The output includes the anchored process rows so a second sample can detect a
+# changed target instead of accepting a result from two different processes.
+fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
+  local snapshot=$1 ps_bin rows shell_pid foreground_pgid foreground
+  ps_bin=${FM_HERDR_PS_BIN:-ps}
+  command -v "$ps_bin" >/dev/null 2>&1 || return 1
+  rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm=,args= 2>/dev/null) || return 1
+  shell_pid=$(printf '%s' "$snapshot" | jq -er '.shell_pid' 2>/dev/null) || return 1
+  foreground_pgid=$(printf '%s' "$snapshot" | jq -er '.foreground_process_group_id' 2>/dev/null) || return 1
+  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0, (.agent | tostring)] | @tsv' 2>/dev/null) || return 1
+  {
+    printf '%s\n' "$foreground"
+    printf '%s\n' "$rows" | awk '
+      NF >= 5 {
+        args = ""
+        for (field = 6; field <= NF; field++) args = args (field == 6 ? "" : " ") $field
+        gsub(/\t/, " ", args)
+        print "P\t" $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" args
+      }
+    '
+  } | awk -F '\t' -v root="$shell_pid" -v fg="$foreground_pgid" '
+    function base(value) {
+      sub(/^.*\//, "", value)
+      sub(/^-/, "", value)
+      return value
+    }
+    function is_shell(value) {
+      return value == "sh" || value == "bash" || value == "zsh" || value == "dash" || value == "ksh" || value == "fish"
+    }
+    function is_agent(value, args, fields, argv0) {
+      split(args, fields, " ")
+      argv0 = fields[1]
+      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
+    }
+    function is_shell_broker(value, args) {
+      return value == "treehouse" && args == "treehouse get"
+    }
+    $1 == "F" {
+      if ($2 !~ /^[0-9]+$/ || seen_foreground[$2]++) invalid = 1
+      foreground[$2] = 1
+      foreground_name[$2] = base($3)
+      foreground_argv[$2] = base($4)
+      foreground_agent[$2] = $5
+      if ($5 != "true" && $5 != "false") invalid = 1
+      next
+    }
+    $1 == "P" {
+      if ($2 !~ /^[0-9]+$/ || $3 !~ /^[0-9]+$/ || $4 !~ /^[0-9]+$/ || seen_process[$2]++) {
+        invalid = 1
+        next
+      }
+      order[++count] = $2
+      parent[$2] = $3
+      pgid[$2] = $4
+      stat[$2] = $5
+      comm[$2] = base($6)
+      command_line[$2] = $7
+    }
+    END {
+      if (invalid || !(root in parent) || !is_shell(comm[root])) {
+        print "unknown"
+        exit
+      }
+      descendant[root] = 1
+      for (round = 0; round <= count; round++) {
+        changed = 0
+        for (i = 1; i <= count; i++) {
+          pid = order[i]
+          if (!descendant[pid] && descendant[parent[pid]]) {
+            descendant[pid] = 1
+            changed = 1
+          }
+        }
+        if (!changed) break
+      }
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid] && pid != root) {
+          child_count[parent[pid]]++
+          only_child[parent[pid]] = pid
+        }
+      }
+      for (pid in foreground) {
+        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || (foreground_argv[pid] != comm[pid] && !(foreground_agent[pid] == "true" && (comm[pid] == "agent" || comm[pid] == "MainThread")))) invalid = 1
+      }
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid] && pgid[pid] == fg && !foreground[pid]) invalid = 1
+        if (!descendant[pid]) continue
+        if (is_agent(comm[pid], command_line[pid]) || foreground_agent[pid] == "true") agents++
+        else if (is_shell(comm[pid])) {
+          shells++
+          if (stat[pid] !~ /^[SI]/) active_shell = 1
+        } else if (is_shell_broker(comm[pid], command_line[pid])) {
+          brokers++
+          child = only_child[pid]
+          if (stat[pid] !~ /^[SI]/ || pgid[pid] != pid || pid == fg \
+              || !is_shell(comm[parent[pid]]) || child_count[pid] != 1 \
+              || !is_shell(comm[child]) || pgid[child] != child) invalid = 1
+        } else others++
+      }
+      if (invalid) state = "unknown"
+      else if (agents > 0) state = "live-process"
+      else if (others > 0) state = "unknown"
+      else if (shells > 0 && !active_shell) state = "shell-only"
+      else state = "unknown"
+      print state
+      for (i = 1; i <= count; i++) {
+        pid = order[i]
+        if (descendant[pid]) print pid, parent[pid], pgid[pid], stat[pid], comm[pid], command_line[pid]
+      }
+    }
+  '
+}
+
+# Combine two exact pane, registry, process-info, and operating-system process
+# samples for recovery.
+# A stale hook status can no longer prove life by itself.
+fm_backend_herdr_recovery_pane_agent_state() {  # <session> <pane-id>
+  local session=$1 pane=$2 presence registry_before registry_after
+  local snapshot_before snapshot_after tree_before tree_after process_state
+  presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane")
+  case "$presence" in
+    dead) printf 'dead'; return 0 ;;
+    present) ;;
+    *) printf 'unknown'; return 0 ;;
+  esac
+  registry_before=$(fm_backend_herdr_recovery_registry_sample "$session" "$pane")
+  [ "$registry_before" != unknown ] || { printf 'unknown'; return 0; }
+  snapshot_before=$(fm_backend_herdr_recovery_process_snapshot "$session" "$pane") \
+    || { printf 'unknown'; return 0; }
+  tree_before=$(fm_backend_herdr_recovery_process_tree_sample "$snapshot_before") \
+    || { printf 'unknown'; return 0; }
+  registry_after=$(fm_backend_herdr_recovery_registry_sample "$session" "$pane")
+  snapshot_after=$(fm_backend_herdr_recovery_process_snapshot "$session" "$pane") \
+    || { printf 'unknown'; return 0; }
+  tree_after=$(fm_backend_herdr_recovery_process_tree_sample "$snapshot_after") \
+    || { printf 'unknown'; return 0; }
+  presence=$(fm_backend_herdr_pane_presence_state "$session" "$pane")
+  [ "$presence" = present ] \
+    && [ "$registry_before" = "$registry_after" ] \
+    && [ "$snapshot_before" = "$snapshot_after" ] \
+    && [ "$tree_before" = "$tree_after" ] \
+    || { printf 'unknown'; return 0; }
+  process_state=${tree_before%%$'\n'*}
+  case "$process_state" in
+    live-process) printf 'live' ;;
+    shell-only) printf 'no-agent' ;;
+    *) printf 'unknown' ;;
+  esac
+}
+
 # fm_backend_herdr_agent_state: recovery-grade state for the same session-start
-# sweep as the tmux classifier. It reuses fm_backend_herdr_pane_agent_state
-# rather than creating a second Herdr state machine: a structurally gone pane is
-# `missing`, a confirmed agent-less pane is `dead`, a registered agent is
-# `alive`, and an unexpected or failed API read is `unreadable`.
+# sweep as the tmux classifier.
+# A structurally gone pane is `missing`, an exact stable shell-only process tree
+# is `dead`, an exact stable agent process is `alive`, and every ambiguous or
+# unreadable observation is `unreadable`.
 fm_backend_herdr_agent_state() {  # <target>
   local target=$1
   fm_backend_herdr_parse_target "$target" || { printf 'unreadable'; return 0; }
-  case "$(fm_backend_herdr_pane_agent_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
+  case "$(fm_backend_herdr_recovery_pane_agent_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" in
     dead) printf 'missing' ;;
     no-agent) printf 'dead' ;;
     live) printf 'alive' ;;
@@ -2023,6 +2241,26 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
+fm_backend_herdr_single_pane_for_tab() {
+  local session=$1 wsid=$2 tab_id=$3 panes
+  panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 1
+  printf '%s' "$panes" | jq -r --arg tab "$tab_id" '
+    [.result.panes[]? | select(.tab_id == $tab) | .pane_id] as $ids
+    | if ($ids | length) == 1 then $ids[0] else empty end
+  ' 2>/dev/null
+}
+
+fm_backend_herdr_replacement_rollback() {
+  local session=$1 wsid=$2 tab_id=$3 pane_id=$4 state
+  [ "$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$tab_id")" = "$pane_id" ] || return 1
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane_id")
+  case "$state" in
+    dead) return 0 ;;
+    no-agent) fm_backend_herdr_cli "$session" tab close "$tab_id" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_herdr_create_task: create the task's pane in <container>
 # ("session:workspace_id") and echo "<tab_id> <pane_id>".
 #
@@ -2039,10 +2277,10 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
 # one plain tab per task in the home's own workspace, no split layout. Split
 # layouts REQUIRE agent-axi (docs/herdr-backend.md "Native fallback contract").
 # Herdr does not enforce label uniqueness (verified: two tabs may share a label),
-# so the fallback checks for same-labeled duplicates: live-agent duplicates are
-# refused; husks (dead pane or no registered agent - the restored-layout shape)
-# are close-and-replaced by creating the new tab FIRST then closing the husk tab,
-# so the workspace never drops to zero tabs during the transition.
+# so the fallback checks for same-labeled duplicates: only panes proved dead or
+# to have a stable shell-only process tree are close-and-replaced by creating the
+# new tab FIRST then closing the husk tab, so the workspace never drops to zero
+# tabs during the transition.
 #
 # --no-focus: verified tab create never focuses by default regardless of sibling
 # tabs, so this is defense in depth rather than a behavior change.
@@ -2059,7 +2297,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
     return
   fi
-  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_tab_ids out tab_id pane_id remaining_dup_tabs
+  local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_bindings out tab_id pane_id remaining_dup_tabs state
   session=${container%%:*}
   wsid=${container#*:}
   list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 1
@@ -2067,16 +2305,23 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
     echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
     return 1
   }
-  dup_tab_ids=""
+  dup_bindings=""
   if [ -n "$dup_tabs" ]; then
     while IFS= read -r dup; do
       [ -n "$dup" ] || continue
-      dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
-      if [ -z "$dup_pane" ] || ! fm_backend_herdr_tab_is_husk "$session" "$dup_pane"; then
+      dup_pane=$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$dup")
+      if [ -z "$dup_pane" ]; then
         echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
         return 1
       fi
-      dup_tab_ids="${dup_tab_ids}${dup}"$'\n'
+      case "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$dup_pane")" in
+        dead|no-agent) ;;
+        *)
+          echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
+          return 1
+          ;;
+      esac
+      dup_bindings="${dup_bindings}${dup}"$'\t'"${dup_pane}"$'\n'
     done <<EOF
 $dup_tabs
 EOF
@@ -2088,18 +2333,34 @@ EOF
     echo "error: could not parse tab/pane id from herdr tab create output" >&2
     return 1
   fi
-  if [ -n "$dup_tab_ids" ]; then
-    while IFS= read -r dup; do
+  if [ -n "$dup_bindings" ]; then
+    while IFS=$'\t' read -r dup dup_pane; do
       [ -n "$dup" ] || continue
+      [ "$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$dup")" = "$dup_pane" ] || {
+        fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
+        echo "error: herdr tab '$label' changed while replacing its husk in workspace $wsid (session $session)" >&2
+        return 1
+      }
+      state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$dup_pane")
+      case "$state" in
+        dead|no-agent) ;;
+        *)
+          fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
+          echo "error: herdr tab '$label' became $state while replacing its husk in workspace $wsid (session $session)" >&2
+          return 1
+          ;;
+      esac
       fm_backend_herdr_cli "$session" tab close "$dup" >/dev/null 2>&1 || true
     done <<EOF
-$dup_tab_ids
+$dup_bindings
 EOF
     list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2
       return 1
     }
     if ! printf '%s' "$list" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
       return 1
     fi
@@ -2107,6 +2368,7 @@ EOF
       '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
     remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
     if [ -n "$remaining_dup_tabs" ]; then
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
       return 1
     fi
@@ -2325,14 +2587,14 @@ fm_backend_herdr_projection_live_binding_matches() {  # <session> <token> <works
 
 fm_backend_herdr_projection_reclaim_rollback() {  # <session> <new-pane>
   local session=$1 new_pane=$2 state
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$new_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$new_pane")
   case "$state" in
     dead) return 0 ;;
     no-agent) ;;
     live|unknown) return 1 ;;
   esac
   fm_backend_herdr_projection_close_pane_focus_preserving "$session" "$new_pane" no-agent || return 1
-  [ "$(fm_backend_herdr_pane_agent_state "$session" "$new_pane")" = dead ]
+  [ "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$new_pane")" = dead ]
 }
 
 # fm_backend_herdr_projection_reclaim_task: replace one exact agent-free
@@ -2374,7 +2636,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation binding for $id has an ambiguous, renamed, foreign, or non-nested live shape; spawning flat" >&2
     return 2
   fi
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")
   case "$state" in
     no-agent) ;;
     dead)
@@ -2427,7 +2689,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation reclaim for $id could not verify its replacement pane; spawning flat" >&2
     return 2
   fi
-  state=$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")
   case "$state" in
     no-agent) ;;
     live|unknown)
@@ -2461,7 +2723,7 @@ fm_backend_herdr_projection_reclaim_task() {  # <session> <journal> <task-id> <h
     echo "warning: herdr presentation reclaim for $id could not close the exact old husk; spawning flat" >&2
     return 2
   fi
-  if [ "$(fm_backend_herdr_pane_agent_state "$session" "$meta_pane")" != dead ]; then
+  if [ "$(fm_backend_herdr_recovery_pane_agent_state "$session" "$meta_pane")" != dead ]; then
     fm_backend_herdr_projection_reclaim_rollback "$session" "$new_pane" || return 1
     return 1
   fi
@@ -2532,7 +2794,7 @@ fm_backend_herdr_projection_recovery_allows_flat() {  # <session> <journal> <tas
     pane_ids=$(printf '%s' "$panes" | jq -r '.result.panes[]? | .pane_id' 2>/dev/null)
     while IFS= read -r pane; do
       [ -n "$pane" ] || continue
-      state=$(fm_backend_herdr_pane_agent_state "$session" "$pane")
+      state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane")
       case "$state" in
         dead|no-agent) : ;;
         live|unknown)

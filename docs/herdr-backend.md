@@ -180,14 +180,18 @@ The re-derived slot/geometry/label-scan bash that agent-axi's ledger now owns wa
 - The husk-classification heuristics that drove placement decisions: the tab-mode close-and-replace of a restored same-labelled husk tab, the cross-layout same-label scan, and `fm_backend_herdr_tab_is_husk`.
 
 `config/herdr-layout` and the `FM_HERDR_LAYOUT` / `FM_HERDR_SPLIT_MAX` / `FM_HERDR_SPLIT_RATIO` overrides no longer exist; agent-axi owns the plan (its own `--plan` / built-in `home` + `overflow` plans).
-`fm_backend_herdr_pane_agent_state` stays (it still backs the `fm_backend_herdr_agent_state` recovery verb and its `fm_backend_herdr_agent_alive` compatibility view), and the recovery/selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` stay - they are recovery scoping, not placement, and match every other backend's contract.
+`fm_backend_herdr_pane_agent_state` stays for presentation-husk checks, while `fm_backend_herdr_recovery_pane_agent_state` backs the recovery verb and its compatibility view with stronger process proof.
+The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` also stay because they provide recovery scoping, not placement, and match every other backend's contract.
 
 ### Native fallback contract
 
 When agent-axi is not resolvable (empty `FM_BACKEND_HERDR_AXI_BIN`, or the binary absent), `fm_backend_herdr_create_task` falls back to a MINIMAL native path: one plain tab per task in the home's own workspace, `--no-focus`, plus the seeded-default-tab prune.
 There is NO split layout and NO proactive husk reaping in the fallback - split layouts and husk convergence REQUIRE agent-axi.
-The fallback keeps only a cheap same-label refusal: it never re-derives geometry and never classifies husks, so a same-labelled tab left over from a herdr session restore is reported (`error: ... already exists ... close it manually or install agent-axi`), not silently replaced.
-Install agent-axi (whose `layout --repair` reaps husks) or close the leftover tab manually to recover.
+For a same-label duplicate, it closes only a tab that has exactly one pane and is proved dead or to have a stable shell-only process tree, after an exact ownership recheck.
+After creating the replacement, it rechecks the old tab and pane before closing.
+If that recheck fails, it rolls back only the exact response-derived replacement when it is still a one-pane, shell-only tab; otherwise it leaves the replacement untouched and reports the ambiguity.
+Live, changed, busy, multi-pane, or unknown tabs remain untouched and refuse the duplicate spawn.
+Install agent-axi (whose `layout --repair` reaps husks) or inspect a refused duplicate manually.
 
 ### Repair and snapshot wiring (supervision loop)
 
@@ -313,11 +317,11 @@ Discovery starts from the exact current `└ <concise-task> · p:<22-character-t
 The title must contain exactly one token occurrence across the named-session snapshot and must equal the title derived from exactly one valid presentation journal in this home's own `state/`; a version 2 journal additionally must bind this exact physical home, named session, workspace, tab, and pane.
 The task's ordinary metadata must be absent, and the candidate must have exactly one tab and exactly one pane.
 Before cleanup, Firstmate acquires the existing task-id spawn lock and then the shared named-session presentation lock.
-Inside both locks it takes one exact snapshot, requires one unambiguous non-target focus and the exact title, token, tab, and pane shape, positively confirms no registered agent, and reads Herdr's process information for the exact named-session pane.
+Inside both locks it takes one exact snapshot, requires one unambiguous non-target focus and the exact title, token, tab, and pane shape, confirms the hook registry is absent, and reads Herdr's process information for the exact named-session pane.
 The process proof requires one recognized idle shell as both the shell process and the sole foreground process-group member, an operating-system process-table row for that shell, no child process, and a sleeping or idle shell state.
 The proof retries strict single samples for a bounded settle window because an idle interactive shell transiently hosts short-lived prompt helpers; a genuinely busy pane fails every sample.
 Any foreground command, child process, active shell job, unknown shell, unreadable process table, missing field, or API error preserves the pane.
-Firstmate immediately revalidates the same journal, metadata absence, workspace title and token uniqueness, one-tab and one-pane topology, exact pane relationship, absent agent, process proof, and non-target focus before calling the existing exact-pane focus-preserving close helper.
+Firstmate immediately revalidates the same journal, metadata absence, workspace title and token uniqueness, one-tab and one-pane topology, exact pane relationship, absent hook registration, process proof, and non-target focus before calling the existing exact-pane focus-preserving close helper.
 It closes only that pane, never a workspace.
 The matching journal is retired only after the exact pane is positively confirmed gone; an unconfirmed close retains the journal, while a confirmed close may retire it even when focus restoration reported an error after the close.
 A second run finds no matching title or journal and is a no-op.
@@ -459,13 +463,20 @@ No Herdr-specific copy of that protocol exists.
 ## Restart and liveness behavior
 
 Stopping and restarting a named Herdr server preserves workspace, tab, pane, and label ids, but the underlying harness processes and live agent registrations do not survive.
-A restored same-labeled tab with a missing pane or no registered agent is a husk.
-Create replaces only a confidently dead or no-agent husk, creates the replacement before closing the old tab, and refuses live or unknown states.
-This prevents closing the workspace's last tab before a replacement exists.
+A missing hook registration alone never authorizes recovery of a restored same-labeled tab.
+The [native fallback contract](#native-fallback-contract) owns its process-proof, create-before-close, and exact-recheck rules.
 
-The generic Herdr agent-liveness probe reuses the same classifier.
-A structurally gone pane becomes `missing`, a restored agent-less shell becomes `dead`, a registered agent becomes `alive`, and an unexpected read becomes `unreadable`.
-Unlike tmux process-name inspection, native registration can classify Pi without guessing from a generic interpreter name.
+The generic Herdr agent-liveness probe uses a separate recovery classifier.
+A structurally gone pane becomes `missing`.
+An existing pane becomes `dead` only when two stable samples prove the exact pane identity, registry result, process-info identity, and operating-system process tree.
+The complete tree must contain only recognized sleeping or idle shells and an optional exact sleeping `treehouse get` shell broker.
+The broker is accepted only between recognized shells, with its own process group, one shell child, and exact command arguments.
+Nested launch shells are accepted when every descendant has an allowed identity and the exact foreground process group agrees with Herdr's process list.
+An exact recognized agent process becomes `alive`, even when the hook registry is absent.
+Pi launched through a Node or Python interpreter is recognized from its process arguments rather than the interpreter name alone.
+A registered hook status is not process proof because a full-lifecycle hook record can remain after Pi exits.
+Other foreground commands, unreadable evidence, inconsistent process identities, and a pane or process that changes between samples become `unreadable`.
+These conservative results prevent recovery from replacing an active or ambiguous process while allowing an exited Pi process with stale hook status to recover.
 
 The session-start sweep uses this probe.
 Mid-session secondmate agent-process liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
@@ -526,6 +537,8 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 
 ```sh
 tests/fm-backend-herdr.test.sh
+tests/fm-backend-herdr-recovery-state.test.sh
+tests/fm-control-herdr-smoke.test.sh
 tests/fm-composer-lib.test.sh
 tests/fm-send-strict.test.sh
 tests/fm-herdr-submit-confirm-live-e2e.test.sh

@@ -29,9 +29,9 @@ A crewmate pane lives in the home's own workspace as an occupied slot in agent-a
 Do not open a tab by hand for a crewmate and do not treat a stray tab as a tracked pane; agent-axi counts occupancy by live agent, not by label geometry, and reports an untracked pane as drift.
 When a pane genuinely needs its own tab or another workspace, ask agent-axi to reparent it rather than moving it in herdr directly.
 
-The one exception is the native fallback: when agent-axi is not resolvable, the adapter creates one plain tab per task with no split layout and no husk reaping, and refuses a same-labelled leftover rather than replacing it.
-That fallback is a degraded mode, not the operating model - install agent-axi or close the leftover tab manually.
-`docs/herdr-backend.md` "Native fallback contract" owns its exact behavior.
+The one exception is the native fallback: when agent-axi is not resolvable, the adapter creates one plain tab per task with no split layout and no proactive husk reaping.
+That fallback is a degraded mode, not the operating model.
+`docs/herdr-backend.md` "Native fallback contract" owns its same-label recovery behavior and manual-inspection guidance.
 
 ## Where firstmate already calls agent-axi
 

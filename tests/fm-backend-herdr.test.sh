@@ -52,6 +52,8 @@ SYSTEM_BASH=$(command -v /bin/bash 2>/dev/null || command -v bash)
 # of calls precisely. A missing response file means "succeed with empty
 # stdout" (mirrors send-text/send-keys/pane close/tab close, which are silent
 # on success in the real CLI - verified in herdr-verification-p2.md).
+# The fixture also supplies a no-op python3 command because capability checks
+# require it, while the relevant tests replace the Python mover with a shell fixture.
 make_herdr_fakebin() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/fakebin"
   mkdir -p "$fb"
@@ -80,6 +82,11 @@ fi
 exit 0
 SH
   chmod +x "$fb/herdr"
+  cat > "$fb/python3" <<'SH'
+#!/usr/bin/env bash
+exit 0
+SH
+  chmod +x "$fb/python3"
   printf '%s\n' "$fb"
 }
 
@@ -583,6 +590,124 @@ test_create_task_refuses_duplicate_label() {
   pass "fm_backend_herdr_create_task: the native fallback refuses conservatively when a duplicate tab's pane is not resolvable"
 }
 
+test_create_task_replaces_only_proved_duplicate_husks() {
+  local dir log resp fb out status
+
+  dir="$TMP_ROOT/dup-hookless-live"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' > "$resp/1.out"
+  split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
+  for n in $(seq 0 7); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  cat > "$dir/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash' '102 100 102 S pi pi'
+SH
+  chmod +x "$dir/ps"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_PS_BIN="$dir/ps" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" 2>&1 )
+  status=$?
+  [ "$status" -ne 0 ] || fail "create_task should refuse a hookless live Pi duplicate"
+  assert_contains "$out" "already exists" "create_task did not refuse the hookless live Pi duplicate"
+  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''create' "hookless live Pi must not create a replacement tab"
+  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close' "hookless live Pi must not close its original tab"
+
+  dir="$TMP_ROOT/dup-stable-shell"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '' \
+    '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-dup1","workspace_id":"w1"}]}}' > "$resp/1.out"
+  split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
+  for n in $(seq 0 17); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  cat > "$dir/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash'
+SH
+  chmod +x "$dir/ps"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_PS_BIN="$dir/ps" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" )
+  [ "$out" = "w1:t3 w1:p3" ] || fail "create_task should replace a stable shell-only duplicate, got '$out'"
+  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the proved shell-only duplicate"
+
+  dir="$TMP_ROOT/dup-dead-pane"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"error":{"code":"pane_not_found"}}' \
+    '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"error":{"code":"pane_not_found"}}' \
+    '' \
+    '{"result":{"tabs":[{"tab_id":"w1:t3","label":"fm-dup1","workspace_id":"w1"}]}}' > "$resp/1.out"
+  split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
+  for n in $(seq 0 7); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" )
+  [ "$out" = "w1:t3 w1:p3" ] || fail "create_task should replace a dead duplicate, got '$out'"
+  assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "create_task did not close the proved dead duplicate"
+
+  dir="$TMP_ROOT/dup-start-race"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' \
+    '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-dup1","workspace_id":"w1"}]}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"result":{"tab":{"tab_id":"w1:t3"},"root_pane":{"pane_id":"w1:p3"}}}' \
+    '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2"}]}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"error":{"code":"agent_not_found"}}' \
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":100,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"pi","argv":["pi"]}]}}}' \
+    '{"result":{"pane":{"pane_id":"w1:p2"}}}' > "$resp/1.out"
+  split -l 1 -d "$resp/1.out" "$resp/part-"; rm "$resp/1.out"
+  for n in $(seq 0 15); do mv "$resp/part-$(printf '%02d' "$n")" "$resp/$((n + 1)).out"; done
+  cat > "$dir/ps" <<'SH'
+#!/usr/bin/env bash
+count=$(cat "$FM_HERDR_RACE_PS_COUNT" 2>/dev/null || printf 0)
+count=$((count + 1))
+printf '%s' "$count" > "$FM_HERDR_RACE_PS_COUNT"
+printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash'
+[ "$count" -le 2 ] || printf '%s\n' '102 100 102 S pi pi'
+SH
+  chmod +x "$dir/ps"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_HERDR_PS_BIN="$dir/ps" FM_HERDR_RACE_PS_COUNT="$dir/ps-count" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-dup1 /tmp/proj' "$ROOT" 2>&1 )
+  status=$?
+  [ "$status" -ne 0 ] || fail "create_task should refuse when the proved husk starts Pi before close"
+  assert_contains "$out" "became live" "create_task did not report the changed duplicate pane"
+  assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''close'$'\x1f''w1:t2' "a pane that started Pi before close must stay untouched"
+  pass "fm_backend_herdr_create_task: refuses hookless live Pi panes and replaces only proved shell-only or dead duplicates"
+}
 
 test_create_task_creates_and_parses_ids() {
   local dir log resp fb out
@@ -1234,7 +1359,7 @@ test_projection_close_rechecks_required_agent_state_at_boundary() {
   out=$(ROOT="$ROOT" LOG="$log" bash -c '
     . "$ROOT/bin/backends/herdr.sh"
     fm_backend_herdr_projection_focus_snapshot() { printf "w1\tw1:t1"; }
-    fm_backend_herdr_pane_agent_state() { printf live; }
+    fm_backend_herdr_recovery_pane_agent_state() { printf live; }
     fm_backend_herdr_cli() {
       printf "%s\n" "$*" >> "$LOG"
       case "$2 $3" in
@@ -2356,7 +2481,7 @@ test_projection_reclaim_refusal_matrix_is_non_mutating() {
         fm_backend_herdr_projection_live_binding_matches() {
           [ "$mode" != ambiguous ]
         }
-        fm_backend_herdr_pane_agent_state() {
+        fm_backend_herdr_recovery_pane_agent_state() {
           case "$mode" in
             live) printf live ;;
             unknown) printf unknown ;;
@@ -2439,9 +2564,21 @@ test_projection_reclaim_replaces_only_exact_husk_and_advances_binding() {
   printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t3","label":"fm-fm-hibit-r1"}]}}' > "$resp/27.out"
   printf '%s\n' '{"result":{"panes":[{"pane_id":"w2:p3","tab_id":"w2:t3"}]}}' > "$resp/28.out"
   fb=$(make_herdr_fakebin "$dir")
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+  out=$(PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_COUNT="$dir/recovery-count" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '
       . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_recovery_pane_agent_state() {
+        recovery_calls=$(cat "$FM_PROJECTION_RECOVERY_COUNT" 2>/dev/null || printf 0)
+        recovery_calls=$((recovery_calls + 1))
+        printf "%s" "$recovery_calls" > "$FM_PROJECTION_RECOVERY_COUNT"
+        fm_backend_herdr_cli "$1" pane get "$2" >/dev/null
+        if [ "$recovery_calls" -eq 4 ]; then
+          printf dead
+          return
+        fi
+        fm_backend_herdr_cli "$1" agent get "$2" >/dev/null
+        printf no-agent
+      }
       fm_backend_herdr_projection_reclaim_task \
         fmtest "$1" fm-hibit-r1 "$2" w2 w2:t2 w2:p2 firstmate fm-fm-hibit-r1 /tmp/project || exit 1
       printf "%s %s" "$FM_BACKEND_HERDR_PROJECTION_TAB_ID" "$FM_BACKEND_HERDR_PROJECTION_PANE_ID"
@@ -2477,14 +2614,12 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
   journal="$state/task-p3.herdr-presentation"
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate/task-p3 · p:%s"},{"workspace_id":"w2","label":"copy/task-p3 · p:%s"}]}}\n' "$token" "$token" > "$resp/1.out"
   printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p1"}}}\n' > "$resp/3.out"
-  printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/4.out"
-  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/5.out"
+  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/3.out"
   printf '{"result":{"pane":{"pane_id":"w2:p1"}}}\n' > "$resp/6.out"
   printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/7.out"
   fb=$(make_herdr_fakebin "$dir")
-  PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" \
+  PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_STATE=no-agent FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_PROJECTION_RECOVERY_STATE"; }; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" \
     >/dev/null || fail "agent-free duplicate token matches should allow flat fallback"
   calls=$(cat "$log")
   assert_not_contains "$calls" $'workspace\x1fcreate' "recovery inspection created a workspace"
@@ -2496,12 +2631,11 @@ test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk() {
   : > "$log"; rm -f "$resp"/*.out "$resp"/*.exit "$resp/.count"
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate/task-p3 · p:%s"}]}}\n' "$token" > "$resp/1.out"
   printf '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}\n' > "$resp/2.out"
-  printf '{"result":{"pane":{"pane_id":"w1:p1"}}}\n' > "$resp/3.out"
-  printf '{"result":{"agent":{"agent_status":"idle"}}}\n' > "$resp/4.out"
-  out=$(PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" 2>&1)
+  printf '{"error":{"code":"agent_not_found"}}\n' > "$resp/3.out"
+  out=$(PATH="$fb:$PATH" FM_PROJECTION_RECOVERY_STATE=live FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_PROJECTION_RECOVERY_STATE"; }; fm_backend_herdr_projection_recovery_allows_flat fmtest "$1" task-p3' "$ROOT" "$journal" 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "a token match with a live registered agent must refuse duplicate launch"
+  [ "$status" -ne 0 ] || fail "a token match with a live hookless process must refuse duplicate launch"
   assert_contains "$out" "has a live pane" "live duplicate refusal did not explain the risk"
   assert_not_contains "$(cat "$log")" $'pane\x1fclose' "live duplicate refusal closed a pane"
   pass "herdr presentation recovery: duplicate-token inspection is read-only and live-agent risk refuses fallback"
@@ -4417,6 +4551,7 @@ test_create_task_fallback_when_agent_axi_absent
 test_kill_delegates_to_agent_axi
 test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label
+test_create_task_replaces_only_proved_duplicate_husks
 test_create_task_creates_and_parses_ids
 test_create_task_creates_with_no_focus_flag
 test_presentation_defaults_on_at_or_above_the_floor
