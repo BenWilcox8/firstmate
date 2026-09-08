@@ -1135,11 +1135,11 @@ presentationComponent.setExpanded(!expanded);
 if (presentationComponent.hasContent() || presentationComponent.render(100).length !== 0) {
   throw new Error("Calm left a synthetic Firstmate presentation row or spacer visible");
 }
-if (operationalComponent.render(100).length !== 0) {
-  throw new Error("Calm left a current operational user row or its leading spacer visible");
+if (JSON.stringify(operationalComponent.render(100)) !== JSON.stringify([""])) {
+  throw new Error("Calm did not retain only the standard visible-row separator for a current operational user row");
 }
 if (legacyOperationalComponent.render(100).length !== 0) {
-  throw new Error("Calm left the supported bare-marker legacy user row visible");
+  throw new Error("Calm left a separator beside an adjacent hidden legacy operational user row");
 }
 const operationalNearMisses = [
   {
