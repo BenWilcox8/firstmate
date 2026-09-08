@@ -1465,7 +1465,7 @@ ${context.command}
       : context.isError
         ? (text: string) => theme.bg("toolErrorBg", text)
         : (text: string) => theme.bg("toolSuccessBg", text);
-    const shell = shellState.shell ?? new Box(1, 1, background);
+    const shell = shellState.shell ?? new Box(1, 0, background);
     shellState.shell = shell;
     shell.setBgFn(background);
     shell.clear();
@@ -1503,9 +1503,8 @@ ${context.command}
       const previewLines = getStockOutcomesPreviewLines();
       const displayLines = options.expanded || previewLines === undefined ? lines : lines.slice(0, previewLines);
       const remaining = lines.length - displayLines.length;
-      // Match Pi's stock fallback exactly (installed: 0.81.1): one fg/reset
-      // pair around the whole multi-line block, not one per line.
-      let renderedOutput = theme.fg("toolOutput", displayLines.join("\n"));
+      // Match the stock fallback: each line owns its foreground color and reset.
+      let renderedOutput = displayLines.map((line) => theme.fg("toolOutput", line)).join("\n");
       if (remaining > 0) {
         renderedOutput += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
       }
