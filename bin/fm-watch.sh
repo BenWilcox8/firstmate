@@ -872,7 +872,11 @@ resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [<owed> [<re
     triage_log "absorbed duplicate nudge (this declaration's recheck already delivered inside the window): $win"
     return 0
   fi
-  if [ -z "$owed" ] || [ -e "$throttle" ]; then
+  if [ -n "$record_file" ] && [ -s "$record_file" ] \
+    && [ "$(cat "$record_file" 2>/dev/null || true)" != "$record_id" ]; then
+    owed=owed
+  fi
+  if [ -z "$owed" ] || { [ -e "$throttle" ] && [ -z "$record_file" ]; }; then
     [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] || return 0
     [ "$(age_of "$throttle")" -ge "$PAUSE_RESURFACE_SECS" ] || return 0   # 999999 when no prior re-surface
   fi
@@ -1032,18 +1036,11 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   # is enough here because a status log is only ever appended to, and it is the
   # reason the floor below still bounds the absorb: a declaration that never
   # changes is re-reported once per window rather than trusted forever.
-  # Built only when it can be used, because this function is on the per-poll path
-  # of every declared-paused window and that signature is not a cheap read.
-  # resurface_absorbed can deliver, and so can need the identity, only while the
-  # throttle marker is missing or already past its window; a fresh throttle means
-  # neither of its paths can wake, and the identity is neither built nor consulted.
+  # Read the declaration even when the old throttle is fresh. A new status
+  # append starts its own window rather than inheriting the previous wait.
   throttlef="$STATE/.paused-resurfaced-$key"
-  nudge_file=''
-  nudge_id=''
-  if [ ! -e "$throttlef" ] || [ "$(age_of "$throttlef")" -ge "$PAUSE_RESURFACE_SECS" ]; then
-    nudge_id="$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
-    nudge_file="$STATE/.paused-nudged-$key"
-  fi
+  nudge_id="$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
+  nudge_file="$STATE/.paused-nudged-$key"
   resurface_absorbed "$win" "$throttlef" "$age" "stale: $win ($reason)" \
     "$owed" "$nudge_file" "$nudge_id"
   triage_log "absorbed stale ($detail, age ${age}s): $win"

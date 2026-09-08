@@ -67,13 +67,14 @@ EOF
 
   cat <<EOF
    Whenever you mention a PR, write its full https:// URL exactly as the forge printed it.
+   Use that URL, never a bare number such as "PR 108".
    Firstmate copies that URL rather than assembling one from a bare number.
 5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
 EOF
 
   if [ "$kind" = ship ]; then
     cat <<'EOF'
-6. If a decision belongs above the implementation worker (product choices, destructive actions, ask-user findings),
+6. If a decision belongs above the implementation worker (product choices, destructive actions),
 EOF
   else
     cat <<'EOF'

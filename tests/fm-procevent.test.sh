@@ -1203,7 +1203,7 @@ pass "reconcile reclaims a dead generation whose state-root identity no longer m
 
 # Retire must release the same wedged claim rather than refusing forever.
 HSR2="$TMP_ROOT/hsr2"; new_home "$HSR2"
-pe_register "$HSR2" lavish wedged-src -- /bin/echo recovered >/dev/null
+pe_register "$HSR2" lavish wedged-src -- "$(fm_test_tool echo)" recovered >/dev/null
 sr2_identity=$(bash -c '. "$1/bin/fm-pr-lib.sh"; fm_pr_file_identity "$2"' _ \
   "$ROOT" "$HSR2/state/procevent/wedged-src.source") \
   || fail "could not read the wedged fixture registration identity"

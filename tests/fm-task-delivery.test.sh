@@ -494,7 +494,7 @@ EOF
   cat > "$home/data/$id/brief.md" <<'EOF'
 # Task
 Captain: Fix the legacy dispatch boundary.
-Do not copy this Firstmate-authored constraint into intent.
+Preserve this Firstmate-authored constraint in validation intent.
 
 # Definition of done
 Delivery contract: mode=no-mistakes
@@ -505,17 +505,13 @@ EOF
     "legacy no-mistakes spawn rejected explicitly marked captain words"
   assert_present "$home/data/$id/launch-brief.md" \
     "marked legacy spawn did not render a current launch contract"
-  assert_grep "supersedes every earlier brief instruction about constructing \`--intent\`" \
-    "$home/data/$id/launch-brief.md" \
-    "marked legacy spawn did not override its stale intent instruction"
-  assert_grep "plus any later words the captain actually supplied" \
-    "$home/data/$id/launch-brief.md" \
-    "marked legacy launch contract excluded later captain clarifications"
-  authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit && /^$/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
-  assert_contains "$authorized" "Fix the legacy dispatch boundary." \
-    "marked legacy launch contract omitted captain words"
-  assert_not_contains "$authorized" "Firstmate-authored constraint" \
-    "marked legacy launch contract included mixed Task specification"
+  assert_grep 'The Definition of done owns the `--intent` contract' \
+    "$home/data/$id/launch-brief.md" "legacy launch omitted the intent owner"
+  assert_grep "plus later accepted requirements, constraints, exclusions, and clarifications" \
+    "$home/data/$id/launch-brief.md" "legacy launch excluded later accepted requirements"
+  authorized=$(awk '$0 == "## Accepted task requirements for --intent" { emit=1; next } emit && /^Resolve referenced reports/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
+  assert_contains "$authorized" "Fix the legacy dispatch boundary." "legacy launch omitted captain words"
+  assert_contains "$authorized" "Firstmate-authored constraint" "legacy launch dropped an accepted constraint"
 
   id=delivery-migrated-stale-no-mistakes
   mkdir -p "$home/data/$id"
@@ -534,27 +530,22 @@ EOF
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
   assert_present "$home/data/$id/launch-brief.md" \
     "migrated subsection brief did not receive the current launch contract"
-  authorized=$(awk '$0 == "## Captain intent authorized for --intent" { emit=1; next } emit && /^$/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
-  assert_contains "$authorized" "Fix the migrated dispatch boundary." \
-    "migrated launch contract omitted Captain's intent"
-  assert_not_contains "$authorized" "Preserve the existing compatibility path." \
-    "migrated launch contract included Firstmate spec in intent"
-  assert_grep "supersedes every earlier brief instruction about constructing \`--intent\`" \
-    "$home/data/$id/launch-brief.md" \
-    "migrated launch contract did not supersede its stale mixed-Task DoD"
-  assert_grep "plus any later words the captain actually supplied" \
-    "$home/data/$id/launch-brief.md" \
-    "migrated launch contract excluded later captain clarifications"
-  assert_grep "The Definition of done's rule that \`--intent\` must be self-sufficient still governs" \
-    "$home/data/$id/launch-brief.md" \
-    "migrated launch contract's overlay dropped the self-sufficiency pointer"
+  authorized=$(awk '$0 == "## Accepted task requirements for --intent" { emit=1; next } emit && /^Resolve referenced reports/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
+  assert_contains "$authorized" "Fix the migrated dispatch boundary." "migrated launch omitted Captain's intent"
+  assert_contains "$authorized" "Preserve the existing compatibility path." "migrated launch dropped Firstmate spec"
+  assert_grep 'The Definition of done owns the `--intent` contract' \
+    "$home/data/$id/launch-brief.md" "migrated launch omitted the intent owner"
+  assert_grep "plus later accepted requirements, constraints, exclusions, and clarifications" \
+    "$home/data/$id/launch-brief.md" "migrated launch excluded later requirements"
+  assert_grep "Resolve referenced reports, decisions, and PRs into their relevant substance" \
+    "$home/data/$id/launch-brief.md" "migrated launch omitted self-sufficiency guidance"
 
   id=delivery-legacy-unmarked-no-mistakes
   mkdir -p "$home/data/$id"
   cat > "$home/data/$id/brief.md" <<'EOF'
 # Task
 Fix the legacy dispatch boundary.
-Do not copy this Firstmate-authored constraint into intent.
+Preserve this Firstmate-authored constraint in validation intent.
 
 # Definition of done
 Delivery contract: mode=no-mistakes
@@ -567,10 +558,12 @@ Unrelated notes must not satisfy task validation.
 EOF
   out=$(run_spawn "$home" "$fakebin" "$id" "$proj" claude --mode no-mistakes --yolo off)
   status=$?
-  [ "$status" -ne 0 ] || fail "unmarked legacy no-mistakes spawn should require provenance"
-  assert_contains "$out" "has no provenance-marked captain words" \
-    "unmarked legacy no-mistakes spawn did not explain the missing intent provenance"
-  assert_absent "$home/state/$id.meta" "unmarked legacy no-mistakes spawn wrote task metadata"
+  assert_not_contains "$out" "has no provenance-marked captain words" "legacy spawn rejected accepted requirements without labels"
+  assert_present "$home/data/$id/launch-brief.md" "legacy spawn lost the task contract"
+  authorized=$(awk '$0 == "## Accepted task requirements for --intent" { emit=1; next } emit && /^Resolve referenced reports/ { exit } emit { print }' "$home/data/$id/launch-brief.md")
+  assert_contains "$authorized" "Fix the legacy dispatch boundary." "legacy intent lost the task"
+  assert_contains "$authorized" "Firstmate-authored constraint" "legacy intent lost its constraint"
+  assert_not_contains "$authorized" "Unrelated notes" "legacy intent included a later non-task section"
 
   id=delivery-unfilled-scout
   FM_HOME="$home" "$BRIEF" "$id" proj --scout >/dev/null 2>&1 \
@@ -637,12 +630,12 @@ Unrelated notes are not the task specification.
 EOF
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$PROMOTE" "$id" --mode direct-PR --yolo off 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "promotion without provenance-marked captain intent should fail"
-  assert_contains "$out" "has no provenance-marked Captain's intent" \
-    "unmarked legacy promotion did not explain the missing intent provenance"
-  assert_absent "$home/data/$id/ship-instructions.md" \
-    "unmarked legacy promotion published empty captain intent"
-  assert_grep 'kind=scout' "$meta" "unmarked legacy promotion changed the task record"
+  expect_code 0 "$status" "legacy promotion must preserve accepted requirements without provenance labels"
+  assert_present "$home/data/$id/ship-instructions.md" "legacy promotion lost the task instructions"
+  assert_grep 'Investigate the unmarked legacy failure.' "$home/data/$id/ship-instructions.md" "legacy promotion lost the task"
+  assert_grep 'Firstmate constraint' "$home/data/$id/ship-instructions.md" "legacy promotion lost the constraint"
+  assert_no_grep 'Unrelated notes' "$home/data/$id/ship-instructions.md" "promotion included a later non-task section"
+  assert_grep 'kind=ship' "$meta" "legacy promotion did not restore ship protection"
 
   id=promote-filled-e2
   meta="$home/state/$id.meta"
@@ -659,8 +652,7 @@ EOF
   brief="$home/data/$id/ship-instructions.md"
   assert_grep "Investigate why the identity check is failing." "$brief" \
     "promotion did not preserve the original Captain's intent"
-  assert_no_grep "Ship the identity-check fix without adding a classifier." "$brief" \
-    "promotion reused the scout-time Firstmate spec as ship instructions"
+  assert_grep "Ship the identity-check fix without adding a classifier." "$brief" "promotion lost the accepted implementation constraint"
   spec_body=$(awk '$0 == "## Firstmate spec" { emit=1; next } emit && /^# / { exit } emit { print }' "$brief")
   assert_contains "$spec_body" "Verify isolation before anything else" \
     "promotion did not place its ship-time instructions in Firstmate spec"
@@ -699,12 +691,9 @@ EOF
   brief="$home/data/$id/ship-instructions.md"
   assert_grep "Ship the parser without losing detailed requirements." "$brief" \
     "promotion discarded Captain's intent while replacing the scout spec"
-  assert_no_grep "### Acceptance criteria" "$brief" \
-    "promotion reused nested scout acceptance criteria as ship instructions"
-  assert_no_grep "# This example heading is fenced content." "$brief" \
-    "promotion reused a fenced scout-spec example as ship instructions"
-  assert_no_grep "Keep this closing requirement." "$brief" \
-    "promotion reused trailing scout spec as ship instructions"
+  assert_grep "### Acceptance criteria" "$brief" "promotion lost nested acceptance criteria"
+  assert_grep "# This example heading is fenced content." "$brief" "promotion lost a fenced specification example"
+  assert_grep "Keep this closing requirement." "$brief" "promotion lost the closing requirement"
   assert_no_grep "This scout-only setup must not become the spec." "$brief" \
     "promotion copied the following top-level section into Firstmate spec"
 
@@ -735,8 +724,7 @@ EOF
     "legacy promotion discarded provenance-marked captain words"
   assert_contains "$intent_body" "Preserve the existing successful session behavior." \
     "legacy promotion truncated multiline provenance-marked captain words"
-  assert_not_contains "$intent_body" "Reproduce the refusal" \
-    "legacy promotion classified unmarked mixed Task text as captain intent"
+  assert_contains "$intent_body" "Reproduce the refusal" "legacy promotion dropped an accepted task requirement"
   assert_not_contains "$spec_body" "Reproduce the refusal before changing code." \
     "legacy promotion reused the scout-time mixed Task as ship instructions"
   assert_not_contains "$spec_body" "Ship the narrow session-floor fix with a regression test." \

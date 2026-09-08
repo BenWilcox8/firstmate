@@ -66,7 +66,7 @@ make_remoteless_case() {
 
   mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
   printf 'codex\n' > "$home/config/crew-harness"
-  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  fm_test_spawn_brief "$home" "$id"
   touch "$home/state/.last-watcher-beat"
 
   git init --quiet -b "$default" "$project"

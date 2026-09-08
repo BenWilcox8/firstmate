@@ -388,7 +388,10 @@ archive_path() {
 # and any failure returns nonzero, which leaves the caller with the
 # backlog-only answer it had before.
 archive_show() {  # <id>
-  local id=$1 archive tmp out id_re
+  local id=$1 archive tmp out id_re data root
+  data=$(fm_backlog_data_absolute "$DATA") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 1
   # The id is interpolated into the entry pattern below, and one caller reads
   # its entries from task metadata rather than a validated argument, so a
   # non-slug id resolves to the live-backlog-only answer it had before.
@@ -403,7 +406,7 @@ archive_show() {  # <id>
     rm -f -- "$tmp"
     return 1
   fi
-  out=$(tasks_axi show "$id" --full --file "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  out=$(cd "$root" && tasks-axi show "$id" --full --file "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
   rm -f -- "$tmp"
   printf '%s\n' "$out"
 }

@@ -773,7 +773,7 @@ test_claude_forwards_firstmate_config_dir_when_set() {
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+  assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
     "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
@@ -910,17 +910,19 @@ test_claude_account_pin_launches_through_cswap() {
     run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
       "$id" "$PROJ_DIR" --account parent)
   status=$?
-  expect_code 0 "$status" "a claude spawn with a resolvable account pin should succeed"
+  expect_code 0 "$status" "a claude spawn with a resolvable account pin should succeed: $out"
   assert_contains "$out" "spawned $id harness=claude account=parent" \
     "the spawn line should name the pinned account"
   assert_grep "account=parent" "$HOME_DIR/state/$id.meta" \
     "the pinned account should be recorded in the task's durable record"
 
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false cswap run '2' -- --dangerously-skip-permissions" \
+  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 cswap run '2' -- --dangerously-skip-permissions" \
     "a pinned claude launch should run through cswap's per-terminal path"
   assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
     "a pinned launch must not also set a config dir for cswap to override"
+  assert_absent "$HOME_DIR/user-home/.claude.json" \
+    "a pinned launch must not grant trust in the unrelated default account store"
   assert_contains "$launch" "encode launch-brief" \
     "a pinned launch should still deliver the brief through the canonical encoder"
   pass "a pinned claude spawn launches through cswap and records the account it resolved"
