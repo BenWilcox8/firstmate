@@ -369,14 +369,17 @@ task_show() {  # <id>
 # home's own tasks-axi config so a home that repoints it stays correct, and
 # falling back to the tracked default when the config declares none.
 archive_path() {
-  local config="$FM_HOME/.tasks.toml" value=''
+  local data root config value=''
+  data=$(fm_backlog_data_absolute "$DATA") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  config="$root/.tasks.toml"
   if [ -f "$config" ]; then
     value=$(sed -n 's/^[[:space:]]*archive[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
   fi
-  [ -n "$value" ] || value="$DATA/done-archive.md"
+  [ -n "$value" ] || value="$data/done-archive.md"
   case "$value" in
     /*) printf '%s\n' "$value" ;;
-    *) printf '%s/%s\n' "$FM_HOME" "$value" ;;
+    *) printf '%s/%s\n' "$root" "$value" ;;
   esac
 }
 
@@ -976,7 +979,10 @@ close_answered() {  # <task-id> <release-0-or-1>
 
 remove_interrupted_answer_stamp() {  # <task-id>
   local id=$1 show body existing tmp
-  show=$(task_show "$id") || fail "task $id disappeared after closing"
+  show=$(task_show "$id") || {
+    archive_show "$id" >/dev/null && return 0
+    fail "task $id disappeared after closing"
+  }
   body=$(decode_shown_value "$(show_field "$show" body)") \
     || fail "could not decode the closed body for $id"
   existing=$(body_hold_set_timestamp "$body")

@@ -72,6 +72,14 @@ run_captain() {  # <home> <command args...>
     FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-captain-hold.sh" "$@"
 }
 
+run_captain_data() {  # <home> <data> <command args...>
+  local home=$1 data=$2
+  shift 2
+  PATH="$home/fakebin:$PATH" REAL_TASKS_AXI="$TASKS_AXI_BIN" \
+    FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$data" \
+    FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-captain-hold.sh" "$@"
+}
+
 request_reconciles() {  # <home> <source-id> <task-id>...
   local home=$1 source_id=$2 id
   shift 2
@@ -2391,6 +2399,53 @@ test_archived_call_stays_resolvable() {
 # A failed inventory resolution must abort with the diagnostic that names the
 # unresolved entry, never continue into the next guard with an empty task id and
 # report a task that was never asked about.
+test_archived_call_stays_resolvable_from_a_relocated_backlog() {
+  local home root data call answer
+  home=$(make_home archived-relocated-call)
+  root="$home/relocated"
+  data="$root/data"
+  call=sample-relocated-archive-call
+  mkdir -p "$data"
+  cat > "$root/.tasks.toml" <<'EOF'
+backend = "markdown"
+
+[markdown]
+path = "data/backlog.md"
+archive = "archives/closed.md"
+done_keep = 10
+EOF
+  cat > "$data/backlog.md" <<'EOF'
+## In flight
+
+## Queued
+
+## Done
+EOF
+  (cd "$root" && tasks-axi add "$call" "Choose the relocated archive window" \
+    --kind scout --repo sample) >/dev/null \
+    || fail "could not create the relocated captain-held task"
+
+  run_captain_data "$home" "$data" hold "$call" \
+    --title "Choose the relocated archive window" --reason "captain archive choice pending" \
+    --repo sample >/dev/null || fail "could not register the relocated captain-held task"
+  answer="$home/answer.txt"
+  printf 'Keep ten.\n' > "$answer"
+  run_captain_data "$home" "$data" answer "$call" --decision-file "$answer" >/dev/null \
+    || fail "could not record the relocated captain answer"
+  (cd "$root" && tasks-axi prune --keep 0 >/dev/null) \
+    || fail "could not archive the relocated captain call"
+  assert_grep "$call" "$root/archives/closed.md" \
+    "setup error: the call must land in the relocated archive"
+  assert_no_grep "$call" "$data/backlog.md" \
+    "setup error: the call must leave the relocated live backlog"
+
+  out=$(run_captain_data "$home" "$data" answer "$call" --decision-file "$answer") \
+    || fail "an archived relocated captain call did not replay: $out"
+  assert_contains "$out" "answered: $call" \
+    "the archived relocated call was not resolved through its configured archive"
+  pass "an archived relocated captain call remains replayable"
+}
+
 test_unresolvable_entry_aborts_with_its_own_diagnostic() {
   local home id
   home=$(make_home unresolved-entry)
@@ -2735,6 +2790,7 @@ test_origin_slug_validation_precedes_path_construction
 test_status_resolution_over_an_open_hold_is_signalled
 test_legitimate_holds_produce_no_divergence_signal
 test_archived_call_stays_resolvable
+test_archived_call_stays_resolvable_from_a_relocated_backlog
 test_unresolvable_entry_aborts_with_its_own_diagnostic
 test_archived_call_without_an_answer_still_fails
 test_teardown_never_closes_a_captain_held_task
