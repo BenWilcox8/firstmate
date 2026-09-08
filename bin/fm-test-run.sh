@@ -588,6 +588,9 @@ portable_serial_weight_hints() {
 tests/fm-afk-inject-e2e.test.sh 35792
 tests/fm-afk-pi-herdr-return-e2e.test.sh 100
 tests/fm-afk-return.test.sh 1837
+tests/fm-action-pins-check.test.sh 437
+tests/fm-agentsmd-ceiling.test.sh 613
+tests/fm-agentsmd-skill-triggers.test.sh 259
 tests/fm-ask-user-authority.test.sh 128
 tests/fm-backend-cmux-smoke.test.sh 33
 tests/fm-backend-cmux.test.sh 3657
@@ -738,7 +741,7 @@ portable_serial_unhinted() {
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-unhinted.XXXXXX") || return 1
   portable_serial_weight_hints | awk 'NF { print $1 }' | LC_ALL=C sort -u >"$tmp/hinted"
   list_portable_serial | LC_ALL=C sort -u >"$tmp/serial"
-  comm -23 "$tmp/serial" "$tmp/hinted"
+  LC_ALL=C comm -23 "$tmp/serial" "$tmp/hinted"
   rm -rf "$tmp"
 }
 
