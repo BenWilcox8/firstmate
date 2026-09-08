@@ -32,7 +32,7 @@ Two canonical homes hold general agent material, both indexed from firstmate; a 
    .agents/skills/filesystem-map/  this skill
    skills/           public installer-facing skills (not loaded by firstmate); a published install contract - do not relocate
 
-<project>/.agents/skills/<skill>/  project-owned skill, with in-project wiring
+<project>/.agents/skills/<skill>/  skill-as-deliverable, in-project, CID-style wiring
    .claude/skills  ->  ../.agents/skills
 ```
 

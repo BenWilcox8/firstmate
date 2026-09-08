@@ -59,7 +59,8 @@ Because Pi gives the model only a custom message's `content`, that silent note n
 This self-description lets main distinguish a new supervision outcome from its own earlier captain-facing answer; without it, main can mistake the outcome for that answer and lose the outcome while deciding how to handle it.
 The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's event-ownership and conversational-treatment instructions for merged outcomes.
 If envelope encoding fails, the captain-facing note degrades to the same runtime instruction as plain text rather than losing the outcome or opening another turn.
-A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is also delivered silently with no rendered note, while every other `routine` outcome stays rendered with its sailboat prefix.
+A no-change heartbeat outcome reported with `task=fleet` and `silent=true` is delivered silently with no rendered note.
+Other `routine` outcomes have sailboat prefixes, unless the [routine supervision notes preference](configuration.md#routine-supervision-notes-preference-configroutine-supervision-notes) hides them.
 The branch prompt owns the verdict criteria, including its unconditional explicit-request rule; unsolicited routine outcomes remain routine sailboat notes, unchanged fleet reviews remain silent, and doubt escalates.
 Main can read the durable outcome store on demand through its `fm_branch_outcomes` tool.
 
@@ -73,7 +74,7 @@ A check row is permanently main-owned in every mode: it is excluded from what th
 Deferring the fleet review to main merely because some unrelated merge poll or Relay mention happened to be sitting unread put a routine review in the captain's chat for a reason that had nothing to do with the fleet, and that coupling is gone.
 What all-or-nothing still guarantees is unchanged: the branch takes every branch-ownable unread row or none of them, and an unresolvable task-local row, an unknown row kind, or an unreadable queue still defers the whole review to main.
 The branch runs its normal operating procedure for the wake (`bin/fm-branch-prompt.sh` "Handling a wake") and performs the deeper fleet review that main previously performed.
-A review that found literally nothing worth reporting uses verdict `routine`, `task=fleet`, and `silent=true` so it has no rendered note, while a fleet-wide routine action omits `silent` and keeps its rendered sailboat note.
+A review that found literally nothing worth reporting uses verdict `routine`, `task=fleet`, and `silent=true` so it has no rendered note, while a fleet-wide routine action omits `silent` and its sailboat note follows the [routine supervision notes preference](configuration.md#routine-supervision-notes-preference-configroutine-supervision-notes).
 Only a captain-worthy finding reports verdict `captain` and opens a main turn.
 Every other fleet-wide or unresolvable wake - including watcher-failure alarms, which are never offered to the branch - keeps today's wake-to-main path.
 

@@ -1052,5 +1052,27 @@ FM_TEST_END 2026-08-29T01:01:01Z tests/fm-pi-branch-live-e2e.test.sh exit=0 dura
 
 The focused extension suite also exercised the installed Pi 0.84.4 picker and outcome-renderer consumers; [`calm-mode-feasibility.md`](../calm-mode-feasibility.md#2026-08-28-pi-0844-outcome-renderer-compatibility-verification) owns the version-scoped renderer evidence.
 
+### 2026-09-08 Pi 0.85.1 routine-note rendering
+
+The credential-free live guard ran against `@earendil-works/pi-coding-agent` 0.85.1.
+It used an isolated home and made no provider call.
+
+```sh
+npm exec --yes --package=typescript@5.9.3 -- bash tests/fm-pi-primary-types.test.sh
+FM_PI_BRANCH_LIVE_E2E=1 bash tests/fm-pi-branch-live-e2e.test.sh
+```
+
+```text
+ok - tracked Pi extensions pass strict no-emit typecheck against Pi 0.85.1
+ok - real Pi SDK 0.85.1 accepts the branch session construction and preserves an unpromptable wake
+ok - real Pi SDK 0.85.1 applies an explicit branch model on create and over a reopened session's recorded model
+ok - real Pi SDK 0.85.1 reports its own supported effort levels and applies an explicit branch effort over a reopened session's recorded level
+ok - real Pi SDK 0.85.1 delivers a custom message to the provider as user text carrying only content, so the captain outcome's typed envelope is what reaches the model
+```
+
+The guard also rendered new and restored routine notes through the registered renderer.
+Without `config/routine-supervision-notes`, Pi showed the note.
+With `on`, Pi returned an empty component while its message delivery data stayed unchanged.
+
 Scope of the earlier evidence: the installed signed `pi` CLI (0.82.0 at verification time) is a compiled binary whose bundled SDK is not importable from Node, so the importable npm package is the only surface the guard and the typecheck can pin.
 The extension executes inside the signed CLI's own runtime, so a CLI upgrade can drift ahead of the pinned npm surface; refresh this record after every Pi upgrade by re-running the live guard, picker regression, and strict typecheck above (point `FM_PI_PACKAGE_DIR` at a matching npm install when one exists) and by watching the branch's own fallback line - every branch failure degrades to the pre-branch wake-to-main path by construction, which `tests/fm-pi-branch-extension.test.sh` holds with a broken generator and the live guard holds with the real SDK.
