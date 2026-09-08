@@ -85,6 +85,7 @@ const bus = {
   },
 };
 const mainUserMessages = [];
+const mergeRenderers = new Map();
 const piHandlers = new Map();
 const pi = {
   events: bus,
@@ -93,7 +94,9 @@ const pi = {
   },
   registerTool() {},
   registerCommand() {},
-  registerMessageRenderer() {},
+  registerMessageRenderer(type, renderer) {
+    mergeRenderers.set(type, renderer);
+  },
   sendMessage() {},
   sendUserMessage(content, options) {
     mainUserMessages.push({ content, options: options ?? {} });
@@ -101,6 +104,27 @@ const pi = {
 };
 const mod = await import(pathToFileURL(process.env.PLUGIN).href);
 mod.default(pi);
+const mergeRenderer = mergeRenderers.get("fm-branch-merge");
+if (!mergeRenderer) throw new Error("routine-note renderer was not registered");
+const renderTheme = { fg(_color, text) { return text; } };
+const visibleRoutineNote = mergeRenderer(
+  { content: "⛵ live-probe: routine note" },
+  { expanded: false },
+  renderTheme,
+);
+if (!visibleRoutineNote.render(100).join("\n").includes("⛵ live-probe: routine note")) {
+  throw new Error("the real Pi renderer did not show a routine note by default");
+}
+writeFileSync(`${home}/config/routine-supervision-notes`, "on\n");
+const hiddenRoutineNote = mergeRenderer(
+  { content: "⛵ live-probe: restored routine note" },
+  { expanded: false },
+  renderTheme,
+);
+if (hiddenRoutineNote.render(100).length !== 0) {
+  throw new Error("the real Pi renderer did not hide a restored routine note");
+}
+writeFileSync(`${home}/config/routine-supervision-notes`, "off\n");
 // The real model surface, built from the same empty agent dir: no
 // credentials are read and no catalog is fetched, so every model lookup is
 // genuinely empty by construction.

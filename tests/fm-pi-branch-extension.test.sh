@@ -787,6 +787,26 @@ const assertRenderedNote = (note, glyph) => {
   }
 };
 assertRenderedNote(sentToMain[0].message.content, "⛵");
+
+// The home-local preference hides only routine-note rendering. The message
+// still has display=true, and the already-asserted store row and read cursor
+// prove that delivery and acknowledgement remain unchanged. Calling the
+// registered renderer and then its Pi-compatible Component.render boundary
+// covers both newly appended and restored custom rows.
+writeFileSync(`${home}/config/routine-supervision-notes`, "on\n");
+const hiddenRoutineNote = renderers.get("fm-branch-merge")(
+  { content: sentToMain[0].message.content },
+  { expanded: false },
+  renderTheme,
+);
+if (hiddenRoutineNote.constructor.name !== "Container" || hiddenRoutineNote.render(100).length !== 0) {
+  throw new Error("routine supervision note remained visible when the home preference was on");
+}
+if (sentToMain[0].message.display !== true) {
+  throw new Error("quiet presentation changed routine delivery semantics");
+}
+writeFileSync(`${home}/config/routine-supervision-notes`, "off\n");
+assertRenderedNote(sentToMain[0].message.content, "⛵");
 process.exit(0);
 EOF
   status=$?

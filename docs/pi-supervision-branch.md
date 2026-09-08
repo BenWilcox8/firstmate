@@ -59,7 +59,8 @@ Because Pi gives the model only a custom message's `content`, that silent note n
 This self-description lets main distinguish a new supervision outcome from its own earlier captain-facing answer; without it, main can mistake the outcome for that answer and lose the outcome while deciding how to handle it.
 The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's event-ownership and conversational-treatment instructions for merged outcomes.
 If envelope encoding fails, the captain-facing note degrades to the same runtime instruction as plain text rather than losing the outcome or opening another turn.
-A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is also delivered silently with no rendered note, while every other `routine` outcome stays rendered with its sailboat prefix.
+A no-change heartbeat outcome reported with `task=fleet` and `silent=true` is delivered silently with no rendered note.
+Other `routine` outcomes have sailboat prefixes, unless the [routine supervision notes preference](configuration.md#routine-supervision-notes-preference-configroutine-supervision-notes) hides them.
 The branch prompt owns the verdict criteria, including its unconditional explicit-request rule; unsolicited routine outcomes remain routine sailboat notes, unchanged fleet reviews remain silent, and doubt escalates.
 Main can read the durable outcome store on demand through its `fm_branch_outcomes` tool.
 

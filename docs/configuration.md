@@ -34,6 +34,17 @@ The `/calm` command replaces the file atomically before changing live presentati
 The extension reloads this preference on every Pi `session_start`, including startup, new, resume, fork, and reload reasons.
 This preference is local to each Firstmate home and is not part of secondmate inherited configuration.
 
+## Routine supervision notes preference (config/routine-supervision-notes)
+
+This presentation preference hides only routine sailboat notes from the Pi transcript.
+It does not change supervision, outcome records, delivery, acknowledgement, or captain-facing outcomes.
+The preference is local to a Firstmate home and is not part of inherited secondmate configuration.
+The file accepts `on` or `off`, followed by one newline.
+An absent, unreadable, or other value defaults to `off`.
+To hide routine notes, write `on` to `config/routine-supervision-notes` in the active Firstmate home.
+Then use Pi `/reload` or start a new Pi session.
+The reload applies the preference to new and restored routine-note rows that Pi can render.
+
 ## Pi supervision branch
 
 On a Pi primary, a persistent in-process supervision branch handles eligible task-local wake rows and selected heartbeat reviews while keeping main-only rows on the captain-facing path; [docs/pi-supervision-branch.md](pi-supervision-branch.md) owns row eligibility, mixed-queue dispatch, heartbeat routing, and the pre-drain recheck.
@@ -46,7 +57,8 @@ Homes on any other primary harness never load this feature and are entirely unaf
 A captain-facing (verdict `captain`) branch outcome opens exactly one follow-up turn on main, and Pi never separately prints or renders the merge note itself.
 The branch prompt owns the unconditional explicit-request rule and the distinction between captain-facing, unsolicited routine, and unchanged-review outcomes.
 The generated [Pi supervision protocol](supervision-protocols/pi.md) owns main's required captain-visible response, event ownership, and conversational treatment for merged outcomes.
-A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is delivered silently with no rendered note, while every other routine outcome still appends a rendered, sailboat-prefixed note.
+A no-change heartbeat outcome explicitly reported with `task=fleet` and `silent=true` is delivered silently with no rendered note.
+Other routine outcomes append sailboat-prefixed notes unless `config/routine-supervision-notes` is `on`.
 
 ## Pi supervision branch model and effort (config/supervision-branch-model, config/supervision-branch-effort)
 
