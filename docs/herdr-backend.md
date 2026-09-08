@@ -187,8 +187,9 @@ The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_h
 
 When agent-axi is not resolvable (empty `FM_BACKEND_HERDR_AXI_BIN`, or the binary absent), `fm_backend_herdr_create_task` falls back to a MINIMAL native path: one plain tab per task in the home's own workspace, `--no-focus`, plus the seeded-default-tab prune.
 There is NO split layout and NO proactive husk reaping in the fallback - split layouts and husk convergence REQUIRE agent-axi.
-The fallback keeps only a cheap same-label refusal: it never re-derives geometry and never classifies husks, so a same-labelled tab left over from a herdr session restore is reported (`error: ... already exists ... close it manually or install agent-axi`), not silently replaced.
-Install agent-axi (whose `layout --repair` reaps husks) or close the leftover tab manually to recover.
+For a same-label duplicate, it closes only a pane proved dead or to have a stable shell-only process tree, after an exact ownership recheck.
+Live, changed, or unknown panes remain untouched and refuse the duplicate spawn.
+Install agent-axi (whose `layout --repair` reaps husks) or inspect a refused duplicate manually.
 
 ### Repair and snapshot wiring (supervision loop)
 
