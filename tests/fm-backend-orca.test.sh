@@ -519,7 +519,7 @@ test_spawn_recovery_metadata_keeps_the_atlas_ticket() {
   config="$TMP_ROOT/ticket-cleanup-config"
   fm_git_init_commit "$proj"
   mkdir -p "$data/$id" "$state" "$config"
-  printf 'brief\n' > "$data/$id/brief.md"
+  write_spawn_brief "$data" "$id"
   touch "$state/.last-watcher-beat"
   orca_case ticket-cleanup-fail
   printf '1\n' > "$RESP/1.exit"
