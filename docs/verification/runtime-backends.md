@@ -683,7 +683,7 @@ ok - real herdr: an agent that does not stop fails closed instead of being repor
 ```
 
 At those versions, the registry read through `herdr pane report-agent` was the source `fm_backend_herdr_agent_state` classified, so registering and not registering an agent on a plain shell pane exercised the lifecycle gate without launching a real agent.
-It requires stable lifecycle-registry evidence, including confirmed hook absence, and a stable exact foreground-process tree.
+It requires stable lifecycle-registry reads and a stable exact foreground-process tree; hook status alone is not process proof.
 It proves that a stale hook over a childless shell is agent-free, while an active Pi process remains protected from lifecycle control.
 The guard runs in a guarded private lab session and skips when Herdr, `jq`, or the lab helper is unavailable.
 Run it after every Herdr upgrade to refresh this record.

@@ -1914,11 +1914,10 @@ fm_backend_herdr_pane_agent_state() {  # <session> <pane_id>
   esac
 }
 
-# fm_backend_herdr_tab_is_husk: true (0) only for the two conservative husk
-# states (dead, no-agent) fm_backend_herdr_pane_agent_state can positively
-# confirm; live and unknown both refuse (1), so an inconclusive read never
-# licenses closing anything. Restored-layout recovery depends on this
-# fail-safe-toward-refusal behavior.
+# fm_backend_herdr_tab_is_husk: legacy registry-only view of the two
+# conservative husk states (dead, no-agent). It is not recovery authority:
+# recovery must use fm_backend_herdr_recovery_pane_agent_state for exact stable
+# process ownership, while live and unknown still refuse (1).
 fm_backend_herdr_tab_is_husk() {  # <session> <pane_id>
   case "$(fm_backend_herdr_pane_agent_state "$1" "$2")" in
     dead|no-agent) return 0 ;;
