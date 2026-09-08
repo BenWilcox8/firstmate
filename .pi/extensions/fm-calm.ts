@@ -256,7 +256,7 @@ export default function (pi: ExtensionAPI) {
         : context.isError
           ? (text: string) => theme.bg("toolErrorBg", text)
           : (text: string) => theme.bg("toolSuccessBg", text);
-      const shell = state.shell ?? new Box(1, 1, background);
+      const shell = state.shell ?? new Box(1, 0, background);
       state.shell = shell;
       shell.setBgFn(background);
       shell.clear();
