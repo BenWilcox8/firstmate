@@ -1709,13 +1709,31 @@ JS
 }
 
 test_operational_followup_turn_e2e() {
-  local project home config sessions version label case_name calm_state expected_notifications session_file pane i captain_line handled_line geometry_gap exact_session
+  local project home config sessions version label case_name calm_state expected_notifications session_file pane i captain_line handled_line geometry_gap exact_session stock_geometry_gap
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     echo "skip: pi or tmux not found for Pi operational follow-up E2E"
     return 0
   fi
   version=$(pi --version 2>/dev/null || true)
   record_pi_version_evidence "$version" "Pi operational follow-up E2E"
+
+  # Measure adjacent visible assistant rows without loading any Calm adapter.
+  # The installed Pi owns this spacing, not a historical fixed row count.
+  PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module > "$TMP_ROOT/stock-assistant-gap" <<'JS' \
+    || fail "could not measure stock Pi assistant spacing"
+import { pathToFileURL } from "node:url";
+const { AssistantMessageComponent } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
+const { initTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/modes/interactive/theme/theme.js`).href);
+initTheme("dark");
+const rows = ["STOCK_FIRST_REPLY", "STOCK_SECOND_REPLY"].flatMap((text) =>
+  new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text }], stopReason: "stop" }).render(160),
+);
+const first = rows.findIndex((line) => line.includes("STOCK_FIRST_REPLY"));
+const second = rows.findIndex((line) => line.includes("STOCK_SECOND_REPLY"));
+if (first < 0 || second <= first) throw new Error("stock assistant spacing probe lost a reply");
+console.log(second - first);
+JS
+  stock_geometry_gap=$(cat "$TMP_ROOT/stock-assistant-gap")
 
   project="$TMP_ROOT/followup-project"
   home="$TMP_ROOT/followup-home"
@@ -1941,8 +1959,8 @@ TS
       captain_line=$(printf '%s\n' "$pane" | grep -Fn "CAPTAIN_ANSWER_$label" | tail -1 | cut -d: -f1)
       handled_line=$(printf '%s\n' "$pane" | grep -Fn "MONITOR_HANDLED_${label}_ONE" | tail -1 | cut -d: -f1)
       geometry_gap=$((handled_line - captain_line))
-      [ "$geometry_gap" -eq 2 ] \
-        || fail "Pi follow-up $label case consumed $geometry_gap rows between neighboring assistant text instead of the two-row visible-only geometry"
+      [ "$geometry_gap" -eq "$stock_geometry_gap" ] \
+        || fail "Pi follow-up $label case consumed $geometry_gap rows instead of the stock visible-only gap $stock_geometry_gap"
     else
       assert_contains "$pane" "MONITOR_${label}_ONE" "Pi follow-up $label case lost the Calm-off operational user row"
       if [ "$expected_notifications" -eq 2 ]; then
@@ -2036,8 +2054,8 @@ JS
     captain_line=$(printf '%s\n' "$pane" | grep -Fn 'CAPTAIN_ANSWER_exact_watcher' | tail -1 | cut -d: -f1)
     handled_line=$(printf '%s\n' "$pane" | grep -Fn 'MONITOR_HANDLED_exact_watcher_ONE' | tail -1 | cut -d: -f1)
     geometry_gap=$((handled_line - captain_line))
-    [ "$geometry_gap" -eq 2 ] \
-      || fail "Pi restart replay consumed $geometry_gap rows between neighboring assistant text"
+    [ "$geometry_gap" -eq "$stock_geometry_gap" ] \
+      || fail "Pi restart replay consumed $geometry_gap rows instead of the stock visible-only gap $stock_geometry_gap"
     node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
