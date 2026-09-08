@@ -19,8 +19,8 @@ Claude gates a folder it has never seen behind an interactive workspace-trust di
 `--dangerously-skip-permissions` does not cover that gate: `claude --help` records that the dialog is skipped only in non-interactive mode, through `-p` or a non-TTY stdout, and a crewmate pane is interactive.
 An unpinned ship or scout spawn registers workspace trust before launch.
 Explicit account pins retain their prior trust-dialog procedure, without a trust grant in the supervisor store.
-`../../../../../bin/fm-spawn.sh` owns this scoped exception.
-`../../../../../bin/fm-claude-trust.sh` owns the store, structural scope checks, atomic write, and refusal rules.
+`../../../bin/fm-spawn.sh` owns this scoped exception.
+`../../../bin/fm-claude-trust.sh` owns the store, structural scope checks, atomic write, and refusal rules.
 
 Never try to answer the trust dialog with a key.
 Firstmate's key plane carries only Enter, Escape, and C-c with no arrow navigation, so it cannot move a dialog's selection at all, and the observed rendering starts on `No, exit`, which means a sent Enter ends the session instead of accepting.
@@ -52,13 +52,13 @@ The suppression needs the marker, an interactive session, and the marker to be a
 That forgiveness is why the symptom shows on panes whose daemon exports no tmux global marker while a hand-made tmux repro can look healthy, and why a repro must clear the global variable first.
 `CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1` is checked before every other condition, so it alone is decisive; stripping the inherited marker also removes the trigger and stays as the second line of defense.
 Print mode (`--print`) always writes a transcript and cannot reproduce or verify this - use a real interactive session.
-`../../../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
-`../../../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
+`../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
+`../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
 
 ## Feedback drafts
 
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.
-The controls are scoped to the launched process and never modify the captain's global Claude settings; `launch_template()` in `../../../../../bin/fm-spawn.sh` owns their exact mechanics and defense-in-depth rationale.
+The controls are scoped to the launched process and never modify the captain's global Claude settings; `launch_template()` in `../../../bin/fm-spawn.sh` owns their exact mechanics and defense-in-depth rationale.
 
 ## Primary integration
 
