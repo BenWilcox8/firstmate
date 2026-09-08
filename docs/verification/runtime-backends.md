@@ -368,7 +368,7 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
   tests/fm-backend-herdr-respawn-idem-e2e.test.sh
 ```
 
-Observed guarantee: a restored no-agent tab was replaced create-before-close, while a registered live agent caused refusal.
+Observed guarantee: a restored shell-only tab was replaced create-before-close, while an active Pi process caused refusal.
 
 ### Launcher workspace placement
 
@@ -665,7 +665,7 @@ Polling remained active and is covered as the fallback for capability, connect, 
 ### Agent lifecycle control
 
 Herdr is one of the two backends whose recovery-grade agent-state classifier the control plane may trust ([agent-control.md](../agent-control.md)).
-The portable regression `tests/fm-backend-herdr-recovery-state.test.sh` covers stale hooks, nested shells, recognized foreground agents including interpreter-backed Pi, ambiguity, and identity races.
+The portable regression `tests/fm-backend-herdr-recovery-state.test.sh` covers stale hooks, nested shells, Treehouse brokers, recognized foreground agents including interpreter-backed Pi, ambiguity, and identity races.
 The real-Herdr guard is:
 
 ```sh
