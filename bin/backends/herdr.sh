@@ -2241,6 +2241,26 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
   printf '%s %s' "$tab_id" "$pane_id"
 }
 
+fm_backend_herdr_single_pane_for_tab() {
+  local session=$1 wsid=$2 tab_id=$3 panes
+  panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$wsid" 2>/dev/null) || return 1
+  printf '%s' "$panes" | jq -r --arg tab "$tab_id" '
+    [.result.panes[]? | select(.tab_id == $tab) | .pane_id] as $ids
+    | if ($ids | length) == 1 then $ids[0] else empty end
+  ' 2>/dev/null
+}
+
+fm_backend_herdr_replacement_rollback() {
+  local session=$1 wsid=$2 tab_id=$3 pane_id=$4 state
+  [ "$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$tab_id")" = "$pane_id" ] || return 1
+  state=$(fm_backend_herdr_recovery_pane_agent_state "$session" "$pane_id")
+  case "$state" in
+    dead) return 0 ;;
+    no-agent) fm_backend_herdr_cli "$session" tab close "$tab_id" >/dev/null 2>&1 ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_herdr_create_task: create the task's pane in <container>
 # ("session:workspace_id") and echo "<tab_id> <pane_id>".
 #
@@ -2289,7 +2309,7 @@ fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_ta
   if [ -n "$dup_tabs" ]; then
     while IFS= read -r dup; do
       [ -n "$dup" ] || continue
-      dup_pane=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")
+      dup_pane=$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$dup")
       if [ -z "$dup_pane" ]; then
         echo "error: herdr tab '$label' already exists in workspace $wsid (session $session)" >&2
         return 1
@@ -2316,7 +2336,8 @@ EOF
   if [ -n "$dup_bindings" ]; then
     while IFS=$'\t' read -r dup dup_pane; do
       [ -n "$dup" ] || continue
-      [ "$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$dup")" = "$dup_pane" ] || {
+      [ "$(fm_backend_herdr_single_pane_for_tab "$session" "$wsid" "$dup")" = "$dup_pane" ] || {
+        fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
         echo "error: herdr tab '$label' changed while replacing its husk in workspace $wsid (session $session)" >&2
         return 1
       }
@@ -2324,6 +2345,7 @@ EOF
       case "$state" in
         dead|no-agent) ;;
         *)
+          fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
           echo "error: herdr tab '$label' became $state while replacing its husk in workspace $wsid (session $session)" >&2
           return 1
           ;;
@@ -2333,10 +2355,12 @@ EOF
 $dup_bindings
 EOF
     list=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || {
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: could not verify herdr husk removal for tab '$label' in workspace $wsid (session $session)" >&2
       return 1
     }
     if ! printf '%s' "$list" | jq -e '(.result.tabs | type) == "array"' >/dev/null 2>&1; then
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: could not parse herdr tab list output for workspace $wsid (session $session)" >&2
       return 1
     fi
@@ -2344,6 +2368,7 @@ EOF
       '.result.tabs[]? | select(.label == $want and .tab_id != $replacement) | .tab_id' 2>/dev/null)
     remaining_dup_tabs=${remaining_dup_tabs//$'\n'/ }
     if [ -n "$remaining_dup_tabs" ]; then
+      fm_backend_herdr_replacement_rollback "$session" "$wsid" "$tab_id" "$pane_id" || true
       echo "error: failed to remove preexisting herdr tab(s) $remaining_dup_tabs for label '$label' in workspace $wsid (session $session)" >&2
       return 1
     fi
