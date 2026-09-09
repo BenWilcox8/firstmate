@@ -57,6 +57,8 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-remote-readiness-lib.sh` | Shared remote second-mate readiness gate: check and, when needed, repair then re-check through `fm-remote-doctor.sh` |
 | [`fm-project-origin-lib.sh`](../bin/fm-project-origin-lib.sh) | Accepted origin-form owner shared by both remote provisioning boundaries |
 | `fm-spawn.sh`            | Spawn crewmates, scouts, `id=repo` batches, and secondmates on the resolved harness and runtime backend |
+| `fm-atlas-assignment-name.sh` | Accept a committed Atlas assignment event and apply its exact title to the owned idle Pi session |
+| `fm-session-name-sync.sh` | Synchronize a managed Pi session name into its task record for recovery |
 | `fm-cswap-lib.sh`        | Shared read-only access to claude-swap: bounded cswap calls and account-pin resolution |
 | `fm-cswap-rotate.sh`     | Run one claude-swap auto-rotation tick as a watcher check, reporting only a switch or a blocker |
 | `fm-backend.sh`          | Runtime-backend selection, meta helpers, selector resolution, and operation dispatch |

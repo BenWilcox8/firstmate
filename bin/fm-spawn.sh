@@ -16,7 +16,7 @@
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
 #   refused as a flag value.
-#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>] [--session-name <text>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -31,7 +31,8 @@
 #   agent-free on a backend with a recovery-grade agent-state classifier (tmux
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
-#   the new incarnation.
+#   the new incarnation. The control plane passes the recorded session name so
+#   a replacement keeps an explicit name. An unnamed task uses its kind default.
 #   A FRESH spawn on a task id this home already holds a record for is a
 #   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
 #   Such a spawn settles the endpoint the old record named in two halves. Before
@@ -54,8 +55,8 @@
 #   agent's session, for harnesses whose CLI supports it. Omitted, a crewmate or
 #   scout defaults to the task id (already a purpose slug) and a secondmate to
 #   "Secondmate, <id>". Only a harness whose session-name support was empirically
-#   verified receives the flag (claude's --name today; codex/opencode/pi/grok have
-#   no verified equivalent and launch unchanged), and the applied name is recorded
+#   verified receives the flag (Claude, Pi, and Pi-signed use --name; the other
+#   harnesses launch unchanged), and the applied name is recorded
 #   as session_name= in meta only when a flag was actually passed. Batch id=repo
 #   dispatch refuses --session-name; each pair uses its per-kind default instead.
 #   --backend <name> is the explicit runtime session-provider backend for this
@@ -1357,9 +1358,9 @@ launch_template() {
     pi|pi-signed)
       printf '%s' '__PIBIN____PITUIMODE__'
       if [ "$kind" = secondmate ]; then
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG____NAMEFLAG__-e __PITURNEND__ -e __PIWATCH__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       else
-        printf '%s' ' __MODELFLAG____EFFORTFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+        printf '%s' ' __MODELFLAG____EFFORTFLAG____NAMEFLAG__-e __PIEXT__ "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
       fi
       ;;
     # grok (Grok Build TUI): a positional prompt starts the supervised interactive
@@ -1661,19 +1662,18 @@ model_flag_for_harness() {
 # launch template (positional prompt + flags); an unverified harness gets nothing
 # so its launch stays byte-identical and no unknown flag can break it. The name is
 # shell-quoted, so a value with spaces or single quotes cannot break out of the
-# command line. Verified 2026-07-10:
-#   claude 2.1.201: `claude --dangerously-skip-permissions --name '<text>' "<prompt>"`
-#   set the session display name (pane title `✳ <text>`, composer divider `<text>`)
-#   and still processed the positional prompt.
-# grok: claude-compatible CLI, but not installed on the verifying box, so its
-#   --name equivalent could not be verified end to end; deliberately omitted rather
-#   than guessed (never pass an unknown flag). codex/opencode/pi have no verified
-#   session-name flag, so they are omitted too.
+# command line.
+# Verified 2026-07-10:
+#   Claude 2.1.201 sets its pane title and composer divider with --name.
+# Verified 2026-09-06:
+#   Pi 0.85.1 sets native session metadata and selector text with --name.
+#   Pi-signed uses the same CLI contract as Pi.
+# Grok has no verified equivalent. Codex and OpenCode do not receive this flag.
 name_flag_for_harness() {
   local harness=$1 name=$2
   [ -n "$name" ] || return 0
   case "$harness" in
-    claude)
+    claude|pi|pi-signed)
       printf -- '--name %s ' "$(shell_quote "$name")"
       ;;
   esac
@@ -2896,6 +2896,7 @@ EOF
       exclude_path '.opencode/plugins/fm-busy-state.js'
       ;;
     pi|pi-signed)
+      SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
       # Written OUTSIDE the worktree: pi's project-trust gate fires on any extension
       # loaded from inside the project (verified live), but an explicit -e path
       # elsewhere loads without a dialog. Lives in state/, cleaned by teardown.
@@ -2919,10 +2920,28 @@ const busyEvent = (state: string, event: string) =>
     ], () => resolve());
   });
 export default function (pi: any) {
+  let nameSync = Promise.resolve();
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
     return busyEvent("idle", "agent-settled");
+  });
+  pi.on("session_info_changed", (event: any) => {
+    if (typeof event.name !== "string") return;
+    nameSync = nameSync.then(() => new Promise<void>((resolve) => {
+      execFile("$FM_ROOT/bin/fm-session-name-sync.sh", [
+        "--event", "$STATE_REAL", "$ID", "$SPAWN_GEN", event.name,
+      ], () => resolve());
+    }));
+    return nameSync;
+  });
+  pi.registerCommand?.("fm-set-assignment-name", {
+    handler: (args: string) => {
+      if (!/^[A-Za-z0-9+/]*={0,2}$/.test(args)) return;
+      const name = Buffer.from(args, "base64").toString("utf8");
+      if (Buffer.from(name, "utf8").toString("base64") !== args) return;
+      pi.setSessionName(name);
+    },
   });
   pi.on("turn_end", () => execFile("touch", ["$TURNEND"]));
 }
@@ -3123,7 +3142,7 @@ esac
 
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
-SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
+[ -n "${SPAWN_GEN:-}" ] || SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
 SPAWN_META_PATH="$STATE/$ID.meta"
 if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
   SPAWN_META_LOCK=$(fm_meta_lock_path "$STATE/$ID.meta") || exit 1
@@ -3140,7 +3159,7 @@ SPAWN_META_PATH=$SPAWN_META_TMP
 preserve_relaunch_meta() {
   awk -F= '
     BEGIN {
-      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
+      split("window endpoint_task_id worktree project harness kind mode yolo tasktmp model effort session_name ultracode busy_gen spawn_gen traceparent backend herdr_session herdr_workspace_id herdr_tab_id herdr_pane_id zellij_session zellij_tab_id zellij_pane_id orca_worktree_id terminal cmux_workspace_id cmux_surface_id home projects control_relaunch_tx", keys, " ")
       for (i in keys) owned[keys[i]] = 1
     }
     !($1 in owned)

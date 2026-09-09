@@ -706,6 +706,19 @@ fm_backend_capture() {  # <backend> <target> <lines> [expected-label]
   esac
 }
 
+# fm_backend_terminal_title: read the terminal application's native title.
+# This is process metadata, not the backend pane or window label.
+fm_backend_terminal_title() {  # <backend> <target>
+  local backend=$1
+  shift
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_terminal_title "$@" ;;
+    herdr) fm_backend_herdr_terminal_title "$@" ;;
+    *) return 1 ;;
+  esac
+}
+
 # fm_backend_send_key: one backend-supported named special key.
 fm_backend_send_key() {  # <backend> <target> <key> [expected-label]
   local backend=$1

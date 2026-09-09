@@ -1,6 +1,6 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -56,6 +56,42 @@ function lockOwnership(): LockOwnership {
 function markLoaded(): void {
   if (!existsSync(state) || lockOwnership() === "other") return;
   writeFileSync(marker, `${extensionVersion}\n${process.pid}\n`);
+}
+
+function secondmateId(): string | undefined {
+  try {
+    const marker = `${fmHome}/.fm-secondmate-home`;
+    if (!lstatSync(marker).isFile()) return undefined;
+    const id = readFileSync(marker, "utf8").trim();
+    return /^[A-Za-z0-9._-]+$/.test(id) ? id : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isManagedPrimaryOrSecondmateHome(): boolean {
+  if (!existsSync(`${fmHome}/AGENTS.md`) || !existsSync(`${fmHome}/bin`) || !existsSync(state)) {
+    return false;
+  }
+  if (secondmateId()) return true;
+  const gitDir = spawnSync("git", ["-C", fmHome, "rev-parse", "--git-dir"], { encoding: "utf8" });
+  const gitCommonDir = spawnSync("git", ["-C", fmHome, "rev-parse", "--git-common-dir"], { encoding: "utf8" });
+  return gitDir.status === 0 && gitCommonDir.status === 0 && gitDir.stdout.trim() === gitCommonDir.stdout.trim();
+}
+
+function assignedSessionName(): string {
+  return secondmateId() ? `Secondmate, ${secondmateId()}` : "Firstmate";
+}
+
+function applyAssignedSessionName(pi: ExtensionAPI): void {
+  if (!isManagedPrimaryOrSecondmateHome()) return;
+  try {
+    if (pi.getSessionName()) return;
+    pi.setSessionName(assignedSessionName());
+  } catch {
+    // Session naming is useful metadata. A naming error must not disable the
+    // primary session-start and supervision safety paths in this extension.
+  }
 }
 
 // Pi's session_start reasons are startup | reload | new | resume | fork, and a
@@ -515,6 +551,7 @@ export default function (pi: ExtensionAPI) {
   registerSessionstartExitListener();
 
   pi.on?.("session_start", (event, ctx) => {
+    applyAssignedSessionName(pi);
     const reason = String((event as { reason?: unknown }).reason ?? "");
     const source = reason === "startup"
       ? startupRebuildSource(ctx) ?? "startup"
