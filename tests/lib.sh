@@ -328,6 +328,42 @@ SH
   chmod +x "$fakebin/fm-crash-inject"
 }
 
+# fm_fake_crash_injector <fakebin>
+# Drops an `fm-crash-inject <pid>` shim that a PATH fake calls to simulate a
+# hard crash of the process under test. It SIGKILLs <pid> and then returns only
+# once that process is observably gone, so the fake never resumes work while its
+# victim could still be running. Sleeping a fixed interval instead makes the
+# injection a wall-clock bet that a loaded host loses: the fake wakes up and
+# completes the very operation the case needs left unfinished. Exits non-zero
+# with a diagnostic if the target outlives the signal, so a broken injection
+# fails loudly rather than silently changing what the case measures.
+fm_fake_crash_injector() {
+  local fakebin=$1
+  cat > "$fakebin/fm-crash-inject" <<'SH'
+#!/usr/bin/env bash
+set -u
+target=${1:?fm-crash-inject: <pid> required}
+case "$target" in
+  ''|*[!0-9]*)
+    echo "fm-crash-inject: '$target' is not a pid" >&2
+    exit 1
+    ;;
+esac
+kill -KILL "$target" 2>/dev/null || true
+waited=0
+while [ "$waited" -lt 600 ]; do
+  case "$(ps -o state= -p "$target" 2>/dev/null | tr -d '[:space:]')" in
+    ''|Z*) exit 0 ;;
+  esac
+  waited=$((waited + 1))
+  sleep 0.05
+done
+echo "fm-crash-inject: pid $target still running 30s after SIGKILL" >&2
+exit 1
+SH
+  chmod +x "$fakebin/fm-crash-inject"
+}
+
 # fm_fake_version_tool <fakebin> <tool> <override-env-var> <default-version>
 # The stub answers `--version` with <override-env-var> when that variable is set
 # and non-empty, and with <default-version> otherwise; every other invocation
