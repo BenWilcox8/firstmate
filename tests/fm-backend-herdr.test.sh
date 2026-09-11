@@ -130,38 +130,6 @@ SH
   printf '%s\n' "$fb"
 }
 
-# make_herdr_server_env_fakebin: a stateful server stub that records only the
-# long-lived server launch environment, then reports the server as running.
-make_herdr_server_env_fakebin() {  # <dir> -> echoes fakebin dir
-  local dir=$1 fb="$1/fakebin"
-  mkdir -p "$fb"
-  cat > "$fb/herdr" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "${1:-}" in
-  status)
-    if [ -e "$FM_HERDR_SERVER_MARKER" ]; then
-      printf '{"server":{"running":true}}\n'
-    else
-      printf '{"server":{"running":false}}\n'
-    fi
-    ;;
-  server)
-    {
-      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
-        eval 'value=${'"$name"'-<unset>}'
-        printf '%s=%s\n' "$name" "$value"
-      done
-      printf 'args=%s\n' "$*"
-    } > "$FM_HERDR_SERVER_ENV_LOG"
-    : > "$FM_HERDR_SERVER_MARKER"
-    ;;
-esac
-SH
-  chmod +x "$fb/herdr"
-  printf '%s\n' "$fb"
-}
-
 # make_herdr_statefake: a STATEFUL `herdr` stub that models the parts of herdr's
 # real container behavior the workspace-leak fix (and the default-tab-prune
 # safety fix) depend on, so a full spawn->teardown cycle can be replayed
