@@ -69,7 +69,9 @@ The complete green run is [34689466430](https://github.com/BenWilcox8/firstmate/
 Additional successful script observations come from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844), [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628), and the complete 198-script aggregate from [34693005421](https://github.com/BenWilcox8/firstmate/actions/runs/34693005421) at `33c37c15`.
 The latter workflow's serial-4 job was cancelled after all 36 scripts exited 0, so it supplies per-script observations but is not a green workflow verdict.
 The two earlier workflows were not green either; only script records with exit 0 supply duration measurements.
-The retained maxima total 5699018 ms, and all 174 current serial scripts have a duration hint.
+The retained maxima total 5871146 ms, and all 174 current serial scripts have a duration hint.
+The current serial-3 cancellation contributed 23 exit-0 records totaling 1190222 ms.
+Its 12 unfinished scripts remain unobserved for that run and use their prior successful timings for scheduling.
 Each shard remains serial, and the existing five-runner configuration and 20-minute job limit remain unchanged.
 
 An exit-0 capability skip measures only that skip path, not the skipped live behavior.
@@ -80,16 +82,17 @@ The durable Codex wake suite now takes 16391 ms in its isolated 2026-09-12 run, 
 
 | Lane | Script count | Conservative duration hint |
 |---|---:|---:|
-| `portable-serial-1of5` | 33 | 1139803 ms |
-| `portable-serial-2of5` | 35 | 1139810 ms |
-| `portable-serial-3of5` | 35 | 1139795 ms |
-| `portable-serial-4of5` | 36 | 1139811 ms |
-| `portable-serial-5of5` | 35 | 1139799 ms |
-| imbalance | | 16 ms |
+| `portable-serial-1of5` | 34 | 1174231 ms |
+| `portable-serial-2of5` | 35 | 1174242 ms |
+| `portable-serial-3of5` | 35 | 1174244 ms |
+| `portable-serial-4of5` | 35 | 1174212 ms |
+| `portable-serial-5of5` | 35 | 1174217 ms |
+| imbalance | | 32 ms |
 
-The conservative hint maximum is 1139811 ms, leaving 60189 ms before the unchanged 20-minute job bound.
-Before rebalancing, the complete aggregate measured serial-4 at 1189261 ms, leaving only 10739 ms before that bound.
-Packing the same complete observed serial timings would put the largest shard at 1026633 ms, a 173367 ms script-time margin before setup.
+Before this rebalance, the current scheduled serial-3 selection has 1219978 ms of retained successful observations, 19978 ms beyond the job bound.
+The rebalance runs the same observed data through the runner's executable LPT selection.
+Its largest retained-observation replay is 1057725 ms, leaving 142275 ms before the job bound.
+The conservative hint maximum is 1174244 ms, leaving 25756 ms before the unchanged 20-minute job bound.
 These estimates are scheduling inputs, not a measured pass for the new partition.
 The largest retained script observation is 505780 ms for `tests/fm-watch-triage.test.sh`.
 Runner speed and setup costs still affect the final job duration.
@@ -139,7 +142,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-5 | job `timeout-minutes: 20` | The current balanced hints are about 18.13 minutes per shard. Keep setup and runner-speed variation within the remaining margin. |
+| portable serial 1-5 | job `timeout-minutes: 20` | The conservative balanced hints are about 19.57 minutes per shard. The retained-observation replay maximum is about 17.63 minutes, leaving about 2.37 minutes before setup and runner-speed variation. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
