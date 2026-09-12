@@ -1618,6 +1618,11 @@ case "$ARG3" in
     ;;
 esac
 
+if [ "$HARNESS" = rovo ]; then
+  echo "error: rovo dispatch is disabled; select a supported harness" >&2
+  exit 1
+fi
+
 # muse and gemini are verified as CREWMATE/SCOUT adapters only. A secondmate is
 # a firstmate instance, so it needs a primary supervision protocol.
 # gemini has none: docs/supervision-protocols/ carries no gemini wake protocol
