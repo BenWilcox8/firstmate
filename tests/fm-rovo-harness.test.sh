@@ -151,7 +151,7 @@ EOF
 test_literal_raw_argv_is_delivered() {
   local id rec output status command probe probe_shell index=0
   probe_shell=$(command -v bash)
-  for command_template in 'DIRECT' 'ENV_CLEAR' 'ENV_UNSET' 'SINGLE_BACKSLASH' 'SINGLE_DOLLAR' 'DOUBLE_BACKSLASH' 'TAB_ONLY' 'SPACE_TAB' 'DOUBLE_ORDINARY_BACKSLASH' 'ESCAPED_DOLLAR'; do
+  for command_template in 'DIRECT' 'ENV_CLEAR' 'ENV_UNSET' 'SINGLE_BACKSLASH' 'SINGLE_DOLLAR' 'DOUBLE_BACKSLASH' 'TAB_ONLY' 'SPACE_TAB' 'DOUBLE_ORDINARY_BACKSLASH' 'ESCAPED_DOLLAR' 'UNQUOTED_ESCAPED_DOLLAR'; do
     index=$((index + 1))
     id="raw-argv-z6-$index"
     rec=$(make_spawn_case "raw-argv-$index" pi "$id")
@@ -196,6 +196,7 @@ SH
       DOUBLE_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' \"a\\\\b\"" ;;
       DOUBLE_ORDINARY_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' \"a\\b\"" ;;
       ESCAPED_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' \"\\\$HOME\"" ;;
+      UNQUOTED_ESCAPED_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' "; command+='\$HOME' ;;
       TAB_ONLY)
         command="$FAKEBIN_DIR/custom-agent"$'\t'"--flag"
         case "$command" in *' '*) fail "tab-only fixture contains a masking space" ;; esac
@@ -213,7 +214,7 @@ SH
       DIRECT) [ "$probe_argv" = 'argv: <rovo> <> <tail>' ] || fail "direct raw argv changed: $probe_argv" ;;
       ENV_CLEAR|ENV_UNSET) [ "$probe_argv" = 'argv: <rovo> <>' ] || fail "env raw argv changed: $probe_argv" ;;
       SINGLE_BACKSLASH|DOUBLE_BACKSLASH|DOUBLE_ORDINARY_BACKSLASH) [ "$probe_argv" = 'argv: <a\b>' ] || fail "quoted backslash changed: $probe_argv" ;;
-      SINGLE_DOLLAR|ESCAPED_DOLLAR) [ "$probe_argv" = "argv: <\$HOME>" ] || fail "quoted dollar changed: $probe_argv" ;;
+      SINGLE_DOLLAR|ESCAPED_DOLLAR|UNQUOTED_ESCAPED_DOLLAR) [ "$probe_argv" = "argv: <\$HOME>" ] || fail "literal dollar changed: $probe_argv" ;;
       TAB_ONLY) [ "$probe_argv" = 'argv: <--flag>' ] || fail "tab-separated argv changed: $probe_argv" ;;
       SPACE_TAB) [ "$probe_argv" = 'argv: <--flag> <tail>' ] || fail "mixed-whitespace argv changed: $probe_argv" ;;
     esac

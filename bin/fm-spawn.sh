@@ -1455,7 +1455,7 @@ raw_launch_words() {
         i=$((i + 1))
         [ "$i" -lt "${#input}" ] || return 1
         next=${input:i:1}
-        case "$next" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
+        case "$next" in '`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
         word+=$next
         started=1
         ;;
