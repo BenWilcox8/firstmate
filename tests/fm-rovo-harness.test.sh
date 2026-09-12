@@ -132,8 +132,29 @@ EOF
   pass "fm-spawn: raw Rovo variants refuse before launch"
 }
 
+test_literal_raw_argv_is_delivered() {
+  local id=raw-argv-z6 rec output status command launch
+  rec=$(make_spawn_case raw-argv pi "$id")
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
+$rec
+EOF
+  for command in "'$FAKEBIN_DIR/custom agent' rovo '' tail" \
+    "env VALUE=one -i -u PATH -- '$FAKEBIN_DIR/custom agent' rovo ''"; do
+    : > "$CASE_DIR/launch.log"
+    output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
+      "$id" "$PROJECT_DIR" --harness "$command" --mode no-mistakes --yolo off)
+    status=$?
+    expect_code 0 "$status" "literal raw argv spawn should succeed"
+    launch=$(cat "$CASE_DIR/launch.log")
+    assert_contains "$launch" "'$FAKEBIN_DIR/custom agent' 'rovo' ''" \
+      "raw launch did not preserve quoted path, literal rovo, and empty argv"
+  done
+  pass "fm-spawn: literal raw argv is delivered"
+}
+
 test_direct_rovo_selection_refuses_before_launch
 test_configured_rovo_selection_refuses_before_launch
 test_raw_rovo_selection_with_extra_environment_refuses_before_launch
 test_raw_shell_forms_refuse_before_launch
 test_raw_rovo_variants_refuse_before_launch
+test_literal_raw_argv_is_delivered
