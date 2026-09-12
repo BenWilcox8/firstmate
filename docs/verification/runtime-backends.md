@@ -1030,22 +1030,9 @@ The real lifecycle smoke proved spawn, metadata, nested-subshell worktree discov
 
 ## Orca
 
-Real readiness was verified against `/usr/local/bin/orca` with `/Applications/Orca.app` bundle version 1.4.116.
-
-```sh
-orca status --json
-```
-
-Observed fields:
-
-```text
-result.runtime.reachable=true
-result.runtime.state=ready
-```
-
-`orca terminal create --json` returned `result.terminal.handle`.
-`orca worktree create` returned `result.worktree.id` and `result.worktree.path`.
-Speculative bare ids and nested terminal fields were deliberately rejected.
+New Orca tasks are unsupported.
+The adapter remains dormant for existing records and conservative cleanup.
+The current executable regression boundary is:
 
 ```sh
 tests/fm-backend-orca.test.sh
@@ -1053,7 +1040,10 @@ tests/fm-backend.test.sh
 tests/fm-bootstrap.test.sh
 ```
 
-The fake-Orca suite covers readiness, registration, create response parsing, metadata routing, popup-safe submit, and path-matched release refusal.
+The fake-Orca suite verifies refusal through flags, environment, and configuration before state creation or runtime dispatch.
+It also covers retained response parsing, metadata routing, popup-safe submit, and path-matched release refusal.
+Prior live readiness observations do not certify support for new Orca tasks.
+No live Orca compatibility test is required for this dormant disposition.
 
 ## cmux
 

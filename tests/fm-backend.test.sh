@@ -521,12 +521,13 @@ test_backend_source_shell_portable() {
   pass "bash: fm_backend_source recognizes known backends and rejects unknown ones"
 }
 
-test_backend_validate_spawn_accepts_orca() {
+test_backend_validate_spawn_refuses_dormant_orca() {
   local out
   fm_backend_validate_spawn tmux 2>/dev/null || fail "fm_backend_validate_spawn should accept tmux"
   fm_backend_validate_spawn herdr 2>/dev/null || fail "fm_backend_validate_spawn should accept herdr"
   fm_backend_validate_spawn zellij 2>/dev/null || fail "fm_backend_validate_spawn should accept zellij"
-  fm_backend_validate_spawn orca 2>/dev/null || fail "fm_backend_validate_spawn should accept orca"
+  out=$(fm_backend_validate_spawn orca 2>&1) && fail "fm_backend_validate_spawn accepted dormant Orca"
+  assert_contains "$out" "Orca is unsupported for new tasks" "missing dormant-backend explanation"
   fm_backend_validate_spawn cmux 2>/dev/null || fail "fm_backend_validate_spawn should accept cmux"
   out=$(fm_backend_validate_spawn bogus 2>&1) && fail "fm_backend_validate_spawn should still refuse unknown backends"
   assert_contains "$out" "unknown backend 'bogus'" "fm_backend_validate_spawn did not preserve unknown-backend validation"
@@ -534,7 +535,7 @@ test_backend_validate_spawn_accepts_orca() {
   assert_contains "$out" "unknown backend 'codex-app'" "fm_backend_validate_spawn accepted codex-app"
   out=$(fm_backend_validate_spawn "tmux herdr" 2>&1) && fail "fm_backend_validate_spawn should refuse a multi-token backend name"
   assert_contains "$out" "unknown backend 'tmux herdr'" "fm_backend_validate_spawn accepted a multi-token backend name"
-  pass "fm_backend_validate_spawn: all implemented lifecycle backends are spawn-supported"
+  pass "fm_backend_validate_spawn: supported backends launch and dormant Orca refuses"
 }
 
 test_meta_get_and_backend_of_meta() {
@@ -1148,7 +1149,7 @@ test_backend_name_autodetect_notice
 test_backend_name_explicit_beats_detection
 test_backend_validate_refuses_unknown
 test_backend_source_shell_portable
-test_backend_validate_spawn_accepts_orca
+test_backend_validate_spawn_refuses_dormant_orca
 test_meta_get_and_backend_of_meta
 test_resolve_selector_three_forms
 test_backend_of_selector_matches_explicit_target_meta

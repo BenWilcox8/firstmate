@@ -915,6 +915,10 @@ if ! BACKEND_TOOLS=$(fm_backend_required_tools "$BACKEND"); then
   BACKEND_VALID=0
   BACKEND_TOOLS=""
 fi
+if [ "$BACKEND" = orca ]; then
+  BACKEND_VALID=0
+  BACKEND_TOOLS=""
+fi
 TOOLS="$BACKEND_TOOLS $COMMON_TOOLS"
 NO_MISTAKES_MIN=1.46.0
 # AXI-FAMILY FLOOR POLICY. Every axi-family floor is the CURRENT LATEST published
@@ -1439,7 +1443,9 @@ fi
 # Local detection: presence, version floors, and configuration. Nothing here
 # leaves this machine, so it stays on the session-start critical path.
 detect_local_tools() {
-  if [ "$BACKEND_VALID" -eq 0 ]; then
+  if [ "$BACKEND" = orca ]; then
+    echo "BACKEND_INVALID: orca (unsupported for new tasks; choose: $FM_BACKEND_SPAWN)"
+  elif [ "$BACKEND_VALID" -eq 0 ]; then
     echo "BACKEND_INVALID: $BACKEND (known: $FM_BACKEND_KNOWN)"
   fi
   for t in $BACKEND_TOOLS; do

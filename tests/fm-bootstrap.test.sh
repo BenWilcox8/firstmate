@@ -510,9 +510,9 @@ SH
   pass "bootstrap requires git with an install instruction"
 }
 
-test_orca_backend_gates_orca_tool_only_when_selected() {
-  local case_dir fakebin out missing_orca
-  missing_orca="MISSING: orca (install: brew install orca  # or the platform's package manager)"
+test_orca_backend_reports_unsupported_without_install_request() {
+  local case_dir fakebin out unsupported_orca
+  unsupported_orca="BACKEND_INVALID: orca (unsupported for new tasks; choose: tmux herdr zellij cmux)"
 
   case_dir="$TMP_ROOT/orca-backend-selected"
   mkdir -p "$case_dir/home/config"
@@ -521,7 +521,7 @@ test_orca_backend_gates_orca_tool_only_when_selected() {
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
-  [ "$out" = "$missing_orca" ] || fail "backend=orca should require only the Orca-specific missing tool, got: $out"
+  [ "$out" = "$unsupported_orca" ] || fail "backend=orca should report unsupported selection, got: $out"
 
   case_dir="$TMP_ROOT/orca-backend-not-selected"
   mkdir -p "$case_dir/home/config"
@@ -530,7 +530,7 @@ test_orca_backend_gates_orca_tool_only_when_selected() {
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
   assert_not_contains "$out" "MISSING: orca" "bootstrap should not require orca unless backend=orca is selected"
-  pass "bootstrap: backend=orca gates the Orca CLI without requiring it on the default backend"
+  pass "bootstrap: dormant Orca selection is actionable without an installation request"
 }
 
 # Build a fake toolchain with tmux REMOVED and the named backend session CLI(s)
@@ -698,7 +698,8 @@ test_treehouse_lease_check_follows_resolved_backend() {
   # FM_FAKE_TREEHOUSE_LEASE_HELP unset: the fake treehouse advertises NO --lease.
   out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     "$ROOT/bin/fm-bootstrap.sh")
-  [ -z "$out" ] || fail "backend=orca must not require treehouse (even lease-less) or tmux, got: $out"
+  assert_contains "$out" "BACKEND_INVALID: orca (unsupported for new tasks" "Orca selection must remain unsupported even when installed"
+  assert_not_contains "$out" "MISSING:" "dormant Orca must not request backend dependencies"
 
   # ...but the same lease-less treehouse IS a problem for a session-provider
   # backend that relies on treehouse for worktrees.
@@ -1232,7 +1233,7 @@ test_lavish_axi_min_version
 test_tasks_axi_min_version
 test_quota_axi_min_version
 test_git_is_required_with_supported_install_instruction
-test_orca_backend_gates_orca_tool_only_when_selected
+test_orca_backend_reports_unsupported_without_install_request
 test_session_provider_backends_do_not_require_tmux
 test_session_provider_backends_gate_own_cli_not_tmux
 test_herdr_install_requires_manual_action

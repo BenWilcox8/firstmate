@@ -1,6 +1,6 @@
 ---
 name: firstmate-orca
-description: Agent-only operator checklist for Firstmate's Orca runtime backend. Use when switching to Orca, spawning or supervising Orca-backed work, smoke-testing Orca backend behavior, debugging Orca task state, or reconciling Orca-backed task metadata.
+description: Agent-only reference for inspecting, supervising, or reconciling existing Orca-backed task records. New Orca task selection is unsupported.
 user-invocable: false
 metadata:
   internal: true
@@ -8,7 +8,8 @@ metadata:
 
 # firstmate-orca
 
-Use this as the operator checklist for Firstmate's experimental Orca runtime backend.
+Use this for existing Orca task records only.
+New Orca selection and automatic relaunch are unsupported.
 It does not replace `AGENTS.md`, `docs/orca-backend.md`, or `harness-adapters`.
 
 Orca is a runtime backend, not an agent harness.
@@ -17,37 +18,16 @@ The harness is the agent process launched inside that endpoint, such as `claude`
 Load `harness-adapters` for harness-specific launch, interrupt, resume, trust-dialog, and skill-invocation facts.
 
 Implementation details, metadata fields, teardown guarantees, and limitations live in `docs/orca-backend.md`.
-`docs/verification/runtime-backends.md` "Orca" owns active smoke evidence.
+`docs/verification/runtime-backends.md` "Orca" owns the current verification boundary.
 Prefer the `bin/fm-*` helpers over raw `orca` commands.
 Use raw `orca` only when the helper surface cannot answer the inspection question, and keep the recorded firstmate metadata as the task identity.
 
-## Preflight
+## Existing records
 
-Work from the current firstmate home or repo root.
-If `FM_HOME` is set, remember that operational state lives under `$FM_HOME` while the helper scripts still run from this repo's `bin/`.
-
-Before switching or spawning against Orca:
-
-- Confirm Orca is intentionally selected through `--backend orca`, `FM_BACKEND=orca`, or local `config/backend`.
-- Confirm the Orca app is running and the backend readiness checks pass before expecting spawn to work.
-- Inspect active `state/*.meta` records before changing backend selection.
-- Treat a backend switch as affecting future spawns only; existing tasks keep their recorded backend.
-- Reconcile watcher wakes before unrelated work, especially if Orca tasks are already in flight.
-
-## Spawn
-
-Use `bin/fm-spawn.sh` so firstmate creates the brief, worktree, terminal, metadata, status file, and watcher surface together.
-Pass `--backend orca` for a one-off Orca task, or rely on the already-selected Orca backend when that selection is intentional.
-
-After spawn, check the task with firstmate helpers:
-
-- `bin/fm-peek.sh fm-<id>` for launch failures, trust dialogs, or first output.
-- `state/<id>.meta` for `backend=orca`, `terminal=`, `orca_worktree_id=`, and `worktree=`.
-- `bin/fm-crew-state.sh <id>` when the current run state matters.
-- `bin/fm-watch.sh` whenever there are tasks in flight and this session owns supervision.
-
-Do not manually create the Orca worktree or terminal for a normal firstmate task.
-Do not manually patch metadata to make an externally-created Orca terminal look like a firstmate task.
+Inspect the recorded home and task metadata before any operation.
+Use the exact recorded backend, terminal, worktree id, and worktree path.
+Do not select Orca for new work or bypass its spawn refusal.
+Keep existing task records until their normal lifecycle and landing checks permit cleanup.
 
 ## Supervision
 
@@ -78,15 +58,7 @@ Teardown remains governed by the normal firstmate landing rules.
 Scout work can be torn down after the report exists and the `captain-hold-lifecycle` completion gate passes.
 Ship work can be torn down only after the work is landed by its project mode.
 
-## Smoke Test
+## Verification
 
-Keep Orca smoke tests focused on lifecycle plumbing:
-
-1. Select Orca intentionally for a disposable task or scout.
-2. Spawn through `bin/fm-spawn.sh`.
-3. Confirm metadata records the Orca backend, terminal, Orca worktree id, and isolated worktree path.
-4. Verify `bin/fm-peek.sh`, a short `bin/fm-send.sh` steer, watcher wake behavior, and `bin/fm-crew-state.sh`.
-5. Tear down through `bin/fm-teardown.sh` after the task is safely disposable or landed.
-6. Restore the previous backend selection if Orca was selected only for the smoke test.
-
-Do not mix a backend smoke test with unrelated feature work.
+Run `tests/fm-backend-orca.test.sh` for unsupported-selection and existing-record regression coverage.
+Do not launch a new Orca task as a smoke test.
