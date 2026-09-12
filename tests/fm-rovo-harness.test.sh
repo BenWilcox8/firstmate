@@ -104,7 +104,36 @@ EOF
   pass "fm-spawn: raw shell forms refuse before launch"
 }
 
+test_raw_rovo_variants_refuse_before_launch() {
+  local id=rovo-raw-variants-z5 rec output status command label
+  rec=$(make_spawn_case raw-variants pi "$id")
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
+$rec
+EOF
+  for label in quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout; do
+    case "$label" in
+      quoted) command="'rovo' run --yolo" ;;
+      absolute) command='/opt/rovo run --yolo' ;;
+      absolute-env) command='/usr/bin/env ROVODEV_CLI=1 rovo run --yolo' ;;
+      repeated-env) command='env env rovo run --yolo' ;;
+      delimiter-assignment) command='env -- ROVODEV_CLI=1 rovo run --yolo' ;;
+      nice) command='nice rovo run --yolo' ;;
+      nohup) command='nohup rovo run --yolo' ;;
+      timeout) command='timeout 1 rovo run --yolo' ;;
+    esac
+    : > "$CASE_DIR/launch.log"
+    output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
+      "$id" "$PROJECT_DIR" --harness "$command" --mode no-mistakes --yolo off)
+    status=$?
+    expect_code 1 "$status" "$label raw Rovo form must refuse"
+    assert_absent "$HOME_DIR/state/$id.meta" "$label raw Rovo form created task metadata"
+    [ ! -s "$CASE_DIR/launch.log" ] || fail "$label raw Rovo form launched a worker"
+  done
+  pass "fm-spawn: raw Rovo variants refuse before launch"
+}
+
 test_direct_rovo_selection_refuses_before_launch
 test_configured_rovo_selection_refuses_before_launch
 test_raw_rovo_selection_with_extra_environment_refuses_before_launch
 test_raw_shell_forms_refuse_before_launch
+test_raw_rovo_variants_refuse_before_launch
