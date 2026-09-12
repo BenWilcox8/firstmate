@@ -87,7 +87,8 @@ submit_and_require_response() {
 
 require_durable_short_wake() {
   local state=$1 padding=$2 verdict=failed notes expected expected_sha note_id
-  local note saved saved_sha
+  local note saved saved_sha parent_identity detached_cmd detached_out detached_pane
+  local entry receipt resolved_identity branch_result flush_rc attempt
   mkdir -p "$state"
   : > "$state/.afk"
   escalate_add "$state" \
@@ -122,15 +123,66 @@ require_durable_short_wake() {
   [ "$(fm_backend_herdr_busy_state "$TARGET")" = busy ] \
     || fail "Codex was not working when the record-specific short wake started"
 
-  if FM_HOME="$LAB/home" FM_STATE_OVERRIDE="$state" \
-    FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="$TARGET" \
-    FM_DAEMON_PRIMARY_HARNESS=codex \
-    escalate_flush "$state" busy-override; then
-    verdict=empty
-  fi
+  entry="$LAB/detached-short-wake-entry.sh"
+  receipt="$LAB/detached-short-wake.receipt"
+  # shellcheck disable=SC2016 # Generated entry variables expand in the detached pane.
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -u' \
+    "FM_STATE_OVERRIDE=$(printf '%q' "$state")" \
+    'export FM_STATE_OVERRIDE' \
+    ". $(printf '%q' "$ROOT/bin/fm-supervise-daemon.sh")" \
+    'resolved_identity=$(fm_daemon_primary_harness)' \
+    'flush_rc=0' \
+    'escalate_flush "$FM_STATE_OVERRIDE" busy-override || flush_rc=$?' \
+    "receipt=$(printf '%q' "$receipt")" \
+    'receipt_tmp="${receipt}.tmp.$$"' \
+    'if [ "$resolved_identity" = codex ] && [ -n "${INJECT_DURABLE_NOTE_ID:-}" ]; then branch_result=short-reference; else branch_result=direct-or-unresolved; fi' \
+    'printf '\''resolved_daemon_identity=%s\nbranch_result=%s\nflush_rc=%s\nnote_id=%s\n'\'' "$resolved_identity" "$branch_result" "$flush_rc" "${INJECT_DURABLE_NOTE_ID:-}" > "$receipt_tmp"' \
+    'mv "$receipt_tmp" "$receipt"' \
+    'exit "$flush_rc"' \
+    > "$entry"
+  chmod +x "$entry"
+
+  parent_identity=$(FM_HOME="$LAB/home" bash -c '
+    unset FM_DAEMON_PRIMARY_HARNESS
+    . "$1"
+    fm_afk_launch_primary_harness
+  ' _ "$ROOT/bin/fm-afk-launch.sh")
+  detached_cmd=$(FM_HOME="$LAB/home" bash -c '
+    unset FM_DAEMON_PRIMARY_HARNESS
+    . "$1"
+    fm_afk_launch_daemon_command "$2" herdr "$3"
+  ' _ "$ROOT/bin/fm-afk-launch.sh" "$TARGET" "$entry")
+  detached_out=$(fm_herdr_lab_cli "$SESSION" workspace create --cwd "$ROOT" --label c610-detached-daemon --no-focus) \
+    || fail "could not create the detached daemon workspace"
+  detached_pane=$(printf '%s' "$detached_out" | jq -r '.result.root_pane.pane_id // empty')
+  [ -n "$detached_pane" ] || fail "detached daemon workspace returned no pane"
+  fm_herdr_lab_cli "$SESSION" pane run "$detached_pane" "$detached_cmd" >/dev/null 2>&1 \
+    || fail "could not run the propagated command in the detached daemon pane"
+  attempt=0
+  while [ ! -s "$receipt" ] && [ "$attempt" -lt 60 ]; do
+    sleep 0.5
+    attempt=$((attempt + 1))
+  done
+  [ -s "$receipt" ] || fail "detached daemon entry produced no branch receipt"
+  resolved_identity=$(sed -n 's/^resolved_daemon_identity=//p' "$receipt")
+  branch_result=$(sed -n 's/^branch_result=//p' "$receipt")
+  flush_rc=$(sed -n 's/^flush_rc=//p' "$receipt")
+  note_id=$(sed -n 's/^note_id=//p' "$receipt")
+  [ "$flush_rc" = 0 ] && verdict=empty
+
+  [ "$parent_identity" = codex ] || fail "launcher captured unexpected parent identity '$parent_identity'"
+  case "$detached_cmd" in
+    *'FM_DAEMON_PRIMARY_HARNESS=codex'*) ;;
+    *) fail "detached command omitted the captured Codex identity" ;;
+  esac
+  [ "$resolved_identity" = codex ] || fail "detached daemon resolved unexpected identity '$resolved_identity'"
+  [ "$branch_result" = short-reference ] || fail "detached daemon missed the short-reference branch ($branch_result)"
+  pass "detached Herdr command: $detached_cmd"
+  pass "detached Herdr receipt: parent=$parent_identity resolved=$resolved_identity branch=$branch_result"
 
   notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' 2>/dev/null | wc -l | tr -d ' ')
-  note_id=$INJECT_DURABLE_NOTE_ID
   note="$state/inbox/$note_id.note"
   saved=$(awk 'seen { print } /^--$/ { seen=1 }' "$note" 2>/dev/null || true)
   saved_sha=$(_sha256_text "$saved")
@@ -223,6 +275,6 @@ submit_and_require_response \
 wait_for_settled || fail "busy short prompt did not settle before the next turn"
 start_busy_turn "C610 BUSY TWO DONE" "C610_BUSY_TWO_DONE"
 padding=$(printf '%04096d' 0 | tr 0 x)
-require_durable_short_wake "$LAB/state" "$padding"
+require_durable_short_wake "$LAB/home/state" "$padding"
 
 pass "real Codex Herdr path preserved the full digest while submitting only the short wake"

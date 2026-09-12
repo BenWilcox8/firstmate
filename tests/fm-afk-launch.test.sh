@@ -854,6 +854,101 @@ unit_flag_write_failure_aborts() {
   rm -rf "$st"
 }
 
+unit_detached_commands_propagate_primary_harness() {
+  local st herdr_cmd tmux_cmd
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-propagation.XXXXXX")
+  herdr_cmd="$st/herdr-command"
+  tmux_cmd="$st/tmux-command"
+
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" HERDR_COMMAND="$herdr_cmd" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_backend_source() { return 0; }
+    fm_backend_herdr_server_ensure() { return 0; }
+    fm_afk_launch_record_write() { return 0; }
+    fm_afk_launch_commit_terminal() { return 0; }
+    fm_backend_herdr_cli() {
+      if [ "$2 $3" = "workspace create" ]; then
+        printf %s '\''{"result":{"workspace":{"workspace_id":"ws-harness"},"root_pane":{"pane_id":"pane-harness"}}}'\''
+      elif [ "$2 $3" = "pane run" ]; then
+        printf "%s" "$5" > "$HERDR_COMMAND"
+      fi
+    }
+    fm_afk_launch_create_herdr lab:captain herdr
+  ' _ "$LAUNCH"
+
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" TMUX_COMMAND="$tmux_cmd" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_afk_launch_record_write() { return 0; }
+    fm_afk_launch_commit_terminal() { return 0; }
+    tmux() {
+      if [ "$1" = new-session ]; then
+        while [ "$#" -gt 1 ]; do shift; done
+        printf "%s" "$1" > "$TMUX_COMMAND"
+      fi
+    }
+    fm_afk_launch_create_tmux %captain tmux
+  ' _ "$LAUNCH"
+
+  if grep -F 'FM_DAEMON_PRIMARY_HARNESS=codex' "$herdr_cmd" >/dev/null 2>&1; then
+    pass "harness propagation: herdr detached command carries the captured primary harness"
+  else
+    fail "harness propagation: herdr detached command dropped the primary harness ($(cat "$herdr_cmd" 2>/dev/null || true))"
+  fi
+  if grep -F 'FM_DAEMON_PRIMARY_HARNESS=codex' "$tmux_cmd" >/dev/null 2>&1; then
+    pass "harness propagation: tmux detached command carries the captured primary harness"
+  else
+    fail "harness propagation: tmux detached command dropped the primary harness ($(cat "$tmux_cmd" 2>/dev/null || true))"
+  fi
+  rm -rf "$st"
+}
+
+unit_detached_unknown_harness_stays_unknown() {
+  local st cmd
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-unknown.XXXXXX")
+  cmd=$(FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf unknown; }
+    fm_afk_launch_daemon_command lab:captain herdr "$2"
+  ' _ "$LAUNCH" "$TRUE_BIN")
+  case "$cmd" in
+    *'FM_DAEMON_PRIMARY_HARNESS=unknown'*)
+      pass "harness propagation: unknown remains explicit and cannot enter a harness-specific branch"
+      ;;
+    *)
+      fail "harness propagation: unknown primary identity was upgraded or dropped ($cmd)"
+      ;;
+  esac
+  rm -rf "$st"
+}
+
+unit_detached_codex_reaches_short_reference_branch() {
+  local st entry cmd sent expected
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-composed.XXXXXX")
+  entry="$st/entry.sh"
+  sent="$st/sent"
+  mkdir -p "$st/state"
+  printf 'check: composed detached codex branch\n' > "$st/state/.subsuper-escalations"
+  # shellcheck disable=SC2016 # The generated entry expands these variables when it runs.
+  printf '#!/usr/bin/env bash\n. %q\ninject_msg() { printf "%%s" "$1" > "$FM_COMPOSED_SENT"; return 1; }\nescalate_store_durable_digest() { INJECT_DURABLE_NOTE_ID=composed-note; return 0; }\nescalate_flush "$FM_STATE_OVERRIDE" normal || true\n' \
+    "$ROOT/bin/fm-supervise-daemon.sh" > "$entry"
+  chmod +x "$entry"
+  cmd=$(FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_afk_launch_daemon_command lab:captain herdr "$2"
+  ' _ "$LAUNCH" "$entry")
+  FM_COMPOSED_SENT="$sent" FM_STATE_OVERRIDE="$st/state" bash -c "$cmd"
+  expected='Durable captain inbox note composed-note is ready. Run bin/fm-wake-drain.sh first.'
+  if [ "$(cat "$sent" 2>/dev/null || true)" = "$expected" ]; then
+    pass "harness propagation: detached Codex composition reaches short-reference delivery without a daemon test override"
+  else
+    fail "harness propagation: detached Codex composition sent the full digest ($(cat "$sent" 2>/dev/null || true))"
+  fi
+  rm -rf "$st"
+}
+
 # ---------------------------------------------------------------------------
 # E2E herdr: topology invariant.
 # ---------------------------------------------------------------------------
@@ -984,6 +1079,9 @@ unit_clear_failure_aborts_entry
 unit_confirmed_absence_succeeds
 unit_incomplete_restore_retains_backup
 unit_flag_write_failure_aborts
+unit_detached_commands_propagate_primary_harness
+unit_detached_unknown_harness_stays_unknown
+unit_detached_codex_reaches_short_reference_branch
 e2e_herdr
 e2e_tmux
 

@@ -98,5 +98,18 @@ test_other_harness_keeps_direct_transport() {
   pass "non-Codex Herdr transport remains direct"
 }
 
+test_startup_diagnostic_names_resolved_harness() {
+  # shellcheck disable=SC2016 # Match literal source text, not an expansion here.
+  case "$(declare -f fm_super_main)" in
+    *'primary_harness=$(fm_daemon_primary_harness)'*'harness=$primary_harness'*)
+      pass "daemon startup diagnostic names the resolved primary harness"
+      ;;
+    *)
+      fail "daemon startup diagnostic does not expose the resolved primary harness"
+      ;;
+  esac
+}
+
 test_failed_short_submit_keeps_exact_durable_digest
 test_other_harness_keeps_direct_transport
+test_startup_diagnostic_names_resolved_harness
