@@ -1402,6 +1402,53 @@ claude_launch_via_cswap() {
   printf '%s\n' "${launch/ claude /$replacement}"
 }
 
+raw_launch_words() {
+  local input=$1 i=0 ch quote= word= next
+  RAW_WORDS=()
+  while [ "$i" -lt "${#input}" ]; do
+    ch=${input:i:1}
+    if [ -z "$quote" ]; then
+      case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
+    fi
+    case "$quote:$ch" in
+      :\ |:\$'\t')
+        [ -z "$word" ] || RAW_WORDS+=("$word")
+        word=
+        ;;
+      :\'|:\") quote=$ch ;;
+      \':\') quote= ;;
+      \":\") quote= ;;
+      *:\\)
+        i=$((i + 1))
+        [ "$i" -lt "${#input}" ] || return 1
+        next=${input:i:1}
+        case "$next" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
+        word+=$next
+        ;;
+      *) word+=$ch ;;
+    esac
+    i=$((i + 1))
+  done
+  [ -z "$quote" ] || return 1
+  [ -z "$word" ] || RAW_WORDS+=("$word")
+  [ "${#RAW_WORDS[@]}" -gt 0 ]
+}
+
+raw_launch_executable() {
+  local index=0 word
+  [ "${RAW_WORDS[0]:-}" = env ] && index=1
+  while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
+    word=${RAW_WORDS[index]}
+    case "$word" in
+      [A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;;
+      -i) index=$((index + 1)) ;;
+      -u) index=$((index + 2)) ;;
+      *) printf '%s\n' "$word"; return 0 ;;
+    esac
+  done
+  return 1
+}
+
 resolve_pi_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
@@ -1640,10 +1687,16 @@ case "$ARG3" in
   *' '*)  # raw launch command (unverified-adapter escape hatch)
     RAW_LAUNCH=1
     LAUNCH=$ARG3
-    HARNESS=""
-    for word in $LAUNCH; do
-      case "$word" in [A-Za-z_]*=*) continue ;; *) HARNESS=$(basename "$word"); break ;; esac
-    done
+    if ! raw_launch_words "$LAUNCH"; then
+      echo "error: raw launch commands support one executable with literal arguments, quotes, and env assignments only; shell operators, expansions, substitutions, and nested shells are refused" >&2
+      exit 1
+    fi
+    RAW_EXECUTABLE=$(raw_launch_executable) || {
+      echo "error: raw launch command must name one executable after any env assignments" >&2
+      exit 1
+    }
+    HARNESS=$(basename "$RAW_EXECUTABLE")
+    case "$HARNESS" in rovo) echo "error: rovo dispatch is disabled; select a supported harness" >&2; exit 1 ;; esac
     ;;
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
