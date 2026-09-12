@@ -151,7 +151,7 @@ EOF
 test_literal_raw_argv_is_delivered() {
   local id rec output status command probe probe_shell index=0
   probe_shell=$(command -v bash)
-  for command_template in 'DIRECT' 'ENV_CLEAR' 'ENV_UNSET'; do
+  for command_template in 'DIRECT' 'ENV_CLEAR' 'ENV_UNSET' 'SINGLE_BACKSLASH' 'SINGLE_DOLLAR' 'DOUBLE_BACKSLASH'; do
     index=$((index + 1))
     id="raw-argv-z6-$index"
     rec=$(make_spawn_case "raw-argv-$index" pi "$id")
@@ -189,7 +189,10 @@ SH
     case "$command_template" in
       DIRECT) command="'$FAKEBIN_DIR/probe dir/custom agent' rovo '' tail" ;;
       ENV_CLEAR) command="env -i -u DROP_SENTINEL -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
-      ENV_UNSET) command="env -u DROP_SENTINEL -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
+      ENV_UNSET) command="env -u DROP_SENTINEL -- VALUE=one X=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
+      SINGLE_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' 'a\\b'" ;;
+      SINGLE_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' '\$HOME'" ;;
+      DOUBLE_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' \"a\\\\b\"" ;;
     esac
     : > "$CASE_DIR/launch.log"
     output=$(CLEAR_SENTINEL=clear DROP_SENTINEL=drop KEEP_SENTINEL=keep run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
@@ -200,7 +203,9 @@ SH
     probe_argv=$(head -n 1 "$probe")
     case "$command_template" in
       DIRECT) [ "$probe_argv" = 'argv: <rovo> <> <tail>' ] || fail "direct raw argv changed: $probe_argv" ;;
-      *) [ "$probe_argv" = 'argv: <rovo> <>' ] || fail "env raw argv changed: $probe_argv" ;;
+      ENV_CLEAR|ENV_UNSET) [ "$probe_argv" = 'argv: <rovo> <>' ] || fail "env raw argv changed: $probe_argv" ;;
+      SINGLE_BACKSLASH|DOUBLE_BACKSLASH) [ "$probe_argv" = 'argv: <a\b>' ] || fail "quoted backslash changed: $probe_argv" ;;
+      SINGLE_DOLLAR) [ "$probe_argv" = 'argv: <$HOME>' ] || fail "quoted dollar changed: $probe_argv" ;;
     esac
     case "$command_template" in
       ENV_CLEAR)
