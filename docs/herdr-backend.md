@@ -222,17 +222,10 @@ The read-only wiring checks (`snapshot` and the `--dry-run` drift preview) ran a
 
 Fake-CLI unit coverage lives in `tests/fm-backend-herdr.test.sh` (the delegation and native-fallback `create_task` cases) and `tests/fm-herdr-layout-lib.test.sh` (the repair/snapshot/drift wiring and its applicability guards: absent executable, non-herdr backend).
 
-## Default workspace lifecycle: one per-home workspace, reused
+## Presentation implementation details
 
-Each home's own workspace (`firstmate` for the primary, `2ndmate-<secondmate-id>` for a secondmate - see "Label derivation" above) is created as needed and reused by each subsequent default-container spawn while it exists: `fm_backend_herdr_workspace_ensure` calls `fm_backend_herdr_workspace_find` first and creates a workspace only when none labelled for that home exists yet.
-Teardown (`fm_backend_herdr_kill`) closes only the task's pane/tab, never the workspace.
-
-## Optional disposable single-task presentation spaces
-
-Create the local, gitignored `config/herdr-presentation-spaces` file on the primary home to enable the presentation projection.
-The primary's literal presence or absence converges to registered secondmate homes through the same launch, bootstrap, and config-push inheritance owner as the other declared inheritable config items.
-An absent file is off, and the off path runs the existing home-workspace and `fm-<id>`-tab command sequence unchanged.
-A home that has not yet converged stays flat rather than gaining partial projection authority.
+The [Presentation spaces](#presentation-spaces) section owns the setting's default-on, version-floor, and inheritance behavior.
+This section records the implementation safety boundaries only.
 This is a visual convenience, not a task container authority, lifecycle foundation, or durable grouping guarantee.
 The `kind=secondmate` agent itself always uses its ordinary `2ndmate-<id>` parent workspace and never receives a corner projection; only eligible crewmates and scouts launched by that home project beneath it.
 
