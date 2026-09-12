@@ -86,6 +86,101 @@ test_staged_digest_wake_does_not_recurse() {
   pass "staged transport check is non-recursive while external and fallback notes remain actionable"
 }
 
+test_same_digest_fallback_keeps_its_actionable_wake() {
+  local root="$TMP_ROOT/same-digest-fallback" state="$TMP_ROOT/same-digest-fallback/state"
+  local fallback_id fallback_reason
+
+  mkdir -p "$state"
+  : > "$state/.afk"
+  escalate_add "$state" "same digest first reached the failure fallback"
+  FM_HOME="$root" escalate_fallback_to_inbox "$state" \
+    || fail "same-digest failure fallback was not stored"
+  fallback_id=${INJECT_DURABLE_NOTE_ID:-}
+  fallback_reason=$(wake_payload_for_note "$state" "$fallback_id")
+
+  inject_msg() { return 0; }
+  FM_HOME="$root" FM_SUPERVISOR_BACKEND=herdr \
+    FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$state" busy-override \
+    || fail "same-digest short reference did not report success"
+  : > "$state/.subsuper-escalations"
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$fallback_reason" "$state" \
+    || fail "same-digest failure fallback wake could not be classified"
+  grep -F "$fallback_reason" "$state/.subsuper-escalations" >/dev/null \
+    || fail "same-digest staging suppressed a prior failure-fallback wake"
+  pass "same-digest staging does not reclassify a prior failure fallback"
+}
+
+test_failed_short_reference_keeps_its_actionable_wake() {
+  local root="$TMP_ROOT/failed-reference-wake" state="$TMP_ROOT/failed-reference-wake/state"
+  local staged_id staged_reason
+
+  mkdir -p "$state"
+  : > "$state/.afk"
+  escalate_add "$state" "short reference transport will fail"
+  inject_msg() { return 1; }
+  if FM_HOME="$root" FM_SUPERVISOR_BACKEND=herdr \
+    FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$state" busy-override; then
+    fail "failed short reference reported success while checking wake provenance"
+  fi
+  staged_id=${INJECT_DURABLE_NOTE_ID:-}
+  staged_reason=$(wake_payload_for_note "$state" "$staged_id")
+  : > "$state/.subsuper-escalations"
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$staged_reason" "$state" \
+    || fail "failed short-reference wake could not be classified"
+  grep -F "$staged_reason" "$state/.subsuper-escalations" >/dev/null \
+    || fail "failed short reference suppressed its only durable wake"
+  pass "failed short reference leaves its durable wake actionable"
+}
+
+test_staged_digest_watcher_cycle_does_not_echo() {
+  local staged_root="$TMP_ROOT/watcher-cycle/staged" staged_state="$TMP_ROOT/watcher-cycle/staged/state"
+  local external_root="$TMP_ROOT/watcher-cycle/external" external_state="$TMP_ROOT/watcher-cycle/external/state"
+  local fallback_root="$TMP_ROOT/watcher-cycle/fallback" fallback_state="$TMP_ROOT/watcher-cycle/fallback/state"
+  local staged_id staged_reason external_id external_reason fallback_id fallback_reason
+
+  mkdir -p "$staged_state" "$external_state" "$fallback_state"
+  : > "$staged_state/.afk"
+  escalate_add "$staged_state" "one composed staged event"
+  inject_msg() { return 0; }
+  FM_HOME="$staged_root" FM_SUPERVISOR_BACKEND=herdr \
+    FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$staged_state" busy-override \
+    || fail "composed path could not stage and deliver the short reference"
+  staged_id=$(find "$staged_state/inbox" -maxdepth 1 -name '*.note' -printf '%f\n')
+  staged_id=${staged_id%.note}
+  staged_reason=$(wake_payload_for_note "$staged_state" "$staged_id")
+  FM_HOME="$staged_root" FM_STATE_OVERRIDE="$staged_state" FM_ESCALATE_BATCH_SECS=999 \
+    handle_durable_wakes "$staged_reason" "$staged_state" >/dev/null 2>&1 \
+    || fail "composed path could not drain and classify the staged wake"
+  [ ! -s "$staged_state/.subsuper-escalations" ] \
+    || fail "composed staging-to-classification path generated a new echo"
+
+  FM_HOME="$external_root" FM_STATE_OVERRIDE="$external_state" \
+    "$ROOT/bin/fm-inbox.sh" note "composed external captain note" >/dev/null \
+    || fail "composed path could not queue the external inbox control"
+  external_id=$(find "$external_state/inbox" -maxdepth 1 -name '*.note' -printf '%f\n')
+  external_id=${external_id%.note}
+  external_reason=$(wake_payload_for_note "$external_state" "$external_id")
+  FM_HOME="$external_root" FM_STATE_OVERRIDE="$external_state" FM_ESCALATE_BATCH_SECS=999 \
+    handle_durable_wakes "$external_reason" "$external_state" >/dev/null 2>&1 \
+    || fail "composed path could not drain the external inbox wake"
+  grep -F "$external_reason" "$external_state/.subsuper-escalations" >/dev/null \
+    || fail "composed path absorbed the external inbox wake"
+
+  : > "$fallback_state/.afk"
+  escalate_add "$fallback_state" "composed failure fallback event"
+  FM_HOME="$fallback_root" escalate_fallback_to_inbox "$fallback_state" \
+    || fail "composed path could not store the failure fallback"
+  fallback_id=${INJECT_DURABLE_NOTE_ID:-}
+  fallback_reason=$(wake_payload_for_note "$fallback_state" "$fallback_id")
+  : > "$fallback_state/.subsuper-escalations"
+  FM_HOME="$fallback_root" FM_STATE_OVERRIDE="$fallback_state" FM_ESCALATE_BATCH_SECS=999 \
+    handle_durable_wakes "$fallback_reason" "$fallback_state" >/dev/null 2>&1 \
+    || fail "composed path could not drain the failure fallback wake"
+  grep -F "$fallback_reason" "$fallback_state/.subsuper-escalations" >/dev/null \
+    || fail "composed path absorbed the failure fallback wake"
+  pass "composed staging-to-watcher classification has no echo and preserves actionable controls"
+}
+
 test_failed_short_submit_keeps_exact_durable_digest() {
   local state="$TMP_ROOT/failed/state" sent="$TMP_ROOT/failed/sent" digest sha
   local marker note_id note saved notes short unrelated
@@ -200,3 +295,6 @@ test_failed_short_submit_keeps_exact_durable_digest
 test_other_harness_keeps_direct_transport
 test_startup_diagnostic_names_resolved_harness
 test_staged_digest_wake_does_not_recurse
+test_same_digest_fallback_keeps_its_actionable_wake
+test_failed_short_reference_keeps_its_actionable_wake
+test_staged_digest_watcher_cycle_does_not_echo

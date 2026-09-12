@@ -49,9 +49,13 @@ herdr_forget_inherited_pane
 fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
 
-SESSION="fm-lab-afk-herdr-e2e-$$"
+SESSION=$(fm_herdr_lab_name upstream-sync-preserve-r1)
 export HERDR_SESSION="$SESSION"
-STATE_DIR=
+STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-e2e.XXXXXX")
+# Never inherit a captain or worker home into the lab's workspace selector.
+# agent-axi binds workspace identity to this fixture-owned home.
+export FM_HOME="$STATE_DIR/home"
+mkdir -p "$FM_HOME"
 HERDR_SHIM_DIR=
 LOG_FILE=
 DAEMON_PID=
@@ -70,7 +74,7 @@ cleanup_all() {
   rm -rf "${STATE_DIR:-}" 2>/dev/null || true
 }
 trap cleanup_all EXIT
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+fm_herdr_lab_provision "$SESSION" || fail "could not provision isolated Herdr lab session"
 
 # --- source the daemon (for afk_enter/afk_exit/FM_INJECT_MARK) + the backend -
 # shellcheck source=/dev/null
@@ -81,8 +85,6 @@ fm_backend_source herdr || fail "fm_backend_source herdr failed"
 
 fm_backend_herdr_version_check || fail "version_check failed against the real installed herdr"
 
-STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-e2e.XXXXXX")
-mkdir -p "$STATE_DIR"
 LOG_FILE="$STATE_DIR/submitted.log"
 : > "$LOG_FILE"
 
@@ -104,10 +106,10 @@ PANE_READY=false
 READY_SAMPLES=0
 for _ in $(seq 1 100); do
   PROCESS_INFO=$(fm_backend_herdr_cli "$SESSION" pane process-info --pane "$PANE_ID" 2>/dev/null || true)
-  if printf '%s' "$PROCESS_INFO" | jq -e '
+  if printf '%s' "$PROCESS_INFO" | jq -e --arg shell "${SHELL:-/bin/bash}" '
     .result.process_info as $process
     | ($process.foreground_processes | length == 1)
-      and ($process.foreground_processes[0].pid == $process.shell_pid)
+      and ($process.foreground_processes[0].argv[0] == $shell)
   ' >/dev/null 2>&1; then
     READY_SAMPLES=$((READY_SAMPLES + 1))
     if [ "$READY_SAMPLES" -ge 10 ]; then

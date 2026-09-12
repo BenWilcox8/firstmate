@@ -745,7 +745,7 @@ escalate_add() {  # <state> <distilled-item>
 }
 
 # --- delivery observability records -----------------------------------------
-# Three small durable records, all owned here and all safe to delete:
+# Five small durable record families, all owned here and all safe to delete:
 #   .subsuper-inject-busy-since  epoch of the FIRST busy deferral of the current
 #                                undelivered digest. It survives only while the
 #                                pane keeps reading busy: any not-busy read, or
@@ -760,6 +760,11 @@ escalate_add() {  # <state> <distilled-item>
 #   .subsuper-inject-fallback    fingerprint of the digest already handed to the
 #                                durable captain inbox, so one wedge queues one
 #                                note however many max-defer windows it survives.
+#   .subsuper-staged-inbox-<id>  exact note-ID provenance for a digest created by
+#                                the short-reference staging path.
+#   .subsuper-staged-delivered-inbox-<id>
+#                                post-submit receipt that alone makes the staged
+#                                note's own check wake safe to self-handle.
 INJECT_BUSY_SINCE_NAME=".subsuper-inject-busy-since"
 INJECT_VERDICT_NAME=".subsuper-inject-verdict"
 INJECT_FALLBACK_NAME=".subsuper-inject-fallback"
@@ -818,7 +823,7 @@ escalate_digest() {  # <state>
 # through to inject_msg: "normal" (default) defers on a busy pane, while
 # "busy-override" is housekeeping's bounded max-defer escape.
 escalate_flush() {  # <state> [mode]
-  local state=$1 mode=${2:-normal} buf msg
+  local state=$1 mode=${2:-normal} buf msg staged_delivery=0
   buf="$state/.subsuper-escalations"
   [ -s "$buf" ] || return 0
   msg=$(escalate_digest "$state") || return 0
@@ -831,9 +836,13 @@ escalate_flush() {  # <state> [mode]
     if ! escalate_store_durable_digest "$state"; then
       return 1
     fi
+    staged_delivery=${INJECT_DURABLE_NOTE_STAGED:-0}
     msg="Durable captain inbox note $INJECT_DURABLE_NOTE_ID is ready. Run bin/fm-wake-drain.sh first."
   fi
   if inject_msg "$msg" "$state" "$mode"; then
+    if [ "$staged_delivery" -eq 1 ]; then
+      staged_note_delivery_write "$state" "$INJECT_DURABLE_NOTE_ID" || return 1
+    fi
     : > "$buf"
     rm -f "${buf}.since" "$state/.subsuper-inject-wedged" "$state/$INJECT_FALLBACK_NAME"
     return 0
@@ -870,11 +879,18 @@ staged_note_marker_write() {  # <state> <note-id>
   printf '%s\n' "$id" > "$state/.subsuper-staged-inbox-$id"
 }
 
-# A staging note's check wake exists to present the durable record at the next
-# primary drain. It must not become a new daemon escalation about the record it
-# just staged. Match only an exact fm-inbox note ID with daemon-written
-# provenance. Ordinary captain notes and failure-fallback notes have no such
-# marker and keep the established fail-safe check classification.
+staged_note_delivery_write() {  # <state> <note-id>
+  local state=$1 id=$2
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  printf '%s\n' "$id" > "$state/.subsuper-staged-delivered-inbox-$id"
+}
+
+# A successfully delivered staging note's check wake exists only to present the
+# durable record selected by the short reference. It must not become a new
+# daemon escalation about that same record. Require both exact note identity
+# and a post-submit delivery receipt. Ordinary captain notes, failure-fallback
+# notes reused by staging, and notes whose short submit failed have no receipt
+# and keep the established fail-safe check classification.
 is_staged_note_check() {  # <reason> <state>
   local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
   case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
@@ -882,12 +898,13 @@ is_staged_note_check() {  # <reason> <state>
   id=${rest%% *}
   [ "$rest" != "$id" ] || return 1
   case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
-  [ -f "$state/.subsuper-staged-inbox-$id" ]
+  [ -f "$state/.subsuper-staged-delivered-inbox-$id" ]
 }
 
 escalate_store_durable_digest() {  # <state> [staging|fallback]
   local state=$1 purpose=${2:-staging} buf marker msg payload fingerprint legacy prior
   local prior_fingerprint out id
+  INJECT_DURABLE_NOTE_STAGED=0
   buf="$state/.subsuper-escalations"
   marker="$state/$INJECT_FALLBACK_NAME"
   [ -s "$buf" ] || return 0
@@ -899,8 +916,9 @@ escalate_store_durable_digest() {  # <state> [staging|fallback]
   if [ "$prior_fingerprint" = "sha256:$fingerprint" ]; then
     INJECT_DURABLE_NOTE_ID=${prior#*$'\t'}
     if [ "$INJECT_DURABLE_NOTE_ID" != "$prior" ] && [ -n "$INJECT_DURABLE_NOTE_ID" ]; then
-      if [ "$purpose" = staging ]; then
-        staged_note_marker_write "$state" "$INJECT_DURABLE_NOTE_ID" || return 1
+      if [ "$purpose" = staging ] \
+        && [ -f "$state/.subsuper-staged-inbox-$INJECT_DURABLE_NOTE_ID" ]; then
+        INJECT_DURABLE_NOTE_STAGED=1
       fi
       return 0
     fi
@@ -919,11 +937,12 @@ escalate_store_durable_digest() {  # <state> [staging|fallback]
   if out=$(FM_STATE_OVERRIDE="$state" "$FM_DAEMON_DIR/fm-inbox.sh" note - <<<"$payload" 2>&1); then
     id=$(printf '%s\n' "$out" | sed -n 's/^queued //p' | head -1)
     [ -n "$id" ] || return 1
-    printf 'sha256:%s\t%s\n' "$fingerprint" "$id" > "$marker" 2>/dev/null || return 1
     INJECT_DURABLE_NOTE_ID=$id
     if [ "$purpose" = staging ]; then
       staged_note_marker_write "$state" "$id" || return 1
+      INJECT_DURABLE_NOTE_STAGED=1
     fi
+    printf 'sha256:%s\t%s\n' "$fingerprint" "$id" > "$marker" 2>/dev/null || return 1
     if [ "$purpose" = fallback ]; then
       log "inject fallback: digest handed to durable captain inbox note $id (sha256=$fingerprint)"
     else
