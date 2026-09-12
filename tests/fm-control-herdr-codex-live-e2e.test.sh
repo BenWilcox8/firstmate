@@ -12,6 +12,9 @@ LAB_HELPER=${FM_HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 SESSION=$("$LAB_HELPER" name codex-attribution-r1) \
   || fail "the guarded Herdr lab name could not be created"
 TMP_ROOT=$(fm_test_tmproot fm-control-herdr-codex-live)
+FAKEBIN="$TMP_ROOT/fakebin"
+ORIGINAL_PATH=$PATH
+mkdir -p "$FAKEBIN"
 TEARDOWN_PENDING=1
 
 cleanup_all() { # <exit-status>
@@ -33,6 +36,26 @@ trap 'cleanup_all 143' TERM
 
 "$LAB_HELPER" provision "$SESSION" \
   || fail "the isolated Herdr lab session could not be provisioned"
+
+export LAB_HELPER SESSION ORIGINAL_PATH
+cat > "$FAKEBIN/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+args=("$@")
+last=$((${#args[@]} - 1))
+flag=$((last - 1))
+if [ "${#args[@]}" -ge 2 ] \
+  && [ "${args[$flag]}" = --session ] \
+  && [ "${args[$last]}" = "$SESSION" ]; then
+  unset "args[$last]" "args[$flag]"
+fi
+set -- "${args[@]}"
+for arg in "$@"; do
+  case "$arg" in --session|--session=*) exit 9 ;; esac
+done
+exec env PATH="$ORIGINAL_PATH" "$LAB_HELPER" run "$SESSION" "$@"
+SH
+chmod +x "$FAKEBIN/herdr"
 
 CREATE=$("$LAB_HELPER" run "$SESSION" workspace create \
   --cwd "$ROOT" --label fm-codex-attribution --no-focus) \
@@ -80,7 +103,7 @@ printf '%s' "$PROCESS_INFO" | jq -e '
 ' >/dev/null || fail "the real Codex process did not expose the MainThread Node wrapper"
 pass "real Codex exposes the expected MainThread Node wrapper"
 
-OUT=$(FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
+OUT=$(PATH="$FAKEBIN:$ORIGINAL_PATH" FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" \
   FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=15 \
   "$ROOT/bin/fm-control.sh" codexproof exit 2>&1) \
   || fail "the public guarded exit refused the real Codex endpoint: $OUT"
