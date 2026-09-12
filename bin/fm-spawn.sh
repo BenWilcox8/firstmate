@@ -1407,17 +1407,31 @@ raw_launch_words() {
   RAW_WORDS=()
   while [ "$i" -lt "${#input}" ]; do
     ch=${input:i:1}
-    case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
+    next=${input:$((i + 1)):1}
+    [ "$ch$next" != '$(' ] && [ "$ch" != '`' ] || return 1
     case "$quote:$ch" in
+      \':\') quote= ;;
+      \':*) word+=$ch; started=1 ;;
+      \":\") quote= ;;
+      \":\\)
+        i=$((i + 1))
+        [ "$i" -lt "${#input}" ] || return 1
+        next=${input:i:1}
+        case "$next" in
+          '\'|'$'|'`'|'"') word+=$next ;;
+          *) word+="\\$next" ;;
+        esac
+        started=1
+        ;;
+      \":*) word+=$ch; started=1 ;;
       :\ |:$'\t')
         [ "$started" -eq 0 ] || RAW_WORDS+=("$word")
         word=
         started=0
         ;;
       :\'|:\") quote=$ch; started=1 ;;
-      \':\') quote= ;;
-      \":\") quote= ;;
-      *:\\)
+      :'$'|:'`'|:';'|:'|'|:'&'|:'<'|:'>'|:'('|:')') return 1 ;;
+      :\\)
         i=$((i + 1))
         [ "$i" -lt "${#input}" ] || return 1
         next=${input:i:1}
