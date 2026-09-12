@@ -110,7 +110,7 @@ test_raw_rovo_variants_refuse_before_launch() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
 $rec
 EOF
-  for label in unquoted quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout nice-custom nohup-custom timeout-custom env-s pipe and redirect expansion backticks env-after-delimiter env-after-assignment; do
+  for label in unquoted quoted absolute absolute-env repeated-env delimiter-assignment one-letter-assignment one-letter-delimiter invalid-assignment invalid-unset nice nohup timeout nice-custom nohup-custom timeout-custom env-s pipe and redirect expansion backticks env-after-delimiter env-after-assignment; do
     case "$label" in
       unquoted) command='rovo run --yolo' ;;
       quoted) command="'rovo' run --yolo" ;;
@@ -118,6 +118,10 @@ EOF
       absolute-env) command='/usr/bin/env ROVODEV_CLI=1 rovo run --yolo' ;;
       repeated-env) command='env env rovo run --yolo' ;;
       delimiter-assignment) command='env -- ROVODEV_CLI=1 rovo run --yolo' ;;
+      one-letter-assignment) command='env X=1 rovo run --yolo' ;;
+      one-letter-delimiter) command='env -- X=1 rovo run --yolo' ;;
+      invalid-assignment) command='env X.Y=1 rovo run --yolo' ;;
+      invalid-unset) command='env -u BAD=1 custom-agent' ;;
       nice) command='nice rovo run --yolo' ;;
       nohup) command='nohup rovo run --yolo' ;;
       timeout) command='timeout 1 rovo run --yolo' ;;
