@@ -98,6 +98,10 @@ fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab se
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
 fm_backend_source herdr || fail "fm_backend_source herdr failed"
+# This suite owns the native per-home recovery boundary. Keep agent-axi absent
+# even on developer machines where it is installed, matching the CI fallback
+# path instead of allowing delegated inventory to mask native regressions.
+export FM_BACKEND_HERDR_AXI_BIN=
 
 # --- scratch world: a primary-shaped home, a secondmate-shaped home, two projects ---
 

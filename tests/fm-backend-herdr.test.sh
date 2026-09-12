@@ -2723,24 +2723,45 @@ test_workspace_find_matches_only_this_homes_own_label() {
 # --- list_live: scoped to this home's own workspace only ---------------------
 
 test_list_live_scoped_to_this_homes_workspace_only() {
-  local dir log resp fb out home
+  local dir log resp fb out home pane_response
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   home="$TMP_ROOT/list-live-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.fm-secondmate-home"
   # 1: workspace_find's `workspace list` - two homes coexist, secondmate's is w2
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"},{"workspace_id":"w2","label":"2ndmate-bravo-b2"}]}}\n' > "$resp/1.out"
-  # 2: tab list --workspace w2 (this secondmate's own tabs only)
-  printf '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-secondmatetask"}]}}\n' > "$resp/2.out"
-  # 3: pane_for_tab's `pane list --workspace w2`
-  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/3.out"
+  # 2: tab list --workspace w2 includes this home's supervisor, a direct
+  # crewmate, an unrecorded orphan, and a near-match task. Only the exact
+  # supervisor identity must be excluded.
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-bravo-b2"},{"tab_id":"w2:t2","label":"fm-secondmatetask"},{"tab_id":"w2:t3","label":"fm-orphan"},{"tab_id":"w2:t4","label":"fm-bravo-b20"}]}}' > "$resp/2.out"
+  pane_response='{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"},{"pane_id":"w2:p2","tab_id":"w2:t2"},{"pane_id":"w2:p3","tab_id":"w2:t3"},{"pane_id":"w2:p4","tab_id":"w2:t4"}]}}'
+  printf '%s\n' "$pane_response" > "$resp/3.out"
+  printf '%s\n' "$pane_response" > "$resp/4.out"
+  printf '%s\n' "$pane_response" > "$resp/5.out"
+  printf '%s\n' "$pane_response" > "$resp/6.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
-  [ "$out" = $'fmtest:w2:p1\tfm-secondmatetask' ] || fail "list_live should report only this home's own tab, got '$out'"
+  [ "$out" = $'fmtest:w2:p2\tfm-secondmatetask\nfmtest:w2:p3\tfm-orphan\nfmtest:w2:p4\tfm-bravo-b20' ] \
+    || fail "list_live should exclude only this secondmate home's exact supervisor and preserve direct, orphan, and near-match tasks, got '$out'"
   assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w2' \
     "list_live did not scope the tab list call to this home's own workspace (w2)"
   assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w1' \
     "list_live must never query the primary's (or a sibling secondmate's) workspace"
-  pass "fm_backend_herdr_list_live: scoped to this home's own workspace, never a sibling home's"
+  pass "fm_backend_herdr_list_live: native secondmate inventory excludes only its exact supervisor and preserves orphan discovery"
+}
+
+test_list_live_primary_does_not_apply_secondmate_supervisor_filter() {
+  local dir log resp fb out home
+  dir="$TMP_ROOT/list-live-primary-negative"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  home="$TMP_ROOT/list-live-primary-home"; mkdir -p "$home"
+  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"}]}}' > "$resp/1.out"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t1","label":"fm-bravo-b2"}]}}' > "$resp/2.out"
+  printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}' > "$resp/3.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
+  [ "$out" = $'fmtest:w1:p1\tfm-bravo-b2' ] \
+    || fail "a primary home must preserve an fm task that happens to match another home's supervisor id, got '$out'"
+  pass "fm_backend_herdr_list_live: primary native inventory applies no secondmate supervisor filter"
 }
 
 # --- target parsing, key normalization ---------------------------------------
@@ -4717,6 +4738,7 @@ test_projection_reclaim_replaces_only_exact_husk_and_advances_binding
 test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
+test_list_live_primary_does_not_apply_secondmate_supervisor_filter
 test_parse_target
 test_parse_target_splits_every_pane_id_shape
 test_parse_target_refuses_unresolvable_targets
