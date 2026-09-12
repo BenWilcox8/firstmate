@@ -1,0 +1,31 @@
+{
+  "families": [
+    {
+      "count": 1,
+      "duration_ms": 696,
+      "failed": 0,
+      "name": "watcher-wake-lock"
+    }
+  ],
+  "finished_at": "2026-09-12T09:54:25Z",
+  "run_id": "fm-test-run-1789206865164-2863097",
+  "scripts": [
+    {
+      "duration_ms": 696,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "watcher-wake-lock",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-daemon-codex-short-wake.test.sh"
+    }
+  ],
+  "selection": "scripts;jobs=1",
+  "started_at": "2026-09-12T09:54:25Z",
+  "summary": {
+    "duration_ms": 806,
+    "failed": 0,
+    "skipped_gate": 0,
+    "total": 1
+  }
+}

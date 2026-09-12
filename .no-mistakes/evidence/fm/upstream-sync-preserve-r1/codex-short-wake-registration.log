@@ -1,0 +1,6 @@
+watcher-wake-lock:
+tests/fm-daemon-codex-short-wake.test.sh
+live-harness-optin:
+tests/fm-backend-herdr-codex-submit-e2e.test.sh
+coverage:
+FM_TEST_COVERAGE ok total=211 parallel=24 serial=174 serial_shards=5 serial_unhinted=26 herdr=13
