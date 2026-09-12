@@ -214,6 +214,29 @@ test_matrix_codex_dim_hint_with_bright_animation() {
   pass "matrix: codex's dim placeholder with a recognized bright animation cell reads empty"
 }
 
+test_matrix_codex_multiline_idle_animation() {
+  # Read-only production capture: Codex paints allowed animation cells across
+  # three rows and overlays them around the same dim idle placeholder.
+  local top prompt bottom screen unknown pasted bright
+  top="${ESC}[48;2;61;59;78m   ${ESC}[38;2;118;116;136m⢀${ESC}[48;2;61;59;78m   ${ESC}[38;2;132;130;150m⠁${ESC}[0m"
+  prompt="${ESC}[1m${ESC}[48;2;61;59;78m›${ESC}[0m${ESC}[38;2;85;83;103m${ESC}[48;2;61;59;78m⠁${ESC}[0m${ESC}[2m${ESC}[48;2;61;59;78mAsk Codex to do anything${ESC}[0m${ESC}[38;2;146;144;165m${ESC}[48;2;61;59;78m⠂${ESC}[0m"
+  bottom="${ESC}[48;2;61;59;78m  ${ESC}[38;2;112;110;130m⠄${ESC}[48;2;61;59;78m  ${ESC}[38;2;142;140;160m⢀${ESC}[0m"
+  screen=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"
+  assert_screen "codex idle multiline animation on herdr" empty \
+    "$CAPS_STYLED" "$screen"
+
+  unknown=${screen/⠂/⣿}
+  assert_screen "codex multiline animation rejects an unknown cell" pending \
+    "$CAPS_STYLED" "$unknown"
+  pasted=$'transcript\n'"$top"$'\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255m⠁⠂${ESC}[0m"$'\n'"$bottom"
+  assert_screen "codex multiline animation rejects pasted allowed cells" pending \
+    "$CAPS_STYLED" "$pasted"
+  bright=${screen/${ESC}[2m/}
+  assert_screen "codex multiline animation rejects a bright placeholder" pending \
+    "$CAPS_STYLED" "$bright"
+  pass "matrix: Codex multiline animation needs the exact dim placeholder and allowed cells"
+}
+
 test_matrix_codex_animation_safety_guards() {
   local bright dark_placeholder pasted unknown shell cursor_elsewhere
   bright=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255mAsk Codex to do anything ⡀${ESC}[0m"
@@ -714,6 +737,7 @@ test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
 test_matrix_codex_dim_hint_with_bright_animation
+test_matrix_codex_multiline_idle_animation
 test_matrix_codex_animation_safety_guards
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant

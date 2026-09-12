@@ -954,42 +954,77 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
   fi
 }
 
+# Remove only Codex's reviewed animation cells from one already isolated value.
+# This is never used by the general ghost strip or by another harness.
+_fm_composer_codex_animation_strip_var() {  # <varname>
+  local __fmcasi_name=$1 __fmcasi_text=${!1} __fmcasi_cell
+  while IFS= read -r __fmcasi_cell; do
+    __fmcasi_text=${__fmcasi_text//"$__fmcasi_cell"/}
+  done <<EOF
+$FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS
+EOF
+  printf -v "$__fmcasi_name" '%s' "$__fmcasi_text"
+}
+
+_fm_composer_codex_animation_only() {  # <content>
+  local value=$1 original
+  fm_composer_normalize_trim_var value
+  [ -n "$value" ] || return 1
+  original=$value
+  _fm_composer_codex_animation_strip_var value
+  fm_composer_normalize_trim_var value
+  [ -z "$value" ] && [ -n "$original" ]
+}
+
 # _fm_composer_bare_codex_idle_animation returns success only for the exact
 # mixed-style Codex idle row. The plain row must contain the known placeholder
-# and one allowed animation cell. A dim-only strip must match the normal ghost
+# plus allowed animation cells. A dim-only strip must match the normal ghost
 # strip, which proves that SGR dim removed the placeholder instead of color.
 _fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content> <styled>
-  local raw=$1 content=$2 plain=$3 styled=$4 glyph='' animation cell dim_content
+  local raw=$1 content=$2 plain=$3 styled=$4 glyph='' dim_glyph='' animation dim_content
   [ "$styled" = 1 ] || return 1
 
   fm_composer_normalize_trim_var content
   fm_composer_normalize_trim_var plain
   dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
   fm_composer_normalize_trim_var dim_content
-  [ "$dim_content" = "$content" ] || return 1
   fm_composer_leading_agent_glyph_var glyph "$content" || return 1
   [ "$glyph" = '›' ] || return 1
   content=${content#*"$glyph"}
   fm_composer_normalize_trim_var content
+  fm_composer_leading_agent_glyph_var dim_glyph "$dim_content" || return 1
+  [ "$dim_glyph" = '›' ] || return 1
+  dim_content=${dim_content#*"$dim_glyph"}
+  fm_composer_normalize_trim_var dim_content
 
   glyph=''
   fm_composer_leading_agent_glyph_var glyph "$plain" || return 1
   [ "$glyph" = '›' ] || return 1
   plain=${plain#*"$glyph"}
   fm_composer_normalize_trim_var plain
-  case "$plain" in
-    'Ask Codex to do anything '*) animation=${plain#'Ask Codex to do anything '} ;;
-    *) return 1 ;;
-  esac
-  fm_composer_normalize_trim_var animation
-  [ "$content" = "$animation" ] || return 1
+  animation=$content
+  _fm_composer_codex_animation_only "$animation" || return 1
+  _fm_composer_codex_animation_only "$dim_content" || return 1
+  _fm_composer_codex_animation_strip_var plain
+  fm_composer_normalize_trim_var plain
+  [ "$plain" = 'Ask Codex to do anything' ]
+}
 
-  while IFS= read -r cell; do
-    [ "$animation" = "$cell" ] && return 0
-  done <<EOF
-$FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS
-EOF
-  return 1
+_fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <last>
+  local screen=$1 styled=$2 first=$3 last=$4 row raw content plain
+  [ "$styled" = 1 ] && [ "$last" -gt "$first" ] || return 1
+  raw=$(_fm_composer_screen_row "$first" "$screen")
+  content=$(_fm_composer_row_content "$raw" "$styled")
+  plain=$(_fm_composer_row_content "$raw" 0)
+  _fm_composer_bare_codex_idle_animation "$raw" "$content" "$plain" "$styled" \
+    || return 1
+  row=$((first + 1))
+  while [ "$row" -le "$last" ]; do
+    raw=$(_fm_composer_screen_row "$row" "$screen")
+    content=$(_fm_composer_row_content "$raw" "$styled")
+    _fm_composer_codex_animation_only "$content" || return 1
+    row=$((row + 1))
+  done
 }
 
 # _fm_composer_classify_bare_row: the bare agent-glyph row verdict, including
@@ -1047,8 +1082,14 @@ _fm_composer_wrap_region_ok() {  # <plain-screen> <glyph-row> <cursor-row>
 # suggestion happened to wrap; any surviving text is pending when styling can
 # prove it real and unknown otherwise (the same styled=0 degradation as the
 # glyph row itself).
-_fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row>
-  local screen=$1 styled=$2 g=$3 cy=$4 row raw content glyph='' text_seen=0
+_fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row> [allow-codex-animation]
+  local screen=$1 styled=$2 g=$3 cy=$4 allow_codex_animation=${5:-0}
+  local row raw content glyph='' text_seen=0
+  if [ "$allow_codex_animation" = 1 ] \
+    && _fm_composer_bare_codex_idle_animation_region "$screen" "$styled" "$g" "$cy"; then
+    printf 'empty'
+    return 0
+  fi
   row=$g
   while [ "$row" -le "$cy" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
@@ -1368,7 +1409,7 @@ EOF
     bare)
       if [ "$FM_COMPOSER_SELECTED_LAST" -gt "$FM_COMPOSER_SELECTED_FIRST" ]; then
         _fm_composer_classify_bare_wrap "$screen" "$styled" \
-          "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
+          "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST" 1
       elif [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then
