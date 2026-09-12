@@ -202,6 +202,42 @@ test_matrix_codex_dim_hint_row() {
   pass "matrix: codex's dim hint is empty when styling proves it, unknown (never pending) when it cannot"
 }
 
+test_matrix_codex_dim_hint_with_bright_animation() {
+  # The read-only diagnosis recorded this shape: a bold prompt, a dim known
+  # placeholder, and one bright truecolor animation cell on the same row.
+  local row screen
+  row="${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  screen=$'transcript\n'"$row"
+
+  assert_screen "codex idle placeholder with bright animation on herdr" empty \
+    "$CAPS_STYLED" "$screen"
+  pass "matrix: codex's dim placeholder with a recognized bright animation cell reads empty"
+}
+
+test_matrix_codex_animation_safety_guards() {
+  local bright dark_placeholder pasted unknown shell cursor_elsewhere
+  bright=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255mAsk Codex to do anything ⡀${ESC}[0m"
+  dark_placeholder=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;80;80;80mAsk Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  pasted=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  unknown=$'transcript\n'"${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⣿${ESC}[0m"
+  shell=$'transcript\n'"${ESC}[1m\$${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  cursor_elsewhere=$'unidentified cursor row\n'"${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+
+  assert_screen "bright placeholder-like Codex input with braille" pending \
+    "$CAPS_STYLED" "$bright"
+  assert_screen "non-dim dark Codex text with braille" pending \
+    "$CAPS_STYLED" "$dark_placeholder"
+  assert_screen "pasted braille in the Codex composer" pending \
+    "$CAPS_STYLED" "$pasted"
+  assert_screen "dim Codex placeholder with an unknown trailing cell" pending \
+    "$CAPS_STYLED" "$unknown"
+  assert_screen "shell prompt with the Codex placeholder shape" unknown \
+    "$CAPS_STYLED" "$shell"
+  assert_screen "cursor outside the Codex placeholder row" unknown \
+    "$CAPS_TMUX" "$cursor_elsewhere" 0 probe-absent
+  pass "matrix: Codex animation handling preserves bright text, pasted braille, unknown cells, shells, and cursor ambiguity"
+}
+
 test_matrix_muse_truecolor_glyph_survives_signal_loss() {
   # Real idle muse: truecolor `⟩` (38;2;90;160;255, luminance ~149.9) under a
   # TITLED rule. Two independent signals prove emptiness: the glyph surviving
@@ -677,6 +713,8 @@ test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
+test_matrix_codex_dim_hint_with_bright_animation
+test_matrix_codex_animation_safety_guards
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap

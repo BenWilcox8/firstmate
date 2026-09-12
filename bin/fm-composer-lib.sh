@@ -389,6 +389,13 @@ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 # matching is case-insensitive.
 FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, search, build anything$|^Add a follow-up$'
 
+# Codex can draw a bright one-cell animation after its dim idle placeholder.
+# This literal set is the complete rotating-dot sequence that Codex uses.
+# It is not a general braille set and is valid only with the same-row proof in
+# _fm_composer_bare_codex_idle_animation below.
+FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS=$(printf '%s\n' \
+  '⠁' '⠂' '⠄' '⡀' '⢀' '⠠' '⠐' '⠈')
+
 # Opencode draws a mode/model footer line INSIDE its left-bar composer
 # ("Build · GPT-5.5 Fast OpenAI · high"). It is composer furniture, not typed
 # text, and only the run's LAST row is ever matched against it.
@@ -947,6 +954,44 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
   fi
 }
 
+# _fm_composer_bare_codex_idle_animation returns success only for the exact
+# mixed-style Codex idle row. The plain row must contain the known placeholder
+# and one allowed animation cell. A dim-only strip must match the normal ghost
+# strip, which proves that SGR dim removed the placeholder instead of color.
+_fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content> <styled>
+  local raw=$1 content=$2 plain=$3 styled=$4 glyph='' animation cell dim_content
+  [ "$styled" = 1 ] || return 1
+
+  fm_composer_normalize_trim_var content
+  fm_composer_normalize_trim_var plain
+  dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
+  fm_composer_normalize_trim_var dim_content
+  [ "$dim_content" = "$content" ] || return 1
+  fm_composer_leading_agent_glyph_var glyph "$content" || return 1
+  [ "$glyph" = '›' ] || return 1
+  content=${content#*"$glyph"}
+  fm_composer_normalize_trim_var content
+
+  glyph=''
+  fm_composer_leading_agent_glyph_var glyph "$plain" || return 1
+  [ "$glyph" = '›' ] || return 1
+  plain=${plain#*"$glyph"}
+  fm_composer_normalize_trim_var plain
+  case "$plain" in
+    'Ask Codex to do anything '*) animation=${plain#'Ask Codex to do anything '} ;;
+    *) return 1 ;;
+  esac
+  fm_composer_normalize_trim_var animation
+  [ "$content" = "$animation" ] || return 1
+
+  while IFS= read -r cell; do
+    [ "$animation" = "$cell" ] && return 0
+  done <<EOF
+$FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS
+EOF
+  return 1
+}
+
 # _fm_composer_classify_bare_row: the bare agent-glyph row verdict, including
 # the styled=0 degradation: without styling, trailing text after the glyph may
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
@@ -956,6 +1001,10 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   raw=$(_fm_composer_screen_row "$row" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
+  if _fm_composer_bare_codex_idle_animation "$raw" "$content" "$plain" "$styled"; then
+    printf 'empty'
+    return 0
+  fi
   state=$(fm_composer_classify_content 0 "$content" \
     "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 0 "$styled")
   if [ "$styled" != 1 ] && [ "$state" = pending ]; then
