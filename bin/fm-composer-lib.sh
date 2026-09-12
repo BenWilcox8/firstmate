@@ -1003,15 +1003,55 @@ _fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content
   plain=${plain#*"$glyph"}
   fm_composer_normalize_trim_var plain
   animation=$content
-  _fm_composer_codex_animation_only "$animation" || return 1
+  if [ -n "$animation" ]; then
+    _fm_composer_codex_animation_only "$animation" || return 1
+  fi
   _fm_composer_codex_animation_only "$dim_content" || return 1
   _fm_composer_codex_animation_strip_var plain
   fm_composer_normalize_trim_var plain
   [ "$plain" = 'Ask Codex to do anything' ]
 }
 
+_fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
+  local raw=$1 styled=$2 content dim_content plain model_effort usage context horizon
+  local model effort amount percent rest
+  [ "$styled" = 1 ] || return 1
+  content=$(_fm_composer_row_content "$raw" "$styled")
+  fm_composer_normalize_trim_var content
+  [ -z "$content" ] || return 1
+  dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
+  fm_composer_normalize_trim_var dim_content
+  [ -z "$dim_content" ] || return 1
+
+  plain=$(_fm_composer_row_content "$raw" 0)
+  fm_composer_normalize_trim_var plain
+  model_effort=${plain%%' · '*}
+  rest=${plain#*' · '}
+  [ "$rest" != "$plain" ] || return 1
+  usage=${rest%%' · '*}
+  rest=${rest#*' · '}
+  context=${rest%%' · '*}
+  horizon=${rest#*' · '}
+  [ "$horizon" != "$rest" ] && [ -n "$horizon" ] || return 1
+  case "$horizon" in *' · '*) return 1 ;; esac
+
+  model=${model_effort% *}
+  effort=${model_effort##* }
+  case "$model" in gpt-*) ;; *) return 1 ;; esac
+  case "$effort" in low|medium|high|xhigh|max|ultra) ;; *) return 1 ;; esac
+  case "$usage" in *' used') amount=${usage%' used'} ;; *) return 1 ;; esac
+  case "$amount" in ''|*[!0-9.KMGT]*) return 1 ;; esac
+  case "$context" in 'Context '*'%'\ used)
+    percent=${context#'Context '}
+    percent=${percent%'% used'}
+    ;;
+  *) return 1 ;;
+  esac
+  case "$percent" in ''|*[!0-9]*) return 1 ;; esac
+}
+
 _fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <last>
-  local screen=$1 styled=$2 first=$3 last=$4 row raw content plain
+  local screen=$1 styled=$2 first=$3 last=$4 row raw content plain animation_row_seen=0
   [ "$styled" = 1 ] && [ "$last" -gt "$first" ] || return 1
   raw=$(_fm_composer_screen_row "$first" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
@@ -1022,9 +1062,17 @@ _fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
-    _fm_composer_codex_animation_only "$content" || return 1
+    if _fm_composer_codex_animation_only "$content"; then
+      animation_row_seen=1
+    elif [ "$row" -eq "$last" ] \
+      && _fm_composer_bare_codex_idle_footer "$raw" "$styled"; then
+      :
+    else
+      return 1
+    fi
     row=$((row + 1))
   done
+  [ "$animation_row_seen" = 1 ]
 }
 
 # _fm_composer_classify_bare_row: the bare agent-glyph row verdict, including

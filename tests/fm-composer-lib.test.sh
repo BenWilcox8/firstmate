@@ -217,11 +217,12 @@ test_matrix_codex_dim_hint_with_bright_animation() {
 test_matrix_codex_multiline_idle_animation() {
   # Read-only production capture: Codex paints allowed animation cells across
   # three rows and overlays them around the same dim idle placeholder.
-  local top prompt bottom screen unknown pasted bright
+  local top prompt bottom footer screen unknown pasted bright bright_footer malformed_footer
   top="${ESC}[48;2;61;59;78m   ${ESC}[38;2;118;116;136m⢀${ESC}[48;2;61;59;78m   ${ESC}[38;2;132;130;150m⠁${ESC}[0m"
-  prompt="${ESC}[1m${ESC}[48;2;61;59;78m›${ESC}[0m${ESC}[38;2;85;83;103m${ESC}[48;2;61;59;78m⠁${ESC}[0m${ESC}[2m${ESC}[48;2;61;59;78mAsk Codex to do anything${ESC}[0m${ESC}[38;2;146;144;165m${ESC}[48;2;61;59;78m⠂${ESC}[0m"
+  prompt="${ESC}[1m${ESC}[48;2;61;59;78m›${ESC}[0m${ESC}[38;2;85;83;103m${ESC}[48;2;61;59;78m⠁${ESC}[0m${ESC}[2m${ESC}[48;2;61;59;78mAsk Codex to do anything${ESC}[0m${ESC}[38;2;92;90;109m${ESC}[48;2;61;59;78m⠂${ESC}[0m"
   bottom="${ESC}[48;2;61;59;78m  ${ESC}[38;2;112;110;130m⠄${ESC}[48;2;61;59;78m  ${ESC}[38;2;142;140;160m⢀${ESC}[0m"
-  screen=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"
+  footer="${ESC}[2mgpt-6-astra medium · 3.64M used · Context 38% used · weekl…${ESC}[0m"
+  screen=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'"$footer"
   assert_screen "codex idle multiline animation on herdr" empty \
     "$CAPS_STYLED" "$screen"
 
@@ -234,6 +235,14 @@ test_matrix_codex_multiline_idle_animation() {
   bright=${screen/${ESC}[2m/}
   assert_screen "codex multiline animation rejects a bright placeholder" pending \
     "$CAPS_STYLED" "$bright"
+  bright_footer=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'\
+"gpt-6-astra medium · 3.64M used · Context 38% used · weekl…"
+  assert_screen "codex multiline animation rejects bright footer-like input" pending \
+    "$CAPS_STYLED" "$bright_footer"
+  malformed_footer=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'\
+"${ESC}[2mnot a Codex status${ESC}[0m"
+  assert_screen "codex multiline animation rejects an unknown dim footer" pending \
+    "$CAPS_STYLED" "$malformed_footer"
   pass "matrix: Codex multiline animation needs the exact dim placeholder and allowed cells"
 }
 
