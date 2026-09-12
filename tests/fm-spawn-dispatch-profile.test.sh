@@ -41,6 +41,7 @@ make_spawn_fakebin() {
   fakebin=$(fm_test_make_spawn_fakebin "$dir")
   cat > "$fakebin/timeout" <<'SH'
 #!/usr/bin/env bash
+[ "${1:-}" != -k ] || shift 2
 shift
 exec "$@"
 SH
@@ -389,7 +390,7 @@ test_active_dispatch_profile_allows_positional_harness() {
 }
 
 test_active_dispatch_profile_allows_raw_launch_command() {
-  local rec id out status launch
+  local rec id out status launch actual
   id=profile-raw-z15
   rec=$(make_spawn_case profile-raw claude "$id")
   read_case_record "$rec"
@@ -402,7 +403,13 @@ test_active_dispatch_profile_allows_raw_launch_command() {
   assert_contains "$out" "spawned $id harness=custom-agent" "spawn did not report raw command harness"
   assert_meta_profile "$HOME_DIR/state/$id.meta" custom-agent default default
   launch=$(cat "$LAUNCH_LOG")
-  [ "$launch" = "custom-agent --flag" ] || fail "raw launch command changed"$'\n'"actual: $launch"
+  cat > "$FAKEBIN_DIR/custom-agent" <<'SH'
+#!/usr/bin/env bash
+printf '<%s>\n' "$@"
+SH
+  chmod +x "$FAKEBIN_DIR/custom-agent"
+  actual=$(PATH="$FAKEBIN_DIR:$PATH" bash -c "$launch") || fail "raw launch command failed"
+  [ "$actual" = '<--flag>' ] || fail "raw launch argv changed: $actual"
   pass "active crew-dispatch profile allows the raw launch-command escape hatch"
 }
 
@@ -760,21 +767,31 @@ test_batch_forwards_shared_profile_flags() {
 }
 
 test_claude_forwards_firstmate_config_dir_when_set() {
-  local rec id out status launch
+  local rec id out status launch actual expected
   id=profile-claude-cfgdir-z17
   rec=$(make_spawn_case profile-claude-cfgdir claude "$id")
   read_case_record "$rec"
 
   # A creatable path: this spawn now pre-registers workspace trust in that store
   # (bin/fm-claude-trust.sh), so an unwritable directory is a genuine blocker.
-  # The forwarding assertion below is what this case proves and is unchanged.
   out=$(FM_TEST_CLAUDE_CONFIG_DIR="$CASE_DIR/claude-work" \
     run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "claude spawn with CLAUDE_CONFIG_DIR set should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CONFIG_DIR='$CASE_DIR/claude-work' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
-    "claude launch did not forward firstmate's CLAUDE_CONFIG_DIR to the crewmate pane"
+  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}'" \
+    "claude launch lost its prompt, feedback or attribution settings"
+  cat > "$FAKEBIN_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$CLAUDE_CONFIG_DIR" "${CLAUDE_CODE_CHILD_SESSION-unset}" \
+  "$CLAUDE_CODE_FORCE_SESSION_PERSISTENCE" "${CURSOR_AGENT-unset}"
+SH
+  chmod +x "$FAKEBIN_DIR/claude"
+  actual=$(PATH="$FAKEBIN_DIR:$PATH" CLAUDE_CONFIG_DIR=wrong-store \
+    CLAUDE_CODE_CHILD_SESSION=old-session CURSOR_AGENT=1 bash -c "$launch") \
+    || fail "synthetic claude launch failed"
+  expected="$CASE_DIR/claude-work"$'\nunset\n1\nunset'
+  [ "$actual" = "$expected" ] || fail "claude worker environment changed: $actual"
   pass "claude forwards firstmate's CLAUDE_CONFIG_DIR so the crewmate uses the same credential store"
 }
 
@@ -888,11 +905,18 @@ make_fake_cswap() {
   cat > "$path" <<'SH'
 #!/usr/bin/env bash
 set -u
+[ "${1:-}" != run ] || { printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4"; exit 0; }
 [ -z "${FM_FAKE_CSWAP_OUT:-}" ] || printf '%s\n' "$FM_FAKE_CSWAP_OUT"
 exit 0
 SH
   chmod +x "$path"
   printf '%s\n' "$path"
+}
+
+assert_cswap_launch_slot() {
+  local launch=$1 slot=$2 actual
+  actual=$(bash -c "$launch") || fail "synthetic cswap launch failed"
+  [ "$actual" = "run|$slot|--|claude" ] || fail "cswap received the wrong account launch: $actual"
 }
 
 test_claude_account_pin_launches_through_cswap() {
@@ -922,8 +946,9 @@ test_claude_account_pin_launches_through_cswap() {
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0" \
     "a pinned claude launch should retain its launch controls"
-  assert_contains "$launch" "cswap run '2' -- claude --dangerously-skip-permissions" \
-    "a pinned claude launch should run through cswap's per-terminal path"
+  assert_cswap_launch_slot "$launch" 2
+  assert_contains "$launch" 'claude --dangerously-skip-permissions' \
+    "a pinned claude launch lost its permission mode"
   assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
     "a pinned launch must not also set a config dir for cswap to override"
   assert_absent "$HOME_DIR/user-home/.claude.json" \
@@ -949,7 +974,7 @@ test_claude_account_pin_accepts_slot_number_and_email() {
   expect_code 0 "$status" "a slot-number account pin should succeed"
   assert_contains "$out" "account=parent" "a slot-number pin should resolve to its canonical alias"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "cswap run '2' --" "a slot-number pin should launch on that slot"
+  assert_cswap_launch_slot "$launch" 2
 
   id=account-pin-email-c3
   out=$(FM_CSWAP_BIN="$cswap" FM_FAKE_CSWAP_OUT="$CSWAP_ACCOUNTS_JSON" \
@@ -959,7 +984,7 @@ test_claude_account_pin_accepts_slot_number_and_email() {
   expect_code 0 "$status" "an email account pin should succeed"
   assert_contains "$out" "account=primary" "an email pin should resolve to its canonical alias"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "cswap run '1' --" "an email pin should launch on that account's slot"
+  assert_cswap_launch_slot "$launch" 1
   pass "an account pin may be a slot number, an alias, or an email"
 }
 
@@ -1021,7 +1046,8 @@ test_retired_mode_flag_refuses_before_spawn_side_effects
 # fake backend records delivery, while real shells exercise the env boundary.
 # No developer environment or credential values are inspected by these probes.
 test_launch_environment_allowlist() {
-  local setting rec id out status probe result expected launch value pane_shell pane_path
+  local setting rec id out status probe result expected launch value pane_shell pane_path probe_shell
+  probe_shell=$(fm_test_tool sh)
   # shellcheck disable=SC2016
   value='synthetic value; $(touch SHOULD_NOT_EXIST) `false` "quoted"'
   for setting in absent missing-config enabled empty; do
@@ -1034,24 +1060,25 @@ test_launch_environment_allowlist() {
       empty) : > "$HOME_DIR/config/launch-env-allowlist" ;;
     esac
     probe="$CASE_DIR/probe.sh"
-    cat > "$probe" <<'SH'
-#!/bin/sh
+    printf '#!%s\n' "$probe_shell" > "$probe"
+    cat >> "$probe" <<'SH'
 printf '%s\n' "${FM_TEST_AMBIENT_SENTINEL-unset}" "${FM_TEST_ALLOWED-unset}" \
   "${FM_TEST_EMPTY-unset}" "${FM_TEST_UNSET-unset}" "$HOME" "$PATH" "$TERM" "$TMUX" "$GOTMPDIR"
 SH
+    chmod +x "$probe"
     out=$(FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated \
       run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-      "$id" "$PROJ_DIR" --harness "/bin/sh '$probe'")
+      "$id" "$PROJ_DIR" --harness "'$probe' --probe")
     status=$?
     expect_code 0 "$status" "allowlist=$setting spawn should succeed: $out"
     launch=$(cat "$LAUNCH_LOG")
     for pane_shell in /bin/sh /bin/bash /bin/zsh; do
       [ -x "$pane_shell" ] || continue
-      pane_path=$(env -i HOME="$HOME_DIR/user-home" PATH=/usr/bin:/bin TERM=xterm \
+      pane_path=$(env -i HOME="$HOME_DIR/user-home" PATH="$BASE_PATH" TERM=xterm \
         TMUX=synthetic-pane GOTMPDIR=/synthetic/gotmp \
         "$pane_shell" -c "printf %s \"\$PATH\"") \
         || fail "could not read $pane_shell startup PATH"
-      result=$(env -i HOME="$HOME_DIR/user-home" PATH=/usr/bin:/bin TERM=xterm \
+      result=$(env -i HOME="$HOME_DIR/user-home" PATH="$BASE_PATH" TERM=xterm \
       TMUX=synthetic-pane GOTMPDIR=/synthetic/gotmp \
       FM_TEST_AMBIENT_SENTINEL=synthetic-unrelated FM_TEST_ALLOWED="$value" FM_TEST_EMPTY='' \
       "$pane_shell" -c "$launch") || fail "allowlist=$setting emitted launch failed in $pane_shell"

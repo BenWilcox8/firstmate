@@ -255,7 +255,8 @@ cpu_count() {
 # lands in `unclassified` and stays serial until someone proves it.
 family_for_basename() {
   case "$1" in
-    fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|\
+    fm-action-pins-check.test.sh|\
+    fm-agentsmd-ceiling.test.sh|fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|\
     fm-bearings-board.test.sh|\
     fm-brief.test.sh|fm-vendor-auth-probe.test.sh|\
     fm-calm-pi-extension.test.sh|fm-cd-pretool-check.test.sh|\
@@ -281,7 +282,7 @@ family_for_basename() {
     fm-wake-drain-unread-status.test.sh|\
     fm-tool-update-check.test.sh|\
     fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
-    fm-watch-triage.test.sh|fm-task-inbox.test.sh|\
+    fm-watch-triage.test.sh|fm-task-inbox.test.sh|fm-ping-ack.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
       ;;
@@ -336,12 +337,12 @@ family_for_basename() {
       ;;
     fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-tmux-agent-liveness.test.sh|\
-    fm-control.test.sh|fm-control-relaunch.test.sh|\
+    fm-control.test.sh|fm-control-relaunch.test.sh|fm-cswap.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
     fm-send-inbox.test.sh|fm-spawn-batch.test.sh|\
-    fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
+    fm-spawn-claude-persistence.test.sh|fm-spawn-dispatch-profile.test.sh|fm-claude-trust.test.sh|\
     fm-trace-context-spawn.test.sh|fm-spawn-worktree-settle.test.sh|\
-    fm-teardown-endpoint-safety.test.sh)
+    fm-teardown-endpoint-safety.test.sh|fm-endpoint-retire.test.sh)
       printf '%s\n' backend-dispatch
       ;;
     fm-check-unregister.test.sh|fm-pr-check-security.test.sh|fm-pr-merge.test.sh|\
@@ -363,6 +364,9 @@ family_for_basename() {
       ;;
     fm-backend-orca.test.sh)
       printf '%s\n' orca
+      ;;
+    fm-browser-reap.test.sh)
+      printf '%s\n' browser-reap
       ;;
     fm-branch-supervision.test.sh|fm-busy-adapter-wiring.test.sh|\
     fm-busy-state.test.sh|fm-classify-corr-token.test.sh|\
@@ -411,6 +415,7 @@ snapshot-bearings
 cmux
 zellij
 orca
+browser-reap
 standalone
 unclassified
 EOF
@@ -578,7 +583,7 @@ list_portable_serial() {
 }
 
 # Measured portable-serial script durations in milliseconds, from the CI timing
-# artifacts recorded in docs/fm-test-portable-shards.md. Each value is the
+# artifacts and isolated checks recorded in docs/fm-test-portable-shards.md. Each CI value is the
 # slowest of several green runs, so the balance holds on a slow runner rather
 # than only on the fastest one measured. These are balance hints only: the shard
 # partition stays complete and disjoint whatever they say, so a stale hint costs
@@ -592,6 +597,8 @@ tests/fm-action-pins-check.test.sh 437
 tests/fm-agentsmd-ceiling.test.sh 613
 tests/fm-agentsmd-skill-triggers.test.sh 259
 tests/fm-ask-user-authority.test.sh 128
+tests/fm-endpoint-retire.test.sh 24509
+tests/fm-herdr-layout-lib.test.sh 653
 tests/fm-backend-cmux-smoke.test.sh 33
 tests/fm-backend-cmux.test.sh 3657
 tests/fm-backend-orca.test.sh 19253
@@ -891,8 +898,8 @@ run_coverage_guard() {
     return 1
   fi
   cat "$tmp/s1" "$tmp/s2" | LC_ALL=C sort -u >"$tmp/shards_union"
-  missing=$(comm -23 "$tmp/proven" "$tmp/shards_union" || true)
-  extra=$(comm -13 "$tmp/proven" "$tmp/shards_union" || true)
+  missing=$(LC_ALL=C comm -23 "$tmp/proven" "$tmp/shards_union" || true)
+  extra=$(LC_ALL=C comm -13 "$tmp/proven" "$tmp/shards_union" || true)
   if [ -n "$missing" ] || [ -n "$extra" ]; then
     log "coverage guard: portable shards must equal the proven-isolated set"
     [ -z "$missing" ] || { log "missing from shards:"; printf '%s\n' "$missing" >&2; }
@@ -936,8 +943,8 @@ run_coverage_guard() {
     return 1
   fi
   LC_ALL=C sort -u "$tmp/serial_shards_raw" >"$tmp/serial_shards"
-  missing=$(comm -23 "$tmp/serial" "$tmp/serial_shards" || true)
-  extra=$(comm -13 "$tmp/serial" "$tmp/serial_shards" || true)
+  missing=$(LC_ALL=C comm -23 "$tmp/serial" "$tmp/serial_shards" || true)
+  extra=$(LC_ALL=C comm -13 "$tmp/serial" "$tmp/serial_shards" || true)
   if [ -n "$missing" ] || [ -n "$extra" ]; then
     log "coverage guard: portable serial shards must equal the portable serial lane"
     [ -z "$missing" ] || { log "missing from serial shards:"; printf '%s\n' "$missing" >&2; }
@@ -949,7 +956,7 @@ run_coverage_guard() {
   for pair in "shards_union:serial" "shards_union:herdr" "serial:herdr"; do
     a=${pair%%:*}
     b=${pair#*:}
-    comm -12 "$tmp/$a" "$tmp/$b" >"$tmp/overlap"
+    LC_ALL=C comm -12 "$tmp/$a" "$tmp/$b" >"$tmp/overlap"
     if [ -s "$tmp/overlap" ]; then
       log "coverage guard: overlap between $a and $b:"
       cat "$tmp/overlap" >&2
@@ -967,8 +974,8 @@ run_coverage_guard() {
     return 1
   fi
   LC_ALL=C sort -u "$tmp/union_raw" >"$tmp/union"
-  missing=$(comm -23 "$tmp/all" "$tmp/union" || true)
-  extra=$(comm -13 "$tmp/all" "$tmp/union" || true)
+  missing=$(LC_ALL=C comm -23 "$tmp/all" "$tmp/union" || true)
+  extra=$(LC_ALL=C comm -13 "$tmp/all" "$tmp/union" || true)
   if [ -n "$missing" ] || [ -n "$extra" ]; then
     log "coverage guard: union of portable shards + portable serial + Herdr must equal tests/*.test.sh"
     [ -z "$missing" ] || { log "missing from union:"; printf '%s\n' "$missing" >&2; }
@@ -998,7 +1005,7 @@ run_coverage_guard() {
     "$ROOT/bin/fm-test-isolation-proof.sh" --list | LC_ALL=C sort -u >"$tmp/proof_list"
     if ! cmp -s "$tmp/proven" "$tmp/proof_list"; then
       log "coverage guard: embedded proven-isolated set diverges from bin/fm-test-isolation-proof.sh --list"
-      comm -3 "$tmp/proven" "$tmp/proof_list" >&2 || true
+      LC_ALL=C comm -3 "$tmp/proven" "$tmp/proof_list" >&2 || true
       rm -rf "$tmp"
       return 1
     fi
@@ -1256,6 +1263,11 @@ families_for_changed_path() {
     bin/fm-watch*|bin/fm-wake*|bin/fm-inactive-reconcile.sh|\
     bin/fm-classify-lib.sh|bin/fm-daemon*|bin/fm-turnend-guard*|bin/fm-guard.sh)
       printf '%s\n' watcher-wake-lock
+      printf '%s\n' browser-reap
+      ;;
+    bin/fm-browser-reap.sh)
+      printf '%s\n' browser-reap
+      printf '%s\n' watcher-wake-lock
       ;;
     bin/fm-afk*)
       printf '%s\n' afk
@@ -1380,6 +1392,14 @@ families_for_changed_path() {
       printf '%s\n' backend-dispatch
       printf '%s\n' pure-contract-unit
       ;;
+    bin/fm-ping-ack.sh|bin/fm-ping-lib.sh)
+      # The routine-wake close-out owner: its own suite plus the two mechanisms
+      # that stamp its marker - the doorbell fm-send rings (backend-dispatch,
+      # and the live doorbell guard) and the wake the watcher authors.
+      printf '%s\n' watcher-wake-lock
+      printf '%s\n' backend-dispatch
+      printf '%s\n' live-harness-optin
+      ;;
     bin/fm-task-inbox-lib.sh)
       # The steering-inbox record/doorbell/ladder owner: fm-send's data plane
       # (backend-dispatch), the watcher's re-ring check (watcher-wake-lock),
@@ -1402,7 +1422,7 @@ families_for_changed_path() {
     bin/fm-install-actionlint.sh|\
     bin/fm-brief.sh|bin/fm-ensure-agents-md.sh|bin/fm-crew-state.sh|\
     bin/fm-captain-hold.sh|bin/fm-decision-hold.sh|bin/fm-supervision*|bin/fm-transition-lib.sh|\
-    bin/fm-tmux-lib.sh|bin/fm-marker-lib.sh|bin/fm-operational-input.sh|bin/fm-tasks-axi-lib.sh|\
+    bin/fm-tmux-lib.sh|bin/fm-operational-input.sh|bin/fm-tasks-axi-lib.sh|\
     bin/fm-vendor-auth-probe.sh|\
     bin/fm-primary-scope-lib.sh|bin/fm-project-mode.sh|bin/fm-promote.sh|\
     bin/fm-ff-lib.sh|bin/fm-gotmp*|bin/*pretool*)

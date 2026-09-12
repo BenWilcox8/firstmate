@@ -202,8 +202,18 @@ test_claude_persistence_survives_the_config_dir_prefix() {
   expect_code 0 "$status" "a claude spawn with a config dir should succeed"
   launch=$(cat "$LAUNCH_LOG")
   assert_persistence_prefix "$launch" "the claude launch with a config dir"
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$config_dir' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
-    "the persistence prefix displaced the claude config-dir prefix"
+  cat > "$FAKEBIN_DIR/claude" <<'SH'
+#!/usr/bin/env bash
+printf 'config=%s\nchild=%s\nforce=%s\n' "${CLAUDE_CONFIG_DIR-}" \
+  "${CLAUDE_CODE_CHILD_SESSION-<unset>}" "${CLAUDE_CODE_FORCE_SESSION_PERSISTENCE-}"
+SH
+  chmod +x "$FAKEBIN_DIR/claude"
+  local actual
+  actual=$(PATH="$FAKEBIN_DIR:$PATH" CLAUDE_CODE_CHILD_SESSION=1 bash -c "$launch") \
+    || fail "the configured persistence launch must execute"
+  assert_contains "$actual" "config=$config_dir" "the launch must retain its configured store"
+  assert_contains "$actual" "child=<unset>" "the launch must clear the inherited child marker"
+  assert_contains "$actual" "force=1" "the configured launch must retain persistence"
   pass "the persistence prefix composes with the claude config-dir prefix"
 }
 

@@ -9,6 +9,7 @@
 #                 "MISSING_MANUAL: <tool> (instructions: <url>)", "NEEDS_GH_AUTH",
 #                 "BACKEND_INVALID: <name> (known: <names>)",
 #                 "STARTUP_MEMORY_BUDGET: invalid config/startup-memory-budget - <reason>",
+#                 "STARTUP_MEMORY_BUDGET: startup memory <N> estimated tokens exceeds <M> token budget (<breakdown>)",
 #                 "CREW_DISPATCH: invalid config/crew-dispatch.json - <reason>",
 #                 "FLEET_SYNC: <repo>: skipped|recovered|STUCK: <detail>",
 #                 "HOME_SUMMARY: <ledger never published|not republished since
@@ -94,18 +95,18 @@
 #          reads or writes another home; the fleet snapshot's classifier and
 #          bin/fm-secondmate-reconcile.sh's nudge stay as backstops. Replayed
 #          transitions and restored In-flight rows print BOOTSTRAP_INFO facts.
-#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the six MUTATING sweeps
+#          Set FM_BOOTSTRAP_DETECT_ONLY=1 to skip the seven MUTATING sweeps
 #          (backlog_record_reconcile, secondmate_sync,
-#          secondmate_liveness_sweep, secondmate_handoff_resume, x_mode_setup,
-#          fleet_sync) while still
+#          secondmate_liveness_sweep, secondmate_handoff_resume,
+#          herdr_layout_repair_sweep, x_mode_setup, fleet_sync) while still
 #          printing every read-only detect line
 #          above; the TANGLE line switches to advisory-only wording with no
 #          checkout command. Used by
 #          fm-session-start.sh's read-only path when another live session holds
 #          the fleet lock, so a second concurrent session never race-mutates
-#          secondmate homes, pending handoff outboxes,
-#          X-mode artifacts, project clones, or repair instructions.
-#          Unset/0 (the default) runs all six sweeps - this flag is purely
+#          this home's backlog books, secondmate homes, pending handoff outboxes,
+#          herdr layout, X-mode artifacts, project clones, or repair instructions.
+#          Unset/0 (the default) runs all seven sweeps - this flag is purely
 #          additive.
 #          Set FM_BOOTSTRAP_NETWORK to split this run by whether a step talks to
 #          the network, so a session start can print its digest from local reads
@@ -177,6 +178,23 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh disable=SC1091
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-herdr-layout-lib.sh disable=SC1091
+. "$SCRIPT_DIR/fm-herdr-layout-lib.sh"
+
+# herdr_layout_repair_sweep: at a locked session boundary, ask agent-axi to
+# converge this home's live herdr workspace to its slot plan (reap husks, re-bind
+# drifted labels), so a layout that drifted while firstmate was away self-heals
+# on session start. A definitive no-op unless this is a herdr-backed home with a
+# resolvable agent-axi (fm_herdr_layout_applicable); a converged workspace stays
+# silent, and a heal reports one BOOTSTRAP_INFO fact. Never fails the bootstrap:
+# the whole layout model is best-effort supervision, not a spawn precondition.
+herdr_layout_repair_sweep() {
+  local summary
+  summary=$(fm_herdr_layout_repair 2>/dev/null) || return 0
+  [ -n "$summary" ] || return 0
+  echo "BOOTSTRAP_INFO: $summary"
+}
+
 # fm-timing-lib.sh is inert unless FM_TIMING_LOG names a file, which only the
 # deferred network stage sets, so an ordinary bootstrap run records nothing.
 # shellcheck source=bin/fm-timing-lib.sh disable=SC1091
@@ -806,7 +824,9 @@ secondmate_liveness_one() {  # <meta> <id>
     dead|missing)
       if [ "$agent_state" = dead ]; then
         cause="confirmed agent absence on existing endpoint"
-        fm_backend_kill "$backend" "$target" 2>/dev/null || true
+        if ! fm_backend_endpoint_retire "$backend" "$target"; then
+          echo "SECONDMATE_LIVENESS: secondmate $id: previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+        fi
       else
         cause="recorded endpoint confidently missing"
       fi
@@ -1328,6 +1348,24 @@ startup_memory_budget_setup() {
   fi
 }
 
+startup_memory_budget_check() {
+  # Detect-only: reads the materialized budget and measures the three startup
+  # memory files.  Returns silently when the config is unreadable (the mutating
+  # phase already reported that) or when the total is within budget.
+  local budget total=0 file tokens summary="" sep=""
+  budget=$(fm_startup_memory_budget_read "$CONFIG") || return 0
+  for file in captain.md captain-shared.md learnings.md; do
+    fm_startup_memory_measure_file "$DATA/$file" >/dev/null || return 0
+    tokens=$FM_STARTUP_MEMORY_MEASURE_TOKENS
+    total=$((total + tokens))
+    summary="${summary}${sep}data/$file ${tokens}"
+    sep=" + "
+  done
+  if ! fm_startup_memory_decimal_le "$total" "$budget"; then
+    echo "STARTUP_MEMORY_BUDGET: startup memory ${total} estimated tokens exceeds ${budget} token budget (${summary})"
+  fi
+}
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -1467,6 +1505,7 @@ detect_local_config() {
     echo "BOOTSTRAP_INFO: tasks-axi available"
   fi
   detect_home_summary_publication
+  startup_memory_budget_check
 }
 
 # This home's ledger publication is deliberately best-effort: every lifecycle
@@ -1580,6 +1619,7 @@ if [ "${FM_BOOTSTRAP_DETECT_ONLY:-0}" != 1 ]; then
   fi
   # x_mode_setup writes local Relay artifacts only and never leaves the machine.
   local_phase && x_mode_setup
+  local_phase && herdr_layout_repair_sweep
   if [ -n "$fleet_sync_pid" ]; then
     wait "$fleet_sync_pid" || true
     cat "$fleet_sync_out"

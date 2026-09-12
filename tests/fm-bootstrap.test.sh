@@ -1186,6 +1186,45 @@ test_startup_memory_budget_check() {
   pass "bootstrap emits STARTUP_MEMORY_BUDGET: when startup memory exceeds budget and is silent when within"
 }
 
+test_layout_repair_respects_home_and_phase() {
+  local home fakebin log out backend phase detect expected
+  home="$TMP_ROOT/layout-home"
+  fakebin=$(make_fake_toolchain "$TMP_ROOT/layout-tools")
+  log="$TMP_ROOT/layout-calls"
+  mkdir -p "$home/config" "$home/data" "$home/state"
+  fm_fake_exit0 "$fakebin" herdr
+  cat > "$fakebin/agent-axi" <<'SH'
+#!/usr/bin/env bash
+[ "$*" = 'layout --repair --json' ] || exit 91
+printf '%s\n' "$FM_HOME" >> "$FM_TEST_LAYOUT_LOG"
+printf '%s\n' '{"repair":{"converged":false,"counts":{"rebound":1}}}'
+SH
+  chmod +x "$fakebin/agent-axi"
+  while IFS='|' read -r backend phase detect expected; do
+    printf '%s\n' "$backend" > "$home/config/backend"
+    : > "$log"
+    out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$home" \
+      FM_BACKEND_HERDR_AXI_BIN="$fakebin/agent-axi" FM_TEST_LAYOUT_LOG="$log" \
+      FM_BOOTSTRAP_NETWORK="$phase" FM_BOOTSTRAP_DETECT_ONLY="$detect" \
+      FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh" 2>&1) \
+      || fail "layout bootstrap failed: $out"
+    if [ "$expected" = repair ]; then
+      [ "$(cat "$log")" = "$home" ] || fail "local Herdr bootstrap did not repair exactly its own home"
+      assert_contains "$out" 'BOOTSTRAP_INFO: healed herdr layout drift: 0 husk(s), 1 rebind' \
+        "bootstrap did not report the layout repair"
+    else
+      [ ! -s "$log" ] || fail "$backend/$phase/detect=$detect unexpectedly repaired layout"
+    fi
+  done <<'ROWS'
+herdr|skip|0|repair
+herdr|skip|1|none
+herdr|only|0|none
+tmux|skip|0|none
+ROWS
+  pass "bootstrap repairs only its configured Herdr home in the mutating local phase"
+}
+
+test_layout_repair_respects_home_and_phase
 test_bootstrap_reporting
 test_no_mistakes_min_version
 test_gh_axi_min_version

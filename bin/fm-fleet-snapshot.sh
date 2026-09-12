@@ -1896,8 +1896,10 @@ scout_report_lines() {
 }
 
 BACKLOG_JSON=$(backlog_json) || { echo "fm-fleet-snapshot: backlog read failed" >&2; exit 1; }
+[ -n "$BACKLOG_JSON" ] || { echo "fm-fleet-snapshot: backlog read produced no document" >&2; exit 1; }
 prefetch_task_current_states || { echo "fm-fleet-snapshot: task observation failed" >&2; exit 1; }
 TASKS_JSON=$(task_json_lines) || { echo "fm-fleet-snapshot: task snapshot failed" >&2; exit 1; }
+[ -n "$TASKS_JSON" ] || { echo "fm-fleet-snapshot: task snapshot produced no document" >&2; exit 1; }
 
 JSON_TRANSPORT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-fleet-snapshot.XXXXXX") \
   || { echo "fm-fleet-snapshot: temporary transport directory creation failed" >&2; exit 1; }

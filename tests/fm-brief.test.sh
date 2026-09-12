@@ -290,7 +290,9 @@ yolo on a ship brief|brief-refused-b1 some-proj --mode direct-PR --yolo on|--yol
 yolo=value form on a ship brief|brief-refused-b2 some-proj --mode direct-PR --yolo=off|--yolo is not a brief input
 mode on a scout brief|brief-refused-b3 some-proj --scout --mode direct-PR|--mode applies only to ship briefs
 mode on a secondmate charter|brief-refused-b4 --secondmate --no-projects --mode no-mistakes|--mode applies only to ship briefs
+unknown option|brief-refused-b5 some-proj --mode no-mistakes --misspelled|unknown option '--misspelled'
 ROWS
+  assert_absent "$home/data/brief-refused-b5/brief.md" "unknown option published a brief"
   pass "fm-brief.sh: --yolo and scout/secondmate --mode are refused, never silently dropped"
 }
 
@@ -856,6 +858,8 @@ test_worker_role_scope() {
       FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" arbitrary-project-name --mode "$kind" >/dev/null || fail "$kind scaffold failed"
     fi
     brief="$home/data/$kind/brief.md"
+    assert_grep "If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours" "$brief" \
+      "$kind lost the worker-role clarification"
     assert_no_grep '# Current worker role contract' "$brief" "$kind scaffolded a second owner of the role scope fm-spawn.sh delivers"
   done
   FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
@@ -865,9 +869,31 @@ test_worker_role_scope() {
   assert_no_grep 'do not adopt the supervisor identity' "$brief" "secondmate received the worker exception"
   assert_grep "The local \`AGENTS.md\` is your job description" "$brief" "secondmate lost its supervisor contract"
   assert_grep 'That file is your parent channel' "$brief" "secondmate lost its parent channel"
+  assert_grep 'firstmate-signalling' "$brief" "secondmate lost its dashboard signalling owner"
   pass "fm-brief: scaffolds leave the worker role scope to the launch boundary and keep the secondmate contract"
 }
 
+test_subagent_tier_in_every_scaffold() {
+  local kind home brief
+  home="$TMP_ROOT/subagent-tier"
+  for kind in no-mistakes direct-PR local-only scout secondmate; do
+    case "$kind" in
+      scout) FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" sample --scout >/dev/null ;;
+      secondmate) FM_HOME="$home" FM_SECONDMATE_CHARTER='Supervise assigned work.' \
+        "$ROOT/bin/fm-brief.sh" "$kind" --secondmate --no-projects >/dev/null ;;
+      *) FM_HOME="$home" "$ROOT/bin/fm-brief.sh" "$kind" sample --mode "$kind" >/dev/null ;;
+    esac || fail "$kind scaffold failed"
+    brief="$home/data/$kind/brief.md"
+    assert_grep '# Subagent model tier' "$brief" "$kind lost the mandatory model-tier block"
+    assert_grep 'must pass an explicit model' "$brief" "$kind lost explicit model selection"
+    assert_grep 'unless this brief names another' "$brief" "$kind lost the task model override"
+    assert_grep 'A Fable-class model or Haiku must never run as a subagent' "$brief" "$kind lost the hard tier exclusion"
+    assert_grep "$ROOT/docs/configuration.md" "$brief" "$kind lost the authoritative dispatch pointer"
+  done
+  pass "fm-brief: every scaffold delivers the complete model-tier contract"
+}
+
+test_subagent_tier_in_every_scaffold
 test_worker_role_scope
 test_script_parses
 test_no_heredoc_in_command_substitution

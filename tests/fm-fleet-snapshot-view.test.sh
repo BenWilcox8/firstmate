@@ -133,7 +133,8 @@ EOF
 }
 
 test_empty_fleet_json() {
-  local home out view
+  local home out view fakebin rc real_jq
+  real_jq=$(command -v jq)
   home=$(make_home empty)
   out=$(FM_HOME="$home" "$SNAPSHOT" --json)
   printf '%s' "$out" | jq -e '
@@ -148,6 +149,31 @@ test_empty_fleet_json() {
     || fail "empty snapshot schema or absence markers wrong: $out"
   view=$(FM_HOME="$home" "$VIEW")
   assert_contains "$view" "No live task metadata found." "empty fleet view should say no live metadata"
+  fakebin=$(make_fakebin "$home")
+  cat > "$fakebin/jq" <<'SH'
+#!/usr/bin/env bash
+if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = backlog ] && [ "$#" -eq 5 ] && [ "$1" = -n ] && [ "$2" = --arg ] && [ "$3" = path ]; then
+  exit 0
+fi
+if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = tasks ] && [ "$1" = -s ]; then
+  cat >/dev/null
+  exit 0
+fi
+exec "${FM_TEST_REAL_JQ:?}" "$@"
+SH
+  chmod +x "$fakebin/jq"
+  rc=0
+  PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" FM_HOME="$home" \
+    "$SNAPSHOT" --json >"$home/snapshot.out" 2>"$home/snapshot.err" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a producer with no document must fail"
+  [ ! -s "$home/snapshot.out" ] || fail "a failed producer must not publish a snapshot"
+  assert_contains "$(cat "$home/snapshot.err")" "backlog read produced no document" "empty backlog producer must be named"
+  rc=0
+  PATH="$fakebin:$PATH" FM_TEST_REAL_JQ="$real_jq" FM_TEST_EMPTY_PRODUCER=tasks FM_HOME="$home" \
+    "$SNAPSHOT" --json >"$home/snapshot.out" 2>"$home/snapshot.err" || rc=$?
+  [ "$rc" -ne 0 ] || fail "a task producer with no document must fail"
+  [ ! -s "$home/snapshot.out" ] || fail "an empty task producer must not publish a snapshot"
+  assert_contains "$(cat "$home/snapshot.err")" "task snapshot produced no document" "empty task producer must be named"
   pass "empty fleet snapshot and view use explicit absence markers"
 }
 

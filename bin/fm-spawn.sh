@@ -307,7 +307,7 @@
 # items), on a config/backlog-backend=manual home, and in a home that keeps no
 # data/backlog.md. An automatic-backend home with a backlog but no compatible
 # tasks-axi refuses before creating any lifecycle state.
-# On success prints: spawned <id> harness=<name> kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
+# On success prints: spawned <id> harness=<name> [account=<alias>] kind=<ship|scout|secondmate> [mode=<mode> yolo=<on|off>] window=<backend-target> worktree=<path>
 # A ship task records the explicit mode/yolo it was passed; a secondmate spawn records
 # mode=secondmate, yolo=off, home=, and projects=; a scout records neither, and both the
 # success line and state/<id>.meta omit them.
@@ -4199,4 +4199,4 @@ SPAWN_META_LOCK_HELD=0
 
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
-echo "spawned $ID harness=$HARNESS kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"
+echo "spawned $ID harness=$HARNESS${ACCOUNT_NAME:+ account=$ACCOUNT_NAME} kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"

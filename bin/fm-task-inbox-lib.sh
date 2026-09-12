@@ -77,6 +77,8 @@ _FM_TASK_INBOX_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$_FM_TASK_INBOX_LIB_DIR/fm-wake-lib.sh"
 # shellcheck source=/dev/null
 . "$_FM_TASK_INBOX_LIB_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-ping-lib.sh
+. "$_FM_TASK_INBOX_LIB_DIR/fm-ping-lib.sh"
 
 FM_TASK_INBOX_SCHEMA='fm-task-inbox.v1'
 FM_TASK_INBOX_GRACE_DEFAULT=90
@@ -264,8 +266,8 @@ fm_task_inbox_doorbell_line() {  # <record-path>
     *[![:print:]]*) return 1 ;;
   esac
   quoted=$(printf '%s' "$abs" | sed "s/'/'\\\\''/g")
-  printf ": Firstmate instruction waiting: list '%s'/*.msg and, in numeric order, read and act on each, then mv each handled file to '%s'/handled/." \
-    "$quoted" "$quoted"
+  printf ": Firstmate instruction waiting: list '%s'/*.msg and, in numeric order, read and act on each, then mv each handled file to '%s'/handled/. %s" \
+    "$quoted" "$quoted" "$(fm_ping_marker agent)"
 }
 
 # Ring the doorbell, best-effort: one endpoint-liveness pre-check, one advisory

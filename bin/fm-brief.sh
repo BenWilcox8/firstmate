@@ -84,12 +84,14 @@ case "${1:-}" in
   -h|--help) usage; exit 0 ;;
 esac
 
-# shellcheck source=bin/fm-marker-lib.sh
-. "$SCRIPT_DIR/fm-marker-lib.sh"
+# shellcheck source=bin/fm-operational-input.sh
+. "$SCRIPT_DIR/fm-operational-input.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
 # shellcheck source=bin/fm-dod-lib.sh
 . "$SCRIPT_DIR/fm-dod-lib.sh"
+# shellcheck source=bin/fm-brief-blocks-lib.sh
+. "$SCRIPT_DIR/fm-brief-blocks-lib.sh"
 PAUSED_VERB=${FM_CLASSIFY_PAUSED_VERB:-$FM_CLASSIFY_PAUSED_VERB_DEFAULT}
 
 resolve_directory_input() {
@@ -146,6 +148,7 @@ for a in "$@"; do
     # brief input. Refuse it loudly so it is never silently dropped here and then
     # believed to have been recorded.
     --yolo|--yolo=*) echo "error: --yolo is not a brief input; pass it to bin/fm-spawn.sh, which records the task's merge posture" >&2; exit 1 ;;
+    --*) echo "error: unknown option '$a'" >&2; exit 1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -212,6 +215,9 @@ The move IS the acknowledgement: without it firstmate rings again and eventually
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
+STATES_LINE=$(fm_brief_states_line "$PAUSED_VERB")
+TIER_BLOCK=$(fm_brief_subagent_tier_block "$FM_ROOT")
+
 if [ "$KIND" = secondmate ]; then
 SECONDMATE_PROJECTS=""
 idx=1
@@ -253,6 +259,9 @@ Do not invent a second delegation system.
 You do not generate your own work.
 Act only on tasks the main firstmate routes to you.
 Never start a survey, audit, or "find improvements" sweep on your own initiative; that is not your job and it is unwanted.
+The captain watches this session on a dashboard: load the \`firstmate-signalling\` skill, which points at the single owner of that protocol, and follow it rather than any restatement.
+
+$TIER_BLOCK
 
 # The captain and the parent channel
 Nobody reads this chat: the captain and the main firstmate see only what is appended to $STATUS_FILE, and a captain-facing sentence that is not appended there has not been sent.
@@ -280,7 +289,7 @@ $INBOX_SECTION
 Handle routine work yourself.
 Report only true captain-relevant outcomes or a declared external wait by appending one line:
    \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
+$STATES_LINE
 Use \`$PAUSED_VERB: {why}\` (distinct from \`blocked:\`) only when your domain is deliberately idling on a known external wait you expect to clear on its own; use \`blocked:\` when you are stuck and need firstmate to act.
 Use this only for material phase changes, a captain decision, a real blocker, a failure, work ready for review, or work you landed.
 Work you landed includes a merge you performed yourself under standing merge authority and one the captain merged on the forge: under that authority nothing is ever \"ready for review\", so a landed merge that goes unreported reaches the captain as silence.
@@ -354,12 +363,16 @@ EOF
 TASK_SECTION=${TASK_SECTION%$'\n'}
 
 if [ "$KIND" = scout ]; then
+WORKER_RULES=$(fm_brief_worker_rules scout "$PAUSED_VERB" "$STATUS_FILE") || exit 1
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs.
 
 $TASK_SECTION
 
 $HERDR_SECTION
+
+$TIER_BLOCK
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
@@ -371,36 +384,7 @@ The report is the only thing that survives, so anything worth keeping must be in
 1. Never push to any remote and never open a PR.
 2. Stay inside this worktree; the only files you may write outside it are the report and the status file below.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes firstmate, so report sparingly: only phase changes a supervisor
-   would act on and the needs-decision/blocked/paused/done/failed states. No step-by-step
-   FYI progress lines; firstmate reads your pane for that.
-   Whenever you mention a PR anywhere - a status line, your terminal, a summary - write its full
-   https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
-   copies that URL from your line rather than assembling one.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
-   known external wait you expect to clear on its own (an upstream release, a rate-limit reset):
-   firstmate then leaves your idle pane alone and rechecks it on a long cadence instead of
-   treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
-6. If a decision belongs to a human (product choices, destructive actions),
-   append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
-   A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs; only firstmate
-   manages the daemon.
-   Before you append \`blocked:\` about the pipeline, run \`no-mistakes daemon status\` and
-   \`no-mistakes axi status\`. If the daemon socket refuses connections or is missing, append
-   \`blocked: {the daemon error}\` and stop even when the local run record still says running or
-   fixing, because that record can be stale after the daemon exits. A run record failed with a
-   daemon error is also a real block.
-   Only after ruling out socket refusal, if the run is still running or fixing, reattach and keep
-   going. A drive-call error, timeout, slow read, or generic unreachability is NOT a daemon error:
-   the daemon accepts \`respond\` immediately and runs the round in the background, so a killed or
-   timed-out call was only waiting for a read while the run kept working.
+$WORKER_RULES
 
 $INBOX_SECTION
 
@@ -437,13 +421,17 @@ case "$MODE" in
     ;;
 esac
 DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
+WORKER_RULES=$(fm_brief_worker_rules ship "$PAUSED_VERB" "$STATUS_FILE" "$ASK_USER_BLOCK") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
+If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs.
 
 $TASK_SECTION
 
 $HERDR_SECTION
+
+$TIER_BLOCK
 
 # Setup
 You are in a disposable git worktree of $REPO, at a detached HEAD on a clean default branch.
@@ -458,40 +446,7 @@ If the top-level path is the primary checkout or not the worktree you were launc
 $RULE1
 2. Stay inside this worktree; modify nothing outside it.
 3. Use gh-axi for GitHub operations and chrome-devtools-axi for browser operations.
-4. Report status by appending one line:
-   \`echo "{state}: {one short line}" >> $STATUS_FILE\`
-   States: working, needs-decision, blocked, $PAUSED_VERB, done, failed.
-   Each append wakes firstmate, so report sparingly: only phase changes a supervisor
-   would act on (setup done, bug reproduced, fix implemented, validation passed) and the
-   needs-decision/blocked/paused/done/failed states. No step-by-step FYI progress lines;
-   firstmate reads your pane for that.
-   Whenever you mention a PR anywhere - a status line, your terminal, a summary - write its full
-   https:// URL exactly as the forge printed it, never a bare number such as "PR 108"; firstmate
-   copies that URL from your line rather than assembling one.
-   A mid-task \`working:\` line (including setup complete) is nonterminal: do not end the
-   turn after it; continue the same stage until a defined \`done:\` gate under Definition of done.
-   Use \`$PAUSED_VERB: {why}\` - distinct from \`blocked:\` - ONLY when you are deliberately idling on a
-   known external wait you expect to clear on its own (an upstream release, a rate-limit reset,
-   a scheduled window): firstmate then leaves your idle pane alone and rechecks it on a long
-   cadence instead of treating it as a possible wedge. Use \`blocked:\` when you are stuck and need help.
-5. If you hit the same obstacle twice, append \`blocked: {why}\` and stop; firstmate will help.
-6. If a decision belongs above the implementation worker (product choices, destructive actions),
-   append \`needs-decision: {summary of options}\` and stop. Firstmate will reply with the decision.
-$ASK_USER_BLOCK
-   A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs; only firstmate
-   manages the daemon.
-   Before you append \`blocked:\` about the pipeline, run \`no-mistakes daemon status\` and
-   \`no-mistakes axi status\`. If the daemon socket refuses connections or is missing, append
-   \`blocked: {the daemon error}\` and stop even when the local run record still says running or
-   fixing, because that record can be stale after the daemon exits. A run record failed with a
-   daemon error is also a real block.
-   Only after ruling out socket refusal, if the run is still running or fixing, reattach and keep
-   going. A drive-call error, timeout, slow read, or generic unreachability is NOT a daemon error:
-   the daemon accepts \`respond\` immediately and runs the round in the background, so a killed or
-   timed-out call was only waiting for a read while the run kept working.
+$WORKER_RULES
 
 $INBOX_SECTION
 

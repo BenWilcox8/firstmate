@@ -10,9 +10,9 @@
 # mode is refused rather than silently rendered as the pipeline contract.
 # The block opens with the fixed machine-readable "Delivery contract: mode=<mode>"
 # line that bin/fm-spawn.sh checks a ship brief against.
-# This file is the one owner of the no-mistakes `--intent` contract: only the
-# brief's `## Captain's intent` subsection plus later captain words, never
-# `## Firstmate spec` and never the worker's own tradeoffs.
+# This file owns the no-mistakes `--intent` contract: all accepted requirements
+# in the brief's Task section and later accepted instructions, including
+# constraints, exclusions, and the substance of referenced decisions.
 # The string passed must be self-sufficient - it plus the codebase reconstructs
 # roughly the same specification - so a report, decision, or PR the intent
 # refers to is written into it as substance, never left as a pointer.
@@ -145,20 +145,22 @@ fm_brief_marked_captain_words() {  # <task-body>
   '
 }
 
-fm_brief_intent_overlay() {  # <captain-intent>
+fm_brief_intent_overlay() {  # <accepted-task-requirements>
   cat <<'EOF'
 
 # Current no-mistakes intent contract
-This section supersedes every earlier brief instruction about constructing `--intent`, but not later clarifications actually supplied by the captain.
-Use the serialized captain intent below plus any later words the captain actually supplied as `--intent`; never include Firstmate specification or other mixed Task content.
+The Definition of done owns the `--intent` contract.
+Preserve all relevant requirements below plus later accepted requirements, constraints, exclusions, and clarifications.
+Use only each requirement's current accepted form.
+Do not replace requirements with a diff summary or with your own tradeoffs.
 
-## Captain intent authorized for --intent
+## Accepted task requirements for --intent
 EOF
   printf '%s\n' "$1"
   cat <<'EOF'
 
-Firstmate-authored constraints, acceptance criteria, implementation details, decisions, and tradeoffs are specification, not captain intent.
-The Definition of done's rule that `--intent` must be self-sufficient still governs the string you pass: resolve any report, decision, or PR the intent above refers to into its substance rather than passing the pointer.
+Resolve referenced reports, decisions, and PRs into their relevant substance before passing `--intent`.
+Do not include generic scaffold instructions unless they are task-specific.
 EOF
 }
 
@@ -224,12 +226,14 @@ Firstmate will then instruct you to run /no-mistakes to validate and ship a PR.
 
 You drive no-mistakes by responding to its gates, not by implementing fixes.
 Follow the guidance no-mistakes itself provides for the mechanics: it loads when you invoke /no-mistakes, and \`no-mistakes axi run --help\` plus the \`help\` lines in each \`axi\` response are authoritative and version-matched to the installed binary.
-When starting no-mistakes, pass \`--intent\` as only this brief's \`## Captain's intent\` subsection plus any later words the captain actually said.
-For a legacy brief with no such subsection, include only words explicitly labeled \`Captain:\`, \`Captain's words:\`, \`Captain's ask:\`, or \`Captain's intent:\`; never copy its mixed \`# Task\` wholesale. If it has no provenance-marked captain words, stop and ask firstmate instead of starting no-mistakes.
-Do not include \`## Firstmate spec\`, later Firstmate build constraints, or your own decisions and tradeoffs.
+When starting no-mistakes, preserve all relevant content from this brief's \`# Task\` section in \`--intent\`.
+Include accepted requirements from both \`## Captain's intent\` and \`## Firstmate spec\`, or from a legacy \`# Task\` section.
+Include every later accepted Firstmate requirement, clarification, constraint, exclusion, and supersession, using only each requirement's current accepted form.
+Retain direct requirements instead of substituting a diff summary or your own tradeoffs.
+Exclude generic operational, status, delivery, and other scaffold instructions unless they are task-specific.
 The \`--intent\` string you pass must be self-sufficient: that string plus the codebase must let a reader reconstruct roughly the same specification, without depending on a separate report, a PR, or context that lives only in this conversation.
-When the captain's intent refers to a report, decision, or PR ("do items 1, 2, 3, and 7 of the report"), write the substance of the referenced items into \`--intent\` in the captain's terms, not only the pointer; that substance is the captain's ask by reference, while Firstmate's build instructions and your own decisions still stay out.
-This replaces the no-mistakes skill's advice to enrich \`--intent\` with decisions and tradeoffs; that advice does not apply to Firstmate-dispatched work.
+When an accepted requirement refers to a report, decision, or PR, include the relevant substance in \`--intent\`, not only its pointer.
+Only accepted decisions and tradeoffs belong in the validation contract.
 Do not hand-edit, commit, or fix findings yourself while a run is active - the pipeline applies every fix.
 
 One drive call blocks until the next gate or outcome, which routinely outlives what your harness lets a single command run: Claude Code kills a command at ten minutes maximum, while one fix round is capped around thirty minutes and up to three rounds chain.

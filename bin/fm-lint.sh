@@ -20,6 +20,21 @@
 # malformed GitHub workflow, including a self-broken ci.yml, fails locally
 # before merge instead of only failing to run as CI.
 #
+# Every tests/*.sh, bin/*.sh, and bin/backends/*.sh file in the canonical set,
+# every extension script (bin/*.mjs, .pi/extensions/**, .opencode/plugins/**),
+# plus any *.test.sh path given explicitly, is also scanned for three
+# hazardous shapes: a restricted-PATH fallback that names an FHS directory
+# without the portable tool-resolution helper; a hardcoded absolute path to a
+# tool (e.g. /bin/bash) used as a shebang, exec target, symlink target,
+# recorded argv, or subprocess argv element, which bypasses PATH resolution
+# entirely; and a single-quoted `bash -c '...'` body that reads an
+# outer-scope shell variable never exported or passed through that
+# invocation's own prefix. All three break silently rather than failing
+# loudly, so ShellCheck alone cannot catch them (and cannot even parse the
+# non-shell extension scripts); this is the single lint entry point either
+# way. The scan skips a fixture literal that never executes. Extension
+# scripts are hazard-scanned only, never handed to ShellCheck.
+#
 # With no explicit paths, the file set and source-following posture depend
 # on context:
 #   - In CI (GITHUB_ACTIONS=true or CI=true), on the main branch, or when no
@@ -122,6 +137,310 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
   fi
   printf '%s\n' "$rc" > "$output.rc"
   return "$rc"
+}
+
+# fm_lint_hazard_targets prints, one per line, the members of its argument
+# list the hazard scan below reads: every tests/*.sh, bin/*.sh, and
+# bin/backends/*.sh canonical root, so shared helpers like tests/lib.sh and
+# tests/wake-helpers.sh are covered by the same "repo-wide net" as the suites
+# themselves, plus every extension script (bin/*.mjs, .pi/extensions/**,
+# .opencode/plugins/**), plus any *.test.sh path given explicitly, so a
+# scratch fixture (the lint self-test) opts in by name without needing to
+# sit under a directory literally called tests/. Each pattern is paired with
+# a "*/"-prefixed twin so a fixture rooted anywhere (a self-test's own tmp
+# directory ending in bin/foo.sh or .pi/extensions/foo.ts) is recognized the
+# same way a real repo-relative path is; case patterns match "/" like any
+# other character, so bin/*.sh already covers bin/backends/*.sh and
+# .pi/extensions/*.ts already covers .pi/extensions/lib/*.ts.
+fm_lint_hazard_targets() {
+  local path
+  for path in "$@"; do
+    [ -f "$path" ] || continue
+    case "$path" in
+      tests/*.sh|*.test.sh) printf '%s\n' "$path" ;;
+      bin/*.sh|*/bin/*.sh) printf '%s\n' "$path" ;;
+      bin/*.mjs|*/bin/*.mjs) printf '%s\n' "$path" ;;
+      .pi/extensions/*.ts|*/.pi/extensions/*.ts) printf '%s\n' "$path" ;;
+      .pi/extensions/*.mjs|*/.pi/extensions/*.mjs) printf '%s\n' "$path" ;;
+      .opencode/plugins/*.js|*/.opencode/plugins/*.js) printf '%s\n' "$path" ;;
+    esac
+  done
+}
+
+# fm_lint_write_hazard_scanner writes the embedded hazard-scan Perl script to
+# the given path. Kept as one small file rather than a second bin/ entry
+# point: bin/fm-lint.sh remains the only thing CI and no-mistakes invoke.
+fm_lint_write_hazard_scanner() {
+  cat > "$1" <<'FM_LINT_HAZARD_SCAN_PL'
+#!/usr/bin/env perl
+# fm-lint.sh's embedded hazard scan - see that script's header for the
+# contract. Scans each hazard-scan target file (fm_lint_hazard_targets) for
+# three shapes that broke real suites:
+#   1. a restricted-PATH fallback naming an FHS directory (nothing on it
+#      resolves on a host, like NixOS, whose /bin and /usr/bin hold only a
+#      handful of tools) without the portable tool-resolution helper.
+#   2. a hardcoded absolute path to a tool (e.g. /bin/bash, /bin/echo) used
+#      as a shebang, exec target, symlink target, recorded argv, or
+#      subprocess argv element - PATH cannot help here, since the path
+#      bypasses it entirely.
+#   3. a single-quoted `bash -c '...'` body reading, by name, a shell
+#      variable the outer test scope assigned but never exported or passed
+#      through that invocation's own env-var prefix - invisible to the
+#      child, so it aborts under `set -u` or is masked by a `:-default`
+#      while the case still reports ok.
+# Prints one "<file>:<line>: <message>" finding per line and exits nonzero
+# if any file had one.
+use strict;
+use warnings;
+
+my $findings = 0;
+
+# A heredoc body is data one part of the script writes to a file or pipe,
+# never code this script itself executes, so text inside one (a fixture
+# embedding an example of either hazard, quoted or not) is never a hazard
+# here. Blank those lines out before either scan runs, keeping every other
+# line's number unchanged.
+sub strip_heredocs {
+  my ($lines) = @_;
+  my @out = @$lines;
+  my $i = 0;
+  while ($i <= $#out) {
+    if ($out[$i] =~ /<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)\1/) {
+      my $delim = $2;
+      $i++;
+      while ($i <= $#out) {
+        my $body_line = $out[$i];
+        my $trimmed = $body_line;
+        $trimmed =~ s/^\s+|\s+$//g;
+        $out[$i] = "\n";
+        last if $trimmed eq $delim;
+        $i++;
+      }
+    }
+    $i++;
+  }
+  return \@out;
+}
+
+sub scan_restricted_path {
+  my ($file, $lines) = @_;
+  my $n = 0;
+  for my $i (0 .. $#$lines) {
+    my $line = $lines->[$i];
+    next if $line =~ /^\s*#/;
+    next unless $line =~ /\b(?:BASE_PATH|RUN_PATH|FM_TEST_BASE_PATH)\b/;
+    next unless $line =~ m{(?:/usr/bin|/usr/sbin|(?<![\w/])/bin(?![\w])|(?<![\w/])/sbin(?![\w]))};
+    next if $line =~ /fm_test_core_path/;
+    printf "%s:%d: restricted-PATH fallback names an FHS directory without fm_test_core_path: %s\n",
+      $file, $i + 1, $line =~ s/^\s+|\s+$//gr;
+    $n++;
+  }
+  return $n;
+}
+
+# scan_absent_tool_hazards <file> <lines>: one finding per hardcoded absolute
+# path to a tool that does not exist outside an FHS layout (e.g. /bin/bash on
+# a host where /bin holds only sh), in a position where the path is actually
+# used as an executable: a shebang, exec target, symlink target, recorded
+# argv, or subprocess argv element. The same text as DATA (e.g. asserting on
+# a fake `ps` line) is not a hazard, so only execution positions count. A
+# `[ -x /bin/... ]` or `command -v /bin/...` guard within the two preceding
+# lines makes the line portable by construction, so it is not flagged.
+sub scan_absent_tool_hazards {
+  my ($file, $lines) = @_;
+  my $n = 0;
+  my $tool = qr{/bin/(?:bash|echo|true|false|cat|sleep|cp|mv|rm|ls|sed|grep)(?![\w.-])};
+  my @recent = ("", "");
+  for my $i (0 .. $#$lines) {
+    my $line = $lines->[$i];
+    my $guarded = ($recent[0] =~ m{-x\s+/bin/} || $recent[1] =~ m{-x\s+/bin/}
+                   || $line =~ m{-x\s+/bin/} || $line =~ m{command -v\s+/bin/});
+    push @recent, $line;
+    shift @recent;
+    next if $line =~ /^\s*#/ && $line !~ /^#!/;
+    next if $guarded;
+    next unless
+         $line =~ /^#!$tool/
+      || $line =~ /\bexec\s+$tool/
+      || $line =~ /\bln\s+-s\s+$tool/
+      || $line =~ /(?:^|\s)--\s+$tool/
+      || $line =~ /\bexec(?:l|v|vp|lp)?\s*\(\s*"$tool"/
+      || $line =~ /(?:^|;|\||&|\(|\}|\bdo\b|\bthen\b|\belse\b|\bin\b)\s*$tool/
+      || $line =~ /\$\(\s*$tool/
+      || $line =~ /(?:^|\s)\w+=$tool/
+      || $line =~ /[\[\(]\s*[\x27"]$tool[\x27"]/;
+    printf "%s:%d: hardcoded absolute path to a tool that may not exist outside an FHS layout: %s\n",
+      $file, $i + 1, $line =~ s/^\s+|\s+$//gr;
+    $n++;
+  }
+  return $n;
+}
+
+my %safe = map { $_ => 1 } qw(
+  PATH HOME USER SHELL PWD OLDPWD LANG LC_ALL LC_CTYPE TERM TZ TMPDIR
+  LOGNAME EDITOR VISUAL DISPLAY SSH_AUTH_SOCK SSH_TTY XDG_RUNTIME_DIR
+  RANDOM SECONDS LINENO BASHPID PPID UID EUID HOSTNAME HOSTTYPE OSTYPE
+  MACHTYPE BASH BASH_VERSION FUNCNAME PIPESTATUS OPTARG OPTIND REPLY
+  IFS GITHUB_ACTIONS CI
+);
+
+sub find_bash_c_bodies {
+  my ($lines) = @_;
+  my $n = scalar @$lines;
+  my @out;
+  my $i = 0;
+  while ($i < $n) {
+    my $line = $lines->[$i];
+    if ($line =~ /^(.*?)\bbash\s+-c\s+'(.*)$/s) {
+      my ($prefix, $rest) = ($1, $2);
+      my $start_lineno = $i + 1;
+      my @prefix_lines = ($prefix);
+      my $j = $i - 1;
+      while ($j >= 0 && $lines->[$j] =~ /\\\s*$/) {
+        unshift @prefix_lines, $lines->[$j];
+        $j--;
+      }
+      my $prefix_text = join(' ', @prefix_lines);
+      my $body = '';
+      my $cur = $rest;
+      my $end_lineno = $start_lineno;
+      while (1) {
+        if ($cur =~ /^([^']*)'(.*)$/s) {
+          $body .= "$1\n";
+          last;
+        } else {
+          $body .= "$cur\n";
+          $i++;
+          last if $i >= $n;
+          $cur = $lines->[$i];
+          $end_lineno = $i + 1;
+        }
+      }
+      push @out, { start => $start_lineno, end => $end_lineno,
+                   prefix => $prefix_text, body => $body };
+      $i++;
+      next;
+    }
+    $i++;
+  }
+  return @out;
+}
+
+sub scan_unexported_body_vars {
+  my ($file, $lines) = @_;
+  my $n = 0;
+  my @bodies = find_bash_c_bodies($lines);
+  return 0 unless @bodies;
+
+  my %exported;
+  for my $l (@$lines) {
+    if ($l =~ /^\s*export\s+([A-Za-z_][A-Za-z0-9_]*)\b/) {
+      $exported{$1} = 1;
+    }
+    if ($l =~ /^\s*export\s+(?:[A-Za-z_][A-Za-z0-9_]*\s+)*([A-Za-z_][A-Za-z0-9_]*)=/) {
+      $exported{$1} = 1;
+    }
+  }
+
+  # A name plainly assigned somewhere OUTSIDE any bash -c body is the outer
+  # test scope's own local variable. A body reading that exact name, without
+  # it being exported or carried by this invocation's own prefix, is the
+  # hazard: the value exists in scope and the author forgot the inner shell
+  # cannot see it. A name never assigned outside a body instead belongs to
+  # whatever production script the body sources, which this check does not
+  # and should not try to model.
+  my %in_body_line;
+  for my $b (@bodies) {
+    $in_body_line{$_} = 1 for $b->{start} .. $b->{end};
+  }
+  my %outer_assigned;
+  for my $idx (0 .. $#$lines) {
+    next if $in_body_line{$idx + 1};
+    my $l = $lines->[$idx];
+    while ($l =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=([^\s;&|()]*)/g) {
+      my ($name, $value) = ($1, $2);
+      my $end = pos($l);
+      # A `case` arm label (`  STATE=ready)`) matches the same bare `NAME=`
+      # shape but is a pattern, not an assignment. Unlike a real assignment,
+      # the label is the only thing on its line up to a trailing `)` or
+      # `);;`, and its value never carries a quote character (a real
+      # assignment's quoted value, e.g. `STATUS="closed)"`, can end flush
+      # against a literal `)` and must not be mistaken for a label).
+      if (substr($l, $end, 1) eq ')' && $value !~ /["']/) {
+        my $before = substr($l, 0, $end - length($name) - 1 - length($value));
+        my $after = substr($l, $end + 1);
+        next if $before =~ /^\s*$/ && $after =~ /^\s*;{0,2}\s*$/;
+      }
+      $outer_assigned{$name} = 1;
+    }
+    if ($l =~ /^\s*local\s+(?:-\w+\s+)?(.+)$/) {
+      for my $tok (split /\s+/, $1) {
+        $tok =~ s/=.*$//;
+        $outer_assigned{$tok} = 1;
+      }
+    }
+    if ($l =~ /^\s*read\s+(?:-\w+\s+)*(.+)$/) {
+      $outer_assigned{$_} = 1 for split /\s+/, $1;
+    }
+  }
+
+  for my $b (@bodies) {
+    my %localvars;
+    while ($b->{prefix} =~ /(?:^|[\s(])([A-Za-z_][A-Za-z0-9_]*)=/g) {
+      $localvars{$1} = 1;
+    }
+    my $body = $b->{body};
+    my %bodylocal;
+    while ($body =~ /(?:^|[\s(;])([A-Za-z_][A-Za-z0-9_]*)=/gm) {
+      $bodylocal{$1} = 1;
+    }
+    while ($body =~ /^\s*local\s+(?:-\w+\s+)?(.+)$/gm) {
+      $bodylocal{$_} = 1 for map { (my $x = $_) =~ s/=.*$//; $x } split /\s+/, $1;
+    }
+    while ($body =~ /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g) {
+      $bodylocal{$1} = 1;
+    }
+    while ($body =~ /\bread\s+(?:-\w+\s+)*(.+)$/gm) {
+      $bodylocal{$_} = 1 for split /\s+/, $1;
+    }
+
+    my @bodylines = split /\n/, $body, -1;
+    my $bl = $b->{start};
+    for my $bline (@bodylines) {
+      while ($bline =~ /\$(\{)?([A-Za-z_][A-Za-z0-9_]*)/g) {
+        my ($braced, $var) = ($1, $2);
+        if ($braced) {
+          my $tail = substr($bline, pos($bline));
+          next if $tail =~ /^:?[-=+?]/;
+        }
+        next if $var =~ /^[0-9]+$/;
+        next if $safe{$var};
+        next if $localvars{$var};
+        next if $exported{$var};
+        next if $bodylocal{$var};
+        next unless $outer_assigned{$var};
+        printf "%s:%d: unexported \$%s read inside a single-quoted bash -c body (opens line %d)\n",
+          $file, $bl, $var, $b->{start};
+        $n++;
+      }
+      $bl++;
+    }
+  }
+  return $n;
+}
+
+die "usage: fm-lint-hazard-scan.pl <file>...\n" unless @ARGV;
+for my $file (@ARGV) {
+  open my $fh, '<', $file or die "fm-lint-hazard-scan.pl: cannot open $file: $!\n";
+  my @raw_lines = <$fh>;
+  close $fh;
+  my $lines = strip_heredocs(\@raw_lines);
+  $findings += scan_restricted_path($file, $lines);
+  $findings += scan_absent_tool_hazards($file, $lines);
+  $findings += scan_unexported_body_vars($file, $lines);
+}
+exit($findings > 0 ? 1 : 0);
+FM_LINT_HAZARD_SCAN_PL
 }
 
 # Private subprocess mode used only by the bounded parent above.
@@ -246,8 +565,34 @@ fm_lint_is_canonical_root() {
   esac
 }
 
+# fm_lint_is_extension_root tests membership in the extension-script hazard
+# set: a direct *.mjs child of bin/, or a *.ts/*.mjs child of .pi/extensions/
+# (including its lib/ subdirectory), or a *.js child of .opencode/plugins/
+# (including its lib/ subdirectory). These are hazard-scanned only; ShellCheck
+# cannot parse them and never sees them (see SC_ROOTS below).
+fm_lint_is_extension_root() {
+  local path=$1 dir base
+  case "$path" in
+    */*) dir=${path%/*}; base=${path##*/} ;;
+    *) dir=; base=$path ;;
+  esac
+  case "$dir" in
+    bin)
+      case "$base" in *.mjs) return 0 ;; esac
+      ;;
+    .pi/extensions|.pi/extensions/lib)
+      case "$base" in *.ts|*.mjs) return 0 ;; esac
+      ;;
+    .opencode/plugins|.opencode/plugins/lib)
+      case "$base" in *.js) return 0 ;; esac
+      ;;
+  esac
+  return 1
+}
+
 CHANGED_MODE=0
 EXPLICIT_PATHS=0
+EXT_ROOTS=()
 FOLLOW_SOURCES=1
 EXCLUDE_CODES=
 if [ "$#" -gt 0 ]; then
@@ -267,13 +612,21 @@ else
 
   if [ "$full_lint" -eq 1 ]; then
     ROOTS=(bin/*.sh bin/backends/*.sh tests/*.sh)
+    for ext_pattern in bin/*.mjs .pi/extensions/*.ts .pi/extensions/*.mjs \
+      .pi/extensions/lib/*.ts .pi/extensions/lib/*.mjs \
+      .opencode/plugins/*.js .opencode/plugins/lib/*.js; do
+      [ -f "$ext_pattern" ] && EXT_ROOTS+=("$ext_pattern")
+    done
   else
     CHANGED_MODE=1
     ROOTS=()
     while IFS= read -r -d '' changed_path; do
-      fm_lint_is_canonical_root "$changed_path" || continue
       [ -f "$changed_path" ] || continue
-      ROOTS+=("$changed_path")
+      if fm_lint_is_canonical_root "$changed_path"; then
+        ROOTS+=("$changed_path")
+      elif fm_lint_is_extension_root "$changed_path"; then
+        EXT_ROOTS+=("$changed_path")
+      fi
     done < <(git diff --name-only --diff-filter=ACMR -z "$merge_base" -- 2>/dev/null | LC_ALL=C sort -z)
   fi
 fi
@@ -283,6 +636,19 @@ if [ "$CHANGED_MODE" -eq 1 ] && [ "$FAST" -eq 0 ]; then
   ANALYSIS_MODE=local
 fi
 ROOT_COUNT=${#ROOTS[@]}
+
+# SC_ROOTS is the subset of ROOTS ShellCheck actually reads: everything but
+# extension scripts. In the full and changed-file selections above ROOTS
+# already holds only *.sh paths, so SC_ROOTS is identical to ROOTS there; an
+# explicit invocation can name a non-shell extension script directly (the
+# lint self-test does this), and that file must reach the hazard scan below
+# without also being handed to ShellCheck, which cannot parse it.
+SC_ROOTS=()
+for path in "${ROOTS[@]}"; do
+  case "$path" in
+    *.sh) SC_ROOTS+=("$path") ;;
+  esac
+done
 
 if [ "$LIST_FILES" -eq 1 ]; then
   [ "$#" -eq 0 ] || {
@@ -319,7 +685,7 @@ else
   printf 'fm-lint.sh: full ShellCheck extended analysis enabled\n' >&2
 fi
 
-if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ]; then
+if [ "$CHANGED_MODE" -eq 1 ] && [ "$ROOT_COUNT" -eq 0 ] && [ "${#EXT_ROOTS[@]}" -eq 0 ]; then
   printf 'fm-lint.sh: no changed lint targets\n'
   overall_rc=0
   fm_lint_run_workflows || overall_rc=$?
@@ -372,7 +738,7 @@ done
 
 index=1
 : > "$WEIGHTS"
-for path in "${ROOTS[@]}"; do
+for path in "${SC_ROOTS[@]}"; do
   case "$path" in
     *"$TAB"*|*$'\n'*)
       printf 'fm-lint.sh: paths containing tabs or newlines are not supported: %s\n' "$path" >&2
@@ -521,6 +887,15 @@ while [ "$worker" -lt "$SHARD_COUNT" ]; do
   fi
   worker=$((worker + 1))
 done
+
+mapfile -t HAZARD_TARGETS < <(fm_lint_hazard_targets "${ROOTS[@]}" "${EXT_ROOTS[@]}")
+if [ "${#HAZARD_TARGETS[@]}" -gt 0 ]; then
+  HAZARD_SCANNER="$TMP_ROOT/fm-lint-hazard-scan.pl"
+  fm_lint_write_hazard_scanner "$HAZARD_SCANNER"
+  if ! "$PERL_BIN" "$HAZARD_SCANNER" "${HAZARD_TARGETS[@]}"; then
+    [ "$overall_rc" -ne 0 ] || overall_rc=1
+  fi
+fi
 
 if [ -n "$TELEMETRY" ]; then
   TELEMETRY_END_EPOCH=$(date +%s)

@@ -74,6 +74,11 @@ That is not hypothetical: by 2026-09-01 the lane had grown from 116 to 139 scrip
 `bin/fm-test-run.sh --check-coverage` now reports the unmeasured share as `serial_unhinted=` and refuses past `PORTABLE_SERIAL_MAX_UNHINTED_PERCENT`, so hint drift fails the coverage guard instead of silently pushing one shard into its job cap.
 Refresh the hints whenever the serial lane gains scripts, rather than waiting for that bound to trip.
 
+The upstream timing tables below are historical baseline measurements.
+The local integration adds passing isolated measurements from 2026-09-12: `tests/fm-endpoint-retire.test.sh` took 24509 ms and `tests/fm-herdr-layout-lib.test.sh` took 653 ms.
+These scripts use fake backend fixtures and do not operate the live fleet.
+Run `bin/fm-test-run.sh --check-coverage` for the current partition and unmeasured share.
+
 | Lane | Script count | Estimated duration |
 |---|---:|---:|
 | `portable-serial-1of5` | 29 | 821231 ms (~13.69 min) |
