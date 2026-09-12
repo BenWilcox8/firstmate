@@ -94,10 +94,11 @@ fm_control_harness_family() {  # <recorded-harness>
   esac
 }
 
-# Which task kinds an adapter is verified to run. muse, gemini, and rovo are
-# crewmate/scout adapters only: none has a primary supervision protocol,
-# and bin/fm-spawn.sh refuses a --secondmate launch on any of them. The control
-# plane asks this BEFORE it stops anything, so an incompatible relaunch target is
+# Which task kinds an adapter is verified to run. Muse and Gemini are
+# crewmate/scout adapters only: neither has a primary supervision protocol,
+# and bin/fm-spawn.sh refuses a --secondmate launch on either. Rovo remains in
+# these control tables only for task records created before its dispatch disable.
+# The control plane asks this BEFORE it stops anything, so an incompatible relaunch target is
 # refused while the current agent is still running rather than after it has
 # been stopped.
 fm_control_harness_supports_kind() {  # <harness> <kind>
@@ -113,8 +114,8 @@ fm_control_harness_supports_kind() {  # <harness> <kind>
 # whose Esc only moves focus to the scrollback; grok cancels on Ctrl+C.
 # gemini names its own key in the running turn's status row
 # (`(esc to cancel, <n>s)`), and a single Escape was verified to cancel it.
-# rovo cancels on a single Escape too, printing "Agent cancelled" (verified,
-# 202609.1.2). omp (Oh My Pi) shares Pi's single Escape, empty composer
+# Historical Rovo records cancel on a single Escape, printing "Agent cancelled".
+# omp (Oh My Pi) shares Pi's single Escape, empty composer
 # afterwards, and /quit exit (verified omp 18.1.2 in a PTY, re-verified 18.1.11
 # through Herdr).
 fm_control_interrupt_key() {  # <harness>
@@ -163,9 +164,9 @@ fm_control_interrupt_ack_source() {  # <harness>
     # after an interrupt was measured as variable - sometimes seconds, sometimes
     # not within 20 - so a cancellation claim built on it would be unreliable.
     # Normal turn completion is prompt, which is what the busy fold depends on.
-    # rovo's TUI prints "Agent cancelled" on Escape, but for parity with
-    # claude/cursor this stays 'none': the ack is a rendered string, not a
-    # recorded state source, and rovo has no busy wiring to confirm against.
+    # A historical Rovo pane prints "Agent cancelled" on Escape, but this stays
+    # 'none': the acknowledgement is a rendered string, not a recorded state
+    # source, and Rovo has no busy wiring to confirm against.
     claude|codex|opencode|pi|pi-signed|omp|grok|kimi|cursor|gemini|rovo) printf 'none' ;;
     *) return 1 ;;
   esac

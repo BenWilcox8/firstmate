@@ -57,11 +57,11 @@
 #      temporary regex fallbacks classify a grok or rovo task from its
 #      rendered tail, then unknown missing
 #   5. malformed, stale, or untrusted records -> unknown, never a fallback
-# Grok and Rovo are the ONLY rendered-text classifications that survive the
-# redesign, because neither's structured lifecycle was credited-live-verified
-# in the approved audit (Rovo's clean ACP stopReason lives outside the TUI
-# path firstmate drives, see references/harness/rovo.md); each is scoped to
-# its own harness= and can never classify another adapter. The delivery
+# Grok and historical Rovo records are the only rendered-text classifications
+# that survive the redesign, because neither's structured lifecycle was
+# credited-live-verified in the approved audit; each is scoped to its own
+# harness= and can never classify another adapter. Rovo dispatch is disabled.
+# The delivery
 # guards in bin/fm-composer-lib.sh match rendered footers for submit
 # acknowledgement and away-mode supervisor injection only; neither is a
 # recorded worker state source.
@@ -838,14 +838,11 @@ fm_busy_grok_tail_busy() {
     | grep -qiE "${FM_BUSY_REGEX:-${FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT:-Ctrl\\+c:cancel}}"
 }
 
-# fm_busy_rovo_tail_busy: the Rovo-only temporary rendered-tail fallback.
-# Consumes the tail on stdin; 0 when Rovo's verified animated busy line
-# matches (the "Rovo is thinking..." text rendered while a turn is running,
-# verified live on rovo 202609.1.2; both observed glyph variants share this
-# literal text). rovo has no turn-end hook - its eventHooks fire at tool
-# granularity only - so this fallback, like Grok's, is the only source; it is
-# never armed as a semantic writer (fm_busy_sources_for_harness trusts
-# nothing for rovo). FM_BUSY_ROVO_REGEX overrides the signature.
+# fm_busy_rovo_tail_busy: the Rovo-only rendered-tail fallback retained for
+# task records created before Rovo dispatch was disabled. It consumes the tail
+# on stdin and returns 0 when the animated "Rovo is thinking..." line matches.
+# Rovo has no turn-end hook, so this is never armed as a semantic writer.
+# FM_BUSY_ROVO_REGEX overrides the signature.
 fm_busy_rovo_tail_busy() {
   grep -v '^[[:space:]]*$' | tail -12 \
     | grep -qiE "${FM_BUSY_ROVO_REGEX:-Rovo is thinking}"

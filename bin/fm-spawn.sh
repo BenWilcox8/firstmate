@@ -126,8 +126,9 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
-#   overrides it for this spawn (either kind). A non-flag string containing
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|omp)
+#   overrides it for this spawn (either kind). Rovo is disabled and always refuses.
+#   A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters. For pi and pi-signed, fm-spawn resolves the selected executable
 #   name from PATH once, probes that concrete path with --help, and launches the
@@ -261,7 +262,6 @@
 #     __WORKTREE__  absolute path to the task worktree
 #     __CURSORBIN__ resolved, cursor-verified executable for a cursor launch
 #     __GEMINISETTINGS__ firstmate-owned per-task gemini settings file (busy-state hooks)
-#     __ROVOBIN__   resolved, rovo-verified executable for a rovo launch
 # Verified per-harness turn-end hooks are installed automatically where enabled; some live outside the worktree.
 # Kimi uses one surgically installed Firstmate region in $HOME/.kimi-code/config.toml,
 # a firstmate-owned global hook and registry, and a gitignored per-task pointer.
@@ -270,13 +270,6 @@
 # muse installs no hook at all - its plugin engine is off in the default build - so
 # it writes state/<id>.muse-session to bind the pane to muse's own session event
 # log; muse and gemini are crewmate/scout only and are refused for --secondmate.
-# rovo installs no hook either - its eventHooks fire at tool granularity only,
-# never turn-end - so it carries no busy-source wiring at all and no turn-end
-# hook. A positional brief is dead-on-arrival (rovo loads, never works, and drops
-# to an idle shell), so rovo launches BARE and receives an absolute brief pointer
-# only after a TUI readiness gate, then a delivery-confirmation gate - the same
-# launch-then-send shape as kimi. Its busy state is a screen-scrape fallback like
-# grok. rovo is crewmate/scout only and is refused for --secondmate, like muse.
 # cursor installs no per-task hook either: it writes state/<id>.cursor-session to
 # bind the pane to cursor's own conversation transcript (projects root, the exact
 # workspace path cursor records in .workspace-trusted, and the conversations that
@@ -1680,32 +1673,8 @@ launch_template() {
     # written below. Nothing to place in the template for it.
     # codex, opencode, and kimi are also markerless and share this inherited-marker hazard; changing their verified launch boundaries belongs in follow-up work.
     muse) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS XDG_CONFIG_HOME=__MUSECONFIG__ XDG_DATA_HOME=__MUSEDATA__ MUSE_EXPERIMENTAL_FOREIGN_PERSONAL_CONTEXT_KILL=on __MUSEBIN__ --yolo __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
-    # rovo (Atlassian Rovo CLI): a positional brief is dead-on-arrival - rovo
-    # loads, never enters a working state, and drops back to an idle shell within
-    # about 10-15 seconds (confirmed live four times over a raw PTY and once under
-    # real tmux with the exact send-keys shape below). So rovo launches BARE,
-    # exactly like kimi, and receives an absolute brief pointer only after the TUI
-    # readiness gate below. --disable-permission-checks/--yolo makes every file
-    # CRUD operation and bash command run without confirmation; Atlassian-data and
-    # user MCP-server tools still prompt per its own printed caveat, which crew and
-    # scout tasks never touch. --startup-receipt is not used either: it requires
-    # "prompt-free interactive mode", so it cannot gate a launch that will have a
-    # message typed into it. rovo does NOT scrub an inherited
-    # CLAUDECODE/CURSOR_AGENT/etc, so foreign primary markers are cleared here as
-    # defense in depth alongside the marker-ordering fix in bin/fm-harness.sh
-    # (issue #3517); CURSOR_AGENT/CURSOR_INVOKED_AS are cleared by the shared
-    # outer wrap below, like every other non-cursor harness. rovo has no
-    # turn-end hook (its eventHooks fire at tool granularity only, never
-    # turn-end), so no launch placeholder for one exists.
-    # __ROVOCONFIGOVERRIDE__ (not __EFFORTFLAG__) carries rovo's single
-    # --config-override flag: it always grants allowedExternalPaths for this
-    # task's home-side brief dir, steering inbox, and status file - the file
-    # tool confinement that otherwise blocks the standard
-    # instructions/steering/status/report loop (rovo's bash tool has no such
-    # grant and stays confined to the worktree; the worker's own file tools do
-    # respect the grant, confirmed live) - merged with agent.efficiencyLevel
-    # when a supported effort is requested, since a second --config-override
-    # would silently discard the first (confirmed live).
+    # Kept only as dormant implementation while the dispatch boundary below
+    # refuses every Rovo request before endpoint creation or launch delivery.
     rovo) printf '%s' 'env -u CLAUDECODE -u PI_CODING_AGENT -u GROK_AGENT -u FM_PI_HARNESS __ROVOBIN__ run --yolo __MODELFLAG____ROVOCONFIGOVERRIDE__' ;;
     *) return 1 ;;
   esac
@@ -1782,15 +1751,6 @@ fi
 # secondmate whose supervision cycle could never be armed.
 if [ "$KIND" = secondmate ] && { [ "$HARNESS" = muse ] || [ "$HARNESS" = gemini ]; }; then
   echo "error: $HARNESS is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
-  exit 1
-fi
-
-# rovo carries the same primary-supervision gap as muse: no turn-end hook, no
-# verified primary integration, so a secondmate (a firstmate instance that must
-# itself act as a primary) could never be supervised. Refuse loudly rather than
-# standing one up with no way to arm its watch cycle.
-if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
-  echo "error: rovo is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
   exit 1
 fi
 
@@ -3130,12 +3090,9 @@ kimi_spawn_fail() {  # <detail>
   echo "error: $1; inspect window $T" >&2
 }
 
-# rovo mirrors kimi's launch-then-send shape exactly: a positional brief is
-# dead-on-arrival, so rovo launches bare and takes its brief pointer only after a
-# readiness gate, then a delivery-confirmation gate. Both route their
-# composer-emptiness half through the shared classifier (fm_backend_composer_state)
-# like kimi. The banner and context-usage greps are launch-progress signals, not
-# composer shapes.
+# These dormant Rovo helpers remain only to preserve the implementation while
+# dispatch is disabled. A future re-enable must re-verify their launch and
+# delivery behavior before this code can become reachable again.
 rovo_capture() {
   fm_backend_capture "$BACKEND" "$T" 120 "$W" 2>/dev/null || true
 }
@@ -3148,13 +3105,8 @@ rovo_wait_for_ready() {
   local pane i=0 max=${FM_ROVO_READY_POLLS:-60} interval=${FM_ROVO_POLL_INTERVAL:-0.5}
   while [ "$i" -lt "$max" ]; do
     pane=$(rovo_capture)
-    # Lead with rovo's fresh-launch ASCII welcome banner (confirmed live), the
-    # same primary evidence kimi's own 'Welcome to Kimi Code!' match uses. The
-    # composer-empty fallback is WEAKER for rovo than for kimi: rovo's idle
-    # composer renders an inline placeholder chip (luminance ~163, above the
-    # ghost-strip threshold) that bin/fm-composer-lib.sh does not currently strip
-    # (see the deliberately-unfixed composer-ghost gap in rovo.md), so it can read
-    # non-empty - hence the banner is the primary signal.
+    # Retained as dormant implementation. Do not treat this as current Rovo
+    # launch evidence while the dispatch boundary above refuses Rovo.
     if printf '%s\n' "$pane" | grep -Fq 'Welcome to Rovo!' \
        || rovo_composer_is_empty; then
       return 0
