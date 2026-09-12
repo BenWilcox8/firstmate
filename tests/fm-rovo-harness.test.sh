@@ -110,7 +110,7 @@ test_raw_rovo_variants_refuse_before_launch() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
 $rec
 EOF
-  for label in unquoted quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout pipe and redirect expansion backticks env-after-delimiter env-after-assignment; do
+  for label in unquoted quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout nice-custom nohup-custom timeout-custom env-s pipe and redirect expansion backticks env-after-delimiter env-after-assignment; do
     case "$label" in
       unquoted) command='rovo run --yolo' ;;
       quoted) command="'rovo' run --yolo" ;;
@@ -121,6 +121,10 @@ EOF
       nice) command='nice rovo run --yolo' ;;
       nohup) command='nohup rovo run --yolo' ;;
       timeout) command='timeout 1 rovo run --yolo' ;;
+      nice-custom) command='nice custom-agent --flag' ;;
+      nohup-custom) command='nohup custom-agent --flag' ;;
+      timeout-custom) command='timeout 1 custom-agent --flag' ;;
+      env-s) command='env -S custom-agent' ;;
       pipe) command='custom-agent --flag | rovo run' ;;
       and) command='custom-agent --flag && rovo run' ;;
       redirect) command='custom-agent --flag > result' ;;

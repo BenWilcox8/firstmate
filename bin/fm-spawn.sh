@@ -1435,7 +1435,7 @@ raw_launch_words() {
 }
 
 raw_launch_executable() {
-  local index=0 word base
+  local index=0 word base assignments=0 delimiter=0
   RAW_ENV_PREFIX=0
   base=$(basename "${RAW_WORDS[0]:-}")
   [ "$base" = env ] || { RAW_EXECUTABLE=${RAW_WORDS[0]}; return 0; }
@@ -1444,10 +1444,10 @@ raw_launch_executable() {
   while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
     word=${RAW_WORDS[index]}
     case "$word" in
-      [A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;;
-      -i) index=$((index + 1)) ;;
-      -u) index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
-      --) index=$((index + 1)); continue ;;
+      [A-Za-z_][A-Za-z0-9_]*=*) assignments=1; index=$((index + 1)) ;;
+      -i) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 1)) ;;
+      -u) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
+      --) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; delimiter=1; index=$((index + 1)); continue ;;
       -*) return 1 ;;
       *) break ;;
     esac
