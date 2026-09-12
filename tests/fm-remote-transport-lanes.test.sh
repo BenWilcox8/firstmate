@@ -51,7 +51,7 @@ cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-entrypoint.sh" "$ROOT/bin/fm-remote-delta-read.sh" \
   "$ROOT/bin/fm-remote-secondmate-control.sh" "$ROOT/bin/fm-backend.sh" \
   "$ROOT/bin/fm-pending-reply-lib.sh" "$ROOT/bin/fm-task-inbox-lib.sh" \
-  "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-marker-lib.sh" \
+  "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-ping-lib.sh" \
   "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-tmux-lib.sh" \
   "$ROOT/bin/fm-composer-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
   "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" \
@@ -63,24 +63,24 @@ printf 'fixture\n' > "$REMOTE_ROOT/AGENTS.md"
 # Appends its tag to a shared log, then optionally sleeps: the log order is the
 # observable execution order.
 cat > "$REMOTE_ROOT/bin/fm-mark-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf '%s\n' "$1" >> "$2"
 sleep "${3:-0}"
 SH
 cat > "$REMOTE_ROOT/bin/fm-touch-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'ran\n' > "$1"
 SH
 # Marks its start, sleeps, then marks completion: cancellation must leave the
 # start marker without the completion marker.
 cat > "$REMOTE_ROOT/bin/fm-two-phase-job.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf 'started\n' > "$1"
 sleep "$3"
 printf 'finished\n' > "$2"
 SH
 cat > "$REMOTE_ROOT/bin/fm-stdin-probe.sh" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 while IFS= read -r line || [ -n "$line" ]; do printf 'stdin=%s\n' "$line"; done
 SH
 chmod +x "$REMOTE_ROOT/bin"/*.sh
@@ -194,7 +194,7 @@ B1=$FM_REMOTE_JOB_ID
 B_BEGAN=$(date +%s)
 fm_remote_job_wait "$ACCOUNT_HOME" "$B1" || fail "$FM_REMOTE_JOB_ERROR"
 B_ELAPSED=$(( $(date +%s) - B_BEGAN ))
-[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "home B's job behind home A's long job did not complete"
+[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "home B's job behind home A's long job did not complete (exit=$FM_REMOTE_JOB_EXIT; stderr=$(cat "$STATE_ROOT/jobs/$B1/stderr" 2>/dev/null); worker=$(cat "$TMP_ROOT/worker.err" 2>/dev/null))"
 [ "$B_ELAPSED" -le 3 ] || fail "home B's job waited ${B_ELAPSED}s behind home A's long job"
 [ "$(job_state "$A1")" = running ] || fail "home A's long job should still be running for the FIFO assertion"
 [ "$(cat "$LOG_A")" = a1 ] || fail "home A's queued job ran beside its running job: $(cat "$LOG_A")"

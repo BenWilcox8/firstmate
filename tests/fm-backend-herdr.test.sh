@@ -4483,6 +4483,8 @@ LOG="${FM_AXI_LOG:?}"
 if [ "${1:-}" = spawn ]; then
   # A spawn --json response naming the new tab/pane the shim must echo back.
   printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
+elif [ "${1:-}" = list ]; then
+  printf '{"workspace":{"label":"firstmate","id":"w9","tabCount":1},"counts":{"live":1,"husk":1,"gone":0,"tracked":2,"untracked":0,"foreign":0},"crew":[{"task":"axi1","state":"live","slot":"t1/s1","pane":"w9:p5"},{"task":"old","state":"husk","slot":"t1/s2","pane":"w9:p6"}],"foreign":[]}\n'
 fi
 exit 0
 SH
@@ -4505,9 +4507,9 @@ test_create_task_delegates_to_agent_axi() {
 $out
 EOF
   [ "$tab" = "w9:t3" ] && [ "$pane" = "w9:p5" ] || fail "create_task should echo agent-axi's tab/pane ids, got '$out'"
-  # agent-axi was invoked: spawn, task id (label minus fm-), session from the
-  # container, cwd, --json, and the launch argv after `--`.
-  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
+  # agent-axi was invoked with the exact workspace from the verified
+  # container, plus its session, cwd, and launch argv after `--`.
+  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--workspace-id'$'\x1f''w1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
     "create_task did not invoke agent-axi spawn with the expected argv"
   # The invoking home is passed through unchanged (ledger-home resolution).
   assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "create_task did not pass the invoking FM_HOME to agent-axi"
@@ -4538,6 +4540,24 @@ EOF
   assert_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-axi1' \
     "native fallback did not create the tab through herdr"
   pass "fm_backend_herdr_create_task: falls back byte-identically to the native path when agent-axi is absent"
+}
+
+test_list_live_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb out
+  dir="$TMP_ROOT/axi-list-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  out=$(PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT") \
+    || fail "list_live should delegate to agent-axi when it is on PATH"
+  [ "$out" = $'fmtest:w9:p5\tfm-axi1' ] \
+    || fail "delegated list_live should report only agent-axi live rows, got '$out'"
+  assert_contains "$(cat "$axilog")" $'\x1f''list'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--json' \
+    "list_live did not invoke agent-axi list with the expected session"
+  [ ! -s "$hlog" ] || fail "delegated list_live must not derive live tasks from Herdr tab labels"
+  pass "fm_backend_herdr_list_live: delegates recovery inventory to agent-axi and excludes husks"
 }
 
 test_kill_delegates_to_agent_axi() {
@@ -4610,6 +4630,7 @@ test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_create_task_delegates_to_agent_axi
 test_create_task_fallback_when_agent_axi_absent
+test_list_live_delegates_to_agent_axi
 test_kill_delegates_to_agent_axi
 test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label

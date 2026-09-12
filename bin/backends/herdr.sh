@@ -2222,20 +2222,22 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 # fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
 # intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
 # pane as its slot anchor rather than pruning it, so there is nothing to thread
-# through. Session comes from the container's first field; the task id is the
-# label with its `fm-` prefix stripped (agent-axi re-derives the identical
-# `fm-<id>` pane label from it).
+# through. Session and workspace id come from the verified container. The task
+# id is the label with its `fm-` prefix stripped (agent-axi re-derives the
+# identical `fm-<id>` pane label from it).
 fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
-  local container=$1 label=$2 cwd=$3 session task_id out pane_id tab_id
+  local container=$1 label=$2 cwd=$3 session workspace_id task_id out pane_id tab_id
   local -a launch
   session=${container%%:*}
+  workspace_id=${container#*:}
   task_id=${label#fm-}
   if [ -n "$FM_BACKEND_HERDR_AXI_LAUNCH" ]; then
     read -r -a launch <<<"$FM_BACKEND_HERDR_AXI_LAUNCH"
   else
     launch=("${SHELL:-/bin/bash}" -l)
   fi
-  out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
+  out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --workspace-id "$workspace_id" \
+    --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
     echo "error: agent-axi spawn failed for $label (session $session)" >&2
     return 1
   }
@@ -3519,19 +3521,24 @@ EOF
   return 1
 }
 
-# fm_backend_herdr_list_live: recovery/orphan discovery. Lists every tab whose
-# label looks like a firstmate task window (fm-<id>) in <session>'s, THIS
-# HOME'S OWN workspace (fm_backend_herdr_workspace_label - never another
-# home's), by LABEL - never by trusting a stored pane id, since ids are not
-# guaranteed stable across every server lifecycle (see herdr-verification-p2.md
-# "ID stability"). A caller running as a given home (e.g. a secondmate
-# recovering its own in-flight work) naturally scopes to that home's own
-# workspace because FM_HOME already names it - no glue needed, unlike the
-# primary-spawns-a-secondmate path in fm-spawn.sh. Read-only: a session/
-# workspace that does not exist yet simply lists nothing. One
-# "<session>:<pane_id>\t<label>" line per live task tab.
+# fm_backend_herdr_list_live: recovery/orphan discovery. When agent-axi is
+# available, its reconciled slot ledger is the authority for live task panes.
+# The native fallback lists every fm-<id> tab in this home's own workspace.
+# Both paths are read-only and print one "<session>:<pane_id>\t<label>" line
+# per live task.
 fm_backend_herdr_list_live() {  # <session>
-  local session=$1 wsid tabs tab_id label pane_id
+  local session=$1 inventory wsid tabs tab_id label pane_id
+  if fm_backend_herdr_axi_available; then
+    inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json 2>/dev/null) || return 0
+    printf '%s' "$inventory" | jq -r --arg session "$session" '
+      .crew[]?
+      | select(.state == "live")
+      | select((.task | type) == "string" and (.task | length) > 0)
+      | select((.pane | type) == "string" and (.pane | length) > 0)
+      | "\($session):\(.pane)\tfm-\(.task)"
+    ' 2>/dev/null
+    return 0
+  fi
   wsid=$(fm_backend_herdr_workspace_find "$session") || return 0
   [ -n "$wsid" ] || return 0
   tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 0

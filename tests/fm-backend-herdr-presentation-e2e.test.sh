@@ -15,12 +15,28 @@ pass() { printf 'ok - %s\n' "$1"; }
 command -v herdr >/dev/null 2>&1 || { echo "skip: herdr not found"; exit 0; }
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found"; exit 0; }
+command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (required by workspace mover)"; exit 0; }
 [ -x "$HERDR_LAB_HELPER" ] || { echo "skip: Herdr lab helper not executable at $HERDR_LAB_HELPER"; exit 0; }
 
 REAL_HERDR=$(command -v herdr)
 REAL_TREEHOUSE=$(command -v treehouse)
 HERDR_ORIGINAL_PATH=$PATH
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-presentation.XXXXXX")
+FIXTURE_NODE=$(command -v node) || {
+  rm -rf "$TMP_ROOT"
+  printf 'not ok - node is required for the executable agent fixture\n' >&2
+  exit 1
+}
+FIXTURE_AGENT="$TMP_ROOT/cursor-agent"
+FIXTURE_SCRIPT="$TMP_ROOT/agent-fixture.js"
+cp "$FIXTURE_NODE" "$FIXTURE_AGENT" || {
+  rm -rf "$TMP_ROOT"
+  printf 'not ok - could not create the executable agent fixture\n' >&2
+  exit 1
+}
+cat > "$FIXTURE_SCRIPT" <<'JS'
+setTimeout(() => {}, Number(process.argv[2]) * 1000)
+JS
 FAKEBIN="$TMP_ROOT/fakebin"
 HERDR_CALL_LOG="$TMP_ROOT/herdr-calls.log"
 TREEHOUSE_CALL_LOG="$TMP_ROOT/treehouse-calls.log"
@@ -409,7 +425,7 @@ EOF
 spawn_task() {  # <id> <home> <project>
   local id=$1 home=$2 project=$3
   FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$project" "sh -c 'while :; do sleep 60; done'" --mode no-mistakes --yolo off --backend herdr
+    "$ROOT/bin/fm-spawn.sh" "$id" "$project" "$FIXTURE_AGENT $FIXTURE_SCRIPT 300" --mode no-mistakes --yolo off --backend herdr
 }
 
 finish_concurrent_spawn() {  # <id> <status> <stdout> <stderr>
@@ -434,7 +450,7 @@ finish_concurrent_expected_abort() {  # <id> <status> <stdout> <stderr>
 spawn_secondmate_task() {
   local id=$1 home=$2
   FM_GATE_REFUSE_BYPASS=1 FM_SPAWN_NO_GUARD=1 FM_HOME="$HOME_DIR" FM_ROOT_OVERRIDE="$ROOT" \
-    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "sh -c 'while :; do sleep 60; done'" --secondmate --backend herdr
+    "$ROOT/bin/fm-spawn.sh" "$id" "$home" "$FIXTURE_AGENT $FIXTURE_SCRIPT 300" --secondmate --backend herdr
 }
 
 teardown_task() {  # <id> <home>

@@ -727,8 +727,11 @@ assert_no_grep '--session default' "$HERDR_LOG" "remote launch targeted the inte
 assert_grep 'window=remote:ios' "$PARENT/state/ios.meta" "parent metadata pretended the endpoint was local"
 assert_present "$PARENT/state/procevent/remote-reply-ios.source" "remote spawn did not arm its reply source"
 publish_healthy_watcher_identity "$PARENT/state" "$PARENT" "$ROOT/bin/fm-watch.sh"
-[ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
+REMOTE_ENDPOINT_STATE=$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)
+[ "$REMOTE_ENDPOINT_STATE" = alive ] \
   || fail "remote endpoint was not projected alive from its own host"
+settle_remote_herdr_fixture "$HERDR_STATE" \
+  || fail "remote endpoint fixture did not settle its active turn"
 # Herdr reports a native agent state, so the delivery observation resolves
 # without the rendered-output fallback a tmux endpoint needs.
 [ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh observe ios)" = idle ] \
