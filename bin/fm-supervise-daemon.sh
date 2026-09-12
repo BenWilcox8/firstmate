@@ -864,6 +864,27 @@ escalate_flush() {  # <state> [mode]
 #
 # Returns 0 when the digest is durable in the inbox (or already was), 1 when the
 # handoff failed, in which case the next window retries it.
+staged_note_marker_write() {  # <state> <note-id>
+  local state=$1 id=$2
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  printf '%s\n' "$id" > "$state/.subsuper-staged-inbox-$id"
+}
+
+# A staging note's check wake exists to present the durable record at the next
+# primary drain. It must not become a new daemon escalation about the record it
+# just staged. Match only an exact fm-inbox note ID with daemon-written
+# provenance. Ordinary captain notes and failure-fallback notes have no such
+# marker and keep the established fail-safe check classification.
+is_staged_note_check() {  # <reason> <state>
+  local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
+  case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
+  rest=${reason#"$prefix"}
+  id=${rest%% *}
+  [ "$rest" != "$id" ] || return 1
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ -f "$state/.subsuper-staged-inbox-$id" ]
+}
+
 escalate_store_durable_digest() {  # <state> [staging|fallback]
   local state=$1 purpose=${2:-staging} buf marker msg payload fingerprint legacy prior
   local prior_fingerprint out id
@@ -878,6 +899,9 @@ escalate_store_durable_digest() {  # <state> [staging|fallback]
   if [ "$prior_fingerprint" = "sha256:$fingerprint" ]; then
     INJECT_DURABLE_NOTE_ID=${prior#*$'\t'}
     if [ "$INJECT_DURABLE_NOTE_ID" != "$prior" ] && [ -n "$INJECT_DURABLE_NOTE_ID" ]; then
+      if [ "$purpose" = staging ]; then
+        staged_note_marker_write "$state" "$INJECT_DURABLE_NOTE_ID" || return 1
+      fi
       return 0
     fi
     # Old markers contain only the hash.
@@ -897,6 +921,9 @@ escalate_store_durable_digest() {  # <state> [staging|fallback]
     [ -n "$id" ] || return 1
     printf 'sha256:%s\t%s\n' "$fingerprint" "$id" > "$marker" 2>/dev/null || return 1
     INJECT_DURABLE_NOTE_ID=$id
+    if [ "$purpose" = staging ]; then
+      staged_note_marker_write "$state" "$id" || return 1
+    fi
     if [ "$purpose" = fallback ]; then
       log "inject fallback: digest handed to durable captain inbox note $id (sha256=$fingerprint)"
     else
@@ -1615,7 +1642,11 @@ handle_wake() {  # <reason> <state>
                        ;;
                    esac ;;
               esac ;;
-    check:*)  decision=$(classify_check "$reason") ;;
+    check:*)  if is_staged_note_check "$reason" "$state"; then
+                decision="self|staged transport note already represented by its short reference"
+              else
+                decision=$(classify_check "$reason")
+              fi ;;
     heartbeat|heartbeat:*) decision=$(classify_heartbeat) ;;
     *)        decision=$(classify_unknown "$reason") ;;
   esac

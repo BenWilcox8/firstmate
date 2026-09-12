@@ -23,6 +23,69 @@ note_body() {
   awk 'seen { print } /^--$/ { seen=1 }' "$1"
 }
 
+wake_payload_for_note() {  # <state> <note-id>
+  awk -F '\t' -v key="inbox:$2" '$4 == key { payload=$5 } END { print payload }' \
+    "$1/.wake-queue"
+}
+
+test_staged_digest_wake_does_not_recurse() {
+  local staged_root="$TMP_ROOT/no-recursion/staged" staged_state="$TMP_ROOT/no-recursion/staged/state"
+  local external_root="$TMP_ROOT/no-recursion/external" external_state="$TMP_ROOT/no-recursion/external/state"
+  local fallback_root="$TMP_ROOT/no-recursion/fallback" fallback_state="$TMP_ROOT/no-recursion/fallback/state"
+  local staged_id staged_reason external_id external_reason fallback_id fallback_reason fallback_note
+
+  mkdir -p "$staged_state" "$external_state" "$fallback_state"
+  : > "$staged_state/.afk"
+  escalate_add "$staged_state" "one original staged event"
+  inject_msg() { return 0; }
+  FM_HOME="$staged_root" FM_SUPERVISOR_BACKEND=herdr \
+    FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$staged_state" busy-override \
+    || fail "could not stage and deliver the original short reference"
+  staged_id=$(find "$staged_state/inbox" -maxdepth 1 -name '*.note' -printf '%f\n')
+  staged_id=${staged_id%.note}
+  staged_reason=$(wake_payload_for_note "$staged_state" "$staged_id")
+  [ -n "$staged_reason" ] || fail "staged transport record emitted no check wake fixture"
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$staged_reason" "$staged_state" \
+    || fail "staged transport wake could not be classified"
+  [ ! -s "$staged_state/.subsuper-escalations" ] \
+    || fail "staged transport check recursively entered the escalation buffer"
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$staged_reason" "$staged_state" \
+    || fail "replayed staged transport wake could not be classified"
+  [ ! -s "$staged_state/.subsuper-escalations" ] \
+    || fail "replayed staged transport check recursively entered the escalation buffer"
+
+  FM_HOME="$external_root" FM_STATE_OVERRIDE="$external_state" \
+    "$ROOT/bin/fm-inbox.sh" note "external captain note stays actionable" >/dev/null \
+    || fail "could not queue the external inbox control"
+  external_id=$(find "$external_state/inbox" -maxdepth 1 -name '*.note' -printf '%f\n')
+  external_id=${external_id%.note}
+  external_reason=$(wake_payload_for_note "$external_state" "$external_id")
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$external_reason" "$external_state" \
+    || fail "external inbox wake could not be classified"
+  grep -F "$external_reason" "$external_state/.subsuper-escalations" >/dev/null \
+    || fail "external inbox wake stopped being actionable"
+
+  : > "$fallback_state/.afk"
+  escalate_add "$fallback_state" "undeliverable fallback event"
+  FM_HOME="$fallback_root" escalate_fallback_to_inbox "$fallback_state" \
+    || fail "failure fallback was not stored durably"
+  fallback_id=${INJECT_DURABLE_NOTE_ID:-}
+  [ -n "$fallback_id" ] || fail "failure fallback returned no durable note ID"
+  fallback_note="$fallback_state/inbox/$fallback_id.note"
+  [ -s "$fallback_note" ] || fail "failure fallback note is not durable"
+  case "$(note_body "$fallback_note")" in
+    'Away-mode escalation could not be delivered to your session ('*) ;;
+    *) fail "failure fallback lost its delivery context" ;;
+  esac
+  fallback_reason=$(wake_payload_for_note "$fallback_state" "$fallback_id")
+  : > "$fallback_state/.subsuper-escalations"
+  FM_ESCALATE_BATCH_SECS=999 handle_wake "$fallback_reason" "$fallback_state" \
+    || fail "failure fallback wake could not be classified"
+  grep -F "$fallback_reason" "$fallback_state/.subsuper-escalations" >/dev/null \
+    || fail "failure fallback wake stopped being actionable"
+  pass "staged transport check is non-recursive while external and fallback notes remain actionable"
+}
+
 test_failed_short_submit_keeps_exact_durable_digest() {
   local state="$TMP_ROOT/failed/state" sent="$TMP_ROOT/failed/sent" digest sha
   local marker note_id note saved notes short unrelated
@@ -136,3 +199,4 @@ SH
 test_failed_short_submit_keeps_exact_durable_digest
 test_other_harness_keeps_direct_transport
 test_startup_diagnostic_names_resolved_harness
+test_staged_digest_wake_does_not_recurse
