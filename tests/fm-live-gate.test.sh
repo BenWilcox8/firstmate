@@ -20,6 +20,7 @@ set -u
 
 TMP_ROOT=$(fm_test_tmproot fm-live-gate)
 BIN="$TMP_ROOT/bin"
+CORE_PATH=$(fm_test_core_path)
 mkdir -p "$BIN"
 
 # A stand-in for a harness this host has: present on the fakebin PATH, and
@@ -66,7 +67,7 @@ run_guard() {
   shift
   local out rc
   set +e
-  out=$(clean_env "$@" PATH="$BIN:/usr/bin:/bin" "$path" 2>&1)
+  out=$(clean_env "$@" PATH="$BIN:$CORE_PATH" "$path" 2>&1)
   rc=$?
   set -e
   printf '%s\n' "$rc"
@@ -171,7 +172,7 @@ test_gate_lets_a_guard_drive_the_real_fleet_scripts_under_a_gate_marker() {
   } > "$path"
   chmod +x "$path"
   set +e
-  out=$(clean_env NO_MISTAKES_GATE=1 PATH="$BIN:/usr/bin:/bin" "$path" 2>&1)
+  out=$(clean_env NO_MISTAKES_GATE=1 PATH="$BIN:$CORE_PATH" "$path" 2>&1)
   rc=$?
   set -e
   expect_code 0 "$rc" "a guard opened with the shared gate must not be refused"

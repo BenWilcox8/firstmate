@@ -2,12 +2,10 @@
 # Opt-in real Codex and Herdr regression for the durable short-wake transport.
 set -u
 
-if [ "${FM_CODEX_HERDR_SUBMIT_LIVE_E2E:-0}" != 1 ]; then
-  echo "skip: set FM_CODEX_HERDR_SUBMIT_LIVE_E2E=1 to run the Codex Herdr submit regression"
-  exit 0
-fi
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+fm_live_gate opt-in FM_CODEX_HERDR_SUBMIT_LIVE_E2E codex herdr jq git
 
 # shellcheck source=tests/herdr-test-safety.sh disable=SC1091
 . "$ROOT/tests/herdr-test-safety.sh"
