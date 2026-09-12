@@ -987,6 +987,27 @@ ok - real herdr: an agent that does not stop fails closed instead of being repor
 The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, so registering and not registering an agent on a plain shell pane exercises exactly the gate every lifecycle verb depends on, with no real agent launched.
 That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
+The Codex wrapper path was verified on 2026-09-12 with Herdr 0.8.2 and Codex CLI 0.154.0 on Linux x86_64:
+
+```sh
+FM_CONTROL_HERDR_CODEX_LIVE_E2E=1 \
+  tests/fm-control-herdr-codex-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - real Codex exposes the expected MainThread Node wrapper
+ok - the public guarded exit stops the attributed Codex agent
+ok - the guarded exit preserves the pane and its local worktree
+ok - the lab was removed and the default session stayed unchanged
+```
+
+The test starts Codex with an explicit model but submits no prompt.
+Herdr reports the wrapper as `MainThread`, with argv that starts with `node` and the Codex entry point.
+The public control path accepts this identity only when Herdr and the operating-system process table agree.
+The portable regression in `tests/fm-backend-herdr-codex-attribution.test.sh` keeps unrelated MainThread processes and conflicting identity evidence unattributed.
+
 ### Away-mode transport
 
 The Pi/Herdr return and injection path was reverified on Herdr 0.7.3 and Pi 0.80.7:

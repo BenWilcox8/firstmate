@@ -315,7 +315,7 @@ family_for_basename() {
     fm-tangle-guard.test.sh|fm-update.test.sh)
       printf '%s\n' session-bootstrap
       ;;
-    fm-backend-herdr-codex-submit-e2e.test.sh|\
+    fm-backend-herdr-codex-submit-e2e.test.sh|fm-control-herdr-codex-live-e2e.test.sh|\
     fm-afk-pi-herdr-return-e2e.test.sh|\
     fm-bearings-board-lavish-live-e2e.test.sh|\
     fm-claude-stop-autoarm-live-e2e.test.sh|\
@@ -336,7 +336,8 @@ family_for_basename() {
     fm-herdr-submit-confirm-live-e2e.test.sh)
       printf '%s\n' live-harness-optin
       ;;
-    fm-backend-herdr.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
+    fm-backend-herdr.test.sh|fm-backend-herdr-recovery-state.test.sh|\
+    fm-backend-herdr-codex-attribution.test.sh|fm-backend-tmux-smoke.test.sh|fm-backend.test.sh|\
     fm-tmux-agent-liveness.test.sh|\
     fm-control.test.sh|fm-control-relaunch.test.sh|fm-cswap.test.sh|\
     fm-herdr-session-cleanup.test.sh|fm-send-resolve-key.test.sh|fm-send-strict.test.sh|\
