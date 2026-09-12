@@ -1447,7 +1447,7 @@ raw_launch_executable() {
       [A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;;
       -i) index=$((index + 1)) ;;
       -u) index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
-      --) index=$((index + 1)); break ;;
+      --) index=$((index + 1)); continue ;;
       -*) return 1 ;;
       *) break ;;
     esac
