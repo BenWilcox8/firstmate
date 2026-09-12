@@ -177,7 +177,7 @@ test_secondmate_default_name_is_secondmate_id() {
   assert_contains "$out" "spawned $id harness=claude kind=secondmate" "secondmate launch did not use claude"
   launch=$(cat "$LAUNCH_LOG")
   assert_contains "$launch" "--name 'Secondmate, $id' \"\$(" \
-    "claude secondmate launch did not default --name to 'Secondmate, <id>'
+    "claude secondmate launch did not default --name to 'Secondmate, <id>'"
   assert_grep "session_name=Secondmate, $id" "$HOME_DIR/state/$id.meta" \
     "meta missing default secondmate session_name=Secondmate, <id>"
   pass "a secondmate defaults its session name to 'Secondmate, <id>'"
@@ -279,8 +279,7 @@ test_raw_launch_command_omits_name_flag_and_meta() {
   # A raw launch command whose first word is 'claude' derives HARNESS=claude, but
   # the command has no __NAMEFLAG__ placeholder, so no --name may be injected and
   # no session_name= may be recorded.
-  # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch __BRIEF__')
   status=$?
   expect_code 0 "$status" "raw launch command spawn should succeed"
   launch=$(cat "$LAUNCH_LOG")

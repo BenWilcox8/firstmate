@@ -1438,7 +1438,7 @@ raw_launch_executable() {
   local index=0 word base
   RAW_ENV_PREFIX=0
   base=$(basename "${RAW_WORDS[0]:-}")
-  [ "$base" = env ] || { printf '%s\n' "${RAW_WORDS[0]}"; return 0; }
+  [ "$base" = env ] || { RAW_EXECUTABLE=${RAW_WORDS[0]}; return 0; }
   RAW_ENV_PREFIX=1
   index=1
   while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
@@ -1455,7 +1455,7 @@ raw_launch_executable() {
   [ "$index" -lt "${#RAW_WORDS[@]}" ] || return 1
   word=${RAW_WORDS[index]}
   [ "$(basename "$word")" != env ] || return 1
-  printf '%s\n' "$word"
+  RAW_EXECUTABLE=$word
 }
 
 resolve_pi_executable() {
@@ -1700,14 +1700,14 @@ case "$ARG3" in
       echo "error: raw launch commands support one executable with literal arguments, quotes, and env assignments only; shell operators, expansions, substitutions, and nested shells are refused" >&2
       exit 1
     fi
-    RAW_EXECUTABLE=$(raw_launch_executable) || {
-      echo "error: raw launch command must name one executable after any env assignments" >&2
+    raw_launch_executable || {
+      echo "error: raw launch command must name one executable after supported env options and assignments" >&2
       exit 1
     }
     HARNESS=$(basename "$RAW_EXECUTABLE")
     case "$HARNESS" in
-      rovo|sh|bash|dash|zsh|ksh)
-        echo "error: rovo dispatch is disabled; raw launch commands must not invoke a shell" >&2
+      rovo|sh|bash|dash|zsh|ksh|nice|nohup|timeout)
+        echo "error: rovo dispatch is disabled; raw launch commands must not invoke shells or process runners" >&2
         exit 1
         ;;
     esac
