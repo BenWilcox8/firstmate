@@ -382,6 +382,8 @@ Choose the minimum additions for the authentication method actually in use:
 Verify the selected provider login and Git transport after opting in; Firstmate does not infer credentials from model names or install a secret manager.
 Raw launch commands accept one literal executable and literal arguments, with shell-style single quotes, double quotes, and backslash escapes for grouping only.
 They may start with one `env` executable (including an absolute path), assignments, `-i`, `-u NAME`, and `--`; nested `env` runners, shells, and process runners (`nice`, `nohup`, `timeout`), shell operators, expansions, substitutions, and separators are refused.
+Environment options must precede assignments, and assignment and unset names must be valid POSIX variable names.
+The process-runner restriction is temporary; launch the target executable directly with its literal arguments and supported `env` prefix instead.
 The command is reconstructed with quoted argv before pane delivery; this compatibility boundary is not a shell-script interface.
 The filter runs at the worker command boundary, after the terminal daemon and pane shell have started; it does not scrub either of those processes.
 This is not a sandbox: it cannot revoke same-user access to credential files, prevent tools or later shells from loading credentials again, or isolate processes from the same user's other processes.

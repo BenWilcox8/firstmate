@@ -1359,7 +1359,7 @@ elif [ "$KIND" = secondmate ]; then
     ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
       ARG3=${POS[1]:-}
       ;;
-    *' '*)
+    *' '*|*$'\t'*)
       if [ "${#POS[@]}" -gt 2 ] || [ -d "${POS[1]}" ]; then
         FIRSTMATE_HOME=${POS[1]}
         ARG3=${POS[2]:-}
@@ -1406,6 +1406,7 @@ raw_launch_words() {
       \':\') quote= ;;
       \':*) word+=$ch; started=1 ;;
       \":\") quote= ;;
+      \":'$') return 1 ;;
       \":\\)
         i=$((i + 1))
         [ "$i" -lt "${#input}" ] || return 1
@@ -1458,7 +1459,12 @@ raw_launch_executable() {
     fi
     case "$word" in
       -i) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 1)) ;;
-      -u) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
+      -u)
+        [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1
+        index=$((index + 1))
+        [[ "${RAW_WORDS[index]:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+        index=$((index + 1))
+        ;;
       --) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; delimiter=1; index=$((index + 1)); continue ;;
       -*) return 1 ;;
       *) break ;;
@@ -1681,7 +1687,7 @@ launch_template() {
 }
 
 case "$ARG3" in
-  *' '*)  # raw launch command (unverified-adapter escape hatch)
+  *' '*|*$'\t'*)  # raw launch command (unverified-adapter escape hatch)
     RAW_LAUNCH=1
     LAUNCH=$ARG3
     if ! raw_launch_words "$LAUNCH"; then
@@ -3910,7 +3916,8 @@ MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
-LAUNCH=${LAUNCH//__NAMEFLAG__/$NAMEFLAG}
+# Quote the replacement so Bash does not interpret a literal ampersand as the match.
+LAUNCH=${LAUNCH//__NAMEFLAG__/"$NAMEFLAG"}
 if [ "$HARNESS" = rovo ]; then
   ROVOCONFIGOVERRIDE=$(rovo_config_override_flag "$EFFORT" "$DATA" "$STATE" "$ID") || {
     echo "error: could not resolve this task's home paths for rovo's allowedExternalPaths grant" >&2
