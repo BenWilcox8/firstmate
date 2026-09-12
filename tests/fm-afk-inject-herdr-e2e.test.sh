@@ -65,6 +65,7 @@ LOOP_SCRIPT=
 CLEANUP_STARTED=0
 TEST_FAILED=0
 
+# shellcheck disable=SC2329 # Registered by on_exit's EXIT trap.
 cleanup_all() {
   local cleanup_status=0
   [ "$CLEANUP_STARTED" -eq 0 ] || return 0
@@ -87,6 +88,7 @@ cleanup_all() {
   rm -rf "${STATE_DIR:-}" 2>/dev/null || true
 }
 
+# shellcheck disable=SC2329 # Registered by the EXIT trap below.
 on_exit() {
   local test_status=$? cleanup_status=0
   cleanup_all || cleanup_status=$?
