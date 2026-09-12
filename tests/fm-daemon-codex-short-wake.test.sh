@@ -25,13 +25,18 @@ note_body() {
 
 test_failed_short_submit_keeps_exact_durable_digest() {
   local state="$TMP_ROOT/failed/state" sent="$TMP_ROOT/failed/sent" digest sha
-  local marker note_id note saved notes short
+  local marker note_id note saved notes short unrelated
   mkdir -p "$state"
   : > "$state/.afk"
   : > "$sent"
   escalate_add "$state" "$(printf 'long-event-%04096d' 0)"
   digest=$(escalate_digest "$state") || fail "could not build the long digest"
   sha=$(_sha256_text "$digest")
+  FM_HOME="$TMP_ROOT/failed" FM_STATE_OVERRIDE="$state" \
+    "$ROOT/bin/fm-inbox.sh" note "unrelated durable note" >/dev/null \
+    || fail "could not seed the unrelated durable note"
+  unrelated=$(find "$state/inbox" -maxdepth 1 -name '*.note' -print)
+  unrelated=${unrelated##*/}
 
   inject_msg() {
     printf '%s\n' "$1" >> "$sent"
@@ -46,6 +51,7 @@ test_failed_short_submit_keeps_exact_durable_digest() {
   [ "${marker%%$'\t'*}" = "sha256:$sha" ] || fail "durable marker did not bind the exact digest hash"
   note_id=${marker#*$'\t'}
   [ -n "$note_id" ] && [ "$note_id" != "$marker" ] || fail "durable marker did not name one note"
+  [ "$note_id.note" != "$unrelated" ] || fail "short wake selected the unrelated note"
   note="$state/inbox/$note_id.note"
   [ -f "$note" ] || fail "the named durable note does not exist"
   saved=$(note_body "$note")
@@ -57,7 +63,7 @@ test_failed_short_submit_keeps_exact_durable_digest() {
   case "$(cat "$sent")" in *long-event-*) fail "short wake leaked the long digest into the composer" ;; esac
   [ -s "$state/.subsuper-escalations" ] || fail "failed submit cleared the source buffer"
   notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
-  [ "$notes" -eq 1 ] || fail "failed submit did not retain exactly one durable record"
+  [ "$notes" -eq 2 ] || fail "failed submit did not retain the unrelated and staged records"
 
   inject_msg() {
     printf '%s\n' "$1" >> "$sent"
@@ -67,7 +73,7 @@ test_failed_short_submit_keeps_exact_durable_digest() {
     FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$state" busy-override \
     || fail "retry of the same short wake did not succeed"
   notes=$(find "$state/inbox" -maxdepth 1 -name '*.note' | wc -l | tr -d ' ')
-  [ "$notes" -eq 1 ] || fail "retry created a duplicate durable record"
+  [ "$notes" -eq 2 ] || fail "retry created a duplicate durable record"
   [ ! -s "$state/.subsuper-escalations" ] || fail "confirmed retry did not clear the source buffer"
   [ "$(wc -l < "$sent" | tr -d ' ')" -eq 2 ] || fail "retry did not type exactly one short reference"
   pass "failed Codex short submit retains exact sha256=$sha and retries the same note"

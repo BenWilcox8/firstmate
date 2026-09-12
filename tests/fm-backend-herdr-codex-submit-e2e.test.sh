@@ -97,18 +97,30 @@ require_durable_short_wake() {
   expected=$(escalate_digest "$state") || fail "could not construct the expected durable digest"
   expected_sha=$(_sha256_text "$expected")
 
+  FM_HOME="$LAB/home" FM_STATE_OVERRIDE="$state" \
+    "$ROOT/bin/fm-inbox.sh" note "C610 unrelated durable note" >/dev/null \
+    || fail "could not seed the unrelated durable note"
+
   mkdir -p "$PROJECT/bin"
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -eu' \
     "expected='$expected_sha'" \
-    "note=\$(find '$state/inbox' -maxdepth 1 -name '*.note' -print -quit)" \
-    'saved=$(awk '\''seen { print } /^--$/ { seen=1 }'\'' "$note")' \
-    'actual=$(printf '\''%s'\'' "$saved" | sha256sum | cut -d '\'' '\'' -f1)' \
-    '[ "$actual" = "$expected" ]' \
-    'printf '\''C610_DURABLE_DIGEST_OK sha256=%s\n'\'' "$actual"' \
+    'selected=' \
+    "for note in '$state/inbox/'*.note; do" \
+    '  saved=$(awk '\''seen { print } /^--$/ { seen=1 }'\'' "$note")' \
+    '  actual=$(printf '\''%s'\'' "$saved" | sha256sum | cut -d '\'' '\'' -f1)' \
+    '  if [ "$actual" = "$expected" ]; then selected=$note; break; fi' \
+    'done' \
+    '[ -n "$selected" ]' \
+    'id=${selected##*/}' \
+    'id=${id%.note}' \
+    'printf '\''C610_DURABLE_DIGEST_OK note=%s sha256=%s\n'\'' "$id" "$actual"' \
     > "$PROJECT/bin/fm-wake-drain.sh"
   chmod +x "$PROJECT/bin/fm-wake-drain.sh"
+
+  [ "$(fm_backend_herdr_busy_state "$TARGET")" = busy ] \
+    || fail "Codex was not working when the record-specific short wake started"
 
   if FM_HOME="$LAB/home" FM_STATE_OVERRIDE="$state" \
     FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="$TARGET" \
@@ -130,15 +142,16 @@ require_durable_short_wake() {
     fi
   fi
   [ "$verdict" = empty ] || fail "durable short wake was not autonomously submitted (verdict=$verdict)"
-  [ "$notes" -eq 1 ] || fail "durable transport created $notes notes instead of one"
+  [ "$notes" -eq 2 ] || fail "durable transport did not retain one unrelated and one staged note (notes=$notes)"
   [ -n "$note_id" ] || fail "durable transport returned no note ID"
   [ "$saved" = "$expected" ] || fail "saved note bytes differed from the source digest"
   [ "$saved_sha" = "$expected_sha" ] || fail "saved note SHA-256 differed from the source digest"
   wait_for_text "Durable captain inbox note $note_id" \
     || fail "Codex transcript did not contain the record-specific short wake"
-  wait_for_text "C610_BUSY_TWO_DONE" || fail "prior turn was not settled before the durable read"
   wait_for_text "C610_DURABLE_DIGEST_OK" || fail "Codex did not read and verify the saved digest"
+  wait_for_text "note=$note_id" || fail "Codex drain selected a different durable note"
   wait_for_text "$expected_sha" || fail "Codex did not surface the saved digest SHA-256"
+  wait_for_settled || fail "controlled busy turn and durable short wake did not settle"
   [ ! -s "$state/.subsuper-escalations" ] \
     || fail "confirmed short wake did not clear its source buffer"
   pass "busy long digest matched sha256=$expected_sha and Codex read it through note $note_id"
@@ -209,8 +222,6 @@ submit_and_require_response \
 
 wait_for_settled || fail "busy short prompt did not settle before the next turn"
 start_busy_turn "C610 BUSY TWO DONE" "C610_BUSY_TWO_DONE"
-wait_for_text "C610_BUSY_TWO_DONE" || fail "the prior controlled turn did not finish its response"
-wait_for_settled || fail "the prior controlled turn did not settle before durable delivery"
 padding=$(printf '%04096d' 0 | tr 0 x)
 require_durable_short_wake "$LAB/state" "$padding"
 
