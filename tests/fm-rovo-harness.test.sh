@@ -196,7 +196,7 @@ SH
       DOUBLE_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' \"a\\\\b\"" ;;
       DOUBLE_ORDINARY_BACKSLASH) command="'$FAKEBIN_DIR/probe dir/custom agent' \"a\\b\"" ;;
       ESCAPED_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' \"\\\$HOME\"" ;;
-      UNQUOTED_ESCAPED_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' "; command+='\$HOME' ;;
+      UNQUOTED_ESCAPED_DOLLAR) command="'$FAKEBIN_DIR/probe dir/custom agent' "; command+="\\\$HOME" ;;
       TAB_ONLY)
         command="$FAKEBIN_DIR/custom-agent"$'\t'"--flag"
         case "$command" in *' '*) fail "tab-only fixture contains a masking space" ;; esac
