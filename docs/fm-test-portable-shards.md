@@ -66,9 +66,10 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 Assignment uses longest-processing-time bin packing over per-script duration hints in `bin/fm-test-run.sh`.
 The 174 current hints retain the largest existing hint or successful script observation from the 2026-09-12 integration runs.
 The complete green run is [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430).
-Additional successful script observations come from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628).
-Those two workflows were not green; only script records with exit 0 supply duration measurements.
-The retained maxima total 5437806 ms, and all 174 current serial scripts have a duration hint.
+Additional successful script observations come from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844), [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628), and the complete 198-script aggregate from [34693005421](https://github.com/BenWilcox8/firstmate/actions/runs/34693005421) at `33c37c15`.
+The latter workflow's serial-4 job was cancelled after all 36 scripts exited 0, so it supplies per-script observations but is not a green workflow verdict.
+The two earlier workflows were not green either; only script records with exit 0 supply duration measurements.
+The retained maxima total 5699018 ms, and all 174 current serial scripts have a duration hint.
 Each shard remains serial, and the existing five-runner configuration and 20-minute job limit remain unchanged.
 
 An exit-0 capability skip measures only that skip path, not the skipped live behavior.
@@ -79,15 +80,18 @@ The durable Codex wake suite now takes 16391 ms in its isolated 2026-09-12 run, 
 
 | Lane | Script count | Conservative duration hint |
 |---|---:|---:|
-| `portable-serial-1of5` | 33 | 1087566 ms |
-| `portable-serial-2of5` | 35 | 1087551 ms |
-| `portable-serial-3of5` | 35 | 1087552 ms |
-| `portable-serial-4of5` | 36 | 1087573 ms |
-| `portable-serial-5of5` | 35 | 1087564 ms |
-| imbalance | | 22 ms |
+| `portable-serial-1of5` | 33 | 1139803 ms |
+| `portable-serial-2of5` | 35 | 1139810 ms |
+| `portable-serial-3of5` | 35 | 1139795 ms |
+| `portable-serial-4of5` | 36 | 1139811 ms |
+| `portable-serial-5of5` | 35 | 1139799 ms |
+| imbalance | | 16 ms |
 
-These estimates are about 18.13 minutes per shard; they are scheduling inputs, not a measured pass for the new partition.
-The largest retained script observation is 503876 ms for `tests/fm-watch-triage.test.sh`.
+The conservative hint maximum is 1139811 ms, leaving 60189 ms before the unchanged 20-minute job bound.
+Before rebalancing, the complete aggregate measured serial-4 at 1189261 ms, leaving only 10739 ms before that bound.
+Packing the same complete observed serial timings would put the largest shard at 1026633 ms, a 173367 ms script-time margin before setup.
+These estimates are scheduling inputs, not a measured pass for the new partition.
+The largest retained script observation is 505780 ms for `tests/fm-watch-triage.test.sh`.
 Runner speed and setup costs still affect the final job duration.
 Refresh the hints when scripts or observed runtimes change, before a shard reaches its job limit.
 
