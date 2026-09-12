@@ -79,7 +79,7 @@ make_spawn_case() {
   touch "$home/state/.last-watcher-beat"
   for id in "$@"; do
     mkdir -p "$home/data/$id"
-    printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+    printf '# Task\n## Captain\047s intent\nExercise fixture %s.\n\n## Firstmate spec\nValidate the spawn behavior.\n' "$id" > "$home/data/$id/brief.md"
   done
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
 }
@@ -194,13 +194,15 @@ test_claude_persistence_survives_the_config_dir_prefix() {
 
   # The account/config-dir prefix is the one other claude-scoped launch prefix;
   # the two must compose rather than one displacing the other.
-  FM_TEST_CLAUDE_CONFIG_DIR="/opt/test/claude-work" \
+  local config_dir="$HOME_DIR/claude-work"
+  mkdir -p "$config_dir"
+  FM_TEST_CLAUDE_CONFIG_DIR="$config_dir" \
     run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" >/dev/null
   status=$?
   expect_code 0 "$status" "a claude spawn with a config dir should succeed"
   launch=$(cat "$LAUNCH_LOG")
   assert_persistence_prefix "$launch" "the claude launch with a config dir"
-  assert_contains "$launch" "CLAUDE_CONFIG_DIR='/opt/test/claude-work' CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$config_dir' env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false claude" \
     "the persistence prefix displaced the claude config-dir prefix"
   pass "the persistence prefix composes with the claude config-dir prefix"
 }

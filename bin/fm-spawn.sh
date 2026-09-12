@@ -434,6 +434,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-trace-context-lib.sh"
 # shellcheck source=bin/fm-remote-readiness-lib.sh
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
+# shellcheck source=bin/fm-cswap-lib.sh
+. "$SCRIPT_DIR/fm-cswap-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -449,6 +451,9 @@ BACKEND_ARG=
 MODE=
 YOLO=
 TRACEPARENT_ARG=
+ACCOUNT_ARG=
+SESSION_NAME=
+TICKET=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
@@ -456,6 +461,9 @@ BACKEND_SET=0
 MODE_SET=0
 YOLO_SET=0
 TRACEPARENT_SET=0
+ACCOUNT_SET=0
+SESSION_NAME_SET=0
+TICKET_SET=0
 RELAUNCH=0
 POS=()
 want_value=
@@ -472,6 +480,9 @@ for a in "$@"; do
       mode) MODE=$a; MODE_SET=1 ;;
       yolo) YOLO=$a; YOLO_SET=1 ;;
       traceparent) TRACEPARENT_ARG=$a; TRACEPARENT_SET=1 ;;
+      account) ACCOUNT_ARG=$a; ACCOUNT_SET=1 ;;
+      session-name) SESSION_NAME=$a; SESSION_NAME_SET=1 ;;
+      ticket) TICKET=$a; TICKET_SET=1 ;;
       *) echo "error: internal parser state for --$want_value" >&2; exit 1 ;;
     esac
     want_value=
@@ -495,6 +506,13 @@ for a in "$@"; do
     --yolo=*) YOLO=${a#--yolo=}; YOLO_SET=1 ;;
     --traceparent) want_value=traceparent ;;
     --traceparent=*) TRACEPARENT_ARG=${a#--traceparent=}; TRACEPARENT_SET=1 ;;
+    --account) want_value=account ;;
+    --account=*) ACCOUNT_ARG=${a#--account=}; ACCOUNT_SET=1 ;;
+    --session-name) want_value='session-name' ;;
+    --session-name=*) SESSION_NAME=${a#--session-name=}; SESSION_NAME_SET=1 ;;
+    --ticket) want_value=ticket ;;
+    --ticket=*) TICKET=${a#--ticket=}; TICKET_SET=1 ;;
+    --*) echo "error: unknown option '$a'" >&2; exit 1 ;;
     *) POS+=("$a") ;;
   esac
 done
@@ -506,6 +524,15 @@ done
 [ "$MODE_SET" -eq 0 ] || [ -n "$MODE" ] || { echo "error: --mode requires a non-empty value" >&2; exit 1; }
 [ "$YOLO_SET" -eq 0 ] || [ -n "$YOLO" ] || { echo "error: --yolo requires a non-empty value" >&2; exit 1; }
 [ "$TRACEPARENT_SET" -eq 0 ] || [ -n "$TRACEPARENT_ARG" ] || { echo "error: --traceparent requires a non-empty value" >&2; exit 1; }
+[ "$ACCOUNT_SET" -eq 0 ] || [ -n "$ACCOUNT_ARG" ] || { echo "error: --account requires a non-empty value" >&2; exit 1; }
+[ "$SESSION_NAME_SET" -eq 0 ] || [ -n "$SESSION_NAME" ] || { echo "error: --session-name requires a non-empty value" >&2; exit 1; }
+if [ "$TICKET_SET" -eq 1 ]; then
+  [ -n "$TICKET" ] || { echo "error: --ticket requires a non-empty value" >&2; exit 1; }
+  case "$TICKET" in
+    *[!A-Za-z0-9._-]*) echo "error: --ticket must be an Atlas ticket id such as c201 (letters, digits, dot, underscore, and dash only)" >&2; exit 1 ;;
+  esac
+  [ "$KIND" != secondmate ] || { echo "error: --ticket applies to crewmate and scout spawns; a secondmate is a persistent home, not a ticket's work" >&2; exit 1; }
+fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
 # Nothing else may reach the pane's TRACEPARENT export.
@@ -1086,6 +1113,14 @@ if [ "$RELAUNCH" -eq 1 ] && [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart"
   exit 1
 fi
 if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in */*) false ;; *) true ;; esac; then
+  if [ "$SESSION_NAME_SET" -eq 1 ]; then
+    echo "error: --session-name is not supported for batch id=repo dispatch; each pair uses its task id as the session name. Spawn a per-name task individually." >&2
+    exit 1
+  fi
+  if [ "$TICKET_SET" -eq 1 ]; then
+    echo "error: --ticket is not supported for batch id=repo dispatch; one Atlas ticket belongs to one crewmate. Spawn each ticketed task individually." >&2
+    exit 1
+  fi
   if [ "$KIND" != secondmate ] && [ -z "$HARNESS_ARG" ] && [ -f "$CONFIG/crew-dispatch.json" ]; then
     echo "error: config/crew-dispatch.json is active - pass an explicit harness resolved from the dispatch rules (the consultation backstop, so the rules are never silently skipped)." >&2
     exit 1
@@ -1101,6 +1136,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   # spanning several modes is two invocations rather than a silent mixed dispatch.
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
+  [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1120,6 +1156,10 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
+if [ "$RELAUNCH" -eq 0 ] && [ -z "$TICKET" ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
+  && [ -n "$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)" ]; then
+  echo "warning: $ID is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map" >&2
+fi
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
     echo "error: spawn refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -1430,7 +1470,7 @@ launch_template() {
     # sources are not guaranteed to load that scope, so a worker would
     # otherwise run with attribution back on; carrying it per launch keeps the
     # policy in force regardless of which settings scopes end up loaded.
-    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '\''{"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'\'' __MODELFLAG____EFFORTFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
+    claude) printf '%s' 'CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerously-skip-permissions --settings '\''{"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}'\'' __MODELFLAG____EFFORTFLAG____NAMEFLAG__"$(__OPINPUT__ encode launch-brief < __BRIEF__)"' ;;
     codex)
       if [ "$kind" = secondmate ]; then
         printf '%s' 'codex __MODELFLAG____EFFORTFLAG__--dangerously-bypass-approvals-and-sandbox "$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
@@ -1618,6 +1658,14 @@ case "$ARG3" in
     ;;
 esac
 
+if [ "$RAW_LAUNCH" -eq 1 ]; then
+  case " $LAUNCH " in
+    *" ROVODEV_CLI=1 rovo run --yolo "*)
+      echo "error: rovo dispatch is disabled; select a supported harness" >&2
+      exit 1
+      ;;
+  esac
+fi
 if [ "$HARNESS" = rovo ]; then
   echo "error: rovo dispatch is disabled; select a supported harness" >&2
   exit 1
@@ -1644,6 +1692,24 @@ fi
 # standing one up with no way to arm its watch cycle.
 if [ "$KIND" = secondmate ] && [ "$HARNESS" = rovo ]; then
   echo "error: rovo is a verified crewmate/scout adapter only and cannot run a secondmate; it has no primary supervision protocol. Select a harness verified for secondmates." >&2
+  exit 1
+fi
+
+ACCOUNT_NUMBER=
+ACCOUNT_NAME=
+if [ "$HARNESS" = claude ] && [ "$ACCOUNT_SET" -eq 1 ]; then
+  if ! account_line=$(fm_cswap_resolve_account "$ACCOUNT_ARG"); then
+    echo "error: refusing to spawn $HARNESS on an unresolved Claude account" >&2
+    exit 1
+  fi
+  ACCOUNT_NUMBER=${account_line%% *}
+  ACCOUNT_NAME=${account_line#* }
+  if [ -z "$ACCOUNT_NUMBER" ] || [ -z "$ACCOUNT_NAME" ]; then
+    echo "error: claude account resolution returned an unusable result: $account_line" >&2
+    exit 1
+  fi
+elif [ "$ACCOUNT_SET" -eq 1 ]; then
+  echo "error: --account applies only to claude-harness spawns; this spawn resolved harness '$HARNESS'" >&2
   exit 1
 fi
 
@@ -1828,6 +1894,14 @@ model_flag_for_harness() {
     claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
+  esac
+}
+
+name_flag_for_harness() {
+  local harness=$1 name=$2
+  [ -n "$name" ] || return 0
+  case "$harness" in
+    claude) printf -- '--name %s ' "$(shell_quote "$name")" ;;
   esac
 }
 
@@ -2578,6 +2652,33 @@ if [ "$SPAWN_META_LOCK_HELD" != 1 ]; then
 fi
 if [ -e "$STATE/$ID.backlog-close" ] || [ -L "$STATE/$ID.backlog-close" ]; then
   echo "error: task $ID has a pending authoritative backlog close at $STATE/$ID.backlog-close; finish or repair that close before dispatching a new worker" >&2
+  exit 1
+fi
+
+SPAWN_PRIOR_BACKEND=
+SPAWN_PRIOR_TARGET=
+SPAWN_PRIOR_TAB=
+spawn_prior_endpoint() {
+  local prior="$STATE/$ID.meta" target state
+  [ -f "$prior" ] && [ ! -L "$prior" ] || return 0
+  target=$(fm_backend_target_of_meta "$prior")
+  [ -n "$target" ] || return 0
+  case "$target" in remote:*) return 0 ;; esac
+  SPAWN_PRIOR_BACKEND=$(fm_backend_of_meta "$prior")
+  SPAWN_PRIOR_TARGET=$target
+  SPAWN_PRIOR_TAB=$(fm_meta_get "$prior" zellij_tab_id)
+  state=$(fm_backend_agent_state "$SPAWN_PRIOR_BACKEND" "$target" 2>/dev/null) || state=unreadable
+  case "$state" in
+    dead|missing) return 0 ;;
+    alive)
+      echo "error: task $ID's recorded endpoint $target still has a running agent; stop it first with bin/fm-control.sh $ID exit, or relaunch it in place with bin/fm-control.sh $ID relaunch, rather than leaving two agents on one local copy" >&2
+      return 1 ;;
+    *)
+      echo "error: task $ID's recorded endpoint $target reads '$state'; a replacement needs a positively agent-free or authoritatively absent endpoint, so nothing was created or changed" >&2
+      return 1 ;;
+  esac
+}
+if [ "$RELAUNCH" -eq 0 ] && ! spawn_prior_endpoint; then
   exit 1
 fi
 
@@ -3556,6 +3657,18 @@ else
   fi
 fi
 
+if [ "$SESSION_NAME_SET" -eq 0 ]; then
+  if [ "$KIND" = secondmate ]; then
+    SESSION_NAME="Secondmate, $ID"
+  else
+    SESSION_NAME=$ID
+  fi
+fi
+case "$LAUNCH" in
+  *__NAMEFLAG__*) NAMEFLAG=$(name_flag_for_harness "$HARNESS" "$SESSION_NAME") ;;
+  *) NAMEFLAG= ;;
+esac
+
 META_WINDOW=$T
 [ "$BACKEND" = orca ] && META_WINDOW=$W
 SPAWN_GEN="s$(date +%s).${BASHPID:-$$}.$RANDOM"
@@ -3581,6 +3694,17 @@ preserve_relaunch_meta() {
     !($1 in owned)
   ' "$RELAUNCH_META"
 }
+spawn_retire_replaced_endpoint() {
+  local new_target
+  [ -n "$SPAWN_PRIOR_TARGET" ] || return 0
+  new_target=$META_WINDOW
+  [ "$BACKEND" != orca ] || new_target=$ORCA_TERMINAL
+  [ "$SPAWN_PRIOR_TARGET" != "$new_target" ] || return 0
+  fm_backend_endpoint_retire "$SPAWN_PRIOR_BACKEND" "$SPAWN_PRIOR_TARGET" "$SPAWN_PRIOR_TAB" && return 0
+  echo "warning: task $ID's previous endpoint $SPAWN_PRIOR_TARGET was not retired: ${FM_BACKEND_ENDPOINT_RETIRE_REASON:-reason unknown}; it stays open and unreferenced until it is closed" >&2
+  return 0
+}
+[ "$RELAUNCH" -eq 1 ] || spawn_retire_replaced_endpoint
 {
   echo "window=$META_WINDOW"
   echo "endpoint_task_id=$ID"
@@ -3593,6 +3717,9 @@ preserve_relaunch_meta() {
   echo "tasktmp=$TASK_TMP"
   echo "model=${MODEL:-default}"
   echo "effort=${EFFORT:-default}"
+  [ -z "$ACCOUNT_NAME" ] || echo "account=$ACCOUNT_NAME"
+  [ -z "$TICKET" ] || echo "atlas_ticket=$TICKET"
+  [ -z "$NAMEFLAG" ] || echo "session_name=$SESSION_NAME"
   [ -z "${BUSY_GEN:-}" ] || echo "busy_gen=$BUSY_GEN"
   echo "spawn_gen=$SPAWN_GEN"
   # Default-off writes no traceparent= line.
@@ -3732,6 +3859,7 @@ MODELFLAG=$(model_flag_for_harness "$HARNESS" "$MODEL")
 EFFORTFLAG=$(effort_flag_for_harness "$HARNESS" "$EFFORT")
 LAUNCH=${LAUNCH//__MODELFLAG__/$MODELFLAG}
 LAUNCH=${LAUNCH//__EFFORTFLAG__/$EFFORTFLAG}
+LAUNCH=${LAUNCH//__NAMEFLAG__/$NAMEFLAG}
 if [ "$HARNESS" = rovo ]; then
   ROVOCONFIGOVERRIDE=$(rovo_config_override_flag "$EFFORT" "$DATA" "$STATE" "$ID") || {
     echo "error: could not resolve this task's home paths for rovo's allowedExternalPaths grant" >&2
@@ -3766,8 +3894,16 @@ esac
 # Forward firstmate's own resolved store onto the claude launch so the crewmate
 # uses the same credential/config firstmate is authenticated with. Only when set;
 # an unset value is the single-store default and needs no prefix.
-if [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
+if [ -n "$ACCOUNT_NUMBER" ]; then
+  LAUNCH=$(claude_launch_via_cswap "$ACCOUNT_NUMBER" "$LAUNCH") || {
+    echo "error: this claude launch command cannot be pinned to a Claude account" >&2
+    exit 1
+  }
+elif [ "$HARNESS" = claude ] && [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then
   LAUNCH="CLAUDE_CONFIG_DIR=$(shell_quote "$CLAUDE_CONFIG_DIR") $LAUNCH"
+fi
+if [ "$HARNESS" = claude ]; then
+  LAUNCH="env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 $LAUNCH"
 fi
 if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")

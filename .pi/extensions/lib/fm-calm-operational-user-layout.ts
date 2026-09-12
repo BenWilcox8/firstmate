@@ -114,7 +114,7 @@ export function installCalmOperationalUserLayout(): void {
 
     override render(width: number): string[] {
       if (patch.hidesOperationalInput()) {
-        return this.hasLeadingSpacer && !this.followsOperationalInput ? [""] : [];
+        return [];
       }
       const lines = super.render(width);
       return this.hasLeadingSpacer ? ["", ...lines] : lines;
