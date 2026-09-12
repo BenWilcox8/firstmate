@@ -1,0 +1,2 @@
+error: agent-axi spawn failed for fm-afk-e2e-supervisor (session fm-lab-afk-herdr-e2e-125899)
+not ok - create_task for the scratch supervisor pane failed

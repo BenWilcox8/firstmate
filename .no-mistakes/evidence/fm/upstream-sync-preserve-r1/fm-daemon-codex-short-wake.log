@@ -1,7 +1,7 @@
-FM_TEST_BEGIN 2026-09-12T09:54:25Z tests/fm-daemon-codex-short-wake.test.sh family=watcher-wake-lock expected_gate_skip=none
 ok - failed Codex short submit retains exact sha256=1e46f8d41284f3ff70646c6581cf8c9cd80d472f6d230a55050f9d47370a5808 and retries the same note
 ok - non-Codex Herdr transport remains direct
-FM_TEST_END 2026-09-12T09:54:25Z tests/fm-daemon-codex-short-wake.test.sh exit=0 duration_ms=696 gate_skip=false
-FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=806
-FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=1 duration_ms=696 failed=0
-FM_TEST_SLOWEST rank=1 script=tests/fm-daemon-codex-short-wake.test.sh duration_ms=696
+ok - executed daemon startup diagnostic names the resolved primary harness
+ok - staged transport check is non-recursive while external and fallback notes remain actionable
+ok - same-digest staging does not reclassify a prior failure fallback
+ok - failed short reference leaves its durable wake actionable
+ok - composed staging-to-watcher classification has no echo and preserves actionable controls
