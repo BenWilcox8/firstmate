@@ -380,7 +380,9 @@ Choose the minimum additions for the authentication method actually in use:
 | Git over HTTPS with a credential helper | Whatever the configured helper requires; a GitHub CLI helper using an environment token needs its selected `GH_TOKEN` or `GITHUB_TOKEN`. |
 
 Verify the selected provider login and Git transport after opting in; Firstmate does not infer credentials from model names or install a secret manager.
-Raw launch commands run under noninteractive POSIX `sh` with this option and must use compatible syntax.
+Raw launch commands accept one literal executable and literal arguments, with shell-style single quotes, double quotes, and backslash escapes for grouping only.
+They may start with one `env` executable (including an absolute path), assignments, `-i`, `-u NAME`, and `--`; nested `env` runners, shell executables, shell operators, expansions, substitutions, and separators are refused.
+The command is reconstructed with quoted argv before pane delivery; this compatibility boundary is not a shell-script interface.
 The filter runs at the worker command boundary, after the terminal daemon and pane shell have started; it does not scrub either of those processes.
 This is not a sandbox: it cannot revoke same-user access to credential files, prevent tools or later shells from loading credentials again, or isolate processes from the same user's other processes.
 Regression coverage executes emitted launch commands with synthetic nonsecret values in [`tests/fm-spawn-dispatch-profile.test.sh`](../tests/fm-spawn-dispatch-profile.test.sh).

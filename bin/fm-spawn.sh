@@ -1403,17 +1403,18 @@ claude_launch_via_cswap() {
 }
 
 raw_launch_words() {
-  local input=$1 i=0 ch quote= word= next
+  local input=$1 i=0 ch quote= word= next started=0
   RAW_WORDS=()
   while [ "$i" -lt "${#input}" ]; do
     ch=${input:i:1}
     case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
     case "$quote:$ch" in
       :\ |:\$'\t')
-        [ -z "$word" ] || RAW_WORDS+=("$word")
+        [ "$started" -eq 0 ] || RAW_WORDS+=("$word")
         word=
+        started=0
         ;;
-      :\'|:\") quote=$ch ;;
+      :\'|:\") quote=$ch; started=1 ;;
       \':\') quote= ;;
       \":\") quote= ;;
       *:\\)
@@ -1422,29 +1423,39 @@ raw_launch_words() {
         next=${input:i:1}
         case "$next" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
         word+=$next
+        started=1
         ;;
-      *) word+=$ch ;;
+      *) word+=$ch; started=1 ;;
     esac
     i=$((i + 1))
   done
   [ -z "$quote" ] || return 1
-  [ -z "$word" ] || RAW_WORDS+=("$word")
+  [ "$started" -eq 0 ] || RAW_WORDS+=("$word")
   [ "${#RAW_WORDS[@]}" -gt 0 ]
 }
 
 raw_launch_executable() {
-  local index=0 word
-  [ "${RAW_WORDS[0]:-}" = env ] && index=1
+  local index=0 word base
+  RAW_ENV_PREFIX=0
+  base=$(basename "${RAW_WORDS[0]:-}")
+  [ "$base" = env ] || { printf '%s\n' "${RAW_WORDS[0]}"; return 0; }
+  RAW_ENV_PREFIX=1
+  index=1
   while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
     word=${RAW_WORDS[index]}
     case "$word" in
       [A-Za-z_][A-Za-z0-9_]*=*) index=$((index + 1)) ;;
       -i) index=$((index + 1)) ;;
-      -u) index=$((index + 2)) ;;
-      *) printf '%s\n' "$word"; return 0 ;;
+      -u) index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
+      --) index=$((index + 1)); break ;;
+      -*) return 1 ;;
+      *) break ;;
     esac
   done
-  return 1
+  [ "$index" -lt "${#RAW_WORDS[@]}" ] || return 1
+  word=${RAW_WORDS[index]}
+  [ "$(basename "$word")" != env ] || return 1
+  printf '%s\n' "$word"
 }
 
 resolve_pi_executable() {
@@ -1701,7 +1712,7 @@ case "$ARG3" in
         ;;
     esac
     RAW_REBUILT=()
-    [ "${RAW_WORDS[0]}" != env ] || RAW_WORDS=("${RAW_WORDS[@]:1}")
+    [ "$RAW_ENV_PREFIX" -eq 0 ] || RAW_WORDS=("${RAW_WORDS[@]:1}")
     for word in "${RAW_WORDS[@]}"; do
       RAW_REBUILT+=("$(shell_quote "$word")")
     done
