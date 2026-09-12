@@ -133,8 +133,9 @@ EOF
 }
 
 test_literal_raw_argv_is_delivered() {
-  local id rec output status command probe index=0
-  for command_template in 'DIRECT' 'ENV'; do
+  local id rec output status command probe probe_shell index=0
+  probe_shell=$(command -v bash)
+  for command_template in 'DIRECT' 'ENV_CLEAR' 'ENV_UNSET'; do
     index=$((index + 1))
     id="raw-argv-z6-$index"
     rec=$(make_spawn_case "raw-argv-$index" pi "$id")
@@ -144,12 +145,12 @@ EOF
     mkdir -p "$FAKEBIN_DIR/probe dir"
     probe="$CASE_DIR/probe.log"
     cat > "$FAKEBIN_DIR/probe dir/custom agent" <<'SH'
-#!/usr/bin/env bash
+#!SHELL_FILE
 printf 'argv:' > 'PROBE_FILE'
 printf ' <%s>' "$@" >> 'PROBE_FILE'
-printf '\nVALUE=%s PATH=%s\n' "${VALUE-}" "${PATH-unset}" >> 'PROBE_FILE'
+printf '\nVALUE=%s CLEAR=%s DROP=%s KEEP=%s\n' "${VALUE-}" "${CLEAR_SENTINEL-unset}" "${DROP_SENTINEL-unset}" "${KEEP_SENTINEL-unset}" >> 'PROBE_FILE'
 SH
-    sed -i "s|PROBE_FILE|$probe|g" "$FAKEBIN_DIR/probe dir/custom agent"
+    sed -i -e "s|PROBE_FILE|$probe|g" -e "s|SHELL_FILE|$probe_shell|g" "$FAKEBIN_DIR/probe dir/custom agent"
     chmod +x "$FAKEBIN_DIR/probe dir/custom agent"
     cat > "$FAKEBIN_DIR/tmux" <<'SH'
 #!/usr/bin/env bash
@@ -171,20 +172,27 @@ SH
     chmod +x "$FAKEBIN_DIR/tmux"
     case "$command_template" in
       DIRECT) command="'$FAKEBIN_DIR/probe dir/custom agent' rovo '' tail" ;;
-      ENV) command="env -i -u PATH -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
+      ENV_CLEAR) command="env -i -u DROP_SENTINEL -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
+      ENV_UNSET) command="env -u DROP_SENTINEL -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
     esac
     : > "$CASE_DIR/launch.log"
-    output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
+    output=$(CLEAR_SENTINEL=clear DROP_SENTINEL=drop KEEP_SENTINEL=keep run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
       "$id" "$PROJECT_DIR" --harness "$command" --mode no-mistakes --yolo off)
     status=$?
     [ "$status" -eq 0 ] || printf '%s\n' "$output" >&2
     expect_code 0 "$status" "literal raw argv spawn should succeed"
-    assert_contains "$(cat "$probe")" 'argv: <rovo> <> <tail>' \
+    assert_contains "$(cat "$probe")" 'argv: <rovo> <>' \
       "raw launch did not execute the expected argv"
-    if [ "$command_template" = ENV ]; then
-      assert_contains "$(cat "$probe")" 'VALUE=one PATH=unset' \
-        "raw env launch did not apply assignment and unset environment"
-    fi
+    case "$command_template" in
+      ENV_CLEAR)
+        assert_contains "$(cat "$probe")" 'VALUE=one CLEAR=unset DROP=unset KEEP=unset' \
+          "env -i did not clear inherited sentinels"
+        ;;
+      ENV_UNSET)
+        assert_contains "$(cat "$probe")" 'VALUE=one CLEAR=clear DROP=unset KEEP=keep' \
+          "env -u did not remove only its named sentinel"
+        ;;
+    esac
   done
   pass "fm-spawn: literal raw argv is executed"
 }
