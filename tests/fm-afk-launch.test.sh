@@ -904,6 +904,38 @@ unit_detached_commands_propagate_primary_harness() {
   rm -rf "$st"
 }
 
+unit_detached_commands_preserve_supported_identities() {
+  local st entry identity expected cmd out
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-identities.XXXXXX")
+  entry="$st/entry.sh"
+  cat > "$entry" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$FM_DAEMON_PRIMARY_HARNESS"
+SH
+  chmod +x "$entry"
+  while IFS='|' read -r identity expected; do
+    cmd=$(FM_HOME="$st" FM_DAEMON_PRIMARY_HARNESS="$identity" bash -c '
+      . "$1"
+      fm_afk_launch_daemon_command lab:captain herdr "$2"
+    ' _ "$LAUNCH" "$entry")
+    out=$(bash -c "$cmd")
+    if [ "$out" = "$expected" ]; then
+      pass "detached entry receives validated primary identity $expected"
+    else
+      fail "detached entry changed primary identity $identity to $out (expected $expected)"
+    fi
+  done <<'CASES'
+codex|codex
+pi|pi
+pi-signed|pi-signed
+gemini|gemini
+omp|omp
+unknown|unknown
+not-a-harness|unknown
+CASES
+  rm -rf "$st"
+}
+
 unit_detached_unknown_harness_stays_unknown() {
   local st cmd
   st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-unknown.XXXXXX")
@@ -1080,6 +1112,7 @@ unit_confirmed_absence_succeeds
 unit_incomplete_restore_retains_backup
 unit_flag_write_failure_aborts
 unit_detached_commands_propagate_primary_harness
+unit_detached_commands_preserve_supported_identities
 unit_detached_unknown_harness_stays_unknown
 unit_detached_codex_reaches_short_reference_branch
 e2e_herdr

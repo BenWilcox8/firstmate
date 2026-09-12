@@ -99,15 +99,38 @@ test_other_harness_keeps_direct_transport() {
 }
 
 test_startup_diagnostic_names_resolved_harness() {
-  # shellcheck disable=SC2016 # Match literal source text, not an expansion here.
-  case "$(declare -f fm_super_main)" in
-    *'primary_harness=$(fm_daemon_primary_harness)'*'harness=$primary_harness'*)
-      pass "daemon startup diagnostic names the resolved primary harness"
-      ;;
-    *)
-      fail "daemon startup diagnostic does not expose the resolved primary harness"
-      ;;
+  local home="$TMP_ROOT/startup" fakebin="$TMP_ROOT/startup/fakebin"
+  local pid attempt=0 output
+  mkdir -p "$home/state" "$fakebin"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = display-message ]; then
+  printf '%%isolated-startup\n'
+  exit 0
+fi
+exit 1
+SH
+  chmod +x "$fakebin/tmux"
+  PATH="$fakebin:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \
+    FM_SUPERVISOR_BACKEND=tmux FM_SUPERVISOR_TARGET=%isolated-startup \
+    FM_DAEMON_PRIMARY_HARNESS=codex FM_WEDGE_ALARM_EXEC=discard \
+    bash "$ROOT/bin/fm-supervise-daemon.sh" > "$home/output" 2>&1 &
+  pid=$!
+  while [ "$attempt" -lt 100 ] && kill -0 "$pid" 2>/dev/null; do
+    grep -F 'daemon starting ' "$home/state/.supervise-daemon.log" >/dev/null 2>&1 && break
+    sleep 0.05
+    attempt=$((attempt + 1))
+  done
+  kill -TERM "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  output=$(cat "$home/state/.supervise-daemon.log" 2>/dev/null || true)
+  case "$output" in
+    *'daemon starting '*'; harness=codex; '*) ;;
+    *) fail "executed daemon startup did not report the resolved harness ($output)" ;;
   esac
+  [ ! -e "$home/state/.supervise-daemon.pid" ] \
+    || fail "isolated diagnostic daemon did not clean up its pid record"
+  pass "executed daemon startup diagnostic names the resolved primary harness"
 }
 
 test_failed_short_submit_keeps_exact_durable_digest
