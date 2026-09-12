@@ -43,10 +43,14 @@ printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/codex"
 printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/not-codex"
 printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/-codex"
 ln -s "$(command -v node)" "$TMP_ROOT/-node"
+cat > "$TMP_ROOT/process-info.jq" <<'JQ'
+{result:{type:"pane_process_info",process_info:{pane_id:$pane,shell_pid:$shell,foreground_process_group_id:$pgid,foreground_processes:[{pid:$child,name:"MainThread",argv:[$node,$entry]}]}}}
+JQ
 
 start_fixture() { # <node-binary> <entry-point>
-  local node_binary=$1 entry_point=$2 child= attempt=0
-  setsid bash --noprofile --norc -c 'set -m; "$1" "$2"; echo fixture-ended' \
+  local node_binary=$1 entry_point=$2 child='' attempt=0
+  local fixture_command="set -m; \"\$1\" \"\$2\"; echo fixture-ended"
+  setsid bash --noprofile --norc -c "$fixture_command" \
     bash "$node_binary" "$entry_point" >/dev/null 2>&1 &
   FIXTURE_ROOT=$!
   while [ "$attempt" -lt 50 ]; do
@@ -70,7 +74,7 @@ classify_fixture() { # <kernel-entry-point> <herdr-entry-point> [node-binary]
   start_fixture "$node_binary" "$kernel_entry"
   HERDR_NODE_BINARY=$node_binary HERDR_ENTRY_POINT=$herdr_entry \
     FIXTURE_ROOT=$FIXTURE_ROOT FIXTURE_CHILD=$FIXTURE_CHILD FIXTURE_PGID=$FIXTURE_PGID \
-    ROOT=$ROOT bash -c '
+    FILTER=$TMP_ROOT/process-info.jq ROOT=$ROOT bash -c '
       . "$ROOT/bin/backends/herdr.sh"
       fm_backend_herdr_cli() {
         case "$2 $3" in
@@ -81,14 +85,13 @@ classify_fixture() { # <kernel-entry-point> <herdr-entry-point> [node-binary]
             printf "%s\n" "{\"result\":{\"agent\":{\"agent_status\":\"idle\"}}}"
             ;;
           "pane process-info")
-            jq -cn \
+            jq -cn -f "$FILTER" \
               --arg pane "w1:p2" \
               --arg node "$HERDR_NODE_BINARY" \
               --arg entry "$HERDR_ENTRY_POINT" \
               --argjson shell "$FIXTURE_ROOT" \
               --argjson pgid "$FIXTURE_PGID" \
-              --argjson child "$FIXTURE_CHILD" \
-              "{result:{type:\"pane_process_info\",process_info:{pane_id:\$pane,shell_pid:\$shell,foreground_process_group_id:\$pgid,foreground_processes:[{pid:\$child,name:\"MainThread\",argv:[\$node,\$entry]}]}}}"
+              --argjson child "$FIXTURE_CHILD"
             ;;
           *) return 1 ;;
         esac

@@ -99,7 +99,7 @@ if [ "$START_RC" -ne 0 ]; then
   esac
   "$LAB_HELPER" run "$SESSION" agent send-keys "$PANE" enter >/dev/null \
     || fail "the isolated Codex trust dialog could not be accepted"
-  "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until done --timeout 60000 >/dev/null \
+  "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until 'done' --timeout 60000 >/dev/null \
     || fail "the real Codex agent did not become ready after the isolated trust decision"
 fi
 
@@ -110,7 +110,7 @@ case "$START_SCREEN" in
   *Hooks*)
     "$LAB_HELPER" run "$SESSION" agent send-keys "$PANE" escape >/dev/null \
       || fail "the isolated Codex hooks modal could not be closed"
-    "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until done --timeout 60000 >/dev/null \
+    "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until 'done' --timeout 60000 >/dev/null \
       || fail "the real Codex agent did not become ready after closing its hooks modal"
     pass "the isolated Codex hooks modal was closed without trusting hooks"
     ;;
