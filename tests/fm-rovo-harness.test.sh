@@ -133,28 +133,65 @@ EOF
 }
 
 test_literal_raw_argv_is_delivered() {
-  local id=raw-argv-z6 rec output status command launch
-  rec=$(make_spawn_case raw-argv pi "$id")
-  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
+  local id rec output status command probe index=0
+  for command_template in 'DIRECT' 'ENV'; do
+    index=$((index + 1))
+    id="raw-argv-z6-$index"
+    rec=$(make_spawn_case "raw-argv-$index" pi "$id")
+    IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
 $rec
 EOF
-  for command in "'$FAKEBIN_DIR/custom agent' rovo '' tail" \
-    "env VALUE=one -i -u PATH -- '$FAKEBIN_DIR/custom agent' rovo ''"; do
+    mkdir -p "$FAKEBIN_DIR/probe dir"
+    probe="$CASE_DIR/probe.log"
+    cat > "$FAKEBIN_DIR/probe dir/custom agent" <<'SH'
+#!/usr/bin/env bash
+printf 'argv:' > 'PROBE_FILE'
+printf ' <%s>' "$@" >> 'PROBE_FILE'
+printf '\nVALUE=%s PATH=%s\n' "${VALUE-}" "${PATH-unset}" >> 'PROBE_FILE'
+SH
+    sed -i "s|PROBE_FILE|$probe|g" "$FAKEBIN_DIR/probe dir/custom agent"
+    chmod +x "$FAKEBIN_DIR/probe dir/custom agent"
+    cat > "$FAKEBIN_DIR/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "$*" in *'#{pane_current_path}'*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
+case "${1:-}" in
+  display-message) printf 'firstmate\n' ;;
+  list-windows) ;;
+  has-session|new-session|new-window|kill-window|set-window-option) ;;
+  send-keys)
+    payload=
+    prev=
+    for a in "$@"; do [ "$prev" != -l ] || payload=$a; prev=$a; done
+    printf '%s\n' "$payload" >> "$FM_FAKE_LAUNCH_LOG"
+    bash -c "$payload"
+    ;;
+esac
+SH
+    chmod +x "$FAKEBIN_DIR/tmux"
+    case "$command_template" in
+      DIRECT) command="'$FAKEBIN_DIR/probe dir/custom agent' rovo '' tail" ;;
+      ENV) command="env -i -u PATH -- VALUE=one '$FAKEBIN_DIR/probe dir/custom agent' rovo ''" ;;
+    esac
     : > "$CASE_DIR/launch.log"
     output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
       "$id" "$PROJECT_DIR" --harness "$command" --mode no-mistakes --yolo off)
     status=$?
+    [ "$status" -eq 0 ] || printf '%s\n' "$output" >&2
     expect_code 0 "$status" "literal raw argv spawn should succeed"
-    launch=$(cat "$CASE_DIR/launch.log")
-    assert_contains "$launch" "'$FAKEBIN_DIR/custom agent' 'rovo' ''" \
-      "raw launch did not preserve quoted path, literal rovo, and empty argv"
+    assert_contains "$(cat "$probe")" 'argv: <rovo> <> <tail>' \
+      "raw launch did not execute the expected argv"
+    if [ "$command_template" = ENV ]; then
+      assert_contains "$(cat "$probe")" 'VALUE=one PATH=unset' \
+        "raw env launch did not apply assignment and unset environment"
+    fi
   done
-  pass "fm-spawn: literal raw argv is delivered"
+  pass "fm-spawn: literal raw argv is executed"
 }
 
 test_direct_rovo_selection_refuses_before_launch
 test_configured_rovo_selection_refuses_before_launch
 test_raw_rovo_selection_with_extra_environment_refuses_before_launch
 test_raw_shell_forms_refuse_before_launch
-test_raw_rovo_variants_refuse_before_launch
 test_literal_raw_argv_is_delivered
+test_raw_rovo_variants_refuse_before_launch
