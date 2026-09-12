@@ -110,8 +110,9 @@ test_raw_rovo_variants_refuse_before_launch() {
   IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
 $rec
 EOF
-  for label in quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout; do
+  for label in unquoted quoted absolute absolute-env repeated-env delimiter-assignment nice nohup timeout pipe and redirect expansion backticks env-after-delimiter env-after-assignment; do
     case "$label" in
+      unquoted) command='rovo run --yolo' ;;
       quoted) command="'rovo' run --yolo" ;;
       absolute) command='/opt/rovo run --yolo' ;;
       absolute-env) command='/usr/bin/env ROVODEV_CLI=1 rovo run --yolo' ;;
@@ -120,6 +121,13 @@ EOF
       nice) command='nice rovo run --yolo' ;;
       nohup) command='nohup rovo run --yolo' ;;
       timeout) command='timeout 1 rovo run --yolo' ;;
+      pipe) command='custom-agent --flag | rovo run' ;;
+      and) command='custom-agent --flag && rovo run' ;;
+      redirect) command='custom-agent --flag > result' ;;
+      expansion) command='custom-agent $HOME' ;;
+      backticks) command='custom-agent `printf rovo`' ;;
+      env-after-delimiter) command='env -- -i custom-agent' ;;
+      env-after-assignment) command='env VALUE=one -i custom-agent' ;;
     esac
     : > "$CASE_DIR/launch.log"
     output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
@@ -181,8 +189,11 @@ SH
     status=$?
     [ "$status" -eq 0 ] || printf '%s\n' "$output" >&2
     expect_code 0 "$status" "literal raw argv spawn should succeed"
-    assert_contains "$(cat "$probe")" 'argv: <rovo> <>' \
-      "raw launch did not execute the expected argv"
+    probe_argv=$(head -n 1 "$probe")
+    case "$command_template" in
+      DIRECT) [ "$probe_argv" = 'argv: <rovo> <> <tail>' ] || fail "direct raw argv changed: $probe_argv" ;;
+      *) [ "$probe_argv" = 'argv: <rovo> <>' ] || fail "env raw argv changed: $probe_argv" ;;
+    esac
     case "$command_template" in
       ENV_CLEAR)
         assert_contains "$(cat "$probe")" 'VALUE=one CLEAR=unset DROP=unset KEEP=unset' \
