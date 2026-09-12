@@ -41,11 +41,13 @@ trap 'cleanup_all; exit 143' TERM
 
 printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/codex"
 printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/not-codex"
+printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/-codex"
+ln -s "$(command -v node)" "$TMP_ROOT/-node"
 
-start_fixture() { # <entry-point>
-  local entry_point=$1 child= attempt=0
-  setsid bash --noprofile --norc -c 'set -m; node "$1"; echo fixture-ended' \
-    bash "$entry_point" >/dev/null 2>&1 &
+start_fixture() { # <node-binary> <entry-point>
+  local node_binary=$1 entry_point=$2 child= attempt=0
+  setsid bash --noprofile --norc -c 'set -m; "$1" "$2"; echo fixture-ended' \
+    bash "$node_binary" "$entry_point" >/dev/null 2>&1 &
   FIXTURE_ROOT=$!
   while [ "$attempt" -lt 50 ]; do
     child=$(ps -o pid= --ppid "$FIXTURE_ROOT" 2>/dev/null | awk 'NF { print $1; exit }')
@@ -62,11 +64,11 @@ start_fixture() { # <entry-point>
     || fail "the Node fixture did not expose the Linux MainThread command name"
 }
 
-classify_fixture() { # <kernel-entry-point> <herdr-entry-point>
-  local kernel_entry=$1 herdr_entry=$2 out
+classify_fixture() { # <kernel-entry-point> <herdr-entry-point> [node-binary]
+  local kernel_entry=$1 herdr_entry=$2 node_binary=${3:-node} out
   cleanup_fixture
-  start_fixture "$kernel_entry"
-  HERDR_ENTRY_POINT=$herdr_entry \
+  start_fixture "$node_binary" "$kernel_entry"
+  HERDR_NODE_BINARY=$node_binary HERDR_ENTRY_POINT=$herdr_entry \
     FIXTURE_ROOT=$FIXTURE_ROOT FIXTURE_CHILD=$FIXTURE_CHILD FIXTURE_PGID=$FIXTURE_PGID \
     ROOT=$ROOT bash -c '
       . "$ROOT/bin/backends/herdr.sh"
@@ -81,11 +83,12 @@ classify_fixture() { # <kernel-entry-point> <herdr-entry-point>
           "pane process-info")
             jq -cn \
               --arg pane "w1:p2" \
+              --arg node "$HERDR_NODE_BINARY" \
               --arg entry "$HERDR_ENTRY_POINT" \
               --argjson shell "$FIXTURE_ROOT" \
               --argjson pgid "$FIXTURE_PGID" \
               --argjson child "$FIXTURE_CHILD" \
-              "{result:{type:\"pane_process_info\",process_info:{pane_id:\$pane,shell_pid:\$shell,foreground_process_group_id:\$pgid,foreground_processes:[{pid:\$child,name:\"MainThread\",argv:[\"node\",\$entry]}]}}}"
+              "{result:{type:\"pane_process_info\",process_info:{pane_id:\$pane,shell_pid:\$shell,foreground_process_group_id:\$pgid,foreground_processes:[{pid:\$child,name:\"MainThread\",argv:[\$node,\$entry]}]}}}"
             ;;
           *) return 1 ;;
         esac
@@ -119,3 +122,9 @@ out=$(classify_fixture "$TMP_ROOT/codex" "$TMP_ROOT/not-codex") \
 [ "$out" = unreadable ] \
   || fail "kernel-only Codex evidence returned $out, expected unreadable"
 pass "conflicting Herdr and kernel identities remain unattributed"
+
+out=$(classify_fixture "$TMP_ROOT/-codex" "$TMP_ROOT/-codex" "$TMP_ROOT/-node") \
+  || fail "the leading-hyphen fixture could not be classified"
+[ "$out" = unreadable ] \
+  || fail "a leading-hyphen Node and Codex wrapper returned $out, expected unreadable"
+pass "leading-hyphen Node and Codex names remain unattributed"

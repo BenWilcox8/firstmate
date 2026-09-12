@@ -1957,8 +1957,10 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
   local out
   out=$(fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null) || return 1
   printf '%s' "$out" | jq -ceS --arg pane "$2" '
+    def path_base:
+      split("/")[-1];
     def base:
-      split("/")[-1] | ltrimstr("-");
+      path_base | ltrimstr("-");
     .result
     | select(.type == "pane_process_info")
     | .process_info
@@ -1983,9 +1985,9 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
           name: (.name | base),
           argv0: ((.argv0 // .argv[0]) | base),
           argv: (.argv // []),
-          codex_mainthread: ((.name | base) == "MainThread"
-            and (((.argv[0] // .argv0) | base) == "node")
-            and (((.argv[1] // "") | base) == "codex")),
+          codex_mainthread: ((.name | path_base) == "MainThread"
+            and (((.argv[0] // .argv0) | path_base) == "node")
+            and (((.argv[1] // "") | path_base) == "codex")),
           agent: ((.name | base) as $name
             | (.argv[0] // .argv0) as $argv0
             | (($name | test("^(claude|codex|opencode|grok)"))
@@ -2030,12 +2032,16 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       sub(/^-/, "", value)
       return value
     }
+    function path_base(value) {
+      sub(/^.*\//, "", value)
+      return value
+    }
     function is_shell(value) {
       return value == "sh" || value == "bash" || value == "zsh" || value == "dash" || value == "ksh" || value == "fish"
     }
     function is_codex_mainthread(value, args, fields) {
       split(args, fields, " ")
-      return value == "MainThread" && base(fields[1]) == "node" && base(fields[2]) == "codex"
+      return value == "MainThread" && path_base(fields[1]) == "node" && path_base(fields[2]) == "codex"
     }
     function is_agent(value, args, fields, argv0) {
       split(args, fields, " ")
