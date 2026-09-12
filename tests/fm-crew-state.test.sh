@@ -123,6 +123,15 @@ case "${1:-}" in
 esac
 exit 0
 SH
+  cat > "$fb/ps" <<'SH'
+#!/usr/bin/env bash
+set -u
+if [ "${FM_FAKE_HERDR_HUSK:-0}" = 1 ]; then
+  printf '101 1 101 S bash bash\n'
+else
+  printf '101 1 101 S bash bash\n102 101 102 S claude claude\n'
+fi
+SH
   cat > "$fb/herdr" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -149,6 +158,13 @@ case "${1:-}" in
         fi
         printf '{"result":{"pane":{"pane_id":"%s"}}}\n' "${3:-}"
         exit 0 ;;
+      process-info)
+        if [ "${FM_FAKE_HERDR_HUSK:-0}" = 1 ]; then
+          printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":101,"foreground_process_group_id":101,"foreground_processes":[{"pid":101,"name":"bash","argv0":"bash","argv":["bash"]}]}}}\n' "${4:-}"
+        else
+          printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":101,"foreground_process_group_id":102,"foreground_processes":[{"pid":102,"name":"claude","argv0":"claude","argv":["claude"]}]}}}\n' "${4:-}"
+        fi
+        exit 0 ;;
     esac ;;
   agent)
     case "${2:-}" in
@@ -164,7 +180,7 @@ case "${1:-}" in
 esac
 exit 0
 SH
-  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/herdr"
+  chmod +x "$fb/no-mistakes" "$fb/tmux" "$fb/ps" "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -1291,9 +1307,10 @@ SH
   pass "a herdr CLI that fails to answer reads unknown/unreachable, never gone"
 }
 
-# Decision follow-up (2026-09-05 review): an `alive` endpoint answer is
-# authoritative even when the heavy scrollback read failed - the live state is
-# classified by the normal flow, never discarded as unreachable.
+# An endpoint whose pane and agent still answer remains live even if a best-effort
+# scrollback capture fails.
+# The state command uses the independently obtained endpoint evidence rather than
+# treating a failed capture as a dead or unreachable endpoint.
 test_no_run_herdr_alive_with_failed_read_stays_live() {
   command -v jq >/dev/null 2>&1 || { pass "herdr alive/read-fail test skipped without jq"; return; }
   reset_fakes
@@ -1305,8 +1322,6 @@ test_no_run_herdr_alive_with_failed_read_stays_live() {
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_TMUX_MISSING=1
-  # The 200-line scrollback read fails while the cheap pane get / agent get
-  # pair answers: the pane is present and its agent is working.
   FM_FAKE_HERDR_READ_FAIL=1
   FM_FAKE_HERDR_AGENT_STATUS=working
   local out; out=$(run_crew_state "$d" feat-herdr-alive)
@@ -1316,9 +1331,8 @@ test_no_run_herdr_alive_with_failed_read_stays_live() {
   pass "an alive endpoint whose scrollback read failed stays working"
 }
 
-# Decision follow-up (2026-09-05 review): a husk pane (pane present,
-# agent_not_found) is authoritative death evidence - it keeps the gone-class
-# text so the stale sweep may still reclaim it, never unknown/unreachable.
+# A pane whose agent registration is absent is a husk, not an unreachable
+# endpoint, even when its best-effort scrollback capture also fails.
 test_no_run_herdr_husk_dead_still_reads_gone() {
   command -v jq >/dev/null 2>&1 || { pass "herdr husk test skipped without jq"; return; }
   reset_fakes
@@ -1330,8 +1344,6 @@ test_no_run_herdr_husk_dead_still_reads_gone() {
   FM_FAKE_AXI_STATUS=""
   FM_FAKE_RUNS_LIST=""
   FM_FAKE_TMUX_MISSING=1
-  # The pane exists and answers pane get, but no agent is registered in it,
-  # and the scrollback read fails besides.
   FM_FAKE_HERDR_READ_FAIL=1
   FM_FAKE_HERDR_HUSK=1
   local out; out=$(run_crew_state "$d" feat-herdr-husk)

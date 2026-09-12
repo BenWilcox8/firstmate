@@ -65,6 +65,7 @@ case "${1:-}" in
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)
+          : > "$D/local-relaunch-start"
           if [ -e "$D/remote-relaunch-start" ] && [ ! -e "$D/remote-relaunch-end" ]; then
             : > "$D/local-relaunch-during-remote"
           fi
@@ -119,7 +120,11 @@ SH
 #!/usr/bin/env bash
 case "${1:-}" in
   ''|*[!0-9]*) ;;
-  *) /bin/sleep 0.01 ;;
+  *)
+    PATH=${PATH#*:}
+    export PATH
+    sleep 0.01
+    ;;
 esac
 exit 0
 SH
@@ -329,7 +334,9 @@ test_answer_between_resolution_and_timeout_wins() {
   cat > "$dir/fakebin/mv" <<'SH'
 #!/usr/bin/env bash
 set -u
-/bin/mv "$@" || exit $?
+PATH=${PATH#*:}
+export PATH
+mv "$@" || exit $?
 target=${!#}
 case "$target" in
   "${FM_FAKE_DIR%/fake}"/home/state/pending-replies/*)
@@ -474,7 +481,11 @@ case "${rargs[1]:-}" in
     case "${FM_FAKE_SSH_MODE:-ok}" in
       slow-relaunch)
         : > "$FM_FAKE_DIR/remote-relaunch-start"
-        /bin/sleep 2
+        PATH=${PATH#*:}
+        export PATH
+        sleep 2
+        [ -e "$FM_FAKE_DIR/local-relaunch-start" ] \
+          && : > "$FM_FAKE_DIR/local-relaunch-during-remote"
         : > "$FM_FAKE_DIR/remote-relaunch-end"
         ;;
     esac
@@ -707,7 +718,9 @@ if [ -e "$FM_FAKE_DIR/remote-relaunch-start" ] && [ ! -e "$FM_FAKE_DIR/result-ra
     fi
   fi
 fi
-exec /bin/ps "$@"
+PATH=${PATH#*:}
+export PATH
+exec ps "$@"
 SH
   chmod +x "$dir/fakebin/ps"
 
