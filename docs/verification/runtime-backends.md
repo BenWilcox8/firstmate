@@ -1004,9 +1004,10 @@ ok - the lab was removed and the default session stayed unchanged
 ```
 
 The test starts Codex with an explicit model but submits no prompt.
-Herdr reports the wrapper as `MainThread`, with argv that starts with `node` and the Codex entry point.
-The public control path accepts this identity only when Herdr and the operating-system process table agree.
-The portable regression in `tests/fm-backend-herdr-codex-attribution.test.sh` keeps unrelated MainThread processes and conflicting identity evidence unattributed.
+Every Herdr operation, including the public control subprocess's internal call, routes through the guarded helper for the exact disposable named session; the router refuses an implicit default session.
+Herdr reports the wrapper as `MainThread`, with argv beginning with an exact `node` basename followed by an exact `codex` entry-point basename.
+The public control path accepts this identity only when Herdr and the operating-system process table independently agree on that shape.
+The portable regression in `tests/fm-backend-herdr-codex-attribution.test.sh` keeps unrelated MainThread processes, conflicting identity evidence, and leading-hyphen Node or Codex names unattributed.
 
 ### Away-mode transport
 
