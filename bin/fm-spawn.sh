@@ -1409,7 +1409,7 @@ raw_launch_words() {
     ch=${input:i:1}
     case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
     case "$quote:$ch" in
-      :\ |:\$'\t')
+      :\ |:$'\t')
         [ "$started" -eq 0 ] || RAW_WORDS+=("$word")
         word=
         started=0
@@ -1443,8 +1443,13 @@ raw_launch_executable() {
   index=1
   while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
     word=${RAW_WORDS[index]}
+    if [[ "$word" == *=* ]]; then
+      [[ "$word" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || return 1
+      assignments=1
+      index=$((index + 1))
+      continue
+    fi
     case "$word" in
-      [A-Za-z_][A-Za-z0-9_]*=*) assignments=1; index=$((index + 1)) ;;
       -i) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 1)) ;;
       -u) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 2)); [ "$index" -le "${#RAW_WORDS[@]}" ] || return 1 ;;
       --) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; delimiter=1; index=$((index + 1)); continue ;;
