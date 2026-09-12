@@ -4484,7 +4484,11 @@ if [ "${1:-}" = spawn ]; then
   # A spawn --json response naming the new tab/pane the shim must echo back.
   printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
 elif [ "${1:-}" = list ]; then
-  printf '{"workspace":{"label":"firstmate","id":"w9","tabCount":1},"counts":{"live":1,"husk":1,"gone":0,"tracked":2,"untracked":0,"foreign":0},"crew":[{"task":"axi1","state":"live","slot":"t1/s1","pane":"w9:p5"},{"task":"old","state":"husk","slot":"t1/s2","pane":"w9:p6"}],"foreign":[]}\n'
+  if [ -n "${FM_AXI_LIST_JSON:-}" ]; then
+    printf '%s\n' "$FM_AXI_LIST_JSON"
+  else
+    printf '{"workspace":{"label":"firstmate","id":"w9","tabCount":1},"counts":{"live":1,"husk":1,"gone":0,"tracked":2,"untracked":0,"foreign":0},"crew":[{"task":"axi1","state":"live","slot":"t1/s1","pane":"w9:p5"},{"task":"old","state":"husk","slot":"t1/s2","pane":"w9:p6"}],"foreign":[]}\n'
+  fi
 fi
 exit 0
 SH
@@ -4560,6 +4564,23 @@ test_list_live_delegates_to_agent_axi() {
   pass "fm_backend_herdr_list_live: delegates recovery inventory to agent-axi and excludes husks"
 }
 
+test_list_live_excludes_secondmate_supervisor() {
+  local dir hlog resp fb axilog axifb home out supervisor_list
+  dir="$TMP_ROOT/axi-list-secondmate-supervisor"; mkdir -p "$dir/responses" "$dir/home"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  printf 'secondmate1\n' > "$dir/home/.fm-secondmate-home"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  supervisor_list='{"crew":[{"task":"secondmate1","state":"live","pane":"w9:p2"},{"task":"crew1","state":"live","pane":"w9:p3"}]}'
+  out=$(PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_AXI_LIST_JSON="$supervisor_list" FM_HOME="$dir/home" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT") \
+    || fail "list_live should delegate to agent-axi for a secondmate home"
+  [ "$out" = $'fmtest:w9:p3\tfm-crew1' ] \
+    || fail "list_live must exclude the secondmate supervisor, got '$out'"
+  pass "fm_backend_herdr_list_live: excludes the secondmate supervisor from agent-axi recovery inventory"
+}
+
 test_kill_delegates_to_agent_axi() {
   local dir hlog resp fb axilog axifb
   dir="$TMP_ROOT/axi-kill-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
@@ -4631,6 +4652,7 @@ test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_create_task_delegates_to_agent_axi
 test_create_task_fallback_when_agent_axi_absent
 test_list_live_delegates_to_agent_axi
+test_list_live_excludes_secondmate_supervisor
 test_kill_delegates_to_agent_axi
 test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label

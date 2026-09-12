@@ -3527,13 +3527,17 @@ EOF
 # Both paths are read-only and print one "<session>:<pane_id>\t<label>" line
 # per live task.
 fm_backend_herdr_list_live() {  # <session>
-  local session=$1 inventory wsid tabs tab_id label pane_id
+  local session=$1 inventory wsid tabs tab_id label pane_id secondmate_id=
+  if [ -f "$FM_HOME/$FM_BACKEND_HERDR_SECONDMATE_MARKER" ]; then
+    secondmate_id=$(tr -d '[:space:]' < "$FM_HOME/$FM_BACKEND_HERDR_SECONDMATE_MARKER" 2>/dev/null)
+  fi
   if fm_backend_herdr_axi_available; then
     inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json 2>/dev/null) || return 0
-    printf '%s' "$inventory" | jq -r --arg session "$session" '
+    printf '%s' "$inventory" | jq -r --arg session "$session" --arg supervisor "$secondmate_id" '
       .crew[]?
       | select(.state == "live")
       | select((.task | type) == "string" and (.task | length) > 0)
+      | select(.task != $supervisor)
       | select((.pane | type) == "string" and (.pane | length) > 0)
       | "\($session):\(.pane)\tfm-\(.task)"
     ' 2>/dev/null
@@ -3544,6 +3548,7 @@ fm_backend_herdr_list_live() {  # <session>
   tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$wsid" 2>/dev/null) || return 0
   while IFS=$'\t' read -r tab_id label; do
     [ -n "$tab_id" ] || continue
+    [ "$label" = "fm-$secondmate_id" ] && continue
     pane_id=$(fm_backend_herdr_pane_for_tab "$session" "$wsid" "$tab_id") || continue
     [ -n "$pane_id" ] || continue
     printf '%s:%s\t%s\n' "$session" "$pane_id" "$label"
