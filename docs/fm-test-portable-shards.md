@@ -64,38 +64,34 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
 
 Assignment uses longest-processing-time bin packing over per-script duration hints in `bin/fm-test-run.sh`.
-The 174 current hints retain the largest existing hint or successful script observation from the 2026-09-12 integration runs.
-The complete green run is [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430).
-Additional successful script observations come from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844), [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628), and the complete 198-script aggregate from [34693005421](https://github.com/BenWilcox8/firstmate/actions/runs/34693005421) at `33c37c15`.
-The latter workflow's serial-4 job was cancelled after all 36 scripts exited 0, so it supplies per-script observations but is not a green workflow verdict.
-The two earlier workflows were not green either; only script records with exit 0 supply duration measurements.
-The retained maxima total 5871146 ms, and all 174 current serial scripts have a duration hint.
-The current serial-3 cancellation contributed 23 exit-0 records totaling 1190222 ms.
-Its 12 unfinished scripts remain unobserved for that run and use their prior successful timings for scheduling.
-Each shard remains serial, and the existing five-runner configuration and 20-minute job limit remain unchanged.
+The 174 current hints retain the larger existing hint or successful exit-0 observation from the 2026-09-12 integration runs.
+The inputs include the complete green run [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430), successful records from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628), and the completed records in the 084, 085, and 087 aggregates.
+Cancelled workflows are not green verdicts, and only their completed exit-0 records supply duration measurements.
+The interrupted serial-2 and serial-3 records leave unfinished scripts unobserved and retain their prior successful timings.
+The shipped hints total 6037269 ms, and all 174 current serial scripts have a duration hint.
+Each shard remains serial, and six separate runners preserve the unchanged 20-minute job bound.
 
 An exit-0 capability skip measures only that skip path, not the skipped live behavior.
 Keep larger platform-specific measurements when portable CI skips a test.
 In particular, retain the 5121 ms native-Windows measurement for `tests/fm-pi-windows-shell-invocation.test.sh`.
 Existing isolated measurements for endpoint retirement and Herdr layout remain valid lower bounds.
-The durable Codex wake suite now takes 16391 ms in its isolated 2026-09-12 run, including the executed startup-diagnostic regression.
 
-| Lane | Script count | Conservative duration hint |
-|---|---:|---:|
-| `portable-serial-1of5` | 34 | 1174231 ms |
-| `portable-serial-2of5` | 35 | 1174242 ms |
-| `portable-serial-3of5` | 35 | 1174244 ms |
-| `portable-serial-4of5` | 35 | 1174212 ms |
-| `portable-serial-5of5` | 35 | 1174217 ms |
-| imbalance | | 32 ms |
+The runner's executable LPT selection produces this six-way partition.
+The retained-max sums are estimates for scheduling, not measured passes for this partition.
+The observed maximum CI setup/finalization overhead was 20888 ms.
+The capacity check adds a 20000 ms contingency, for a 40888 ms allowance per job.
+The maximum retained sum plus that allowance is 1047117 ms, leaving 152883 ms below the unchanged 1200000 ms job bound.
 
-Before this rebalance, the current scheduled serial-3 selection has 1219978 ms of retained successful observations, 19978 ms beyond the job bound.
-The rebalance runs the same observed data through the runner's executable LPT selection.
-Its largest retained-observation replay is 1079319 ms, leaving 120681 ms before the job bound.
-The conservative hint maximum is 1174244 ms, leaving 25756 ms before the unchanged 20-minute job bound.
-These estimates are scheduling inputs, not a measured pass for the new partition.
-The largest retained script observation is 505780 ms for `tests/fm-watch-triage.test.sh`.
-Runner speed and setup costs still affect the final job duration.
+| Lane | Script count | Retained-max hint | Hint plus setup allowance |
+|---|---:|---:|---:|
+| `portable-serial-1of6` | 26 | 1006229 ms | 1047117 ms |
+| `portable-serial-2of6` | 30 | 1006204 ms | 1047092 ms |
+| `portable-serial-3of6` | 30 | 1006229 ms | 1047117 ms |
+| `portable-serial-4of6` | 29 | 1006181 ms | 1047069 ms |
+| `portable-serial-5of6` | 29 | 1006214 ms | 1047102 ms |
+| `portable-serial-6of6` | 30 | 1006212 ms | 1047100 ms |
+
+The observed overhead is a scheduling input, not a future-runtime guarantee.
 Refresh the hints when scripts or observed runtimes change, before a shard reaches its job limit.
 
 Hints affect balance only.
@@ -142,7 +138,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-5 | job `timeout-minutes: 20` | The conservative balanced hints are about 19.57 minutes per shard. The retained-observation replay maximum is about 17.99 minutes, leaving about 2.01 minutes before setup and runner-speed variation. |
+| portable serial 1-6 | job `timeout-minutes: 20` | The largest retained-max sum is 1006229 ms. Adding the observed 20888 ms setup/finalization maximum and a 20000 ms contingency gives 1047117 ms, leaving 152883 ms before the bound. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
