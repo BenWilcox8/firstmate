@@ -148,6 +148,9 @@ Missing, empty, duplicate, malformed, backend-inconsistent, or task-mismatched e
 Legacy tmux metadata remains cleanup-compatible when its exact window name is `fm-<id>`; opaque non-tmux endpoints require their recorded `endpoint_task_id=` binding.
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 [`herdr-backend.md`](herdr-backend.md#watching-and-task-containers) owns launcher-bound workspace placement, the label-only fallback, collision handling, and recovery behavior.
+The default-container spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
+Pane placement inside that default container - tab vs split, the slot plan, overflow, and husk reaping - is owned by `agent-axi`, not firstmate config: firstmate's herdr adapter delegates the pane lifecycle to it and keeps only a minimal fallback for hosts without agent-axi (see [`docs/herdr-backend.md`](herdr-backend.md) "Delegation architecture").
+There is no `config/herdr-layout` knob; the old bash split-mode config and its `FM_HERDR_*` overrides were removed in phase 1 of the agent-axi migration (spec agent-axi/v1).
 The local `config/herdr-presentation-spaces` file instead opts a home out of, or explicitly in to, Herdr's default-on disposable single-task visual projection; [Presentation spaces](herdr-backend.md#presentation-spaces) owns its accepted values, default, Herdr version floor, migration, behavior, safety limits, recovery contract, and narrow locked session-start cleanup of exact restored idle-shell children.
 The setting is inherited into secondmate homes under the primary-authoritative contract owned by [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md).
 For normal herdr operations, `HERDR_SESSION` selects the named session, but destructive test cleanup must not rely on `HERDR_SESSION` alone.
@@ -190,6 +193,18 @@ When launching a Secondmate, the primary copies the presence flag into its home 
 A Secondmate on a remote route is covered the same way: the primary resolves and records that task's carrier, and the configured host exports it and receives the same enablement snapshot.
 The presence flag is session-scoped enablement, so it transfers at launch and is left unchanged by live convergence into a running home.
 See [`trace-context.md`](trace-context.md) for carrier semantics, supported routes, the manual fleet-restart requirement, the session boundary, and safety limits; `bin/fm-trace-context-lib.sh`'s header owns the exact mechanics, and [`verification/trace-context.md`](verification/trace-context.md) records repeatable evidence.
+
+## Atlas pointer (config/specs)
+
+`config/specs` is a local, gitignored, per-home file whose content is the absolute path to the local Atlas repo.
+It is installer-provisioned rather than firstmate-written, and it is not propagated into secondmate homes.
+
+The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atlas-hook.sh` resolves.
+That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.
+On a wired home, a ship or scout spawn without `--ticket` prints a one-line warning to stderr at dispatch time.
+The warning is advisory and does not block the spawn.
+A home with no pointer, or a pointer to a directory holding no `atlas/`, makes no Atlas call at all and behaves exactly as it did before the hook existed.
+The hook's own header owns its verbs, its evidence arguments, and the best-effort contract that keeps a broken Atlas from ever failing the action that called it.
 
 ## Turn-end pane-churn absorb (config/turnend-churn-absorb)
 
@@ -238,6 +253,8 @@ The stable local estimate is `ceil(UTF-8 bytes / 3)` per file, a conservative po
 An inherited `data/captain-shared.md` counts in a secondmate's total but remains primary-owned and read-only there.
 The internal [`/stow` skill](../.agents/skills/stow/SKILL.md) owns curation and its automatic secondmate cascade, which accounts every home against this same per-home allowance separately rather than against a fleet total.
 The helper's header owns exact parsing, publication, and report output mechanics.
+Bootstrap emits a `STARTUP_MEMORY_BUDGET:` diagnostic line at every session start when the combined total of the three files exceeds the configured budget, naming the total, the budget, and the per-file breakdown; the line is silent when the total is within budget.
+The [`bootstrap-diagnostics`](../.agents/skills/bootstrap-diagnostics/SKILL.md) skill is the response owner for that line.
 
 ## Stow pass horizon (config/stow-pass-horizon)
 
@@ -433,6 +450,91 @@ Malformed JSON, an empty or malformed rule/default array, an unverified harness,
 While the file remains present, no crewmate or scout spawn may proceed without an explicit resolved harness; malformed configuration must be reported and corrected rather than selected around.
 Secondmate homes inherit this file from the primary, so a secondmate's own crewmates apply the same dispatch profile behavior.
 
+### Subagent model tier
+
+A token audit found that most subagent spend ran off-tier because workflow `agent()` calls omitted a model and inherited the orchestrator's own session model.
+Every subagent or workflow `agent()` call must pass an explicit model.
+The default subagent tier is `claude-sonnet-5` unless a brief names another.
+A Fable-class model or Haiku must never run as a subagent.
+`bin/fm-brief-blocks-lib.sh`'s `fm_brief_subagent_tier_block` renders this rule into every generated brief and points back here; the fully authoritative tier and quota mechanics live in the captain's private, untracked `data/captain-shared.md`, which a generated brief cannot reference directly.
+
+## Claude accounts (cswap)
+
+A captain with more than one Claude subscription manages the accounts with [claude-swap](https://github.com/realiti4/claude-swap).
+Its command is `cswap`.
+cswap owns the accounts: which accounts exist, which one the default login is, how much each one has left, and how an agent runs as one exact account.
+Firstmate keeps no account registry of its own.
+Firstmate never switches the captain's live login.
+
+To install cswap and register the accounts, do these steps:
+
+```
+uv tool install claude-swap
+cswap add --alias primary      # once per account, while logged in to that account
+cswap alias 2 parent           # an alias is optional, but it makes a pin readable
+cswap list                     # the accounts, their aliases, and each 5h/7d headroom
+```
+
+An account can be named by slot number, by alias, or by email.
+
+### Pin a spawn to one account
+
+`bin/fm-spawn.sh --account <pin>` pins one claude-harness spawn to one exact account.
+The `<pin>` value is a slot number, an alias, or the email of the account.
+The spawn starts through `cswap run <account> -- claude ...`, which gives that one agent its own credential store for the life of its terminal.
+This path is per-terminal.
+The default login of the captain does not change, and the agents that already run keep the account that they started on.
+If a pin does not resolve, the spawn stops before any worker, local copy, or record exists.
+A spawn never starts on an unknown subscription.
+The resolved account is recorded as `account=<name>` in the durable record of that task, and it is named on the success line of the spawn.
+
+Without `--account`, a claude spawn uses the account that cswap has active, the same as a plain `claude` command.
+Then no `account=` line is written.
+The header of `bin/fm-cswap-lib.sh` owns how firstmate calls cswap.
+The header of `bin/fm-spawn.sh` owns the flag.
+
+### Rotate before an account runs out
+
+`cswap auto` compares the active account against a threshold.
+The threshold is the percent used of the tightest window of that account.
+When the active account passes the threshold, cswap switches the live login.
+The threshold is stored in the settings of cswap, so there is one place to read it or to change it:
+
+```
+cswap config                              # the current threshold, cooldown, and strategy
+cswap config set autoswitch.threshold 90
+```
+
+Keep the threshold below the standing 95% usage ceiling of the captain, so that a rotation occurs before an account reaches that ceiling.
+The default threshold of cswap is 90, which obeys this rule.
+
+`bin/fm-cswap-rotate.sh` does one tick of that rotation as a watcher check.
+It prints one line for a switch, for an account fleet with no headroom left, for an account that left the rotation, and for a tick error.
+For all other results it prints nothing.
+An armed check is therefore silent while the active account has headroom.
+You can run the script by hand at any time.
+The `--dry-run` flag reports the result without a switch.
+
+To arm the check, write it for one long-lived task and register its bytes.
+This is the same two-step contract as every other custom check:
+
+```
+printf '#!/usr/bin/env bash\nexec %s/bin/fm-cswap-rotate.sh\n' "$FM_HOME" > "$FM_HOME/state/<id>.check.sh"
+chmod 0700 "$FM_HOME/state/<id>.check.sh"
+bin/fm-check-register.sh <id>
+```
+
+`FM_CSWAP_TIMEOUT` bounds the tick, with a default of 20 seconds.
+This bound must stay below the `FM_CHECK_TIMEOUT` value of the watcher.
+
+### Read the usage of each account
+
+cswap reads every managed account, not only the account that is logged in.
+Use `cswap list` for all accounts and `cswap status` for the active account.
+Both commands accept `--json` for machine-readable output.
+`quota-axi` reads the account whose credentials are live.
+`quota-axi` therefore answers "how much does this session have left", and cswap answers "how much does each subscription have left".
+
 ## Toolchain
 
 On session start the first mate detects what its required toolchain is missing or too old and lists each problem with either an exact install command or manual instructions.
@@ -469,7 +571,7 @@ Local routes use direct guarded filesystem operations, while remote routes deleg
 It emits `SECONDMATE_SYNC:` only when a home was skipped for an actionable sync reason, inheritance failed, or a divergent shared captain-preference copy was quarantined.
 When a running home advances and its loaded instruction surface (`AGENTS.md`, `bin/`, or `.agents/skills/`) changed, bootstrap sends the re-read nudge itself through the stable `fm-<id>` selector and reports the exact completed send as `BOOTSTRAP_INFO:`.
 If that send fails, bootstrap keeps an idempotent retry marker and emits `NUDGE_SECONDMATES:` with the failure reason.
-The same bootstrap run emits `SECONDMATE_LIVENESS:` only when a registered secondmate is skipped or its relaunch fails; already-live and successfully relaunched secondmates are handled silently.
+The same bootstrap run emits `SECONDMATE_LIVENESS:` when a registered secondmate is skipped, its relaunch fails, or its relaunch succeeds but cannot retire the previous endpoint (see [`bin/fm-bootstrap.sh`](../bin/fm-bootstrap.sh) header and [`docs/agent-control.md`](agent-control.md) "Endpoint retirement"); already-live and cleanly relaunched secondmates are handled silently.
 For a mid-session inherited local-material edit where tracked-file sync is not needed, run `bin/fm-config-push.sh`.
 It uses the same live secondmate discovery and propagation helper as bootstrap; its [help](../bin/fm-config-push.sh) owns reporting and exit semantics, and [`fm_config_inherit_items`](../bin/fm-config-inherit-lib.sh) declares the inherited items.
 When an allowlisted config item changes for an already-running local home, it sends the literal-content reread pointer described in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md); unchanged allowlisted config sends no pointer unless a previous delivery is pending.
@@ -863,6 +965,7 @@ FM_TASK_ID=             # internal task-worker marker fm-spawn.sh exports into s
 HERDR_SESSION=default  # herdr-only: named session for normal backend ops; not enough for destructive cleanup (docs/herdr-backend.md)
 FM_BACKEND_HERDR_SUBMIT_POLLS=6  # herdr-only: agent-state samples spread across each Enter attempt's budget when confirming a submit (docs/herdr-backend.md "Current transport behavior")
 FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0.6  # herdr-only: minimum per-Enter confirmation budget before polling agent-state after an idle baseline
+FM_BACKEND_HERDR_AXI_BIN=agent-axi  # herdr-only: executable the pane-lifecycle delegation and the layout repair/snapshot wiring resolve; an empty value forces the minimal native tab-per-task fallback (docs/herdr-backend.md "Delegation architecture")
 FM_ZELLIJ_SESSION=firstmate  # zellij-only: named session for normal backend ops and test isolation (docs/zellij-backend.md)
 CMUX_SOCKET_PASSWORD=   # cmux-only: socket password fallback when config/cmux-socket-password is absent (docs/cmux-backend.md)
 FM_SESSION_START_STATUS_TAIL=5   # state/*.status lines printed per task in the session-start digest; each line is capped by bin/fm-line-cap-lib.sh
@@ -892,6 +995,12 @@ FM_CHECK_INTERVAL=300   # seconds between slow checks (authenticated merge polls
 FM_TASK_INBOX_GRACE_SECS=90   # seconds an unhandled steering-inbox message may sit before the watcher attempts doorbell delivery on an idle pane; also the minimum spacing between attempts
 FM_TASK_INBOX_RING_MAX=3      # watcher delivery attempts without an acknowledgement before the task surfaces as a stale wake for recovery
 FM_CHECK_TIMEOUT=30     # seconds allowed per slow check script
+FM_BROWSER_REAP_INTERVAL=3600   # seconds between orphaned-browser sweeps run detached from the watcher poll; 0 turns the sweep off; invalid values use 3600
+FM_BROWSER_REAP_MAX_AGE=86400   # seconds an orphaned browser chain must have run before it is reaped; ownership is still the first gate
+FM_BROWSER_REAP_GRACE=10   # seconds between the sweep's SIGTERM and its SIGKILL
+FM_BROWSER_REAP_LOG=    # override for the sweep's record, default state/browser-reap.log
+FM_BROWSER_REAP_LOCK=   # override for the per-home sweep lock, default state/.browser-reap.lock
+FM_BROWSER_REAP_OWNER_VARS=CLAUDE_PID   # space-separated environment names the sweep reads from a chain root to find the pid of the agent that launched it
 FM_TOOL_UPDATE_INTERVAL=900   # seconds between watched-tool probe sweeps; 0 probes on every run, other values must be 60..86400
 FM_TOOL_UPDATE_PROBE_SECS=5   # 1..30 seconds allowed for one version or git probe
 FM_TOOL_UPDATE_BUDGET_SECS=20   # 1..120 seconds allowed for a whole watched-tool sweep; cut to fit FM_CHECK_TIMEOUT, and the cut is reported
@@ -938,7 +1047,7 @@ FM_CAPTAIN_RE='done:|needs-decision:|blocked:|failed:|PR ready|checks green|read
 FM_CLASSIFY_PAUSED_VERB=paused     # leading status verb for a declared external wait; excluded from FM_CAPTAIN_RE and distinct from blocked
 FM_STALE_ESCALATE_SECS=240         # idle seconds before a provably-working stale pane escalates; stale panes whose crew is not provably working surface immediately unless admitted directly to the declared-wait cadence, while a live idle declared wait still surfaces once before that cadence bounds repeats
 FM_BUSY_TURN_MAX_SECS=3600         # maximum age of a busy pane's latest state/<id>.turn-ended marker, or its state/<id>.meta spawn record before any turn completes, before the same wedge escalation used for a provably-working non-busy stale takes over; inspection-only, never an automatic interrupt or restart; a declared external wait or verified captain-held transfer takes the FM_PAUSE_RESURFACE_SECS recheck below instead
-FM_PAUSE_RESURFACE_SECS=3600       # seconds between bounded rechecks of a declared external wait or verified captain-held transfer, and between repeated new-hash stale alarms for an ordinary crew task with an open backlog captain call; this includes a live idle pane after its first inconclusive stale wake and a live busy pane past FM_BUSY_TURN_MAX_SECS, while the away-mode daemon uses the same setting and ages its window against the crew's own latest status line rather than pane busy state
+FM_PAUSE_RESURFACE_SECS=3600       # seconds before the watcher re-surfaces a declared external wait or verified captain-held transfer for a recheck, including a live busy pane past FM_BUSY_TURN_MAX_SECS and repeated new-hash alarms for an ordinary task with an open backlog captain call; one declaration costs the watcher at most one recheck per window, so a pane repaint, a watcher re-arm, or another turn boundary on the same wait is absorbed rather than repeating it; the away-mode daemon uses the same setting for a declared external wait or verified captain-held transfer, ageing its window against the crew's own latest status line rather than pane busy state
 FM_SECONDMATE_WAKE_STALL_SECS=180  # minimum interval with no change of the oldest actionable foreign wake-queue row (it advances as the mate drains, and a queue reprovisioned under the same task id starts a fresh interval at whatever sequence it restarts) before an endpoint-recorded local secondmate produces one durable parent wake-loop-stall notification for that no-progress episode; a mate that is provably inside an active turn (an exact busy verdict, bounded by the same FM_BUSY_TURN_MAX_SECS above) never escalates whatever this interval says, declared external-wait pause rows are excluded, and zero or invalid values use 180
 FM_WEDGE_DEMAND_INSPECT_COUNT=3    # consecutive provably-working stale escalations on the same unchanged pane before demand-deep-inspection is added
 FM_WORKTREE_WRITE_PRUNE='.git node_modules .venv venv __pycache__ .mypy_cache .pytest_cache .ruff_cache .tox target dist build .next .cache vendor'   # directory names the wedge detector's task-worktree write probe skips; the default keeps .git out so a supervisor's own read-only git command can never look like crew progress; set it to the empty string to prune nothing, which widens the probe to the whole depth-bounded tree rather than disabling it

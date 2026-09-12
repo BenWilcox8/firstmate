@@ -15,10 +15,9 @@
 #   ship or scout spawn also refuses leftover `{TASK}` / `{FIRSTMATE_SPEC}`
 #   placeholders, an empty Task, or an incomplete pair of Task subsections.
 #   Every ship or scout spawn renders `launch-brief.md`; for a no-mistakes ship
-#   it also carries the current `--intent` contract and the extracted captain
-#   intent. A legacy mixed Task is accepted there only under bin/fm-dod-lib.sh's
-#   provenance-marking rules; unmarked legacy Tasks stop for migration rather
-#   than becoming intent. That library owns the parsing and intent rules. When
+#   it also carries the current `--intent` contract and all accepted Task
+#   requirements, including Firstmate constraints and unmarked legacy Tasks.
+#   bin/fm-dod-lib.sh owns the parsing and intent rules. When
 #   the explicit mode carries less rigor than the project's standing posture, a
 #   loud one-line deviation notice is printed and the spawn continues.
 #   no-mistakes-prod-only is a registry policy rather than a task mode and is
@@ -42,16 +41,32 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation.
+#   A FRESH spawn on a task id this home already holds a record for is a
+#   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
+#   Such a spawn settles the endpoint the old record named in two halves. Before
+#   anything is created it REFUSES unless that endpoint is positively agent-free
+#   or authoritatively absent, so a live or unreadable one can never end up
+#   running beside the replacement on the same local copy. After the replacement
+#   endpoint exists and before the new window value is written, it retires the
+#   old one through fm_backend_endpoint_retire (bin/fm-backend.sh), so the pane
+#   the record stops naming cannot survive as an unreferenced husk. An endpoint
+#   the spawn resolved to the same target was reused and is left alone; one that
+#   cannot be proven closed is named on stderr and the replacement still lands.
+#   docs/agent-control.md "Endpoint retirement" owns the contract.
 #   --harness <name> is the explicit per-spawn harness/profile adapter. The old
 #   positional harness arg still works for back-compat.
 #   --model <name> and --effort <low|medium|high|xhigh|max> are concrete profile
 #   axes chosen by firstmate at intake. They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed.
-#   --account <pin> selects a Claude account through cswap for this launch only.
-#   Pinned launches do not register trust in the supervisor store.
-#   --session-name <text> names supported harness sessions and is refused for batches.
-#   --ticket <id> records the Atlas ticket for a ship or scout dispatch.
+#   --session-name <text> sets a purpose-relevant display name on the spawned
+#   agent's session, for harnesses whose CLI supports it. Omitted, a crewmate or
+#   scout defaults to the task id (already a purpose slug) and a secondmate to
+#   "Secondmate, <id>". Only a harness whose session-name support was empirically
+#   verified receives the flag (claude's --name today; codex/opencode/pi/grok have
+#   no verified equivalent and launch unchanged), and the applied name is recorded
+#   as session_name= in meta only when a flag was actually passed. Batch id=repo
+#   dispatch refuses --session-name; each pair uses its per-kind default instead.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -171,6 +186,16 @@
 #   secondmate receives the primary's read-only shared captain-preference file
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
 #   config reread generations because the new agent reads the converged files.
+#   --ticket <id> names the Atlas ticket this work discharges. It is OPTIONAL and
+#   there is no refuse-to-spawn gate: a spawn without it behaves exactly as before.
+#   The id is recorded as atlas_ticket= in the task's meta, which is what the
+#   merge and teardown hooks read back, so the crew never types a ticket id and a
+#   closed-out task cannot lose which ticket it discharged. After the worker is
+#   launched, the spawn tells the Atlas the ticket is being worked. That call is
+#   best effort through bin/fm-atlas-hook.sh and can never fail the spawn; a home
+#   with no Atlas wiring writes no atlas_ticket= line and makes no call at all.
+#   Refused for --secondmate (a persistent home is not a ticket's work) and for
+#   batch id=repo dispatch (one ticket belongs to one crewmate).
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
@@ -195,9 +220,10 @@
 #   not marked.
 #   Only after this isolation check, every fresh ship or scout requires a clean
 #   task worktree. When an origin configuration is detected, spawn fetches it,
-#   resolves the current remote default branch, and resets to its tip. When none
-#   is detected, spawn skips that remote freshness check and launches from the
-#   clean worktree's current HEAD. Relaunch reuses the recorded worktree without
+#   resolves the current remote default branch, and resets to its tip. Without
+#   origin, spawn refreshes the clean copy to the primary default-branch tip.
+#   An unresolved local default branch refuses the launch.
+#   Relaunch reuses the recorded worktree without
 #   fetching or resetting its base. An unreachable detected origin, unresolved
 #   default branch, or non-clean worktree refuses a fresh spawn rather than
 #   risking a PR based on stale history or discarding local work.
@@ -213,7 +239,7 @@
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
-#   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo
+#   source of truth; shared --scout/--harness/--model/--effort/--backend/--mode/--yolo/--account
 #   applies to every pair. A ship batch therefore carries one delivery contract, and each
 #   pair still checks it against its own brief; a batch spanning modes is two invocations.
 #   If config/crew-dispatch.json exists, shared --harness is required for crewmate
@@ -2327,16 +2353,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
     exit 1
   fi
   if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
-    if fm_brief_task_heading_present "$BRIEF" "## Captain's intent"; then
-      CAPTAIN_INTENT=$(fm_brief_task_heading_body "$BRIEF" "## Captain's intent")
-    else
-      LEGACY_TASK_BODY=$(fm_brief_heading_body "$BRIEF" "# Task")
-      CAPTAIN_INTENT=$(fm_brief_marked_captain_words "$LEGACY_TASK_BODY")
-      if [ -z "$(printf '%s' "$CAPTAIN_INTENT" | tr -d '[:space:]')" ]; then
-        echo "error: legacy mixed # Task brief has no provenance-marked captain words for no-mistakes --intent; add Captain: lines or migrate to ## Captain's intent and ## Firstmate spec" >&2
-        exit 1
-      fi
-    fi
+    ACCEPTED_TASK_REQUIREMENTS=$(fm_brief_heading_body "$BRIEF" "# Task")
   fi
   # Use the existing launch-brief overlay for every worker kind, including
   # pre-scope briefs and relaunches. Charters never enter this worker path.
@@ -2348,7 +2365,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       printf '\n' &&
       fm_brief_worker_role &&
       if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
-        fm_brief_intent_overlay "$CAPTAIN_INTENT"
+        fm_brief_intent_overlay "$ACCEPTED_TASK_REQUIREMENTS"
       fi
   } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render current launch contract for $SOURCE_BRIEF" >&2; exit 1; }
   if ! mv "$BRIEF_TMP" "$BRIEF"; then
@@ -2555,8 +2572,8 @@ spawn_worktree_has_origin_config() {  # <worktree>
   return 1
 }
 
-freshen_spawn_worktree_base() {  # <worktree>
-  local worktree=$1 default target expected actual status
+freshen_spawn_worktree_base() {  # <worktree> <primary-checkout>
+  local worktree=$1 primary=$2 default target expected actual status
   status=$(git -C "$worktree" -c core.quotePath=false status --porcelain) || {
     echo "error: could not inspect pooled worktree '$worktree' before refreshing its base" >&2
     return 1
@@ -2569,30 +2586,44 @@ freshen_spawn_worktree_base() {  # <worktree>
     fi
     return 1
   fi
-  if ! spawn_worktree_has_origin_config "$worktree"; then
-    return 0
+  if spawn_worktree_has_origin_config "$worktree"; then
+    if ! git -C "$worktree" fetch --quiet origin; then
+      echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
+      echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    default=$(default_branch "$worktree") || {
+      echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
+    target="origin/$default"
+    if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
+      echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    fi
+    expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
+      echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
+  else
+    # No origin remote: a registered local-only project.
+    # The pool worktree shares the primary checkout's object store and refs,
+    # so the primary's own default-branch tip IS the freshest possible base;
+    # there is nothing external to fetch.
+    # Refuse rather than guess when that branch cannot be resolved.
+    default=$(default_branch "$primary") || {
+      echo "error: could not determine the default branch of remoteless primary checkout '$primary' for pooled worktree '$worktree'; refusing to launch from a guessed base" >&2
+      return 1
+    }
+    target="refs/heads/$default"
+    expected=$(git -C "$primary" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
+      echo "error: '$target' is not a commit in remoteless primary checkout '$primary' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
+      return 1
+    }
   fi
-  if ! git -C "$worktree" fetch --quiet origin; then
-    echo "error: could not fetch origin for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  if ! git -C "$worktree" remote set-head origin --auto >/dev/null 2>&1; then
-    echo "error: could not resolve origin's current default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  default=$(default_branch "$worktree") || {
-    echo "error: could not determine origin's default branch for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  }
-  target="origin/$default"
-  if ! git -C "$worktree" fetch --quiet origin "+refs/heads/$default:refs/remotes/origin/$default"; then
-    echo "error: could not fetch '$target' for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  fi
-  expected=$(git -C "$worktree" rev-parse --verify --quiet "$target^{commit}" 2>/dev/null) || {
-    echo "error: '$target' is not a commit for pooled worktree '$worktree'; refusing to launch from a potentially stale base" >&2
-    return 1
-  }
   if ! git -C "$worktree" reset --hard "$target" >/dev/null; then
     echo "error: could not reset pooled worktree '$worktree' to '$target'; refusing to launch from a potentially stale base" >&2
     return 1
@@ -3250,7 +3281,7 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   validate_spawn_worktree "treehouse get" "$T"
 fi
 if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ]; then
-  freshen_spawn_worktree_base "$WT" || exit 1
+  freshen_spawn_worktree_base "$WT" "$PROJ_ABS" || exit 1
 fi
 
 # Pre-register Claude's workspace trust for the worktree, at the first point the

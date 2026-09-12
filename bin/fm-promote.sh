@@ -145,11 +145,10 @@ fi
 if fm_brief_task_heading_present "$SCOUT_BRIEF" "## Captain's intent"; then
   INTENT_BODY=$(fm_brief_task_heading_body "$SCOUT_BRIEF" "## Captain's intent")
 else
-  TASK_BODY=$(fm_brief_heading_body "$SCOUT_BRIEF" "# Task")
-  INTENT_BODY=$(fm_brief_marked_captain_words "$TASK_BODY")
+  INTENT_BODY=$(fm_brief_heading_body "$SCOUT_BRIEF" "# Task")
 fi
 if [ -z "$(printf '%s' "$INTENT_BODY" | tr -d '[:space:]')" ]; then
-  echo "error: $SCOUT_BRIEF has no provenance-marked Captain's intent; add the captain's actual words before promotion" >&2
+  echo "error: $SCOUT_BRIEF has no task requirements; restore the accepted task before promotion" >&2
   exit 1
 fi
 
@@ -174,9 +173,10 @@ Your scout task has been promoted to a ship task, mode=$MODE. Your window, workt
 ## Captain's intent
 EOF
   printf '%s\n' "$INTENT_BODY"
+  printf '\n## Firstmate spec\n'
+  fm_brief_task_heading_body "$SCOUT_BRIEF" "## Firstmate spec"
   cat <<EOF
 
-## Firstmate spec
 1. **Verify isolation before anything else.** Run \`pwd -P\` and \`git rev-parse --show-toplevel\`; both must resolve to the disposable task worktree you were launched in, such as a treehouse pool path or an Orca-managed worktree, not the primary checkout firstmate operates from. If either does not resolve to the worktree you were launched in, stop and escalate to firstmate.
 2. Inventory this worktree's scratch state with \`git status\` and \`git log\` before changing anything.
 3. Return to a clean default-branch base, then create your branch: \`git checkout -b fm/$ID\`.
@@ -184,7 +184,8 @@ EOF
 5. If you reproduced a bug, turn that reproduction into a regression test.
 6. These ship instructions supersede the scout delivery rules and report-based Definition of done. Everything else in your original instructions carries over unchanged: the status protocol; the instruction inbox and its acknowledgement; the escalation rules, including ask-user; and every safety rule.
 $PROMOTION_ASK_USER_BLOCK
-7. Treat the scout-time Firstmate spec and any unmarked legacy \`# Task\` text as investigation context, not captain intent or ship-time instructions.
+7. Preserve the original task requirements, constraints, and exclusions unless an accepted instruction explicitly supersedes them.
+   Investigation-only procedures remain context and do not replace the ship delivery contract.
 EOF
   printf '\n'
   fm_dod_block "$MODE" "$ID"
