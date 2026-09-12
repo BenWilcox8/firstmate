@@ -1,0 +1,8 @@
+FM_TEST_BEGIN 2026-09-12T23:36:58Z tests/fm-backend-herdr-recovery-state.test.sh family=backend-dispatch expected_gate_skip=none
+ok - stale lifecycle status cannot keep an exited agent alive, including through nested launch shells and the exact Treehouse shell broker
+ok - active supported harnesses remain live, while other commands, an inexact or active Treehouse process, and unreadable evidence remain ambiguous
+ok - changed process ownership or pane identity refuses recovery
+FM_TEST_END 2026-09-12T23:37:01Z tests/fm-backend-herdr-recovery-state.test.sh exit=0 duration_ms=3000 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=3000
+FM_TEST_SUMMARY_FAMILY family=backend-dispatch count=1 duration_ms=3000 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-backend-herdr-recovery-state.test.sh duration_ms=3000
