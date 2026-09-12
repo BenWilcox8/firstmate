@@ -76,6 +76,7 @@ Refresh the hints whenever the serial lane gains scripts, rather than waiting fo
 
 The upstream timing tables below are historical baseline measurements.
 The local integration adds passing isolated measurements from 2026-09-12: `tests/fm-endpoint-retire.test.sh` took 24509 ms and `tests/fm-herdr-layout-lib.test.sh` took 653 ms.
+The deterministic Codex short-wake regression measured 770 ms in an isolated clone on 2026-09-12.
 These scripts use fake backend fixtures and do not operate the live fleet.
 Run `bin/fm-test-run.sh --check-coverage` for the current partition and unmeasured share.
 

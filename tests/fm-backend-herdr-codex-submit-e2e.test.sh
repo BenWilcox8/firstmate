@@ -102,6 +102,8 @@ require_durable_short_wake() {
     || fail "could not seed the unrelated durable note"
 
   mkdir -p "$PROJECT/bin"
+  # Expand these variables when the generated fixture runs.
+  # shellcheck disable=SC2016
   printf '%s\n' \
     '#!/usr/bin/env bash' \
     'set -eu' \

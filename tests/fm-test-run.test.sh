@@ -55,6 +55,12 @@ test_family_selection() {
   fam_count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
   [ "$fam_count" -lt "$all_count" ] \
     || fail "pure-contract-unit must be a proper subset of --all"
+  listed=$("$RUNNER" --list --family watcher-wake-lock)
+  printf '%s\n' "$listed" | grep -Fxq 'tests/fm-daemon-codex-short-wake.test.sh' \
+    || fail "watcher family must include durable short-wake regression"
+  listed=$("$RUNNER" --list --family live-harness-optin)
+  printf '%s\n' "$listed" | grep -Fxq 'tests/fm-backend-herdr-codex-submit-e2e.test.sh' \
+    || fail "live harness family must include the Codex submit regression"
   pass "family selection returns a proper subset of the suite"
 }
 
