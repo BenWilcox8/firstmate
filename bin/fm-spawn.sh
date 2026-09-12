@@ -4197,6 +4197,11 @@ fi
 fm_lock_release "$SPAWN_META_LOCK"
 SPAWN_META_LOCK_HELD=0
 
+# Publish the Atlas start only after delivery and the backlog commit succeed.
+# The hook reports failures without failing an otherwise complete spawn.
+FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+  "$FM_ROOT/bin/fm-atlas-hook.sh" start "$ID" --actor fm-spawn || true
+
 SPAWN_DELIVERY=
 [ -z "$MODE" ] || SPAWN_DELIVERY=" mode=$MODE yolo=$YOLO"
 echo "spawned $ID harness=$HARNESS${ACCOUNT_NAME:+ account=$ACCOUNT_NAME} kind=$KIND$SPAWN_DELIVERY window=$META_WINDOW worktree=$WT"

@@ -16,9 +16,6 @@ type AssistantMessagePresentationState = {
   hiddenThinkingLabel: string;
   hideThinkingBlock: boolean;
   lastMessage?: AssistantMessage;
-  contentContainer: {
-    addChild(component: { render(width: number): string[] }): void;
-  };
 };
 
 type CalmAssistantLayoutPatch = {
@@ -92,10 +89,6 @@ export function installCalmAssistantLayout(): void {
         : message;
 
     originalUpdateContent.call(this, presentationMessage);
-    // Pi 0.85.1 gives each visible assistant message an initial separator.
-    // Preserve that standard transcript boundary when Calm hides a mid-turn
-    // working note, while still collapsing its content and tool block.
-    if (hideWorkingNote) state.contentContainer.addChild({ render: () => [""] });
     if (presentationMessage !== message) state.lastMessage = message;
   };
 
