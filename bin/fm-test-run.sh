@@ -637,7 +637,7 @@ tests/fm-cswap.test.sh 1274
 tests/fm-cursor-harness.test.sh 30234
 tests/fm-cursor-primary-live-e2e.test.sh 104
 tests/fm-cursor-primary.test.sh 54947
-tests/fm-daemon-codex-short-wake.test.sh 770
+tests/fm-daemon-codex-short-wake.test.sh 16391
 tests/fm-daemon.test.sh 29526
 tests/fm-documentation-audiences.test.sh 870
 tests/fm-endpoint-retire.test.sh 24509

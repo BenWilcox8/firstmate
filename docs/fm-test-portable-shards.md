@@ -68,24 +68,25 @@ The 174 current hints retain the largest existing hint or successful script obse
 The complete green run is [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430).
 Additional successful script observations come from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628).
 Those two workflows were not green; only script records with exit 0 supply duration measurements.
-The retained maxima total 5422185 ms, and all 174 current serial scripts have a duration hint.
+The retained maxima total 5437806 ms, and all 174 current serial scripts have a duration hint.
 Each shard remains serial, and the existing five-runner configuration and 20-minute job limit remain unchanged.
 
 An exit-0 capability skip measures only that skip path, not the skipped live behavior.
 Keep larger platform-specific measurements when portable CI skips a test.
 In particular, retain the 5121 ms native-Windows measurement for `tests/fm-pi-windows-shell-invocation.test.sh`.
-Existing isolated measurements for endpoint retirement, Herdr layout, and durable Codex wake tests remain valid lower bounds.
+Existing isolated measurements for endpoint retirement and Herdr layout remain valid lower bounds.
+The durable Codex wake suite now takes 16391 ms in its isolated 2026-09-12 run, including the executed startup-diagnostic regression.
 
 | Lane | Script count | Conservative duration hint |
 |---|---:|---:|
-| `portable-serial-1of5` | 33 | 1084432 ms |
-| `portable-serial-2of5` | 35 | 1084433 ms |
-| `portable-serial-3of5` | 36 | 1084452 ms |
-| `portable-serial-4of5` | 35 | 1084435 ms |
-| `portable-serial-5of5` | 35 | 1084433 ms |
-| imbalance | | 20 ms |
+| `portable-serial-1of5` | 33 | 1087566 ms |
+| `portable-serial-2of5` | 35 | 1087551 ms |
+| `portable-serial-3of5` | 35 | 1087552 ms |
+| `portable-serial-4of5` | 36 | 1087573 ms |
+| `portable-serial-5of5` | 35 | 1087564 ms |
+| imbalance | | 22 ms |
 
-These estimates are about 18.07 minutes per shard; they are scheduling inputs, not a measured pass for the new partition.
+These estimates are about 18.13 minutes per shard; they are scheduling inputs, not a measured pass for the new partition.
 The largest retained script observation is 503876 ms for `tests/fm-watch-triage.test.sh`.
 Runner speed and setup costs still affect the final job duration.
 Refresh the hints when scripts or observed runtimes change, before a shard reaches its job limit.
@@ -134,7 +135,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-5 | job `timeout-minutes: 20` | The current balanced hints are about 18.07 minutes per shard. Keep setup and runner-speed variation within the remaining margin. |
+| portable serial 1-5 | job `timeout-minutes: 20` | The current balanced hints are about 18.13 minutes per shard. Keep setup and runner-speed variation within the remaining margin. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
