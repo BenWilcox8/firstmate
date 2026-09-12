@@ -65,10 +65,17 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 
 Assignment uses longest-processing-time bin packing over per-script duration hints in `bin/fm-test-run.sh`.
 The 174 current hints retain the larger existing hint or successful exit-0 observation from the 2026-09-12 integration runs.
-The inputs include the complete green run [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430), successful records from [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628), and the completed records in the 084, 085, and 087 aggregates.
+The inputs include the complete green run [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430).
+They also include successful script records from these workflows:
+
+- [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628).
+- [34693005421](https://github.com/BenWilcox8/firstmate/actions/runs/34693005421) and [34695201096](https://github.com/BenWilcox8/firstmate/actions/runs/34695201096).
+- [34697219751](https://github.com/BenWilcox8/firstmate/actions/runs/34697219751) and [34699090764](https://github.com/BenWilcox8/firstmate/actions/runs/34699090764).
+- [34700273710](https://github.com/BenWilcox8/firstmate/actions/runs/34700273710), the measurement cutoff for this partition.
+
 Cancelled workflows are not green verdicts, and only their completed exit-0 records supply duration measurements.
-The interrupted serial-2 and serial-3 records leave unfinished scripts unobserved and retain their prior successful timings.
-The shipped hints total 6037269 ms, and all 174 current serial scripts have a duration hint.
+Interrupted shards leave unfinished scripts unobserved; those scripts retain their prior successful timings.
+The shipped hints total 6053782 ms, and all 174 current serial scripts have a duration hint.
 Each shard remains serial, and six separate runners preserve the unchanged 20-minute job bound.
 
 An exit-0 capability skip measures only that skip path, not the skipped live behavior.
@@ -79,20 +86,21 @@ Existing isolated measurements for endpoint retirement and Herdr layout remain v
 The runner's executable LPT selection produces this six-way partition.
 The retained-max sums are estimates for scheduling, not measured passes for this partition.
 The observed maximum CI setup/finalization overhead was 20888 ms.
-The capacity check adds a 20000 ms contingency, for a 40888 ms allowance per job.
-The maximum retained sum plus that allowance is 1047117 ms, leaving 152883 ms below the unchanged 1200000 ms job bound.
+The capacity check adds a 39112 ms contingency, for a 60000 ms allowance per job.
+The maximum retained sum plus that allowance is 1068996 ms, leaving 131004 ms below the unchanged 1200000 ms job bound.
 
 | Lane | Script count | Retained-max hint | Hint plus setup allowance |
 |---|---:|---:|---:|
-| `portable-serial-1of6` | 26 | 1006229 ms | 1047117 ms |
-| `portable-serial-2of6` | 30 | 1006204 ms | 1047092 ms |
-| `portable-serial-3of6` | 30 | 1006229 ms | 1047117 ms |
-| `portable-serial-4of6` | 29 | 1006181 ms | 1047069 ms |
-| `portable-serial-5of6` | 29 | 1006214 ms | 1047102 ms |
-| `portable-serial-6of6` | 30 | 1006212 ms | 1047100 ms |
+| `portable-serial-1of6` | 26 | 1008946 ms | 1068946 ms |
+| `portable-serial-2of6` | 30 | 1008996 ms | 1068996 ms |
+| `portable-serial-3of6` | 29 | 1008948 ms | 1068948 ms |
+| `portable-serial-4of6` | 30 | 1008968 ms | 1068968 ms |
+| `portable-serial-5of6` | 30 | 1008979 ms | 1068979 ms |
+| `portable-serial-6of6` | 29 | 1008945 ms | 1068945 ms |
 
 The observed overhead is a scheduling input, not a future-runtime guarantee.
-Refresh the hints when scripts or observed runtimes change, before a shard reaches its job limit.
+The current partition uses the fixed measurement cutoff above; later passing-run variation alone does not require another update.
+Refresh the hints when a script change or a repeated capacity failure requires a new measurement set.
 
 Hints affect balance only.
 The coverage guard keeps the partition complete and disjoint for every valid hint table.
@@ -138,7 +146,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-6 | job `timeout-minutes: 20` | The largest retained-max sum is 1006229 ms. Adding the observed 20888 ms setup/finalization maximum and a 20000 ms contingency gives 1047117 ms, leaving 152883 ms before the bound. |
+| portable serial 1-6 | job `timeout-minutes: 20` | The largest retained-max sum is 1008996 ms. The 60000 ms setup allowance gives 1068996 ms, leaving 131004 ms before the bound. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
