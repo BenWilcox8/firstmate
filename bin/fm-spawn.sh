@@ -1407,9 +1407,7 @@ raw_launch_words() {
   RAW_WORDS=()
   while [ "$i" -lt "${#input}" ]; do
     ch=${input:i:1}
-    if [ -z "$quote" ]; then
-      case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
-    fi
+    case "$ch" in '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')') return 1 ;; esac
     case "$quote:$ch" in
       :\ |:\$'\t')
         [ -z "$word" ] || RAW_WORDS+=("$word")
@@ -1696,7 +1694,18 @@ case "$ARG3" in
       exit 1
     }
     HARNESS=$(basename "$RAW_EXECUTABLE")
-    case "$HARNESS" in rovo) echo "error: rovo dispatch is disabled; select a supported harness" >&2; exit 1 ;; esac
+    case "$HARNESS" in
+      rovo|sh|bash|dash|zsh|ksh)
+        echo "error: rovo dispatch is disabled; raw launch commands must not invoke a shell" >&2
+        exit 1
+        ;;
+    esac
+    RAW_REBUILT=()
+    [ "${RAW_WORDS[0]}" != env ] || RAW_WORDS=("${RAW_WORDS[@]:1}")
+    for word in "${RAW_WORDS[@]}"; do
+      RAW_REBUILT+=("$(shell_quote "$word")")
+    done
+    LAUNCH="env ${RAW_REBUILT[*]}"
     ;;
   '')
     # No explicit harness: resolve from config. A secondmate AGENT launches on the
@@ -1726,16 +1735,6 @@ case "$ARG3" in
     ;;
 esac
 
-if [ "$RAW_LAUNCH" -eq 1 ]; then
-  for word in $LAUNCH; do
-    case "$word" in
-      rovo|*/rovo)
-        echo "error: rovo dispatch is disabled; select a supported harness" >&2
-        exit 1
-        ;;
-    esac
-  done
-fi
 if [ "$HARNESS" = rovo ]; then
   echo "error: rovo dispatch is disabled; select a supported harness" >&2
   exit 1

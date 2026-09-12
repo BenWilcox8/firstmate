@@ -81,6 +81,30 @@ EOF
   pass "fm-spawn: raw Rovo selection refuses before launch"
 }
 
+test_raw_shell_forms_refuse_before_launch() {
+  local id=rovo-raw-shell-z4 rec output status command label
+  rec=$(make_spawn_case raw-shell pi "$id")
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
+$rec
+EOF
+  for label in nested-shell substitution separator; do
+    case "$label" in
+      nested-shell) command='env ROVODEV_CLI=1 /bin/sh -c "rovo run --yolo"' ;;
+      substitution) command='"$(printf rovo)" run --yolo' ;;
+      separator) command='pi --help; rovo run --yolo' ;;
+    esac
+    : > "$CASE_DIR/launch.log"
+    output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
+      "$id" "$PROJECT_DIR" --harness "$command" --mode no-mistakes --yolo off)
+    status=$?
+    expect_code 1 "$status" "$label raw shell form must refuse"
+    assert_absent "$HOME_DIR/state/$id.meta" "$label raw shell form created task metadata"
+    [ ! -s "$CASE_DIR/launch.log" ] || fail "$label raw shell form launched a worker"
+  done
+  pass "fm-spawn: raw shell forms refuse before launch"
+}
+
 test_direct_rovo_selection_refuses_before_launch
 test_configured_rovo_selection_refuses_before_launch
 test_raw_rovo_selection_with_extra_environment_refuses_before_launch
+test_raw_shell_forms_refuse_before_launch
