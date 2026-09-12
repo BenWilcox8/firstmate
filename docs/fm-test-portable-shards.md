@@ -91,7 +91,7 @@ The durable Codex wake suite now takes 16391 ms in its isolated 2026-09-12 run, 
 
 Before this rebalance, the current scheduled serial-3 selection has 1219978 ms of retained successful observations, 19978 ms beyond the job bound.
 The rebalance runs the same observed data through the runner's executable LPT selection.
-Its largest retained-observation replay is 1057725 ms, leaving 142275 ms before the job bound.
+Its largest retained-observation replay is 1079319 ms, leaving 120681 ms before the job bound.
 The conservative hint maximum is 1174244 ms, leaving 25756 ms before the unchanged 20-minute job bound.
 These estimates are scheduling inputs, not a measured pass for the new partition.
 The largest retained script observation is 505780 ms for `tests/fm-watch-triage.test.sh`.
@@ -142,7 +142,7 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 | Lane | Bound | Rationale |
 |---|---|---|
 | portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-5 | job `timeout-minutes: 20` | The conservative balanced hints are about 19.57 minutes per shard. The retained-observation replay maximum is about 17.63 minutes, leaving about 2.37 minutes before setup and runner-speed variation. |
+| portable serial 1-5 | job `timeout-minutes: 20` | The conservative balanced hints are about 19.57 minutes per shard. The retained-observation replay maximum is about 17.99 minutes, leaving about 2.01 minutes before setup and runner-speed variation. |
 | Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
 
 Timeouts are hang tripwires rather than expected healthy durations.
