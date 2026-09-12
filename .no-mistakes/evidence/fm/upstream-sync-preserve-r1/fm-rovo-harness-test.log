@@ -1,7 +1,7 @@
+$ bash tests/fm-rovo-harness.test.sh
 ok - fm-spawn: direct Rovo selection refuses before launch
 ok - fm-spawn: configured Rovo selection refuses before launch
 ok - fm-spawn: raw Rovo selection refuses before launch
 ok - fm-spawn: raw shell forms refuse before launch
-not ok - quoted backslash changed: argv: <ab>
-
-exit_status=1
+ok - fm-spawn: literal raw argv is executed
+ok - fm-spawn: raw Rovo variants refuse before launch
