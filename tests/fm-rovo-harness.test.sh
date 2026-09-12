@@ -90,7 +90,7 @@ EOF
   for label in nested-shell substitution separator; do
     case "$label" in
       nested-shell) command='env ROVODEV_CLI=1 /bin/sh -c "rovo run --yolo"' ;;
-      substitution) command='"$(printf rovo)" run --yolo' ;;
+      substitution) command="\"\$(printf rovo)\" run --yolo" ;;
       separator) command='pi --help; rovo run --yolo' ;;
     esac
     : > "$CASE_DIR/launch.log"
@@ -132,8 +132,8 @@ EOF
       pipe) command='custom-agent --flag | rovo run' ;;
       and) command='custom-agent --flag && rovo run' ;;
       redirect) command='custom-agent --flag > result' ;;
-      expansion) command='custom-agent $HOME' ;;
-      backticks) command='custom-agent `printf rovo`' ;;
+      expansion) command="custom-agent \$HOME" ;;
+      backticks) command="custom-agent \`printf rovo\`" ;;
       env-after-delimiter) command='env -- -i custom-agent' ;;
       env-after-assignment) command='env VALUE=one -i custom-agent' ;;
     esac
@@ -205,7 +205,7 @@ SH
       DIRECT) [ "$probe_argv" = 'argv: <rovo> <> <tail>' ] || fail "direct raw argv changed: $probe_argv" ;;
       ENV_CLEAR|ENV_UNSET) [ "$probe_argv" = 'argv: <rovo> <>' ] || fail "env raw argv changed: $probe_argv" ;;
       SINGLE_BACKSLASH|DOUBLE_BACKSLASH) [ "$probe_argv" = 'argv: <a\b>' ] || fail "quoted backslash changed: $probe_argv" ;;
-      SINGLE_DOLLAR) [ "$probe_argv" = 'argv: <$HOME>' ] || fail "quoted dollar changed: $probe_argv" ;;
+      SINGLE_DOLLAR) [ "$probe_argv" = "argv: <\$HOME>" ] || fail "quoted dollar changed: $probe_argv" ;;
     esac
     case "$command_template" in
       ENV_CLEAR)

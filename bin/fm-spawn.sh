@@ -1396,12 +1396,12 @@ claude_launch_via_cswap() {
 }
 
 raw_launch_words() {
-  local input=$1 i=0 ch quote= word= next started=0
+  local input=$1 i=0 ch quote='' word='' next started=0
   RAW_WORDS=()
   while [ "$i" -lt "${#input}" ]; do
     ch=${input:i:1}
     next=${input:$((i + 1)):1}
-    [ "$ch$next" != '$(' ] && [ "$ch" != '`' ] || return 1
+    [ "$ch$next" != "\$(" ] && [ "$ch" != "\`" ] || return 1
     case "$quote:$ch" in
       \':\') quote= ;;
       \':*) word+=$ch; started=1 ;;
@@ -1411,7 +1411,7 @@ raw_launch_words() {
         [ "$i" -lt "${#input}" ] || return 1
         next=${input:i:1}
         case "$next" in
-          '\'|'$'|'`'|'"') word+=$next ;;
+          \\|"\$"|"\`"|"\"") word+=$next ;;
           *) word+="\\$next" ;;
         esac
         started=1
