@@ -797,7 +797,7 @@ const renderContext = { state: {}, isError: false, isPartial: false };
 const stockResult = { content: [{ type: "text", text: "OUTCOME_DUMP" }] };
 const calmOffCall = outcomesTool.renderCall({}, renderTheme, renderContext);
 const calmOffResult = outcomesTool.renderResult(stockResult, { expanded: false, isPartial: false }, renderTheme, renderContext);
-if (calmOffCall.constructor.name !== "Box" || calmOffCall.paddingX !== 1 || calmOffCall.paddingY !== 0) {
+if (calmOffCall.constructor.name !== "Box" || calmOffCall.paddingX !== 1 || calmOffCall.paddingY !== 1) {
   throw new Error("fm_branch_outcomes changed its ordinary shell rendering");
 }
 if (calmOffResult.constructor.name !== "Container" || calmOffCall.children[0]?.text !== "fm_branch_outcomes" || calmOffCall.children[1]?.text !== "OUTCOME_DUMP") {
@@ -893,24 +893,6 @@ const captainRendered = entryRenderers.get("fm-branch-visible-outcome")(
 if (captainRendered.text !== "⚓ [seq 3] task-9: PR https://example.com/pr/9 checks green, ready for review") {
   throw new Error(`captain renderer changed the exact visible outcome: ${captainRendered.text}`);
 }
-
-// The home-local preference hides only routine-note rendering. The message
-// remains delivered, and the renderer's Component.render boundary covers
-// both newly appended and restored custom rows.
-writeFileSync(`${home}/config/routine-supervision-notes`, "on\n");
-const hiddenRoutineNote = renderers.get("fm-branch-merge")(
-  { content: sentToMain[0].message.content },
-  { expanded: false },
-  renderTheme,
-);
-if (hiddenRoutineNote.constructor.name !== "Container" || hiddenRoutineNote.render(100).length !== 0) {
-  throw new Error("routine supervision note remained visible when the home preference was on");
-}
-if (sentToMain[0].message.display !== true) {
-  throw new Error("quiet presentation changed routine delivery semantics");
-}
-writeFileSync(`${home}/config/routine-supervision-notes`, "off\n");
-assertRenderedNote(sentToMain[0].message.content, "⛵");
 process.exit(0);
 EOF
   status=$?
@@ -4252,7 +4234,7 @@ for (const row of [stockRow, actualRow]) {
 const collapsedStock = stockRow.render(100);
 const collapsedActual = actualRow.render(100);
 if (JSON.stringify(collapsedActual) !== JSON.stringify(collapsedStock)) {
-  throw new Error(`Calm-off ToolExecutionComponent rendering differs from Pi stock\n${JSON.stringify({ stock: collapsedStock, actual: collapsedActual })}`);
+  throw new Error("Calm-off ToolExecutionComponent rendering differs from Pi stock");
 }
 const collapsedText = collapsedStock.join("\n");
 if (collapsedText.includes("OUTCOME_TWELVE") || !collapsedText.includes("more lines") || !collapsedText.includes("to expand")) {

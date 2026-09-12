@@ -98,24 +98,19 @@ export function installCalmOperationalUserLayout(): void {
   }
   class CalmOperationalUserMessageComponent extends UserMessageComponent {
     private readonly hasLeadingSpacer: boolean;
-    private readonly followsOperationalInput: boolean;
 
     constructor(
       text: UserMessageConstructorArgs[0],
       markdownTheme: UserMessageConstructorArgs[1],
       outputPad: number,
       hasLeadingSpacer: boolean,
-      followsOperationalInput: boolean,
     ) {
       super(text, markdownTheme, outputPad);
       this.hasLeadingSpacer = hasLeadingSpacer;
-      this.followsOperationalInput = followsOperationalInput;
     }
 
     override render(width: number): string[] {
-      if (patch.hidesOperationalInput()) {
-        return [];
-      }
+      if (patch.hidesOperationalInput()) return [];
       const lines = super.render(width);
       return this.hasLeadingSpacer ? ["", ...lines] : lines;
     }
@@ -141,7 +136,6 @@ export function installCalmOperationalUserLayout(): void {
       this.getMarkdownThemeWithSettings(),
       this.outputPad,
       this.chatContainer.children.length > 0,
-      this.chatContainer.children[this.chatContainer.children.length - 1] instanceof CalmOperationalUserMessageComponent,
     );
     this.chatContainer.addChild(component);
     if (options?.populateHistory) this.editor.addToHistory?.(text);

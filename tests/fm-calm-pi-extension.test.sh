@@ -1709,31 +1709,13 @@ JS
 }
 
 test_operational_followup_turn_e2e() {
-  local project home config sessions version label case_name calm_state expected_notifications session_file pane i captain_line handled_line geometry_gap exact_session stock_geometry_gap
+  local project home config sessions version label case_name calm_state expected_notifications session_file pane i captain_line handled_line geometry_gap exact_session
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     echo "skip: pi or tmux not found for Pi operational follow-up E2E"
     return 0
   fi
   version=$(pi --version 2>/dev/null || true)
   record_pi_version_evidence "$version" "Pi operational follow-up E2E"
-
-  # Measure adjacent visible assistant rows without loading any Calm adapter.
-  # The installed Pi owns this spacing, not a historical fixed row count.
-  PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module > "$TMP_ROOT/stock-assistant-gap" <<'JS' \
-    || fail "could not measure stock Pi assistant spacing"
-import { pathToFileURL } from "node:url";
-const { AssistantMessageComponent } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
-const { initTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/modes/interactive/theme/theme.js`).href);
-initTheme("dark");
-const rows = ["STOCK_FIRST_REPLY", "STOCK_SECOND_REPLY"].flatMap((text) =>
-  new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text }], stopReason: "stop" }).render(160),
-);
-const first = rows.findIndex((line) => line.includes("STOCK_FIRST_REPLY"));
-const second = rows.findIndex((line) => line.includes("STOCK_SECOND_REPLY"));
-if (first < 0 || second <= first) throw new Error("stock assistant spacing probe lost a reply");
-console.log(second - first);
-JS
-  stock_geometry_gap=$(cat "$TMP_ROOT/stock-assistant-gap")
 
   project="$TMP_ROOT/followup-project"
   home="$TMP_ROOT/followup-home"
@@ -1959,8 +1941,8 @@ TS
       captain_line=$(printf '%s\n' "$pane" | grep -Fn "CAPTAIN_ANSWER_$label" | tail -1 | cut -d: -f1)
       handled_line=$(printf '%s\n' "$pane" | grep -Fn "MONITOR_HANDLED_${label}_ONE" | tail -1 | cut -d: -f1)
       geometry_gap=$((handled_line - captain_line))
-      [ "$geometry_gap" -eq "$stock_geometry_gap" ] \
-        || fail "Pi follow-up $label case consumed $geometry_gap rows instead of the stock visible-only gap $stock_geometry_gap"
+      [ "$geometry_gap" -eq 2 ] \
+        || fail "Pi follow-up $label case consumed $geometry_gap rows between neighboring assistant text instead of the two-row visible-only geometry"
     else
       assert_contains "$pane" "MONITOR_${label}_ONE" "Pi follow-up $label case lost the Calm-off operational user row"
       if [ "$expected_notifications" -eq 2 ]; then
@@ -2054,8 +2036,8 @@ JS
     captain_line=$(printf '%s\n' "$pane" | grep -Fn 'CAPTAIN_ANSWER_exact_watcher' | tail -1 | cut -d: -f1)
     handled_line=$(printf '%s\n' "$pane" | grep -Fn 'MONITOR_HANDLED_exact_watcher_ONE' | tail -1 | cut -d: -f1)
     geometry_gap=$((handled_line - captain_line))
-    [ "$geometry_gap" -eq "$stock_geometry_gap" ] \
-      || fail "Pi restart replay consumed $geometry_gap rows instead of the stock visible-only gap $stock_geometry_gap"
+    [ "$geometry_gap" -eq 2 ] \
+      || fail "Pi restart replay consumed $geometry_gap rows between neighboring assistant text"
     node - "$exact_session" <<'JS' || fail "Pi restart replay changed exact watcher persistence"
 const fs = require("node:fs");
 const entries = fs.readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
@@ -2092,7 +2074,7 @@ JS
 
 test_hidden_block_geometry_e2e() {
   local project home config sessions session_file snapshot expanded_snapshot calm_off_snapshot restarted_snapshot
-  local version skill_line final_line gap i stock_skill_gap
+  local version skill_line final_line gap i
   if ! command -v pi >/dev/null 2>&1 || ! command -v tmux >/dev/null 2>&1; then
     echo "skip: pi or tmux not found for Pi Calm hidden-block geometry E2E"
     return 0
@@ -2238,8 +2220,8 @@ TS
     [ -n "$skill_line" ] && [ -n "$final_line" ] \
       || fail "$label did not render the collapsed skill row and final assistant response"
     gap=$((final_line - skill_line - 1))
-    [ "$gap" -eq "$stock_skill_gap" ] \
-      || fail "$label left $gap rows instead of the stock visible-only gap $stock_skill_gap"
+    [ "$gap" -eq 2 ] \
+      || fail "$label left $gap rows between the collapsed skill row and final response instead of the two standard visible-row separators"
   }
 
   start_geometry_pi "--session-dir '$sessions'"
@@ -2266,34 +2248,10 @@ TS
   assert_not_contains "$(cat "$snapshot")" "Thinking..." "Calm left a collapsed thinking label visible"
   assert_not_contains "$(cat "$snapshot")" "probe-one.txt" "Calm left a tool-call row visible"
   assert_not_contains "$(cat "$snapshot")" "tool result one" "Calm left a tool-result row visible"
+  assert_geometry_gap "$snapshot" "completed native Calm /skill:ahoy turn"
+
   session_file=$(find "$sessions" -type f -name '*.jsonl' -exec grep -l 'CALM_GEOMETRY_FINAL' {} + 2>/dev/null | head -1 || true)
   [ -n "$session_file" ] || fail "Pi Calm hidden-block geometry E2E did not persist its session"
-  # Render only the two expected visible rows with the unmodified installed Pi.
-  PI_PACKAGE_DIR="$PI_PACKAGE_DIR" node --input-type=module - "$session_file" > "$TMP_ROOT/stock-skill-gap" <<'JS' \
-    || fail "could not measure stock Pi skill-to-reply spacing"
-import { readFileSync } from "node:fs";
-import { stripVTControlCharacters } from "node:util";
-import { pathToFileURL } from "node:url";
-const { AssistantMessageComponent, SkillInvocationMessageComponent, parseSkillBlock, getMarkdownTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/index.js`).href);
-const { initTheme } = await import(pathToFileURL(`${process.env.PI_PACKAGE_DIR}/dist/modes/interactive/theme/theme.js`).href);
-initTheme("dark");
-const entries = readFileSync(process.argv[2], "utf8").trim().split("\n").map(JSON.parse);
-const user = entries.find((entry) => entry.type === "message" && entry.message.role === "user");
-if (!user) throw new Error("stock skill spacing probe has no user message");
-const text = user.message.content.filter((block) => block.type === "text").map((block) => block.text).join("\n");
-const skillBlock = parseSkillBlock(text);
-if (!skillBlock || skillBlock.userMessage) throw new Error("stock skill spacing probe expected one skill invocation");
-const rows = [
-  ...new SkillInvocationMessageComponent(skillBlock, getMarkdownTheme()).render(100),
-  ...new AssistantMessageComponent({ role: "assistant", content: [{ type: "text", text: "CALM_GEOMETRY_FINAL\n\n- visible row one\n- visible row two" }], stopReason: "stop" }).render(100),
-];
-const skill = rows.findIndex((line) => stripVTControlCharacters(line).includes("[skill] ahoy"));
-const final = rows.findIndex((line) => stripVTControlCharacters(line).includes("CALM_GEOMETRY_FINAL"));
-if (skill < 0 || final <= skill) throw new Error("stock skill spacing probe lost a visible row");
-console.log(final - skill - 1);
-JS
-  stock_skill_gap=$(cat "$TMP_ROOT/stock-skill-gap")
-  assert_geometry_gap "$snapshot" "completed native Calm /skill:ahoy turn"
   grep -Fq 'CALM_GEOMETRY_THINKING_ONE' "$session_file" \
     || fail "Calm removed hidden thinking from persisted history"
   grep -Fq 'tool result one' "$session_file" \

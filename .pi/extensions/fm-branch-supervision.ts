@@ -133,7 +133,6 @@ const wakeGrantScript = join(fmRoot, "bin", "fm-wake-grant.sh");
 const loadedMarker = join(state, ".pi-branch-extension-loaded");
 const modelPinFile = join(config, "supervision-branch-model");
 const effortPinFile = join(config, "supervision-branch-effort");
-const routineNotesPreferenceFile = join(config, "routine-supervision-notes");
 
 // Same tool set in the same order on every request (part of the cached
 // prefix). "bash" resolves to the customTools override below, which injects
@@ -303,18 +302,6 @@ function writePinFile(pinFile: string, selection: string): void {
 
 function clearPinFile(pinFile: string): void {
   rmSync(pinFile, { force: true });
-}
-
-// This is deliberately a rendering-only preference. Merge notes remain
-// displayable session entries so Pi keeps their delivery, restoration, and
-// acknowledgement behavior unchanged. The renderer checks it on every pass,
-// which covers existing and restored routine rows after Pi reloads extensions.
-function routineNotesAreHidden(): boolean {
-  try {
-    return readFileSync(routineNotesPreferenceFile, "utf8").trim() === "on";
-  } catch {
-    return false;
-  }
 }
 
 function modelLabel(model: { provider: string; id: string }): string {
@@ -2034,7 +2021,7 @@ ${context.command}
       : context.isError
         ? (text: string) => theme.bg("toolErrorBg", text)
         : (text: string) => theme.bg("toolSuccessBg", text);
-    const shell = shellState.shell ?? new Box(1, 0, background);
+    const shell = shellState.shell ?? new Box(1, 1, background);
     shellState.shell = shell;
     shell.setBgFn(background);
     shell.clear();
@@ -2068,11 +2055,12 @@ ${context.command}
         .map((item) => normalizeOutcomesToolOutput(item.text))
         .join("\n");
       const shellState = context.state as OutcomesToolShellState;
+      // Keep each line's ANSI scope independent, matching Pi's stock fallback.
+      // Pi 0.84.4 no longer supplies an implicit reset at multiline boundaries.
       const lines = output.split("\n");
       const previewLines = getStockOutcomesPreviewLines();
       const displayLines = options.expanded || previewLines === undefined ? lines : lines.slice(0, previewLines);
       const remaining = lines.length - displayLines.length;
-      // Match the stock fallback: each line owns its foreground color and reset.
       let renderedOutput = displayLines.map((line) => theme.fg("toolOutput", line)).join("\n");
       if (remaining > 0) {
         renderedOutput += `${theme.fg("muted", `\n... (${remaining} more lines,`)} ${keyHint("app.tools.expand", "to expand")}${theme.fg("muted", ")")}`;
@@ -2129,8 +2117,7 @@ ${context.command}
         .map((item) => normalizeOutcomesToolOutput(item.text))
         .join("\n");
       const shellState = context.state as OutcomesToolShellState;
-      const renderedOutput = output.split("\n").map((line) => theme.fg("toolOutput", line)).join("\n");
-      shellState.result = output ? new Text(renderedOutput, 0, 0) : new Container();
+      shellState.result = output ? new Text(theme.fg("toolOutput", output), 0, 0) : new Container();
       refreshOutcomesToolShell(shellState, theme, context);
       return new Container();
     },
@@ -2205,7 +2192,6 @@ ${context.command}
   pi.registerMessageRenderer?.("fm-branch-merge", (message, _options, theme) => {
     const note = textOfContent(message.content);
     const hasGlyph = note.startsWith(MERGE_NOTE_BOAT);
-    if (hasGlyph && routineNotesAreHidden()) return new Container();
     const rest = hasGlyph ? note.slice(MERGE_NOTE_BOAT.length) : note;
     const outputPad = 1;
     return new Text(

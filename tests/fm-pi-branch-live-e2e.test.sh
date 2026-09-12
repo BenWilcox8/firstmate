@@ -113,7 +113,6 @@ const bus = {
   },
 };
 const mainUserMessages = [];
-const mergeRenderers = new Map();
 const piHandlers = new Map();
 let watcherTool = null;
 let sessionCtx = {};
@@ -126,9 +125,7 @@ const pi = {
     if (tool.name === "fm_watch_arm_pi") watcherTool = tool;
   },
   registerCommand() {},
-  registerMessageRenderer(type, renderer) {
-    mergeRenderers.set(type, renderer);
-  },
+  registerMessageRenderer() {},
   sendMessage() {},
   // Main is idle throughout this probe, so a send starts a run: Pi raises
   // before_agent_start with the exact text and then the user message_start.
@@ -150,27 +147,6 @@ branchMod.default(pi);
 process.env.FM_ROOT_OVERRIDE = process.env.FM_WATCH_ROOT;
 const watchMod = await import(pathToFileURL(process.env.WATCH_PLUGIN).href);
 watchMod.default(pi);
-const mergeRenderer = mergeRenderers.get("fm-branch-merge");
-if (!mergeRenderer) throw new Error("routine-note renderer was not registered");
-const renderTheme = { fg(_color, text) { return text; } };
-const visibleRoutineNote = mergeRenderer(
-  { content: "⛵ live-probe: routine note" },
-  { expanded: false },
-  renderTheme,
-);
-if (!visibleRoutineNote.render(100).join("\n").includes("⛵ live-probe: routine note")) {
-  throw new Error("the real Pi renderer did not show a routine note by default");
-}
-writeFileSync(`${home}/config/routine-supervision-notes`, "on\n");
-const hiddenRoutineNote = mergeRenderer(
-  { content: "⛵ live-probe: restored routine note" },
-  { expanded: false },
-  renderTheme,
-);
-if (hiddenRoutineNote.render(100).length !== 0) {
-  throw new Error("the real Pi renderer did not hide a restored routine note");
-}
-writeFileSync(`${home}/config/routine-supervision-notes`, "off\n");
 // The real model surface, built from the same empty agent dir: no
 // credentials are read and no catalog is fetched, so every model lookup is
 // genuinely empty by construction.
