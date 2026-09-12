@@ -920,7 +920,9 @@ test_claude_account_pin_launches_through_cswap() {
     "the pinned account should be recorded in the task's durable record"
 
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 cswap run '2' -- --dangerously-skip-permissions" \
+  assert_contains "$launch" "CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0" \
+    "a pinned claude launch should retain its launch controls"
+  assert_contains "$launch" "cswap run '2' -- claude --dangerously-skip-permissions" \
     "a pinned claude launch should run through cswap's per-terminal path"
   assert_not_contains "$launch" "CLAUDE_CONFIG_DIR=" \
     "a pinned launch must not also set a config dir for cswap to override"

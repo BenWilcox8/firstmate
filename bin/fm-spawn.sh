@@ -1392,12 +1392,13 @@ shell_quote() {
 }
 
 claude_launch_via_cswap() {
-  local account=$1 launch=$2 replacement
+  local account=$1 launch=$2 replacement bin
+  bin=$(fm_cswap_bin) || return 1
   case "$launch" in
     *' claude '*) ;;
     *) return 1 ;;
   esac
-  replacement=" cswap run $(shell_quote "$account") -- claude "
+  replacement=" $(shell_quote "$bin") run $(shell_quote "$account") -- claude "
   printf '%s\n' "${launch/ claude /$replacement}"
 }
 
