@@ -202,6 +202,74 @@ test_matrix_codex_dim_hint_row() {
   pass "matrix: codex's dim hint is empty when styling proves it, unknown (never pending) when it cannot"
 }
 
+test_matrix_codex_dim_hint_with_bright_animation() {
+  # The read-only diagnosis recorded this shape: a bold prompt, a dim known
+  # placeholder, and one bright truecolor animation cell on the same row.
+  local row screen
+  row="${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  screen=$'transcript\n'"$row"
+
+  assert_screen "codex idle placeholder with bright animation on herdr" empty \
+    "$CAPS_STYLED" "$screen"
+  pass "matrix: codex's dim placeholder with a recognized bright animation cell reads empty"
+}
+
+test_matrix_codex_multiline_idle_animation() {
+  # Read-only production capture: Codex paints allowed animation cells across
+  # three rows and overlays them around the same dim idle placeholder.
+  local top prompt bottom footer screen unknown pasted bright bright_footer malformed_footer
+  top="${ESC}[48;2;61;59;78m   ${ESC}[38;2;118;116;136m⢀${ESC}[48;2;61;59;78m   ${ESC}[38;2;132;130;150m⠁${ESC}[0m"
+  prompt="${ESC}[1m${ESC}[48;2;61;59;78m›${ESC}[0m${ESC}[38;2;85;83;103m${ESC}[48;2;61;59;78m⠁${ESC}[0m${ESC}[2m${ESC}[48;2;61;59;78mAsk Codex to do anything${ESC}[0m${ESC}[38;2;92;90;109m${ESC}[48;2;61;59;78m⠂${ESC}[0m"
+  bottom="${ESC}[48;2;61;59;78m  ${ESC}[38;2;112;110;130m⠄${ESC}[48;2;61;59;78m  ${ESC}[38;2;142;140;160m⢀${ESC}[0m"
+  footer="${ESC}[2mgpt-6-astra medium · 3.64M used · Context 38% used · weekl…${ESC}[0m"
+  screen=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'"$footer"
+  assert_screen "codex idle multiline animation on herdr" empty \
+    "$CAPS_STYLED" "$screen"
+
+  unknown=${screen/⠂/⣿}
+  assert_screen "codex multiline animation rejects an unknown cell" pending \
+    "$CAPS_STYLED" "$unknown"
+  pasted=$'transcript\n'"$top"$'\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255m⠁⠂${ESC}[0m"$'\n'"$bottom"
+  assert_screen "codex multiline animation rejects pasted allowed cells" pending \
+    "$CAPS_STYLED" "$pasted"
+  bright=${screen/${ESC}[2m/}
+  assert_screen "codex multiline animation rejects a bright placeholder" pending \
+    "$CAPS_STYLED" "$bright"
+  bright_footer=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'\
+"gpt-6-astra medium · 3.64M used · Context 38% used · weekl…"
+  assert_screen "codex multiline animation rejects bright footer-like input" pending \
+    "$CAPS_STYLED" "$bright_footer"
+  malformed_footer=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"$bottom"$'\n'\
+"${ESC}[2mnot a Codex status${ESC}[0m"
+  assert_screen "codex multiline animation rejects an unknown dim footer" pending \
+    "$CAPS_STYLED" "$malformed_footer"
+  pass "matrix: Codex multiline animation needs the exact dim placeholder and allowed cells"
+}
+
+test_matrix_codex_animation_safety_guards() {
+  local bright dark_placeholder pasted unknown shell cursor_elsewhere
+  bright=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255mAsk Codex to do anything ⡀${ESC}[0m"
+  dark_placeholder=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;80;80;80mAsk Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  pasted=$'transcript\n'"${ESC}[1m›${ESC}[0m ${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  unknown=$'transcript\n'"${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⣿${ESC}[0m"
+  shell=$'transcript\n'"${ESC}[1m\$${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+  cursor_elsewhere=$'unidentified cursor row\n'"${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;255;255;255m⡀${ESC}[0m"
+
+  assert_screen "bright placeholder-like Codex input with braille" pending \
+    "$CAPS_STYLED" "$bright"
+  assert_screen "non-dim dark Codex text with braille" pending \
+    "$CAPS_STYLED" "$dark_placeholder"
+  assert_screen "pasted braille in the Codex composer" pending \
+    "$CAPS_STYLED" "$pasted"
+  assert_screen "dim Codex placeholder with an unknown trailing cell" pending \
+    "$CAPS_STYLED" "$unknown"
+  assert_screen "shell prompt with the Codex placeholder shape" unknown \
+    "$CAPS_STYLED" "$shell"
+  assert_screen "cursor outside the Codex placeholder row" unknown \
+    "$CAPS_TMUX" "$cursor_elsewhere" 0 probe-absent
+  pass "matrix: Codex animation handling preserves bright text, pasted braille, unknown cells, shells, and cursor ambiguity"
+}
+
 test_matrix_muse_truecolor_glyph_survives_signal_loss() {
   # Real idle muse: truecolor `⟩` (38;2;90;160;255, luminance ~149.9) under a
   # TITLED rule. Two independent signals prove emptiness: the glyph surviving
@@ -271,21 +339,84 @@ test_matrix_herdr_halfblock_rule_bounds_bare_wrap() {
   # footer, whose real content turns an idle pane into a false `pending`.
   # Captured live from a herdr cursor pane.
   local screen plain out
-  plain=$'transcript\n \u2584\u2584\u2584\u2584\u2584\u2584\u2584\u2584\n  \u2192 Add a follow-up\n \u2580\u2580\u2580\u2580\u2580\u2580\u2580\u2580\n  Cursor Grok 4.5 High \u00b7 6.7%   Run Everything\n  ~/wt \u00b7 64cdd3a'
+  plain=$'transcript\n ▄▄▄▄▄▄▄▄\n  → Add a follow-up\n ▀▀▀▀▀▀▀▀\n  Cursor Grok 4.5 High · 6.7%   Run Everything\n  ~/wt · 64cdd3a'
   # The closing rule must bound the region, so the footer below is not input.
-  fm_composer_row_has_edge " $(printf '\u2580\u2580\u2580')" \
+  fm_composer_row_has_edge ' ▀▀▀' \
     || fail "a half-block rule row must count as a structural edge"
-  fm_composer_row_has_edge " $(printf '\u2584\u2584\u2584')" \
+  fm_composer_row_has_edge ' ▄▄▄' \
     || fail "the upper half-block rule must count as a structural edge"
   # Non-vacuousness: the footer rows really are non-blank content that would be
   # swallowed if the rule did not bound the region.
   case "$plain" in *"Run Everything"*) : ;; *) fail "fixture lost its footer content" ;; esac
   ESC_LOCAL=$(printf '\033')
-  screen=$'transcript\n \u2584\u2584\u2584\u2584\u2584\u2584\u2584\u2584\n'"  ${ESC_LOCAL}[2m\u2192 ${ESC_LOCAL}[0;7mA${ESC_LOCAL}[0;2mdd a follow-up${ESC_LOCAL}[0m"$'\n \u2580\u2580\u2580\u2580\u2580\u2580\u2580\u2580\n  Cursor Grok 4.5 High \u00b7 6.7%   Run Everything\n  ~/wt \u00b7 64cdd3a'
-  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$(printf '%b' "$screen")")
+  screen=$'transcript\n ▄▄▄▄▄▄▄▄\n'"  ${ESC_LOCAL}[2m→ ${ESC_LOCAL}[0;7mA${ESC_LOCAL}[0;2mdd a follow-up${ESC_LOCAL}[0m"$'\n ▀▀▀▀▀▀▀▀\n  Cursor Grok 4.5 High · 6.7%   Run Everything\n  ~/wt · 64cdd3a'
+  out=$(fm_composer_classify_screen "$CAPS_STYLED" "$screen")
   [ "$out" = empty ] \
     || fail "an idle cursor composer inside herdr half-block rules must read empty, got '$out'"
   pass "matrix: herdr half-block rules bound a bare composer's wrap region"
+}
+
+test_matrix_omp_status_row_bounds_bare_composer() {
+  # omp (Oh My Pi) draws its status line directly BELOW the borderless `❯`
+  # composer. Captured live through Herdr on omp 18.1.11 under the captain's
+  # unicode preset (idle), plus the nerd-preset idle row and the busy spinner
+  # row from the 18.1.2 investigation. Without the status-row rule the bare
+  # wrap region swallows that row and an idle omp pane reads `pending`, which
+  # skipped the doorbell on the first live omp worker.
+  local idle_unicode idle_nerd busy typed wrapped
+  idle_unicode=$'transcript line
+
+❯
+ π  · ◔ GPT-6-Astra · 🌳 …-workspace · ⑂ detached · ◫ 15.4%/272K ⟲ · (sub)'
+  idle_nerd=$'transcript line
+
+❯
+ 󰵗  ·  qwen3:8b ·  kun-agent-workspace/… ·  detached ?1 ·  36.7%/41K'
+  busy=$'transcript line
+
+  ⎋ Working…
+
+❯
+ ⠧ 11s  · ◔ GPT-6-Astra · ◫ 15.4%/272K'
+  typed=$'transcript line
+
+❯ fix the flaky test
+ π  · ◔ GPT-6-Astra · 🌳 …-workspace · ⑂ detached · ◫ 15.4%/272K ⟲ · (sub)'
+  # Non-vacuousness: each status row is real non-blank content that the wrap
+  # region would otherwise take as typed input.
+  _fm_composer_row_is_omp_status ' π  · ◔ GPT-6-Astra · 🌳 …-workspace' \
+    || fail "the unicode-preset omp status row must be recognized as furniture"
+  _fm_composer_row_is_omp_status ' 󰵗  ·  qwen3:8b ·  kun-agent-workspace/… ·  detached ?1 ·  36.7%/41K' \
+    || fail "the nerd-preset omp status row must be recognized as furniture"
+  _fm_composer_row_is_omp_status ' ⠧ 11s  · ◔ GPT-6-Astra' \
+    || fail "the busy omp spinner row must be recognized as furniture"
+  _fm_composer_row_is_omp_status 'fix the flaky test' \
+    && fail "ordinary typed text must not be mistaken for omp status furniture"
+  _fm_composer_row_is_omp_status 'please rerun the suite and report' \
+    && fail "ordinary prose must not be mistaken for omp status furniture"
+  # Only omp's identity cell opens the row: a wrapped typed row that happens
+  # to begin with a short word and a spaced middle dot is composer input.
+  _fm_composer_row_is_omp_status 'fix · tests before pushing' \
+    && fail "wrapped typed text with a middle dot must not be mistaken for omp status furniture"
+  # The ascii preset's identity cell is `pi`, but that preset separates its
+  # cells with ` - `, so a row opening `pi ·` is never omp furniture.
+  _fm_composer_row_is_omp_status 'pi · e · phi as the three constants' \
+    && fail "typed text opening 'pi ·' must not be mistaken for omp status furniture"
+  _fm_composer_row_is_omp_status ' ⣾ 3s  · ◔ GPT-6-Astra' \
+    || fail "the status-set omp spinner row must be recognized as furniture"
+  assert_screen "idle omp (unicode preset)" empty "$CAPS_STYLED" "$idle_unicode"
+  assert_screen "idle omp (nerd preset)" empty "$CAPS_STYLED" "$idle_nerd"
+  assert_screen "busy omp keeps an empty composer" empty "$CAPS_STYLED" "$busy"
+  assert_screen "typed omp text is pending" pending "$CAPS_STYLED" "$typed"
+  assert_screen "idle omp on a plain capture" empty "$CAPS_PLAIN" "$idle_unicode"
+  # The boundary must not cut a bare composer's own wrapped input: with the
+  # cursor on a continuation row that opens `fix · tests`, the composer is a
+  # proven wrap region and reads pending, exactly as it did before the rule.
+  wrapped=$'transcript line\n\n❯ please run the suite and then\nfix · tests before pushing'
+  assert_screen "wrapped typed text with a middle dot stays pending" pending "$CAPS_TMUX" "$wrapped" 3
+  wrapped=$'transcript line\n\n❯ document the constants in the order\npi · e · phi with one example each'
+  assert_screen "wrapped typed text opening 'pi ·' stays pending" pending "$CAPS_TMUX" "$wrapped" 3
+  pass "matrix: omp's status row bounds the bare composer's wrap region"
 }
 
 test_matrix_pi_separated_needs_identity() {
@@ -614,9 +745,13 @@ test_idle_placeholder_case_mode_is_explicit
 test_real_text_is_pending
 test_matrix_claude_bare_nbsp_row
 test_matrix_codex_dim_hint_row
+test_matrix_codex_dim_hint_with_bright_animation
+test_matrix_codex_multiline_idle_animation
+test_matrix_codex_animation_safety_guards
 test_matrix_muse_truecolor_glyph_survives_signal_loss
 test_matrix_cursor_reverse_video_placeholder_remnant
 test_matrix_herdr_halfblock_rule_bounds_bare_wrap
+test_matrix_omp_status_row_bounds_bare_composer
 test_matrix_pi_separated_needs_identity
 test_matrix_opencode_leftbar_signals
 test_matrix_grok_titled_bottom_border

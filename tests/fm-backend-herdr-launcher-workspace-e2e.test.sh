@@ -47,7 +47,23 @@ command -v treehouse >/dev/null 2>&1 || { echo "skip: treehouse not found (requi
 herdr_forget_inherited_pane
 
 TMP_ROOT=$(mktemp -d "$(cd "${TMPDIR:-/tmp}" && pwd -P)/fm-herdr-launcher-e2e.XXXXXX")
+FIXTURE_NODE=$(command -v node) || {
+  rm -rf "$TMP_ROOT"
+  printf 'not ok - node is required for the executable agent fixture\n' >&2
+  exit 1
+}
+FIXTURE_AGENT="$TMP_ROOT/cursor-agent"
+FIXTURE_SCRIPT="$TMP_ROOT/agent-fixture.js"
+cp "$FIXTURE_NODE" "$FIXTURE_AGENT" || {
+  rm -rf "$TMP_ROOT"
+  printf 'not ok - could not create the executable agent fixture\n' >&2
+  exit 1
+}
+cat > "$FIXTURE_SCRIPT" <<'JS'
+setTimeout(() => {}, Number(process.argv[2]) * 1000)
+JS
 HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
+AXI_BIN=${FM_BACKEND_HERDR_AXI_BIN:-agent-axi}
 HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-herdr-launcher-ws) || {
   rm -rf "$TMP_ROOT"
   printf 'not ok - could not generate an isolated Herdr lab session name\n' >&2
@@ -130,12 +146,12 @@ spawn_from_launcher() {
     env HERDR_ENV=1 HERDR_PANE_ID="$pane" HERDR_SESSION="$HERDR_LAB_SESSION" \
       HERDR_SOCKET_PATH="$LAB_SOCKET" \
       FM_SPAWN_NO_GUARD=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
+      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "$FIXTURE_AGENT $FIXTURE_SCRIPT 300" --backend herdr "$@" \
       >"$SPAWN_OUT" 2>"$SPAWN_ERR"
   else
     env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SOCKET_PATH HERDR_SESSION="$HERDR_LAB_SESSION" \
       FM_SPAWN_NO_GUARD=1 FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \
-      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "sh -c 'echo launcher-ws-ok'" --backend herdr "$@" \
+      "$ROOT/bin/fm-spawn.sh" "$id" "$proj" "$FIXTURE_AGENT $FIXTURE_SCRIPT 300" --backend herdr "$@" \
       >"$SPAWN_OUT" 2>"$SPAWN_ERR"
   fi
   SPAWN_RC=$?
@@ -160,6 +176,12 @@ LAB_SOCKET=$(lab session list --json 2>/dev/null \
 PRIMARY_HOME="$TMP_ROOT/primary-home"
 mkdir -p "$PRIMARY_HOME/state" "$PRIMARY_HOME/config"
 printf 'off\n' > "$PRIMARY_HOME/config/herdr-presentation-spaces"
+# A separate primary-shaped home owns the duplicate-label placement case.
+# Its empty ledger lets agent-axi bind the exact launcher workspace without
+# conflicting with the live tasks that the earlier cases keep in WS_PRIMARY.
+DUP_HOME="$TMP_ROOT/duplicate-home"
+mkdir -p "$DUP_HOME/state" "$DUP_HOME/config"
+printf 'off\n' > "$DUP_HOME/config/herdr-presentation-spaces"
 SM_ID="lwsm1"
 SM_HOME="$TMP_ROOT/secondmate-home"
 mkdir -p "$SM_HOME/state" "$SM_HOME/config" "$SM_HOME/projects" "$SM_HOME/bin" "$SM_HOME/data"
@@ -183,11 +205,23 @@ PRES_HOME="$TMP_ROOT/presentation-home"
 mkdir -p "$PRES_HOME/state" "$PRES_HOME/config"
 : > "$PRES_HOME/config/herdr-presentation-spaces"
 
+write_ship_brief() {  # <file> <id>
+  cat > "$1" <<EOF
+# Task
+## Captain's intent
+Exercise Herdr launcher placement for $2.
+
+## Firstmate spec
+Verify the worker is placed in the correct workspace.
+EOF
+}
+
 for id in uniqA uniqB dupC dupD staleF smE presU presD; do
-  mkdir -p "$PRIMARY_HOME/data/$id" "$SM_HOME/data/$id" "$PRES_HOME/data/$id"
-  printf 'trivial launcher-placement brief: nothing to do.\n' > "$PRIMARY_HOME/data/$id/brief.md"
-  printf 'trivial launcher-placement brief: nothing to do.\n' > "$SM_HOME/data/$id/brief.md"
-  printf 'trivial launcher-placement brief: nothing to do.\n' > "$PRES_HOME/data/$id/brief.md"
+  mkdir -p "$PRIMARY_HOME/data/$id" "$DUP_HOME/data/$id" "$SM_HOME/data/$id" "$PRES_HOME/data/$id"
+  write_ship_brief "$PRIMARY_HOME/data/$id/brief.md" "$id"
+  write_ship_brief "$DUP_HOME/data/$id/brief.md" "$id"
+  write_ship_brief "$SM_HOME/data/$id/brief.md" "$id"
+  write_ship_brief "$PRES_HOME/data/$id/brief.md" "$id"
 done
 mkdir -p "$PRIMARY_HOME/data/$SM2_ID"
 printf 'trivial secondmate charter brief: nothing to do.\n' > "$PRIMARY_HOME/data/$SM2_ID/brief.md"
@@ -280,8 +314,9 @@ WS_PRIMARY_TABS_BEFORE=$(tab_labels_of_workspace "$WS_PRIMARY")
 cat > "$TMP_ROOT/spawn-in-pane.sh" <<SPAWN
 #!/usr/bin/env bash
 set -u
-FM_SPAWN_NO_GUARD=1 FM_HOME="$PRIMARY_HOME" FM_ROOT_OVERRIDE="$ROOT" \\
-  "$ROOT/bin/fm-spawn.sh" dupC "$PROJ" "sh -c 'echo launcher-ws-ok'" --mode no-mistakes --yolo off --backend herdr \\
+FM_BACKEND_HERDR_AXI_BIN="$AXI_BIN" FM_SPAWN_NO_GUARD=1 \\
+  FM_HOME="$DUP_HOME" FM_ROOT_OVERRIDE="$ROOT" \\
+  "$ROOT/bin/fm-spawn.sh" dupC "$PROJ" "$FIXTURE_AGENT $FIXTURE_SCRIPT 300" --mode no-mistakes --yolo off --backend herdr \\
   > "$TMP_ROOT/dupC.out" 2> "$TMP_ROOT/dupC.err"
 echo \$? > "$TMP_ROOT/dupC.rc"
 SPAWN
@@ -294,7 +329,7 @@ while [ ! -f "$TMP_ROOT/dupC.rc" ] && [ "$i" -lt 120 ]; do sleep 2; i=$((i + 1))
 [ "$(cat "$TMP_ROOT/dupC.rc")" = 0 ] \
   || fail "the in-pane spawn failed"$'\n'"$(cat "$TMP_ROOT/dupC.err" 2>/dev/null)"
 
-DUPC_META="$PRIMARY_HOME/state/dupC.meta"
+DUPC_META="$DUP_HOME/state/dupC.meta"
 record_worktree "$DUPC_META"
 DUPC_PANE=$(grep '^herdr_pane_id=' "$DUPC_META" | cut -d= -f2-)
 DUPC_WS=$(workspace_of_pane "$DUPC_PANE")
@@ -414,8 +449,8 @@ pass "real herdr E2E: a --secondmate launch still stands up that secondmate's ow
 
 # --- 8. teardown closes only the worker's own pane --------------------------
 
-FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$PRIMARY_HOME/state" FM_DATA_OVERRIDE="$PRIMARY_HOME/data" \
-  FM_CONFIG_OVERRIDE="$PRIMARY_HOME/config" \
+FM_HOME="$DUP_HOME" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$DUP_HOME/state" FM_DATA_OVERRIDE="$DUP_HOME/data" \
+  FM_CONFIG_OVERRIDE="$DUP_HOME/config" \
   "$ROOT/bin/fm-teardown.sh" dupC >"$TMP_ROOT/teardown.out" 2>&1
 status=$?
 [ "$status" -eq 0 ] || fail "fm-teardown.sh failed for dupC"$'\n'"$(cat "$TMP_ROOT/teardown.out")"

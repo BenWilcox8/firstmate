@@ -1,6 +1,6 @@
 # Herdr runtime backend
 
-Herdr is an experimental agent-native terminal backend with native per-pane agent state and push events.
+Herdr is an agent-native terminal backend with native per-pane agent state and push events.
 Firstmate requires Herdr protocol 14 or newer; broad backend verification covers versions 0.7.1, 0.7.3, 0.7.4, 0.7.5, and 0.8.0, while protocol-16 features remain gated by availability.
 Default-on presentation spaces have a higher floor of Herdr 0.8.0 for the reason given under [Presentation spaces](#presentation-spaces).
 Herdr provides the terminal session while Treehouse continues to provide task worktrees.
@@ -8,7 +8,7 @@ Herdr provides the terminal session while Treehouse continues to provide task wo
 
 ## Setup
 
-Pick Herdr when you want native busy, idle, and blocked state and accept the experimental limits below.
+Pick Herdr when you want native busy, idle, and blocked state and accept the active limits below.
 
 Prerequisites:
 
@@ -222,17 +222,10 @@ The read-only wiring checks (`snapshot` and the `--dry-run` drift preview) ran a
 
 Fake-CLI unit coverage lives in `tests/fm-backend-herdr.test.sh` (the delegation and native-fallback `create_task` cases) and `tests/fm-herdr-layout-lib.test.sh` (the repair/snapshot/drift wiring and its applicability guards: absent executable, non-herdr backend).
 
-## Default workspace lifecycle: one per-home workspace, reused
+## Presentation implementation details
 
-Each home's own workspace (`firstmate` for the primary, `2ndmate-<secondmate-id>` for a secondmate - see "Label derivation" above) is created as needed and reused by each subsequent default-container spawn while it exists: `fm_backend_herdr_workspace_ensure` calls `fm_backend_herdr_workspace_find` first and creates a workspace only when none labelled for that home exists yet.
-Teardown (`fm_backend_herdr_kill`) closes only the task's pane/tab, never the workspace.
-
-## Optional disposable single-task presentation spaces
-
-Create the local, gitignored `config/herdr-presentation-spaces` file on the primary home to enable the presentation projection.
-The primary's literal presence or absence converges to registered secondmate homes through the same launch, bootstrap, and config-push inheritance owner as the other declared inheritable config items.
-An absent file is off, and the off path runs the existing home-workspace and `fm-<id>`-tab command sequence unchanged.
-A home that has not yet converged stays flat rather than gaining partial projection authority.
+The [Presentation spaces](#presentation-spaces) section owns the setting's default-on, version-floor, and inheritance behavior.
+This section records the implementation safety boundaries only.
 This is a visual convenience, not a task container authority, lifecycle foundation, or durable grouping guarantee.
 The `kind=secondmate` agent itself always uses its ordinary `2ndmate-<id>` parent workspace and never receives a corner projection; only eligible crewmates and scouts launched by that home project beneath it.
 
@@ -401,6 +394,10 @@ A match whose record has no session or endpoint is refused, and so is a bare id 
 The adapter starts and polls a named server before workspace, tab, pane, or agent calls.
 Every Herdr invocation goes through `fm_backend_herdr_cli`, which sets the environment and passes an explicit trailing `--session <name>`.
 An environment variable alone is not reliable when another Herdr server is running.
+When the selected named server is not running, the adapter launches it without inherited Firstmate home and directory overrides, harness identity markers, or the supervision-model override.
+Herdr passes its server startup environment to every later pane, so retaining those values could misroute panes for another Firstmate home or harness.
+An already-running server is reused without restart or environment changes.
+Explicit named-session routing and unrelated launch environment remain intact.
 
 Literal text and Enter are separate operations on `fm-send.sh`'s typed plane; ordinary local text steers instead use the durable steering inbox and send only its best-effort constant doorbell through this adapter.
 Spawn-time fixed commands may use Herdr's atomic run primitive.
@@ -525,7 +522,6 @@ Tests use thin compatibility wrappers in `tests/herdr-test-safety.sh` and never 
 
 ## Active limits
 
-- Herdr remains experimental.
 - Presentation ordering needs protocol 16 and Python and is best-effort only.
 - Mutable labels can collide; they are never placement or destructive authority.
 - A Firstmate outside Herdr cannot resolve a launcher workspace, so a colliding home label refuses new spawns until the collision is cleared.

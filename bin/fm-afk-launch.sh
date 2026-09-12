@@ -155,6 +155,33 @@ fm_afk_launch_entry_cmd() {
   printf '%s' "${FM_AFK_LAUNCH_ENTRY:-$FM_ROOT/bin/fm-afk-start.sh}"
 }
 
+# Capture the primary harness before crossing into a detached terminal. The
+# daemon terminal's ancestry belongs to the backend server, so it cannot
+# rediscover the captain pane's harness after launch. Unknown and unrecognized
+# identities remain fail-closed instead of entering a harness-specific branch.
+fm_afk_launch_primary_harness() {
+  local harness
+  harness=${FM_DAEMON_PRIMARY_HARNESS:-}
+  if [ -z "$harness" ]; then
+    harness=$("$FM_AFK_LAUNCH_DIR/fm-harness.sh" 2>/dev/null) || harness=unknown
+  fi
+  case "$harness" in
+    claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|omp|unknown)
+      printf '%s' "$harness"
+      ;;
+    *)
+      printf unknown
+      ;;
+  esac
+}
+
+fm_afk_launch_daemon_command() {  # <captain-target> <captain-backend> <entry>
+  local captain_target=$1 captain_backend=$2 entry=$3 primary_harness
+  primary_harness=$(fm_afk_launch_primary_harness)
+  printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q FM_DAEMON_PRIMARY_HARNESS=%q %q' \
+    "$FM_HOME" "$captain_target" "$captain_backend" "$primary_harness" "$entry"
+}
+
 fm_afk_launch_record_write() {  # <backend> <target> <extra>
   local pending
   mkdir -p "$FM_AFK_LAUNCH_STATE" || return 1
@@ -413,8 +440,7 @@ fm_afk_launch_create_herdr() {  # <captain-target> <captain-backend>
     IFS=$'\t' read -r wsid pane <<< "$recovered"
   fi
   entry=$(fm_afk_launch_entry_cmd)
-  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q %q' \
-    "$FM_HOME" "$captain_target" "$captain_backend" "$entry")
+  cmd=$(fm_afk_launch_daemon_command "$captain_target" "$captain_backend" "$entry")
   if ! fm_afk_launch_record_write herdr "$session:$pane" "$wsid"; then
     fm_afk_launch_log "failed to persist herdr daemon terminal record; closing $session:$pane"
     fm_afk_launch_close_terminal herdr "$session:$pane"
@@ -440,8 +466,7 @@ fm_afk_launch_create_tmux() {  # <captain-target> <captain-backend>
   nonce="$$-${RANDOM:-0}-$(date '+%s')"
   session="fm-afk-daemon-$hash-$nonce"
   entry=$(fm_afk_launch_entry_cmd)
-  cmd=$(printf 'exec env FM_HOME=%q FM_SUPERVISOR_TARGET=%q FM_SUPERVISOR_BACKEND=%q %q' \
-    "$FM_HOME" "$captain_target" "$captain_backend" "$entry")
+  cmd=$(fm_afk_launch_daemon_command "$captain_target" "$captain_backend" "$entry")
   if ! fm_afk_launch_record_write tmux "$session" ""; then
     fm_afk_launch_log "failed to persist planned tmux daemon session '$session'"
     return 1

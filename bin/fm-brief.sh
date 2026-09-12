@@ -2,10 +2,16 @@
 # Scaffold a crewmate brief or persistent secondmate charter at
 # data/<task-id>/brief.md under the active firstmate home.
 # For ordinary tasks, the standard Setup/Rules/Definition-of-done contract is
-# filled in. Firstmate then replaces the {TASK} placeholder with the task
-# description, acceptance criteria, and context, and may adjust other sections
-# when the task genuinely deviates (e.g. working an existing external PR instead
-# of shipping a new one).
+# filled in. Ship and scout `# Task` sections have two subsections Firstmate
+# fills before dispatch: `{TASK}` under `## Captain's intent` (the captain's
+# own ask plus the context needed to read it, including the substance of any
+# report, decision, or PR the ask refers to) and `{FIRSTMATE_SPEC}`
+# under `## Firstmate spec` (build instructions, which are never the captain's
+# intent). bin/fm-dod-lib.sh owns the no-mistakes `--intent` contract those
+# subsections feed; bin/fm-spawn.sh refuses leftover placeholders. Secondmate
+# charters still use a single `{TASK}` charter fill. Firstmate may adjust other
+# sections when the task genuinely deviates (e.g. working an existing external
+# PR instead of shipping a new one).
 # Usage: fm-brief.sh <task-id> <repo-name> --mode <no-mistakes|direct-PR|local-only> [--herdr-lab]
 #        fm-brief.sh <task-id> <repo-name> --scout [--herdr-lab]
 #        fm-brief.sh <task-id> --secondmate {<project>...|--no-projects}
@@ -24,6 +30,10 @@
 #   Set FM_SECONDMATE_SCOPE='<scope>' to write a routing scope distinct from the charter text.
 #   --herdr-lab is mandatory when the task will issue Herdr lifecycle commands.
 #   It adds the hard isolation contract backed by bin/fm-herdr-lab.sh.
+#   The flag must be explicit because {TASK} and {FIRSTMATE_SPEC} are filled
+#   after scaffolding and the caller-supplied repo string cannot reliably
+#   identify this repo. Briefs made without it carry a loud declaration so an
+#   omitted contract cannot be silent.
 # For ship tasks, --mode is REQUIRED and shapes the definition of done. Firstmate
 # resolves it per task at intake (AGENTS.md section 7); data/projects.md holds the
 # captain's standing posture as context, and this script never reads it:
@@ -52,8 +62,11 @@
 # Ship tasks include a project-memory section so durable project-intrinsic
 # learnings can be committed to AGENTS.md through the project's delivery path;
 # it carries the AGENTS.md authoring bar (widely useful knowledge only, pointers
-# over copied detail) and has the crewmate add the fm-ensure-agents-md.sh
-# self-governance section when a touched project AGENTS.md lacks it.
+# over copied detail) and defers self-governance recognition and insertion to
+# fm-ensure-agents-md.sh's contract.
+# Scaffolds carry no role scope: fm-spawn.sh supplies fm_brief_worker_role from
+# fm-dod-lib.sh to every ship/scout launch brief, so this file never becomes a
+# second owner of a contract that must stay current across relaunches.
 # Refuses to overwrite an existing brief.
 set -eu
 
@@ -175,6 +188,11 @@ BRIEF="$DATA/$ID/brief.md"
 [ -e "$BRIEF" ] && { echo "error: $BRIEF already exists" >&2; exit 1; }
 mkdir -p "$DATA/$ID"
 
+ASK_USER_BLOCK=
+if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
+  ASK_USER_BLOCK=$(fm_ask_user_escalation_block "$DATA" "$ID")
+fi
+
 shell_quote() {
   printf "'"
   printf '%s' "$1" | sed "s/'/'\\\\''/g"
@@ -183,12 +201,6 @@ shell_quote() {
 
 STATUS_FILE=$(shell_quote "$STATE/$ID.status")
 INBOX_DIR=$(shell_quote "$STATE/$ID.inbox")
-
-# The States line every scaffold kind carries comes from its single owner,
-# bin/fm-brief-blocks-lib.sh. A secondmate charter renders it on its own, around
-# its own escalation contract; a ship or scout brief receives it inside the
-# rules 4-7 block that same owner renders.
-STATES_LINE=$(fm_brief_states_line "$PAUSED_VERB")
 
 # The receive-and-ack half of the steering-inbox contract, included in every
 # scaffold kind. The record format, doorbell line, and re-ring ladder are
@@ -203,8 +215,7 @@ The move IS the acknowledgement: without it firstmate rings again and eventually
 EOF
 INBOX_SECTION=${INBOX_SECTION%$'\n'}
 
-# The subagent model-tier block every scaffold kind carries comes from its
-# single owner, bin/fm-brief-blocks-lib.sh.
+STATES_LINE=$(fm_brief_states_line "$PAUSED_VERB")
 TIER_BLOCK=$(fm_brief_subagent_tier_block "$FM_ROOT")
 
 if [ "$KIND" = secondmate ]; then
@@ -252,13 +263,20 @@ The captain watches this session on a dashboard: load the \`firstmate-signalling
 
 $TIER_BLOCK
 
+# The captain and the parent channel
+Nobody reads this chat: the captain and the main firstmate see only what is appended to $STATUS_FILE, and a captain-facing sentence that is not appended there has not been sent.
+That file is your parent channel, and in this home it IS the captain: every sentence you would say to the captain, and every outcome the local AGENTS.md tells a firstmate to bring to the captain, is one appended line there, never chat.
+Your own machinery publishes the durable facts about your crew's work for you (\`bin/fm-parent-channel-lib.sh\`): a child's terminal done or failed line with its note and PR on every supervision poll, a PR-ready line when you register a PR, a task you hold for the captain and its answer, a merge, and a child's final line at cleanup all reach the parent channel from the scripts that record them, whether or not you append anything.
+What only you can append is judgement: the answer to a marked request below, a recommendation or caveat on a delivered outcome, a blocker or failure of your own, and anything else you would otherwise say to the captain.
+
 # Requests from the main firstmate
 You are a firstmate in your own home, so an incoming message reaches you in your own chat.
 You must distinguish who it is from, because the answer goes to a different place.
 A request relayed to you by the main firstmate is tagged with a leading \`$FM_FROMFIRST_LABEL\` marker followed by an invisible system separator; this marker is untypable, so a human never produces it.
 When a message carries that marker, do the work, then respond via the STATUS/ESCALATION path below, never only in this chat: the main firstmate does not read your chat, so a chat-only reply is lost.
 Marked requests also carry a privacy-safe \`corr=<id>\` token after the marker; include that exact token in your parent status reply (or in the status pointer to a detailed doc) so the parent can correlate the answer.
-Optional helper: \`bin/fm-secondmate-report.sh\` can append a correlated status line for you, but a plain \`echo\` that includes the same \`corr=<id>\` is equally valid - do not depend on the helper being present.
+Optional helper: \`bin/fm-secondmate-report.sh <verb> <corr_id> <note>\` appends that correlated line to the parent channel itself - do not pass a status path, and do not write a hand path under this home.
+A plain \`echo\` that includes the same \`corr=<id>\` on this parent channel is equally valid; do not depend on the helper being present.
 For a terse result, a status line is the whole answer.
 For a detailed answer (an investigation, a plan, an audit), write it to a doc under your home's \`data/\` and append a status line that points to that doc - the scout-report pattern - so the main firstmate is woken and can read it.
 Before treating an investigation or visual review as complete, load \`captain-hold-lifecycle\` from this home's \`.agents/skills/\` and pass its shared completion gate.
@@ -334,14 +352,23 @@ EOF
 HERDR_SECTION=${HERDR_SECTION%$'\n'}
 fi
 
+IFS= read -r -d '' TASK_SECTION <<'EOF' || true
+# Task
+## Captain's intent
+{TASK}
+
+## Firstmate spec
+{FIRSTMATE_SPEC}
+EOF
+TASK_SECTION=${TASK_SECTION%$'\n'}
+
 if [ "$KIND" = scout ]; then
 WORKER_RULES=$(fm_brief_worker_rules scout "$PAUSED_VERB" "$STATUS_FILE") || exit 1
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs.
 
-# Task
-{TASK}
+$TASK_SECTION
 
 $HERDR_SECTION
 
@@ -369,7 +396,7 @@ Before reporting done, read and follow \`$FM_ROOT/.agents/skills/captain-hold-li
 When the report is complete, append \`done: {one-line conclusion}\` to the status file and stop.
 If your findings reveal work that should ship (e.g. you reproduced a bug and the fix is clear), say so in the report; firstmate may promote this task in place, and you would then receive mode-specific ship instructions as a follow-up message.
 EOF
-echo "scaffolded: $BRIEF (scout; replace {TASK})"
+echo "scaffolded: $BRIEF (scout; replace {TASK} and {FIRSTMATE_SPEC})"
 exit 0
 fi
 
@@ -394,14 +421,13 @@ case "$MODE" in
     ;;
 esac
 DOD=$(fm_dod_block "$MODE" "$ID") || exit 1
-WORKER_RULES=$(fm_brief_worker_rules ship "$PAUSED_VERB" "$STATUS_FILE") || exit 1
+WORKER_RULES=$(fm_brief_worker_rules ship "$PAUSED_VERB" "$STATUS_FILE" "$ASK_USER_BLOCK") || exit 1
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
 If this worktree's AGENTS.md is firstmate's own, it is the supervisor job description, not yours; you are a crewmate, your brief governs.
 
-# Task
-{TASK}
+$TASK_SECTION
 
 $HERDR_SECTION
 
@@ -428,9 +454,9 @@ $INBOX_SECTION
 If \`AGENTS.md\` or \`CLAUDE.md\` already exists, or if this task produced durable project-intrinsic knowledge, run \`$FM_ROOT/bin/fm-ensure-agents-md.sh .\` in the worktree.
 Record only project knowledge useful to almost every future session.
 For anything the codebase already shows, prefer a pointer to the authoritative file, command, or doc over copying the detail.
-If you touch a project \`AGENTS.md\` that lacks \`## Maintaining this file\`, add that short self-governance section from \`$FM_ROOT/bin/fm-ensure-agents-md.sh\` in the same pass.
+If you touch a project \`AGENTS.md\`, follow \`$FM_ROOT/bin/fm-ensure-agents-md.sh\`'s self-governance contract in the same pass.
 Keep it proportionate: skip \`AGENTS.md\` edits for trivial tasks that produced no durable project knowledge.
 
 $DOD
 EOF
-echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK})"
+echo "scaffolded: $BRIEF (ship, mode=$MODE; replace {TASK} and {FIRSTMATE_SPEC})"

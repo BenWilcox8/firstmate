@@ -290,7 +290,7 @@ fm_composer_strip_ghost() {
 # Matching a footer to confirm a keystroke landed is a different question from
 # asking what a worker is doing, and the two must not be conflated.
 # Delivery-only rendered busy footers per harness. claude/codex: "esc to
-# interrupt"; opencode: "esc interrupt"; pi: "Working..."; grok: "Ctrl+c:cancel".
+# interrupt"; opencode: "esc interrupt"; pi: "Working..."; omp: "Working…"; grok: "Ctrl+c:cancel".
 # Claude's current spinner has a rotating glyph and word, but every active-turn
 # line has an ellipsis followed by a parenthesized elapsed duration. Keep this
 # signature separate from the shared default because that shape is not generic
@@ -311,11 +311,28 @@ fm_composer_strip_ghost() {
 # part of that union for the same reason the others are: without it a cursor
 # submit could never be acknowledged, because cursor parks its terminal cursor
 # outside its composer and the composer verdict is therefore always `unknown`.
-FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel|ctrl\+c to stop'
+FM_DELIVERY_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working(\.\.\.|…)|Ctrl\+c:cancel|ctrl\+c to stop'
 FM_DELIVERY_CLAUDE_BUSY_REGEX_DEFAULT='esc to interrupt|…[[:space:]]+\([0-9]+[smh]'
 FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT='esc to interrupt'
 FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT='esc interrupt'
 FM_DELIVERY_PI_BUSY_REGEX_DEFAULT='Working\.\.\.'
+# omp (Oh My Pi) renders its TUI busy line as `Working…` with U+2026 HORIZONTAL
+# ELLIPSIS, not Pi's three ASCII dots (verified byte-level on omp 18.1.2,
+# re-verified live on 18.1.11 through the Herdr backend). Only the TUI form is
+# accepted: every supervised omp pane is the TUI, and the three-dot spelling its
+# headless -p mode writes to stderr never reaches a pane. The status row's
+# leading braille spinner plus elapsed cell (`⠧ 11s`) is the second, independent
+# busy signal, so no single vendor string is load-bearing; its idle form is a
+# static identity glyph with no elapsed time.
+# The spinner is an alternation of omp 18.1.11's unicode-preset frames (its
+# `status` set ⣾⣽⣻⢿⡿⣟⣯⣷ and `activity` set ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏, read from the
+# build that rendered the live `⠧`), declared once for the busy regex and the
+# status-row furniture rule below. It is deliberately NOT a bracket range over
+# the braille block: GNU grep rejects a range between multibyte endpoints
+# ("Invalid collation character"), so `[⠁-⣿]` compiled on macOS and failed
+# every omp busy and furniture read on Linux CI.
+FM_OMP_SPINNER_FRAMES_RE='(⠋|⠙|⠹|⠸|⠼|⠴|⠦|⠧|⠇|⠏|⣾|⣽|⣻|⢿|⡿|⣟|⣯|⣷)'
+FM_DELIVERY_OMP_BUSY_REGEX_DEFAULT='Working…|^[[:space:]]*'"$FM_OMP_SPINNER_FRAMES_RE"'[[:space:]]+[0-9]+[smh]'
 FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT='Ctrl\+c:cancel'
 # cursor-agent's busy footer. The TOKEN is matched, not the spinner verb: the
 # same version rendered both `Working` and `Running` beside its braille spinner
@@ -338,6 +355,7 @@ fm_busy_lines_match() {  # [harness]
       codex) regex=$FM_DELIVERY_CODEX_BUSY_REGEX_DEFAULT ;;
       opencode) regex=$FM_DELIVERY_OPENCODE_BUSY_REGEX_DEFAULT ;;
       pi|pi-signed) regex=$FM_DELIVERY_PI_BUSY_REGEX_DEFAULT ;;
+      omp) regex=$FM_DELIVERY_OMP_BUSY_REGEX_DEFAULT ;;
       grok) regex=$FM_DELIVERY_GROK_BUSY_REGEX_DEFAULT ;;
       kimi) regex=$FM_DELIVERY_KIMI_BUSY_REGEX_DEFAULT ;;
       cursor) regex=$FM_DELIVERY_CURSOR_BUSY_REGEX_DEFAULT ;;
@@ -371,10 +389,36 @@ FM_COMPOSER_SHELL_PROMPT_GLYPHS=$(printf '%s\n' '>' '$' '%' '#')
 # matching is case-insensitive.
 FM_COMPOSER_IDLE_RE_DEFAULT='^Type a message\.\.\.$|^Ask anything\.\.\.|^Plan, search, build anything$|^Add a follow-up$'
 
+# Codex can draw a bright one-cell animation after its dim idle placeholder.
+# This literal set is the complete rotating-dot sequence that Codex uses.
+# It is not a general braille set and is valid only with the same-row proof in
+# _fm_composer_bare_codex_idle_animation below.
+FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS=$(printf '%s\n' \
+  '⠁' '⠂' '⠄' '⡀' '⢀' '⠠' '⠐' '⠈')
+
 # Opencode draws a mode/model footer line INSIDE its left-bar composer
 # ("Build · GPT-5.5 Fast OpenAI · high"). It is composer furniture, not typed
 # text, and only the run's LAST row is ever matched against it.
 FM_COMPOSER_LEFTBAR_FOOTER_RE_DEFAULT='^(Build|Plan)[[:space:]]+·[[:space:]]+'
+# omp (Oh My Pi) draws a one-row status line directly BELOW its borderless
+# composer: an identity or spinner cell, then middle-dot separated model, path,
+# git, and context cells. Verified live through Herdr on omp 18.1.11:
+# ` π  · ◔ GPT-6-Astra · 🌳 …-workspace · ⑂ detached · ◫ 15.4%/272K ⟲ · (sub)`
+# idle under the unicode preset, ` 󰵗  ·  qwen3:8b ·  … ·  36.7%/41K` under
+# nerd, and ` ⠧ 11s  · …` while busy. Without this rule the bare composer's
+# wrap region walks straight into that row and an idle omp pane reads
+# `pending`, the false verdict that skipped the doorbell on the first live omp
+# worker. A row is omp status furniture when it opens with omp's identity cell
+# then a middle dot (`π` under the unicode preset, `󰵗` under nerd: the
+# `icon.omp` of those omp 18.1.11 presets, never an arbitrary short token, so
+# a wrapped typed row such as `fix · tests` stays composer input; the ascii
+# preset's `pi` is deliberately absent because that preset's `sep.dot` is
+# ` - `, so its status row never carries a middle dot and a `pi ·` alternative
+# could only ever match typed text), when it opens with one of omp's spinner
+# frames then an elapsed cell, or when it carries the context-usage cell after
+# a middle dot. It is consulted only as the boundary BELOW a bare composer,
+# never on the composer row itself.
+FM_COMPOSER_OMP_STATUS_RE_DEFAULT='^[[:space:]]*(π|󰵗)[[:space:]]+·[[:space:]]|^[[:space:]]*'"$FM_OMP_SPINNER_FRAMES_RE"'[[:space:]]+[0-9]+[smh]([[:space:]]|$)|[[:space:]]·[[:space:]].*[0-9]+(\.[0-9]+)?%/[0-9]+K'
 
 # The bounded row window adapters should capture for a composer read. One
 # shared policy (previously three per-backend variables that had drifted to
@@ -910,6 +954,127 @@ _fm_composer_classify_rows() {  # <screen> <styled> <ambiguous> <first-row> <las
   fi
 }
 
+# Remove only Codex's reviewed animation cells from one already isolated value.
+# This is never used by the general ghost strip or by another harness.
+_fm_composer_codex_animation_strip_var() {  # <varname>
+  local __fmcasi_name=$1 __fmcasi_text=${!1} __fmcasi_cell
+  while IFS= read -r __fmcasi_cell; do
+    __fmcasi_text=${__fmcasi_text//"$__fmcasi_cell"/}
+  done <<EOF
+$FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS
+EOF
+  printf -v "$__fmcasi_name" '%s' "$__fmcasi_text"
+}
+
+_fm_composer_codex_animation_only() {  # <content>
+  local value=$1 original
+  fm_composer_normalize_trim_var value
+  [ -n "$value" ] || return 1
+  original=$value
+  _fm_composer_codex_animation_strip_var value
+  fm_composer_normalize_trim_var value
+  [ -z "$value" ] && [ -n "$original" ]
+}
+
+# _fm_composer_bare_codex_idle_animation returns success only for the exact
+# mixed-style Codex idle row. The plain row must contain the known placeholder
+# plus allowed animation cells. A dim-only strip must match the normal ghost
+# strip, which proves that SGR dim removed the placeholder instead of color.
+_fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content> <styled>
+  local raw=$1 content=$2 plain=$3 styled=$4 glyph='' dim_glyph='' animation dim_content
+  [ "$styled" = 1 ] || return 1
+
+  fm_composer_normalize_trim_var content
+  fm_composer_normalize_trim_var plain
+  dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
+  fm_composer_normalize_trim_var dim_content
+  fm_composer_leading_agent_glyph_var glyph "$content" || return 1
+  [ "$glyph" = '›' ] || return 1
+  content=${content#*"$glyph"}
+  fm_composer_normalize_trim_var content
+  fm_composer_leading_agent_glyph_var dim_glyph "$dim_content" || return 1
+  [ "$dim_glyph" = '›' ] || return 1
+  dim_content=${dim_content#*"$dim_glyph"}
+  fm_composer_normalize_trim_var dim_content
+
+  glyph=''
+  fm_composer_leading_agent_glyph_var glyph "$plain" || return 1
+  [ "$glyph" = '›' ] || return 1
+  plain=${plain#*"$glyph"}
+  fm_composer_normalize_trim_var plain
+  animation=$content
+  if [ -n "$animation" ]; then
+    _fm_composer_codex_animation_only "$animation" || return 1
+  fi
+  _fm_composer_codex_animation_only "$dim_content" || return 1
+  _fm_composer_codex_animation_strip_var plain
+  fm_composer_normalize_trim_var plain
+  [ "$plain" = 'Ask Codex to do anything' ]
+}
+
+_fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
+  local raw=$1 styled=$2 content dim_content plain model_effort usage context horizon
+  local model effort amount percent rest
+  [ "$styled" = 1 ] || return 1
+  content=$(_fm_composer_row_content "$raw" "$styled")
+  fm_composer_normalize_trim_var content
+  [ -z "$content" ] || return 1
+  dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
+  fm_composer_normalize_trim_var dim_content
+  [ -z "$dim_content" ] || return 1
+
+  plain=$(_fm_composer_row_content "$raw" 0)
+  fm_composer_normalize_trim_var plain
+  model_effort=${plain%%' · '*}
+  rest=${plain#*' · '}
+  [ "$rest" != "$plain" ] || return 1
+  usage=${rest%%' · '*}
+  rest=${rest#*' · '}
+  context=${rest%%' · '*}
+  horizon=${rest#*' · '}
+  [ "$horizon" != "$rest" ] && [ -n "$horizon" ] || return 1
+  case "$horizon" in *' · '*) return 1 ;; esac
+
+  model=${model_effort% *}
+  effort=${model_effort##* }
+  case "$model" in gpt-*) ;; *) return 1 ;; esac
+  case "$effort" in low|medium|high|xhigh|max|ultra) ;; *) return 1 ;; esac
+  case "$usage" in *' used') amount=${usage%' used'} ;; *) return 1 ;; esac
+  case "$amount" in ''|*[!0-9.KMGT]*) return 1 ;; esac
+  case "$context" in 'Context '*'%'\ used)
+    percent=${context#'Context '}
+    percent=${percent%'% used'}
+    ;;
+  *) return 1 ;;
+  esac
+  case "$percent" in ''|*[!0-9]*) return 1 ;; esac
+}
+
+_fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <last>
+  local screen=$1 styled=$2 first=$3 last=$4 row raw content plain animation_row_seen=0
+  [ "$styled" = 1 ] && [ "$last" -gt "$first" ] || return 1
+  raw=$(_fm_composer_screen_row "$first" "$screen")
+  content=$(_fm_composer_row_content "$raw" "$styled")
+  plain=$(_fm_composer_row_content "$raw" 0)
+  _fm_composer_bare_codex_idle_animation "$raw" "$content" "$plain" "$styled" \
+    || return 1
+  row=$((first + 1))
+  while [ "$row" -le "$last" ]; do
+    raw=$(_fm_composer_screen_row "$row" "$screen")
+    content=$(_fm_composer_row_content "$raw" "$styled")
+    if _fm_composer_codex_animation_only "$content"; then
+      animation_row_seen=1
+    elif [ "$row" -eq "$last" ] \
+      && _fm_composer_bare_codex_idle_footer "$raw" "$styled"; then
+      :
+    else
+      return 1
+    fi
+    row=$((row + 1))
+  done
+  [ "$animation_row_seen" = 1 ]
+}
+
 # _fm_composer_classify_bare_row: the bare agent-glyph row verdict, including
 # the styled=0 degradation: without styling, trailing text after the glyph may
 # be the harness's own idle suggestion (claude's rotating dim hint, codex's
@@ -919,6 +1084,10 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   raw=$(_fm_composer_screen_row "$row" "$screen")
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
+  if _fm_composer_bare_codex_idle_animation "$raw" "$content" "$plain" "$styled"; then
+    printf 'empty'
+    return 0
+  fi
   state=$(fm_composer_classify_content 0 "$content" \
     "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 0 "$styled")
   if [ "$styled" != 1 ] && [ "$state" = pending ]; then
@@ -926,6 +1095,13 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
     return 0
   fi
   printf '%s' "$state"
+}
+
+# _fm_composer_row_is_omp_status: 0 when the trimmed row is omp's status line
+# (FM_COMPOSER_OMP_STATUS_RE_DEFAULT above) - composer furniture that sits
+# below a bare composer and must bound its wrap region exactly as an edge does.
+_fm_composer_row_is_omp_status() {  # <trimmed-row>
+  fm_composer_idle_matches "$1" "${FM_COMPOSER_OMP_STATUS_RE:-$FM_COMPOSER_OMP_STATUS_RE_DEFAULT}" sensitive
 }
 
 # _fm_composer_wrap_region_ok: 0 when every row STRICTLY BELOW <glyph-row>
@@ -941,6 +1117,7 @@ _fm_composer_wrap_region_ok() {  # <plain-screen> <glyph-row> <cursor-row>
     fm_composer_normalize_trim_var trimmed
     [ -n "$trimmed" ] || return 1
     if fm_composer_row_has_edge "$trimmed"; then return 1; fi
+    if _fm_composer_row_is_omp_status "$trimmed"; then return 1; fi
     if fm_composer_leading_shell_glyph_var glyph "$trimmed"; then return 1; fi
     row=$((row + 1))
   done
@@ -953,8 +1130,14 @@ _fm_composer_wrap_region_ok() {  # <plain-screen> <glyph-row> <cursor-row>
 # suggestion happened to wrap; any surviving text is pending when styling can
 # prove it real and unknown otherwise (the same styled=0 degradation as the
 # glyph row itself).
-_fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row>
-  local screen=$1 styled=$2 g=$3 cy=$4 row raw content glyph='' text_seen=0
+_fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row> [allow-codex-animation]
+  local screen=$1 styled=$2 g=$3 cy=$4 allow_codex_animation=${5:-0}
+  local row raw content glyph='' text_seen=0
+  if [ "$allow_codex_animation" = 1 ] \
+    && _fm_composer_bare_codex_idle_animation_region "$screen" "$styled" "$g" "$cy"; then
+    printf 'empty'
+    return 0
+  fi
   row=$g
   while [ "$row" -le "$cy" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
@@ -1077,6 +1260,7 @@ _fm_composer_select_cursorless() {
       fm_composer_normalize_trim_var trimmed
       [ -n "$trimmed" ] || break
       fm_composer_row_has_edge "$trimmed" && break
+      _fm_composer_row_is_omp_status "$trimmed" && break
       FM_COMPOSER_SELECTED_LAST=$next
       next=$((next + 1))
     done
@@ -1273,7 +1457,7 @@ EOF
     bare)
       if [ "$FM_COMPOSER_SELECTED_LAST" -gt "$FM_COMPOSER_SELECTED_FIRST" ]; then
         _fm_composer_classify_bare_wrap "$screen" "$styled" \
-          "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST"
+          "$FM_COMPOSER_SELECTED_FIRST" "$FM_COMPOSER_SELECTED_LAST" 1
       elif [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 1 ] \
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -gt "$FM_COMPOSER_SCAN_PI_OPEN" ] \
          && [ "$FM_COMPOSER_SCAN_BARE_ROW" -lt "$FM_COMPOSER_SCAN_PI_CLOSE" ]; then

@@ -235,7 +235,7 @@ test_doorbell_carries_the_agent_origin_marker() {
     *$'\n'*) fail "the marker broke the doorbell into more than one line" ;;
   esac
   case "$doorbell" in
-    'Firstmate instruction waiting: list '*) ;;
+    ': Firstmate instruction waiting: list '*) ;;
     *) fail "the doorbell lost its self-describing opening: $doorbell" ;;
   esac
   pass "doorbell: a supervisor's steer rings with the agent-origin marker on one line"
@@ -264,17 +264,22 @@ case "${1:-}" in
     [ "$literal" = 1 ] && printf '%s\n' "${1:-}" >> "$FM_SEND_LOG"
     exit 0 ;;
   display-message)
-    for a in "$@"; do case "$a" in *cursor_y*) printf '1\n'; exit 0 ;; esac; done
+    for a in "$@"; do
+      case "$a" in
+        *cursor_y*) printf '1\n'; exit 0 ;;
+        *pane_current_command*) printf 'claude\n'; exit 0 ;;
+      esac
+    done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) printf 'fm-t1\n'; exit 0 ;;
 esac
 exit 0
 SH
   chmod +x "$fb/tmux"
   printf '#!/usr/bin/env bash\nexit 0\n' > "$fb/sleep"
   chmod +x "$fb/sleep"
-  fm_write_meta "$dir/home/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=claude"
+  fm_write_meta "$dir/home/state/t1.meta" "window=sess:fm-t1" "kind=ship" "harness=claude" "backend=tmux"
   : > "$typed"
   env PATH="$fb:$PATH" FM_ROOT_OVERRIDE="$dir/home" FM_HOME="$dir/home" \
     FM_SEND_LOG="$typed" FM_SEND_SETTLE=0 \

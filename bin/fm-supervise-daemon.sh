@@ -231,6 +231,7 @@ PANE_BUSY_SOURCE=unknown
 INJECT_FAIL_SLEEP_DEFAULT=30
 INJECT_CONFIRM_RETRIES_DEFAULT=3
 INJECT_CONFIRM_SLEEP_DEFAULT=0.5
+INJECT_DURABLE_NOTE_ID=
 CRASH_THRESHOLD_DEFAULT=10
 CRASH_WINDOW_DEFAULT=60
 CRASH_BACKOFF_DEFAULT=60
@@ -251,7 +252,7 @@ _state_root() { printf '%s' "${FM_STATE_OVERRIDE:-$FM_HOME/state}"; }
 
 # --- portable stat (same trap as fm-watch.sh: no `stat -f || stat -c`) -------
 if [ "$(uname)" = Darwin ]; then
-  _stat_file_mtime() { stat -f %m "$1" 2>/dev/null; }
+  _stat_file_mtime() { /usr/bin/stat -f %m "$1" 2>/dev/null; }
 else
   _stat_file_mtime() { stat -c %Y "$1" 2>/dev/null; }
 fi
@@ -265,6 +266,14 @@ _file_age() {  # seconds since mtime; very large if missing
 _hash_text() {
   if command -v md5 >/dev/null 2>&1; then printf '%s' "$1" | md5 -q
   else printf '%s' "$1" | md5sum | cut -d ' ' -f1; fi
+}
+
+_sha256_text() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum | cut -d ' ' -f1
+  else
+    printf '%s' "$1" | shasum -a 256 | cut -d ' ' -f1
+  fi
 }
 
 # --- presence-gating helpers (PURE-ish: side-effect-free reads of state) -----
@@ -736,7 +745,7 @@ escalate_add() {  # <state> <distilled-item>
 }
 
 # --- delivery observability records -----------------------------------------
-# Three small durable records, all owned here and all safe to delete:
+# Five small durable record families, all owned here and all safe to delete:
 #   .subsuper-inject-busy-since  epoch of the FIRST busy deferral of the current
 #                                undelivered digest. It survives only while the
 #                                pane keeps reading busy: any not-busy read, or
@@ -751,6 +760,11 @@ escalate_add() {  # <state> <distilled-item>
 #   .subsuper-inject-fallback    fingerprint of the digest already handed to the
 #                                durable captain inbox, so one wedge queues one
 #                                note however many max-defer windows it survives.
+#   .subsuper-staged-inbox-<id>  exact note-ID provenance for a digest created by
+#                                the short-reference staging path.
+#   .subsuper-staged-delivered-inbox-<id>
+#                                post-submit receipt that alone makes the staged
+#                                note's own check wake safe to self-handle.
 INJECT_BUSY_SINCE_NAME=".subsuper-inject-busy-since"
 INJECT_VERDICT_NAME=".subsuper-inject-verdict"
 INJECT_FALLBACK_NAME=".subsuper-inject-fallback"
@@ -809,11 +823,26 @@ escalate_digest() {  # <state>
 # through to inject_msg: "normal" (default) defers on a busy pane, while
 # "busy-override" is housekeeping's bounded max-defer escape.
 escalate_flush() {  # <state> [mode]
-  local state=$1 mode=${2:-normal} buf msg
+  local state=$1 mode=${2:-normal} buf msg staged_delivery=0
   buf="$state/.subsuper-escalations"
   [ -s "$buf" ] || return 0
   msg=$(escalate_digest "$state") || return 0
+  # Codex on Herdr can accept a short prompt while a long paste is still being
+  # assembled in its composer.
+  # Store the exact digest first, then type only a record-specific pointer.
+  # Every other backend and harness keeps the established direct transport.
+  if [ "${FM_SUPERVISOR_BACKEND:-tmux}" = herdr ] \
+    && [ "$(fm_daemon_primary_harness)" = codex ]; then
+    if ! escalate_store_durable_digest "$state"; then
+      return 1
+    fi
+    staged_delivery=${INJECT_DURABLE_NOTE_STAGED:-0}
+    msg="Durable captain inbox note $INJECT_DURABLE_NOTE_ID is ready. Run bin/fm-wake-drain.sh first."
+  fi
   if inject_msg "$msg" "$state" "$mode"; then
+    if [ "$staged_delivery" -eq 1 ]; then
+      staged_note_delivery_write "$state" "$INJECT_DURABLE_NOTE_ID" || return 1
+    fi
     : > "$buf"
     rm -f "${buf}.since" "$state/.subsuper-inject-wedged" "$state/$INJECT_FALLBACK_NAME"
     return 0
@@ -821,10 +850,10 @@ escalate_flush() {  # <state> [mode]
   return 1
 }
 
-# --- durable fallback -------------------------------------------------------
-# When the pane cannot be proven to have accepted the digest inside the whole
-# max-defer window, the escalation stops depending on the pane at all and is
-# handed to the captain's own durable inbox (bin/fm-inbox.sh note).
+# --- durable escalation record ---------------------------------------------
+# Codex-on-Herdr stores the exact digest here before sending a short pointer.
+# Other transports call the same helper as a fallback only after their pane
+# cannot be proven to have accepted the digest inside the max-defer window.
 #
 # Why THAT inbox and not the per-task steering inbox: this escalation is
 # addressed to the primary firstmate session, and fm-inbox.sh note is the one
@@ -835,39 +864,98 @@ escalate_flush() {  # <state> [mode]
 # task id and acknowledged by that worker moving the record; it has no reader
 # for a message meant for the primary session and would strand the escalation.
 #
-# The fallback is ADDITIVE, not a handover: the escalation buffer is deliberately
-# left intact, so the pane path keeps retrying and still delivers the digest at
-# the next proven-idle moment. Losing the buffer to gain durability would trade
-# one guarantee for the other; keeping both costs at most one repeated reading of
-# an escalation the captain was told could not be delivered.
+# The durable write is ADDITIVE, not a handover.
+# The escalation buffer stays intact until a pane submit is confirmed.
 #
-# Exactly one note per distinct digest: .subsuper-inject-fallback records the
-# fingerprint of what was handed off, so a wedge that survives many max-defer
-# windows does not queue the same note on each one. Buffering a NEW event changes
-# the fingerprint, and that new content is handed off in its turn. A confirmed
-# pane delivery clears the record with the buffer.
+# Exactly one note is queued per distinct digest.
+# The marker binds its SHA-256 to the note ID, so retry sends refer to the same
+# durable payload instead of creating a second record.
 #
 # Returns 0 when the digest is durable in the inbox (or already was), 1 when the
 # handoff failed, in which case the next window retries it.
-escalate_fallback_to_inbox() {  # <state>
-  local state=$1 buf marker msg fingerprint out
+staged_note_marker_write() {  # <state> <note-id>
+  local state=$1 id=$2
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  printf '%s\n' "$id" > "$state/.subsuper-staged-inbox-$id"
+}
+
+staged_note_delivery_write() {  # <state> <note-id>
+  local state=$1 id=$2
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  printf '%s\n' "$id" > "$state/.subsuper-staged-delivered-inbox-$id"
+}
+
+# A successfully delivered staging note's check wake exists only to present the
+# durable record selected by the short reference. It must not become a new
+# daemon escalation about that same record. Require both exact note identity
+# and a post-submit delivery receipt. Ordinary captain notes, failure-fallback
+# notes reused by staging, and notes whose short submit failed have no receipt
+# and keep the established fail-safe check classification.
+is_staged_note_check() {  # <reason> <state>
+  local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
+  case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
+  rest=${reason#"$prefix"}
+  id=${rest%% *}
+  [ "$rest" != "$id" ] || return 1
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ -f "$state/.subsuper-staged-delivered-inbox-$id" ]
+}
+
+escalate_store_durable_digest() {  # <state> [staging|fallback]
+  local state=$1 purpose=${2:-staging} buf marker msg payload fingerprint legacy prior
+  local prior_fingerprint out id
+  INJECT_DURABLE_NOTE_STAGED=0
   buf="$state/.subsuper-escalations"
   marker="$state/$INJECT_FALLBACK_NAME"
   [ -s "$buf" ] || return 0
   msg=$(escalate_digest "$state") || return 0
-  fingerprint=$(_hash_text "$msg")
-  if [ "$(cat "$marker" 2>/dev/null || true)" = "$fingerprint" ]; then
-    return 0  # Already durable in the inbox; nothing new to hand off.
-  fi
-  msg=$(printf 'Away-mode escalation could not be delivered to your session (%s). %s' \
-    "$(inject_last_verdict "$state")" "$msg")
-  if out=$(FM_STATE_OVERRIDE="$state" "$FM_DAEMON_DIR/fm-inbox.sh" note - <<<"$msg" 2>&1); then
-    printf '%s\n' "$fingerprint" > "$marker" 2>/dev/null || true
-    log "inject fallback: digest handed to the durable captain inbox; it is presented at the next turn boundary ($(printf '%s' "$out" | head -1))"
+  fingerprint=$(_sha256_text "$msg")
+  legacy=$(_hash_text "$msg")
+  prior=$(cat "$marker" 2>/dev/null || true)
+  prior_fingerprint=${prior%%$'\t'*}
+  if [ "$prior_fingerprint" = "sha256:$fingerprint" ]; then
+    INJECT_DURABLE_NOTE_ID=${prior#*$'\t'}
+    if [ "$INJECT_DURABLE_NOTE_ID" != "$prior" ] && [ -n "$INJECT_DURABLE_NOTE_ID" ]; then
+      if [ "$purpose" = staging ] \
+        && [ -f "$state/.subsuper-staged-inbox-$INJECT_DURABLE_NOTE_ID" ]; then
+        INJECT_DURABLE_NOTE_STAGED=1
+      fi
+      return 0
+    fi
+    # Old markers contain only the hash.
+    # They remain valid for the legacy fallback, but a short pointer needs an
+    # explicit record ID and therefore writes one new exact record.
+    [ "$purpose" = fallback ] && return 0
+  elif [ "$prior_fingerprint" = "$legacy" ] && [ "$purpose" = fallback ]; then
     return 0
   fi
-  log "ERROR: inject fallback FAILED: the durable captain inbox rejected the digest ($(printf '%s' "$out" | tail -1)); the next max-defer window retries it"
+  payload=$msg
+  if [ "$purpose" = fallback ]; then
+    payload=$(printf 'Away-mode escalation could not be delivered to your session (%s). %s' \
+      "$(inject_last_verdict "$state")" "$msg")
+  fi
+  if out=$(FM_STATE_OVERRIDE="$state" "$FM_DAEMON_DIR/fm-inbox.sh" note - <<<"$payload" 2>&1); then
+    id=$(printf '%s\n' "$out" | sed -n 's/^queued //p' | head -1)
+    [ -n "$id" ] || return 1
+    INJECT_DURABLE_NOTE_ID=$id
+    if [ "$purpose" = staging ]; then
+      staged_note_marker_write "$state" "$id" || return 1
+      INJECT_DURABLE_NOTE_STAGED=1
+    fi
+    printf 'sha256:%s\t%s\n' "$fingerprint" "$id" > "$marker" 2>/dev/null || return 1
+    if [ "$purpose" = fallback ]; then
+      log "inject fallback: digest handed to durable captain inbox note $id (sha256=$fingerprint)"
+    else
+      log "inject staging: exact digest stored in durable captain inbox note $id (sha256=$fingerprint)"
+    fi
+    return 0
+  fi
+  log "ERROR: inject staging FAILED: the durable captain inbox rejected the digest ($(printf '%s' "$out" | tail -1)); pane transport was not attempted"
   return 1
+}
+
+escalate_fallback_to_inbox() {  # <state>
+  escalate_store_durable_digest "$1" fallback
 }
 
 # --- backend-independent active wedge alert ---------------------------------
@@ -1573,7 +1661,11 @@ handle_wake() {  # <reason> <state>
                        ;;
                    esac ;;
               esac ;;
-    check:*)  decision=$(classify_check "$reason") ;;
+    check:*)  if is_staged_note_check "$reason" "$state"; then
+                decision="self|staged transport note already represented by its short reference"
+              else
+                decision=$(classify_check "$reason")
+              fi ;;
     heartbeat|heartbeat:*) decision=$(classify_heartbeat) ;;
     *)        decision=$(classify_unknown "$reason") ;;
   esac
@@ -1705,7 +1797,7 @@ trim_log() {
 # ============================================================================
 
 fm_super_main() {
-  local STATE
+  local STATE primary_harness
   STATE="$(_state_root)"
   mkdir -p "$STATE"
 
@@ -1737,7 +1829,15 @@ fm_super_main() {
     exit 1
   fi
   echo "$$" > "$PIDFILE"
-  fm_pid_identity "${BASHPID:-$$}" > "$LOCK/pid-identity" 2>/dev/null || true
+  # The recorded identity is what proves this daemon still owns supervision after
+  # its watcher child exits (fm_afk_daemon_owns_supervision, read by the turn-end
+  # guard). Startup continues without it - a supervising daemon must not refuse to
+  # run because ps was unreadable - but say so, because the guard then keeps
+  # treating away-mode turn boundaries as unsupervised.
+  if ! fm_pid_identity "${BASHPID:-$$}" > "$LOCK/pid-identity" 2>/dev/null; then
+    rm -f "$LOCK/pid-identity" 2>/dev/null || true
+    log "warn: could not record this daemon's process identity; the turn-end guard cannot recognize away-mode supervision"
+  fi
 
   # --- auto-discover the supervisor BACKEND (tmux vs herdr) first -----------
   # Priority: FM_SUPERVISOR_BACKEND override > $TMUX_PANE (tmux) > $HERDR_ENV=1
@@ -1813,9 +1913,10 @@ fm_super_main() {
     exit 1
   fi
 
+  primary_harness=$(fm_daemon_primary_harness)
   local afk_status="off"
   afk_active "$STATE" && afk_status="on"
-  log "daemon starting (pid $$); target=$TARGET; target_source=$target_source; backend=$BACKEND; backend_source=$backend_source; afk=$afk_status; inject_skip='${FM_INJECT_SKIP:-$INJECT_SKIP_DEFAULT}'; stale_escalate=${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}s; batch=${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}s"
+  log "daemon starting (pid $$); target=$TARGET; target_source=$target_source; backend=$BACKEND; backend_source=$backend_source; harness=$primary_harness; afk=$afk_status; inject_skip='${FM_INJECT_SKIP:-$INJECT_SKIP_DEFAULT}'; stale_escalate=${FM_STALE_ESCALATE_SECS:-$STALE_ESCALATE_SECS_DEFAULT}s; batch=${FM_ESCALATE_BATCH_SECS:-$ESCALATE_BATCH_SECS_DEFAULT}s"
   migrate_watcher_pause_markers "$STATE"
 
   # --- shutdown: flush buffered escalations, reap child, release lock -------

@@ -46,31 +46,58 @@ command -v jq >/dev/null 2>&1 || { echo "skip: jq not found (required by the her
 # as a cross-session parent identity (tests/herdr-test-safety.sh).
 herdr_forget_inherited_pane
 
-fail() { printf 'not ok - %s\n' "$1" >&2; cleanup_all; exit 1; }
+fail() { printf 'not ok - %s\n' "$1" >&2; TEST_FAILED=1; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
 
-SESSION="fm-lab-afk-herdr-e2e-$$"
+SESSION=$(fm_herdr_lab_name upstream-sync-preserve-r1)
 export HERDR_SESSION="$SESSION"
-STATE_DIR=
+STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-e2e.XXXXXX")
+# Never inherit a captain or worker home into the lab's workspace selector.
+# agent-axi binds workspace identity to this fixture-owned home.
+export FM_HOME="$STATE_DIR/home"
+mkdir -p "$FM_HOME"
 HERDR_SHIM_DIR=
 LOG_FILE=
 DAEMON_PID=
 SUPERVISOR_TARGET=
 PANE_ID=
 LOOP_SCRIPT=
+CLEANUP_STARTED=0
+TEST_FAILED=0
 
+# shellcheck disable=SC2329 # Registered by on_exit's EXIT trap.
 cleanup_all() {
+  local cleanup_status=0
+  [ "$CLEANUP_STARTED" -eq 0 ] || return 0
+  CLEANUP_STARTED=1
   if [ -n "${DAEMON_PID:-}" ]; then
     afk_exit "${STATE_DIR:-}" 2>/dev/null || true
     kill "$DAEMON_PID" 2>/dev/null || true
     wait "$DAEMON_PID" 2>/dev/null || true
+    DAEMON_PID=
   fi
-  herdr_safe_stop_and_delete "$SESSION" 2>/dev/null || true
+  if ! herdr_safe_stop_and_delete "$SESSION"; then
+    printf 'not ok - isolated Herdr teardown refused; preserving fixture evidence in %s\n' "$STATE_DIR" >&2
+    cleanup_status=1
+  fi
+  if [ "$TEST_FAILED" -ne 0 ] || [ "$cleanup_status" -ne 0 ]; then
+    printf 'fixture evidence retained: %s\n' "$STATE_DIR" >&2
+    return "$cleanup_status"
+  fi
   rm -rf "${HERDR_SHIM_DIR:-}" 2>/dev/null || true
   rm -rf "${STATE_DIR:-}" 2>/dev/null || true
 }
-trap cleanup_all EXIT
-fm_herdr_lab_prepare "$SESSION" || fail "could not prepare isolated Herdr lab session"
+
+# shellcheck disable=SC2329 # Registered by the EXIT trap below.
+on_exit() {
+  local test_status=$? cleanup_status=0
+  cleanup_all || cleanup_status=$?
+  trap - EXIT
+  [ "$test_status" -eq 0 ] || exit "$test_status"
+  exit "$cleanup_status"
+}
+trap on_exit EXIT
+fm_herdr_lab_provision "$SESSION" || fail "could not provision isolated Herdr lab session"
 
 # --- source the daemon (for afk_enter/afk_exit/FM_INJECT_MARK) + the backend -
 # shellcheck source=/dev/null
@@ -81,8 +108,6 @@ fm_backend_source herdr || fail "fm_backend_source herdr failed"
 
 fm_backend_herdr_version_check || fail "version_check failed against the real installed herdr"
 
-STATE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-herdr-e2e.XXXXXX")
-mkdir -p "$STATE_DIR"
 LOG_FILE="$STATE_DIR/submitted.log"
 : > "$LOG_FILE"
 
@@ -104,10 +129,10 @@ PANE_READY=false
 READY_SAMPLES=0
 for _ in $(seq 1 100); do
   PROCESS_INFO=$(fm_backend_herdr_cli "$SESSION" pane process-info --pane "$PANE_ID" 2>/dev/null || true)
-  if printf '%s' "$PROCESS_INFO" | jq -e '
+  if printf '%s' "$PROCESS_INFO" | jq -e --arg shell "${SHELL:-/bin/bash}" '
     .result.process_info as $process
     | ($process.foreground_processes | length == 1)
-      and ($process.foreground_processes[0].pid == $process.shell_pid)
+      and ($process.foreground_processes[0].argv[0] == $shell)
   ' >/dev/null 2>&1; then
     READY_SAMPLES=$((READY_SAMPLES + 1))
     if [ "$READY_SAMPLES" -ge 10 ]; then
@@ -287,6 +312,7 @@ start_daemon() {
   FM_INJECT_CONFIRM_SLEEP=0.5 \
   FM_INJECT_CONFIRM_RETRIES=6 \
   FM_STALE_ESCALATE_SECS=999999 \
+  FM_DAEMON_PRIMARY_HARNESS=unknown \
   nohup "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
   DAEMON_PID=$!
   wait_daemon_started daemon "$log_start"
@@ -499,6 +525,7 @@ test_scenario_d_max_defer() {
   FM_INJECT_CONFIRM_SLEEP=0.3 \
   FM_INJECT_CONFIRM_RETRIES=2 \
   FM_STALE_ESCALATE_SECS=999999 \
+  FM_DAEMON_PRIMARY_HARNESS=unknown \
   nohup "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
   DAEMON_PID=$!
   wait_daemon_started "Scenario D daemon" "$log_start"
@@ -532,5 +559,4 @@ echo "all real-herdr afk injection e2e tests passed"
 
 fm_backend_herdr_kill "$SUPERVISOR_TARGET" 2>/dev/null || true
 fm_backend_herdr_kill "$SESSION:$FAKE_CREW_PANE_ID" 2>/dev/null || true
-cleanup_all
-trap - EXIT
+exit 0

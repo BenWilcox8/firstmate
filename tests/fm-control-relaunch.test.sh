@@ -21,13 +21,8 @@ set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
-
-# These fixtures deliberately shadow `sleep` on PATH, so the real one is
-# resolved here, before any fake exists, and reached by absolute path.
-# It is exported so the generated fakes can use it too. /bin/sleep is not
-# a valid assumption: hosts like NixOS have no such file.
-FM_REAL_SLEEP=$(fm_test_tool sleep) || exit 1
-export FM_REAL_SLEEP
+FM_TEST_REAL_SLEEP=$(fm_test_tool sleep)
+export FM_TEST_REAL_SLEEP
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
@@ -93,7 +88,7 @@ case "${1:-}" in
         'export GOTMPDIR='*)
           if [ -n "${FM_FAKE_TRACE_PREPARE:-}" ]; then
             : > "$FM_FAKE_TRACE_PREPARE"
-            while [ ! -e "$FM_FAKE_TRACE_RELEASE" ]; do "$FM_REAL_SLEEP" 0.01; done
+            while [ ! -e "$FM_FAKE_TRACE_RELEASE" ]; do "$FM_TEST_REAL_SLEEP" 0.01; done
           fi
           ;;
         'export TRACEPARENT='*)
@@ -110,7 +105,7 @@ case "${1:-}" in
         *pane_current_path*)
           if [ -n "${FM_FAKE_CWD_RACE_READY:-}" ]; then
             : > "$FM_FAKE_CWD_RACE_READY"
-            "$FM_REAL_SLEEP" 1
+            "$FM_TEST_REAL_SLEEP" 1
           fi
           cat "$D/cwd"; printf '\n'; exit 0 ;;
       esac
@@ -149,7 +144,14 @@ add_ship_task() {
   local home="$dir/home" proj="$dir/proj" wt="$dir/wt"
   fm_git_worktree "$proj" "$wt" "task-$id"
   mkdir -p "$home/data/$id"
-  printf '# brief for %s\n\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
+  cat > "$home/data/$id/brief.md" <<EOF
+# Task
+## Captain's intent
+Exercise relaunch behavior for $id.
+
+## Firstmate spec
+Preserve the task while replacing its agent process.
+EOF
   {
     echo "window=fmses:fm-$id"
     echo "endpoint_task_id=$id"
@@ -170,7 +172,12 @@ add_ship_task() {
 
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
+  # A claude spawn pre-registers workspace trust in the launching user's own
+  # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
+  # without it this suite would write the developer's real ~/.claude.json.
+  mkdir -p "$dir/user-home"
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     FM_CONTROL_POLL=0.01 FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.05 \
     FM_REAL_GIT="${FM_REAL_GIT:-}" FM_FAKE_GIT_FAILURE="${FM_FAKE_GIT_FAILURE:-}" \
@@ -185,7 +192,12 @@ run_control() {  # <case-dir> <args...>
 
 run_spawn() {  # <case-dir> <args...>
   local dir=$1; shift
+  # A claude spawn pre-registers workspace trust in the launching user's own
+  # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
+  # without it this suite would write the developer's real ~/.claude.json.
+  mkdir -p "$dir/user-home"
   env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
     "$SPAWN" "$@" 2>&1
 }
@@ -235,7 +247,7 @@ if [ -n "${FM_FAKE_META_WRITER_TARGET:-}" ] \
    && [ "$target_path" = "$FM_FAKE_META_WRITER_TARGET" ] \
    && grep -q '^x_request=' "$source_path" 2>/dev/null; then
   : > "$FM_FAKE_META_WRITER_READY"
-  while [ ! -e "$FM_FAKE_META_WRITER_RELEASE" ]; do "$FM_REAL_SLEEP" 0.01; done
+  while [ ! -e "$FM_FAKE_META_WRITER_RELEASE" ]; do "$FM_TEST_REAL_SLEEP" 0.01; done
 fi
 exec "$FM_REAL_MV" "$@"
 SH
@@ -314,6 +326,44 @@ test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint() {
   pass "fm-control relaunch: a same-harness relaunch replaces the agent in the same endpoint and worktree"
 }
 
+test_relaunch_from_linked_home_preserves_recorded_worktree() {
+  local dir out rc head fetch_head
+  dir=$(new_case linked-home rl42)
+  add_ship_task "$dir" rl42 claude
+  git -C "$dir/proj" worktree add --quiet --detach "$dir/secondmate" HEAD
+  sed "s|^project=.*|project=$dir/secondmate|" "$dir/home/state/rl42.meta" > "$dir/linked.meta"
+  mv "$dir/linked.meta" "$dir/home/state/rl42.meta"
+  printf 'committed task work\n' > "$dir/wt/task.txt"
+  git -C "$dir/wt" add task.txt
+  git -C "$dir/wt" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' commit -qm task-work
+  head=$(git -C "$dir/wt" rev-parse HEAD)
+  printf 'unfinished task work\n' >> "$dir/wt/task.txt"
+  fetch_head=$(git -C "$dir/wt" rev-parse --git-path FETCH_HEAD)
+
+  out=$(run_control "$dir" rl42 relaunch --note "continue from linked home"); rc=$?
+  if [ "${FM_TEST_EVIDENCE:-0}" = 1 ]; then
+    printf '# evidence begin: linked-home relaunch\n'
+    printf '$ bin/fm-control.sh rl42 relaunch --note "continue from linked home"\n%s\nexit=%s\n' "$out" "$rc"
+    printf 'worker HEAD before=%s after=%s\n' "$head" "$(git -C "$dir/wt" rev-parse HEAD)"
+    printf 'saved task metadata:\n'; cat "$dir/home/state/rl42.meta"
+    printf 'worker status:\n'; git -C "$dir/wt" status --short
+    printf 'preserved task.txt:\n'; cat "$dir/wt/task.txt"
+    if [ -e "$fetch_head" ]; then
+      printf 'worker FETCH_HEAD:\n'; cat "$fetch_head"
+    else
+      printf 'worker FETCH_HEAD absent\n'
+    fi
+    printf '# evidence end\n'
+  fi
+  expect_code 0 "$rc" "a linked spawning home should relaunch its recorded copy"$'\n'"$out"
+  [ "$(meta_field "$dir" rl42 worktree)" = "$dir/wt" ] || fail "relaunch replaced the recorded copy"
+  [ "$(meta_field "$dir" rl42 project)" = "$dir/secondmate" ] || fail "relaunch replaced the linked spawning home"
+  [ "$(git -C "$dir/wt" rev-parse HEAD)" = "$head" ] || fail "relaunch reset committed task work"
+  assert_grep 'unfinished task work' "$dir/wt/task.txt" "relaunch discarded unfinished task work"
+  [ ! -e "$fetch_head" ] || fail "relaunch fetched instead of preserving the recorded copy"
+  pass "fm-control relaunch: a linked spawning home preserves committed and unfinished work in the recorded copy"
+}
+
 test_relaunch_preserves_durable_task_metadata() {
   local dir out rc
   dir=$(new_case durable-meta rl19)
@@ -355,8 +405,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
     FM_FAKE_TRACE_RELEASE="$launch_release" \
     run_control "$dir" rl28 relaunch --note "continue after publication" > "$dir/control.out" &
   control_pid=$!
-  while [ ! -e "$prepare" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$prepare" ] && [ "$i" -lt 500 ]; do
+    "$FM_TEST_REAL_SLEEP" 0.01
     i=$((i + 1))
   done
   [ -e "$prepare" ] || {
@@ -374,8 +424,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
       --carry-platform x --carry-max 280 > "$dir/link.out" 2>&1 &
   link_pid=$!
   i=0
-  while [ ! -e "$waiting" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$waiting" ] && [ "$i" -lt 500 ]; do
+    "$FM_TEST_REAL_SLEEP" 0.01
     i=$((i + 1))
   done
   [ -e "$waiting" ] && [ ! -e "$ready" ] || {
@@ -387,8 +437,8 @@ test_relaunch_serializes_concurrent_durable_metadata_publication() {
   }
   : > "$launch_release"
   i=0
-  while [ ! -e "$ready" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+  while [ ! -e "$ready" ] && [ "$i" -lt 500 ]; do
+    "$FM_TEST_REAL_SLEEP" 0.01
     i=$((i + 1))
   done
   [ -e "$ready" ] || {
@@ -439,7 +489,7 @@ test_relaunch_appends_the_progress_note_to_the_instructions() {
   out=$(run_control "$dir" rl2 relaunch --note "reproduced the crash in parser.go"); rc=$?
   expect_code 0 "$rc" "relaunch should succeed"$'\n'"$out"
   brief="$dir/home/data/rl2/brief.md"
-  assert_grep "Do the thing." "$brief" "the original instructions must survive"
+  assert_grep "Exercise relaunch behavior for rl2." "$brief" "the original instructions must survive"
   assert_grep "## Progress note" "$brief" "the note should be a dated section in the instructions"
   assert_grep "reproduced the crash in parser.go" "$brief" "the note text should reach the replacement"
   assert_grep "reproduced the crash in parser.go" "$dir/home/state/rl2.control-relaunch.note" \
@@ -995,7 +1045,7 @@ test_prepublication_failure_keeps_concurrent_durable_metadata() {
       > "$dir/control.out" &
   control_pid=$!
   while [ ! -e "$dir/cwd-race-ready" ] && [ "$i" -lt 200 ]; do
-    "$FM_REAL_SLEEP" 0.01
+    "$FM_TEST_REAL_SLEEP" 0.01
     i=$((i + 1))
   done
   [ -e "$dir/cwd-race-ready" ] || {
@@ -1485,6 +1535,7 @@ test_relaunch_moves_a_drifted_item_back_in_flight() {
 }
 
 test_same_harness_relaunch_keeps_identity_and_reuses_the_endpoint
+test_relaunch_from_linked_home_preserves_recorded_worktree
 test_relaunch_preserves_durable_task_metadata
 test_relaunch_serializes_concurrent_durable_metadata_publication
 test_disabled_relaunch_clears_prior_trace_context

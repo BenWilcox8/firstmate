@@ -67,7 +67,7 @@ make_spawn_case() {
   touch "$home/state/.last-watcher-beat"
   for id in "$@"; do
     mkdir -p "$home/data/$id"
-    printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+    printf '# Task\n## Captain\047s intent\nExercise fixture %s.\n\n## Firstmate spec\nValidate session naming.\n' "$id" > "$home/data/$id/brief.md"
   done
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin|$launchlog"
 }
@@ -122,7 +122,9 @@ test_claude_explicit_session_name_threads_name_flag() {
   expect_code 0 "$status" "claude spawn with an explicit session name should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'herdr pane-split layout' \"\$(" \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --settings" \
+    "claude launch omitted its configured settings"
+  assert_contains "$launch" "--name 'herdr pane-split layout' \"\$(" \
     "claude launch did not thread the explicit --name flag"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta missing explicit session_name"
   pass "claude threads an explicit --session-name and records session_name= in meta"
@@ -138,7 +140,7 @@ test_crewmate_default_name_is_task_id() {
   status=$?
   expect_code 0 "$status" "claude crewmate spawn without a session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(" \
+  assert_contains "$launch" "--name '$id' \"\$(" \
     "claude crewmate launch did not default --name to the task id"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default crewmate session_name=<id>"
   pass "a crewmate defaults its session name to the task id"
@@ -155,7 +157,7 @@ test_scout_default_name_is_task_id() {
   expect_code 0 "$status" "claude scout spawn without a session name should succeed"
   assert_contains "$out" "kind=scout" "scout spawn did not report kind=scout"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name '$id' \"\$(" \
+  assert_contains "$launch" "--name '$id' \"\$(" \
     "claude scout launch did not default --name to the task id"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default scout session_name=<id>"
   pass "a scout defaults its session name to the task id"
@@ -174,7 +176,7 @@ test_secondmate_default_name_is_secondmate_id() {
   expect_code 0 "$status" "claude secondmate spawn without a session name should succeed"
   assert_contains "$out" "spawned $id harness=claude kind=secondmate" "secondmate launch did not use claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --name 'Secondmate, $id' \"\$(" \
+  assert_contains "$launch" "--name 'Secondmate, $id' \"\$(" \
     "claude secondmate launch did not default --name to 'Secondmate, <id>'"
   assert_grep "session_name=Secondmate, $id" "$HOME_DIR/state/$id.meta" \
     "meta missing default secondmate session_name=Secondmate, <id>"
@@ -277,8 +279,7 @@ test_raw_launch_command_omits_name_flag_and_meta() {
   # A raw launch command whose first word is 'claude' derives HARNESS=claude, but
   # the command has no __NAMEFLAG__ placeholder, so no --name may be injected and
   # no session_name= may be recorded.
-  # shellcheck disable=SC2016  # single quotes are deliberate: $(cat ...) expands in the crewmate pane, not here
-  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch "$(cat __BRIEF__)"')
+  out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" 'claude --raw-launch __BRIEF__')
   status=$?
   expect_code 0 "$status" "raw launch command spawn should succeed"
   launch=$(cat "$LAUNCH_LOG")

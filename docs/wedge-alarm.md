@@ -2,6 +2,10 @@
 
 The away-mode sub-supervisor (`bin/fm-supervise-daemon.sh`) buffers escalations and injects them into Firstmate's own pane.
 When injection cannot confirm a submit past `FM_MAX_DEFER_SECS`, `inject_wedge_alarm` raises a loud, rate-limited alarm so the stall never stays invisible.
+For a Codex primary on Herdr, the daemon first stores the complete digest as a durable captain-inbox note and sends only its short note reference to the pane.
+The staged note's exact ID is bound to the digest SHA-256, and its own `check` wake is self-handled only after a successful pane submit writes a post-submit delivery receipt.
+A failed or unconfirmed short submit leaves the source buffer and the durable note actionable, so it cannot hide a failed delivery.
+Other harness and backend combinations retain direct digest transport.
 The active alert is pane-independent because a tmux status-line flash has no cross-backend equivalent and cannot reach an unattended captain reliably.
 The durable marker and tmux flash remain as additional signals.
 
@@ -16,9 +20,10 @@ Past `FM_MAX_DEFER_SECS` the daemon makes two bounded delivery attempts before i
    A finished turn's footer can sit in the scrollback and keep matching.
    The override does not relax the input-box guard.
    Only a box that classifies as empty is ever typed into, so the captain's own half-typed text is never merged with an escalation.
-3. If neither attempt can prove delivery, the alarm fires and the digest goes to the captain's durable inbox with `bin/fm-inbox.sh note`.
-   That inbox writes an atomic record and appends one `check` wake.
-   The escalation is then presented at Firstmate's next turn boundary, and it stays pending until it is acknowledged.
+3. If neither attempt can prove delivery, the alarm fires and the digest remains in the captain's durable inbox.
+   Direct-transport paths create that inbox note at this point; Codex-on-Herdr already created its staged note before transport.
+   The inbox writes an atomic record and appends one `check` wake.
+   A staged note without its post-submit receipt remains actionable, while a receipted one is represented by the delivered short reference without generating a second escalation.
    The per-task steering inbox (`bin/fm-task-inbox-lib.sh`) is not used for this, because it addresses a spawned worker rather than the primary session.
 
 The escalation buffer is kept through all of it, so the pane path still delivers the digest at the next proven-idle moment.

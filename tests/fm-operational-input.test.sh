@@ -140,6 +140,14 @@ JS
   pass "operational input: the OpenCode adapter constructs through the canonical owner"
 }
 
+test_retired_marker_lib_command_is_unavailable() {
+  local output rc
+  output=$("$ROOT/bin/fm-marker-lib.sh" kind </dev/null 2>&1); rc=$?
+  [ "$rc" = 127 ] \
+    || fail "retired fm-marker-lib command remained invocable (exit $rc): $output"
+  pass "operational input: the retired fm-marker-lib command is unavailable"
+}
+
 test_invalid_current_encodings_are_rejected() {
   local output
   output=$(printf 'body' | "$OWNER" encode legacy-operational 2>/dev/null) \
@@ -151,24 +159,11 @@ test_invalid_current_encodings_are_rejected() {
   pass "operational input: current construction rejects legacy kinds and empty bodies"
 }
 
-# The fm-marker-lib.sh compatibility shim was a second name for this same owner.
-# It is retired: this pins that the shim file is gone and that no tracked file
-# sources or lists it again, so the primitive keeps exactly one name.
-test_marker_lib_shim_stays_retired() {
-  local hits
-  [ ! -e "$ROOT/bin/fm-marker-lib.sh" ] \
-    || fail "the retired fm-marker-lib.sh shim is back in bin/"
-  hits=$(git -C "$ROOT" grep -lI -e 'fm-marker-lib' -- . ':!tests/fm-operational-input.test.sh' 2>/dev/null || true)
-  [ -z "$hits" ] \
-    || fail "tracked files still reference the retired shim: $hits"
-  pass "operational input: the fm-marker-lib.sh shim stays retired"
-}
-
 test_current_generic_matrix
 test_current_from_firstmate_carrier
 test_landed_untyped_prefix_is_explicitly_legacy
 test_isolated_legacy_matrix
 test_genuine_near_misses_remain_unclassified
 test_cross_language_adapter_uses_the_owner
+test_retired_marker_lib_command_is_unavailable
 test_invalid_current_encodings_are_rejected
-test_marker_lib_shim_stays_retired

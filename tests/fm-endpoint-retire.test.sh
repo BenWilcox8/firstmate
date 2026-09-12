@@ -406,7 +406,7 @@ make_replacement_case() {  # <name> <recorded-window> -> case record
   wt="$dir/wt"
   mkdir -p "$home/data/$id" "$home/projects" "$home/state" "$home/config"
   printf 'claude\n' > "$home/config/crew-harness"
-  printf 'brief for %s\n' "$id" > "$home/data/$id/brief.md"
+  printf '# Task\n## Captain\047s intent\nExercise fixture %s.\n\n## Firstmate spec\nValidate the spawn behavior.\n' "$id" > "$home/data/$id/brief.md"
   touch "$home/state/.last-watcher-beat"
   fm_git_worktree "$proj" "$wt" "wt-$name"
   fakebin=$(make_fake_tmux "$dir")
@@ -746,7 +746,7 @@ test_herdr_relaunch_keeps_exactly_one_pane() {
   proj="$dir/project"
   wt="$dir/wt"
   mkdir -p "$home/data/$id" "$home/state" "$home/config" "$home/projects"
-  printf 'brief for %s\n\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
+  printf '# Task\n## Captain\047s intent\nExercise fixture %s.\n\n## Firstmate spec\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
   printf '%s\n' manual > "$home/config/backlog-backend"
   touch "$home/state/.last-watcher-beat"
   fm_git_worktree "$proj" "$wt" "wt-herdr-relaunch"
@@ -797,7 +797,7 @@ test_relaunch_keeps_exactly_one_endpoint() {
   proj="$dir/project"
   wt="$dir/wt"
   mkdir -p "$home/data/$id" "$home/state" "$home/config" "$home/projects"
-  printf 'brief for %s\n\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
+  printf '# Task\n## Captain\047s intent\nExercise fixture %s.\n\n## Firstmate spec\nDo the thing.\n' "$id" > "$home/data/$id/brief.md"
   touch "$home/state/.last-watcher-beat"
   fm_git_worktree "$proj" "$wt" "wt-relaunch"
   fakebin=$(make_fake_tmux "$dir")

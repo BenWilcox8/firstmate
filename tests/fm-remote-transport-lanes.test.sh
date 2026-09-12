@@ -51,13 +51,11 @@ cp "$ROOT/bin/fm-remote-job-lib.sh" "$ROOT/bin/fm-remote-job-worker.sh" \
   "$ROOT/bin/fm-remote-entrypoint.sh" "$ROOT/bin/fm-remote-delta-read.sh" \
   "$ROOT/bin/fm-remote-secondmate-control.sh" "$ROOT/bin/fm-backend.sh" \
   "$ROOT/bin/fm-pending-reply-lib.sh" "$ROOT/bin/fm-task-inbox-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
-  "$ROOT/bin/fm-wake-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
+  "$ROOT/bin/fm-wake-lib.sh" "$ROOT/bin/fm-ping-lib.sh" \
   "$ROOT/bin/fm-operational-input.sh" "$ROOT/bin/fm-tmux-lib.sh" \
   "$ROOT/bin/fm-composer-lib.sh" "$ROOT/bin/fm-cursor-lib.sh" \
   "$ROOT/bin/fm-classify-lib.sh" "$ROOT/bin/fm-timeout-lib.sh" \
-  "$ROOT/bin/fm-ping-lib.sh" \
+  "$ROOT/bin/fm-ff-lib.sh" "$ROOT/bin/fm-secondmate-registry-lib.sh" \
   "$REMOTE_ROOT/bin/"
 mkdir -p "$REMOTE_ROOT/bin/backends"
 cp "$ROOT/bin/backends/herdr.sh" "$REMOTE_ROOT/bin/backends/herdr.sh"
@@ -196,7 +194,7 @@ B1=$FM_REMOTE_JOB_ID
 B_BEGAN=$(date +%s)
 fm_remote_job_wait "$ACCOUNT_HOME" "$B1" || fail "$FM_REMOTE_JOB_ERROR"
 B_ELAPSED=$(( $(date +%s) - B_BEGAN ))
-[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "home B's job behind home A's long job did not complete"
+[ "$FM_REMOTE_JOB_EXIT" -eq 0 ] || fail "home B's job behind home A's long job did not complete (exit=$FM_REMOTE_JOB_EXIT; stderr=$(cat "$STATE_ROOT/jobs/$B1/stderr" 2>/dev/null); worker=$(cat "$TMP_ROOT/worker.err" 2>/dev/null))"
 [ "$B_ELAPSED" -le 3 ] || fail "home B's job waited ${B_ELAPSED}s behind home A's long job"
 [ "$(job_state "$A1")" = running ] || fail "home A's long job should still be running for the FIFO assertion"
 [ "$(cat "$LOG_A")" = a1 ] || fail "home A's queued job ran beside its running job: $(cat "$LOG_A")"

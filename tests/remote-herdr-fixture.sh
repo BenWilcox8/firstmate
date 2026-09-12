@@ -14,8 +14,9 @@
 #
 # Beyond that it models the pane IO a real launch performs. A pane reports a
 # registered agent once anything has been typed into it, and submitting starts
-# one turn: the next agent read reports working and the pane settles back to
-# idle, which is the native transition the adapter confirms a submit with.
+# one turn: agent reads report a stable working state until the test settles
+# the turn explicitly. This models the process classifier's required samples
+# without making a read mutate the evidence that it reads.
 #
 # Usage:
 #   . "$(dirname "${BASH_SOURCE[0]}")/remote-herdr-fixture.sh"
@@ -27,7 +28,8 @@
 # fail, which is how a test simulates an endpoint that cannot be reached.
 
 install_remote_herdr_fixture() { # <remote-root> <state> <log> <send-fail> <socket>
-  local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr"
+  local remote_root=$1 state=$2 log=$3 send_fail=$4 socket=$5 script="$1/bin/herdr" real_ps
+  real_ps=$(command -v ps) || return 1
   mkdir -p "$remote_root/bin"
   cat > "$script" <<SH
 #!/usr/bin/env bash
@@ -109,7 +111,6 @@ case "${1:-} ${2:-}" in
   "agent get")
     pane=${3:-}
     if [ "$(jq_state -r --arg p "$pane" '.working[$p] // false')" = true ]; then
-      jq_state --arg p "$pane" '.working |= with_entries(select(.key != $p))' | save
       printf '{"result":{"agent":{"agent_status":"working"}}}\n'
     elif [ "$(jq_state -r --arg p "$pane" '.typed[$p] // false')" = true ]; then
       printf '{"result":{"agent":{"agent_status":"idle"}}}\n'
@@ -126,6 +127,10 @@ SH
   cat > "$remote_root/bin/ps" <<SH
 #!/usr/bin/env bash
 STATE='$state'
+REAL_PS='$real_ps'
+if [ "\${1:-}" != -axo ] || [ "\${2:-}" != 'pid=,ppid=,pgid=,stat=,comm=,args=' ]; then
+  exec "\$REAL_PS" "\$@"
+fi
 pane=\$(jq -r '.probe // empty' "\$STATE")
 printf '%s\\n' '1 0 1 S systemd' '100 1 100 S bash'
 if [ "\$(jq -r --arg p "\$pane" '.typed[\$p] // false' "\$STATE")" = true ]; then
@@ -140,4 +145,11 @@ SH
 # tabs, or panes", which is what a test means by "the previous endpoint is gone".
 reset_remote_herdr_fixture() { # <state>
   printf '{"next":1,"workspaces":[],"tabs":[],"typed":{},"working":{}}\n' > "$1"
+}
+
+# settle_remote_herdr_fixture <state>: model the active turns reaching idle.
+settle_remote_herdr_fixture() { # <state>
+  local state=$1 tmp
+  tmp="$state.tmp.$$"
+  jq '.working = {}' "$state" > "$tmp" && mv "$tmp" "$state"
 }

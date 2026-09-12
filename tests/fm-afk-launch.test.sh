@@ -146,6 +146,7 @@ unit_fresh_vs_refresh() {
   lock="$st/state/.supervise-daemon.lock"
   mkdir -p "$lock"
   printf '%s' "$sleep_pid" > "$lock/pid"
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$sleep_pid" > "$lock/pid-identity" 2>/dev/null ) || true
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" "$START" >/dev/null 2>&1
   if [ -e "$st/state/.subsuper-escalations" ] && [ -e "$st/state/.subsuper-inject-wedged" ]; then
@@ -173,10 +174,12 @@ unit_stop_ordering() {
     trap "if [ -f \"$1/state/.afk\" ]; then echo present > \"$2\"; else echo absent > \"$2\"; fi; exit 0" TERM
     while :; do sleep 0.2; done
   ' _ "$st" "$marker" &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   daemon_pid=$!
   lock="$st/state/.supervise-daemon.lock"
   mkdir -p "$lock"
   printf '%s' "$daemon_pid" > "$lock/pid"
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$daemon_pid" > "$lock/pid-identity" 2>/dev/null ) || true
   printf 'none\t-\tnative\n' > "$st/state/.afk-daemon-terminal"
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" "$LAUNCH" stop >/dev/null 2>&1
@@ -207,6 +210,7 @@ unit_stop_rejects_reused_pid() {
   mkdir -p "$st/state"
   date '+%s' > "$st/state/.afk"
   sleep 600 &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   sleeper_pid=$!
   lock="$st/state/.supervise-daemon.lock"
   mkdir -p "$lock"
@@ -251,9 +255,13 @@ unit_concurrent_start_serialized() {
   TRACK_TMUX_SESSIONS="$TRACK_TMUX_SESSIONS $cap_session"
   cap_pane=$(tmux display-message -p -t "$cap_session" '#{pane_id}')
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_SUPERVISOR_TARGET="$cap_pane" \
-    FM_SUPERVISOR_BACKEND=tmux FM_AFK_LAUNCH_ENTRY="$SLEEPER" "$LAUNCH" start >/dev/null 2>&1 & first=$!
+    FM_SUPERVISOR_BACKEND=tmux FM_AFK_LAUNCH_ENTRY="$SLEEPER" "$LAUNCH" start >/dev/null 2>&1 &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
+  first=$!
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_SUPERVISOR_TARGET="$cap_pane" \
-    FM_SUPERVISOR_BACKEND=tmux FM_AFK_LAUNCH_ENTRY="$SLEEPER" "$LAUNCH" start >/dev/null 2>&1 & second=$!
+    FM_SUPERVISOR_BACKEND=tmux FM_AFK_LAUNCH_ENTRY="$SLEEPER" "$LAUNCH" start >/dev/null 2>&1 &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
+  second=$!
   wait "$first"; wait "$second"
   rec=$(cut -f2 "$st/state/.afk-daemon-terminal" 2>/dev/null || true)
   count=$(tmux list-sessions -F '#{session_name}' 2>/dev/null | awk -v expected="$rec" '$0 == expected {n++} END{print n+0}')
@@ -277,6 +285,7 @@ unit_lock_initialization_grace() {
     sleep 0.15
     if [ -d "$st/state/.afk-launch.lock" ]; then
       printf '%s' "$$" > "$st/state/.afk-launch.lock/pid"
+      # shellcheck source=/dev/null
       ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$$" > "$st/state/.afk-launch.lock/pid-identity" 2>/dev/null ) || true
       # shellcheck disable=SC2031 # The subshell writes the path value; it does not reassign the variable.
       : > "$marker"
@@ -284,6 +293,7 @@ unit_lock_initialization_grace() {
       rm -rf "$st/state/.afk-launch.lock"
     fi
   ) &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   initializer=$!
   # shellcheck disable=SC2031 # The initializer communicates through this shared file path.
   if FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
@@ -309,6 +319,7 @@ unit_signal_exits_with_lock_cleanup() {
     fm_afk_launch_main start
     : > "$2"
   ' _ "$LAUNCH" "$marker" &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   child=$!
   # Signal only once the lifecycle actually holds its lock. Killing before the
   # lock exists tests nothing, and on a loaded machine it used to race: the
@@ -661,9 +672,12 @@ unit_stop_validates_before_signal() {
   mkdir -p "$st/state"
   : > "$st/state/.afk"
   printf 'tmux\tonly-two-fields\n' > "$st/state/.afk-daemon-terminal"
-  sleep 30 & sleeper_pid=$!
+  sleep 30 &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
+  sleeper_pid=$!
   mkdir -p "$st/state/.supervise-daemon.lock"
   printf '%s' "$sleeper_pid" > "$st/state/.supervise-daemon.lock/pid"
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$sleeper_pid" > "$st/state/.supervise-daemon.lock/pid-identity" )
   FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" "$LAUNCH" stop >/dev/null 2>&1 || true
   if kill -0 "$sleeper_pid" 2>/dev/null && [ -e "$st/state/.afk" ]; then
@@ -716,8 +730,10 @@ unit_stop_confirms_daemon_exit() {
   : > "$st/state/.afk"
   printf 'none\t-\tnative\n' > "$st/state/.afk-daemon-terminal"
   bash -c 'trap "" TERM; while :; do sleep 1; done' &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
   daemon_pid=$!
   printf '%s' "$daemon_pid" > "$st/state/.supervise-daemon.lock/pid"
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$daemon_pid" > "$st/state/.supervise-daemon.lock/pid-identity" )
   if FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
     . "$1"
@@ -747,8 +763,11 @@ unit_refresh_validates_record() {
   st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-refresh-record.XXXXXX")
   mkdir -p "$st/state/.supervise-daemon.lock"
   printf 'tmux\tonly-two-fields\n' > "$st/state/.afk-daemon-terminal"
-  sleep 30 & daemon_pid=$!
+  sleep 30 &
+  # shellcheck disable=SC2031 # The background PID is captured immediately in this shell.
+  daemon_pid=$!
   printf '%s' "$daemon_pid" > "$st/state/.supervise-daemon.lock/pid"
+  # shellcheck source=/dev/null
   ( . "$ROOT/bin/fm-wake-lib.sh"; fm_pid_identity "$daemon_pid" > "$st/state/.supervise-daemon.lock/pid-identity" )
   if FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" FM_SUPERVISOR_TARGET=unused \
     FM_SUPERVISOR_BACKEND=tmux bash -c '
@@ -831,6 +850,133 @@ unit_flag_write_failure_aborts() {
     pass "flag failure: lifecycle aborts without active state"
   else
     fail "flag failure: lifecycle reported active state"
+  fi
+  rm -rf "$st"
+}
+
+unit_detached_commands_propagate_primary_harness() {
+  local st herdr_cmd tmux_cmd
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-propagation.XXXXXX")
+  herdr_cmd="$st/herdr-command"
+  tmux_cmd="$st/tmux-command"
+
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" HERDR_COMMAND="$herdr_cmd" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_backend_source() { return 0; }
+    fm_backend_herdr_server_ensure() { return 0; }
+    fm_afk_launch_record_write() { return 0; }
+    fm_afk_launch_commit_terminal() { return 0; }
+    fm_backend_herdr_cli() {
+      if [ "$2 $3" = "workspace create" ]; then
+        printf %s '\''{"result":{"workspace":{"workspace_id":"ws-harness"},"root_pane":{"pane_id":"pane-harness"}}}'\''
+      elif [ "$2 $3" = "pane run" ]; then
+        printf "%s" "$5" > "$HERDR_COMMAND"
+      fi
+    }
+    fm_afk_launch_create_herdr lab:captain herdr
+  ' _ "$LAUNCH"
+
+  FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" TMUX_COMMAND="$tmux_cmd" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_afk_launch_record_write() { return 0; }
+    fm_afk_launch_commit_terminal() { return 0; }
+    tmux() {
+      if [ "$1" = new-session ]; then
+        while [ "$#" -gt 1 ]; do shift; done
+        printf "%s" "$1" > "$TMUX_COMMAND"
+      fi
+    }
+    fm_afk_launch_create_tmux %captain tmux
+  ' _ "$LAUNCH"
+
+  if grep -F 'FM_DAEMON_PRIMARY_HARNESS=codex' "$herdr_cmd" >/dev/null 2>&1; then
+    pass "harness propagation: herdr detached command carries the captured primary harness"
+  else
+    fail "harness propagation: herdr detached command dropped the primary harness ($(cat "$herdr_cmd" 2>/dev/null || true))"
+  fi
+  if grep -F 'FM_DAEMON_PRIMARY_HARNESS=codex' "$tmux_cmd" >/dev/null 2>&1; then
+    pass "harness propagation: tmux detached command carries the captured primary harness"
+  else
+    fail "harness propagation: tmux detached command dropped the primary harness ($(cat "$tmux_cmd" 2>/dev/null || true))"
+  fi
+  rm -rf "$st"
+}
+
+unit_detached_commands_preserve_supported_identities() {
+  local st entry identity expected cmd out
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-identities.XXXXXX")
+  entry="$st/entry.sh"
+  cat > "$entry" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$FM_DAEMON_PRIMARY_HARNESS"
+SH
+  chmod +x "$entry"
+  while IFS='|' read -r identity expected; do
+    cmd=$(FM_HOME="$st" FM_DAEMON_PRIMARY_HARNESS="$identity" bash -c '
+      . "$1"
+      fm_afk_launch_daemon_command lab:captain herdr "$2"
+    ' _ "$LAUNCH" "$entry")
+    out=$(bash -c "$cmd")
+    if [ "$out" = "$expected" ]; then
+      pass "detached entry receives validated primary identity $expected"
+    else
+      fail "detached entry changed primary identity $identity to $out (expected $expected)"
+    fi
+  done <<'CASES'
+codex|codex
+pi|pi
+pi-signed|pi-signed
+gemini|gemini
+omp|omp
+unknown|unknown
+not-a-harness|unknown
+CASES
+  rm -rf "$st"
+}
+
+unit_detached_unknown_harness_stays_unknown() {
+  local st cmd
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-unknown.XXXXXX")
+  cmd=$(FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf unknown; }
+    fm_afk_launch_daemon_command lab:captain herdr "$2"
+  ' _ "$LAUNCH" "$TRUE_BIN")
+  case "$cmd" in
+    *'FM_DAEMON_PRIMARY_HARNESS=unknown'*)
+      pass "harness propagation: unknown remains explicit and cannot enter a harness-specific branch"
+      ;;
+    *)
+      fail "harness propagation: unknown primary identity was upgraded or dropped ($cmd)"
+      ;;
+  esac
+  rm -rf "$st"
+}
+
+unit_detached_codex_reaches_short_reference_branch() {
+  local st entry cmd sent expected
+  st=$(mktemp -d "${TMPDIR:-/tmp}/fm-afk-harness-composed.XXXXXX")
+  entry="$st/entry.sh"
+  sent="$st/sent"
+  mkdir -p "$st/state"
+  printf 'check: composed detached codex branch\n' > "$st/state/.subsuper-escalations"
+  # shellcheck disable=SC2016 # The generated entry expands these variables when it runs.
+  printf '#!/usr/bin/env bash\n. %q\ninject_msg() { printf "%%s" "$1" > "$FM_COMPOSED_SENT"; return 1; }\nescalate_store_durable_digest() { INJECT_DURABLE_NOTE_ID=composed-note; return 0; }\nescalate_flush "$FM_STATE_OVERRIDE" normal || true\n' \
+    "$ROOT/bin/fm-supervise-daemon.sh" > "$entry"
+  chmod +x "$entry"
+  cmd=$(FM_HOME="$st" FM_STATE_OVERRIDE="$st/state" bash -c '
+    . "$1"
+    fm_afk_launch_primary_harness() { printf codex; }
+    fm_afk_launch_daemon_command lab:captain herdr "$2"
+  ' _ "$LAUNCH" "$entry")
+  FM_COMPOSED_SENT="$sent" FM_STATE_OVERRIDE="$st/state" bash -c "$cmd"
+  expected='Durable captain inbox note composed-note is ready. Run bin/fm-wake-drain.sh first.'
+  if [ "$(cat "$sent" 2>/dev/null || true)" = "$expected" ]; then
+    pass "harness propagation: detached Codex composition reaches short-reference delivery without a daemon test override"
+  else
+    fail "harness propagation: detached Codex composition sent the full digest ($(cat "$sent" 2>/dev/null || true))"
   fi
   rm -rf "$st"
 }
@@ -965,6 +1111,10 @@ unit_clear_failure_aborts_entry
 unit_confirmed_absence_succeeds
 unit_incomplete_restore_retains_backup
 unit_flag_write_failure_aborts
+unit_detached_commands_propagate_primary_harness
+unit_detached_commands_preserve_supported_identities
+unit_detached_unknown_harness_stays_unknown
+unit_detached_codex_reaches_short_reference_branch
 e2e_herdr
 e2e_tmux
 

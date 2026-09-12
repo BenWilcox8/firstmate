@@ -27,6 +27,14 @@ herdr_forget_inherited_pane
 herdr_forget_inherited_home
 
 TMP_ROOT=$(fm_test_tmproot fm-backend-herdr-tests)
+# Pin the ambient-home default to a marker-free fixture: FM_HOME resolves to
+# the suite's own root when unset, and a secondmate-marked checkout (any
+# treehouse crew home carries .fm-secondmate-home) would flip the default
+# workspace label to 2ndmate-*, silently changing placement behavior for
+# every test that does not set FM_HOME itself. Per-test FM_HOME prefixes
+# still override this default.
+mkdir -p "$TMP_ROOT/ambient-home"
+export FM_HOME="$TMP_ROOT/ambient-home"
 export FM_BACKEND_HERDR_SUBMIT_MIN_SLEEP=0
 # Force the NATIVE pane-lifecycle path by default: this suite runs on a machine
 # where agent-axi may be installed on PATH, and the phase-0 shim
@@ -87,6 +95,38 @@ SH
 exit 0
 SH
   chmod +x "$fb/python3"
+  printf '%s\n' "$fb"
+}
+
+# make_herdr_server_env_fakebin: a stateful server stub that records only the
+# long-lived server launch environment, then reports the server as running.
+make_herdr_server_env_fakebin() {  # <dir> -> echoes fakebin dir
+  local dir=$1 fb="$1/fakebin"
+  mkdir -p "$fb"
+  cat > "$fb/herdr" <<'SH'
+#!/usr/bin/env bash
+set -u
+case "${1:-}" in
+  status)
+    if [ -e "$FM_HERDR_SERVER_MARKER" ]; then
+      printf '{"server":{"running":true}}\n'
+    else
+      printf '{"server":{"running":false}}\n'
+    fi
+    ;;
+  server)
+    {
+      for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL FM_HERDR_SENTINEL HERDR_SESSION; do
+        eval 'value=${'"$name"'-<unset>}'
+        printf '%s=%s\n' "$name" "$value"
+      done
+      printf 'args=%s\n' "$*"
+    } > "$FM_HERDR_SERVER_ENV_LOG"
+    : > "$FM_HERDR_SERVER_MARKER"
+    ;;
+esac
+SH
+  chmod +x "$fb/herdr"
   printf '%s\n' "$fb"
 }
 
@@ -552,6 +592,27 @@ test_container_ensure_starts_server_and_workspace() {
   assert_contains "$(cat "$log")" $'\x1f''workspace'$'\x1f''create'$'\x1f''--cwd'$'\x1f''/tmp'$'\x1f''--label'$'\x1f''firstmate' \
     "container_ensure did not create the firstmate workspace with the given cwd"
   pass "fm_backend_herdr_container_ensure: version-gates, starts the server, ensures the firstmate workspace, echoes session:workspace_id + the seeded default tab id"
+}
+
+test_server_ensure_scrubs_home_and_harness_identity() {
+  local dir log marker fb output name
+  dir="$TMP_ROOT/server-env"; mkdir -p "$dir"; log="$dir/env"; marker="$dir/running"
+  fb=$(make_herdr_server_env_fakebin "$dir")
+  PATH="$fb:$PATH" FM_HERDR_SERVER_ENV_LOG="$log" FM_HERDR_SERVER_MARKER="$marker" FM_HERDR_SENTINEL=kept \
+    FM_HOME=/tmp/wrong-home FM_ROOT_OVERRIDE=/tmp/wrong-root FM_STATE_OVERRIDE=/tmp/wrong-state \
+    FM_DATA_OVERRIDE=/tmp/wrong-data FM_PROJECTS_OVERRIDE=/tmp/wrong-projects FM_CONFIG_OVERRIDE=/tmp/wrong-config \
+    CURSOR_AGENT=1 CURSOR_INVOKED_AS=cursor-agent CLAUDECODE=1 PI_CODING_AGENT=true FM_PI_HARNESS=pi-signed GROK_AGENT=1 FM_SUPERVISION_MODEL=autoarm \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_server_ensure fmtest' "$ROOT"
+  expect_code 0 $? "server_ensure should start under a polluted launcher environment"
+  output=$(cat "$log")
+  for name in FM_HOME FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_PROJECTS_OVERRIDE FM_CONFIG_OVERRIDE \
+    CURSOR_AGENT CURSOR_INVOKED_AS CLAUDECODE PI_CODING_AGENT FM_PI_HARNESS GROK_AGENT FM_SUPERVISION_MODEL; do
+    assert_contains "$output" "$name=<unset>" "server_ensure leaked $name into the long-lived Herdr server"
+  done
+  assert_contains "$output" "FM_HERDR_SENTINEL=kept" "server_ensure removed an unrelated environment variable"
+  assert_contains "$output" "HERDR_SESSION=fmtest" "server_ensure lost explicit Herdr session routing"
+  assert_contains "$output" "args=server --session fmtest" "server_ensure lost the trailing Herdr session flag"
+  pass "fm_backend_herdr_server_ensure: scrubs home and harness identity without disturbing unrelated environment or session routing"
 }
 
 test_container_ensure_reuses_existing_workspace() {
@@ -2662,24 +2723,45 @@ test_workspace_find_matches_only_this_homes_own_label() {
 # --- list_live: scoped to this home's own workspace only ---------------------
 
 test_list_live_scoped_to_this_homes_workspace_only() {
-  local dir log resp fb out home
+  local dir log resp fb out home pane_response
   dir="$TMP_ROOT/list-live-scoped"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
   home="$TMP_ROOT/list-live-scoped-home"; mkdir -p "$home"; printf 'bravo-b2\n' > "$home/.fm-secondmate-home"
   # 1: workspace_find's `workspace list` - two homes coexist, secondmate's is w2
   printf '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"},{"workspace_id":"w2","label":"2ndmate-bravo-b2"}]}}\n' > "$resp/1.out"
-  # 2: tab list --workspace w2 (this secondmate's own tabs only)
-  printf '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-secondmatetask"}]}}\n' > "$resp/2.out"
-  # 3: pane_for_tab's `pane list --workspace w2`
-  printf '{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"}]}}\n' > "$resp/3.out"
+  # 2: tab list --workspace w2 includes this home's supervisor, a direct
+  # crewmate, an unrecorded orphan, and a near-match task. Only the exact
+  # supervisor identity must be excluded.
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t1","label":"fm-bravo-b2"},{"tab_id":"w2:t2","label":"fm-secondmatetask"},{"tab_id":"w2:t3","label":"fm-orphan"},{"tab_id":"w2:t4","label":"fm-bravo-b20"}]}}' > "$resp/2.out"
+  pane_response='{"result":{"panes":[{"pane_id":"w2:p1","tab_id":"w2:t1"},{"pane_id":"w2:p2","tab_id":"w2:t2"},{"pane_id":"w2:p3","tab_id":"w2:t3"},{"pane_id":"w2:p4","tab_id":"w2:t4"}]}}'
+  printf '%s\n' "$pane_response" > "$resp/3.out"
+  printf '%s\n' "$pane_response" > "$resp/4.out"
+  printf '%s\n' "$pane_response" > "$resp/5.out"
+  printf '%s\n' "$pane_response" > "$resp/6.out"
   fb=$(make_herdr_fakebin "$dir")
   out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
-  [ "$out" = $'fmtest:w2:p1\tfm-secondmatetask' ] || fail "list_live should report only this home's own tab, got '$out'"
+  [ "$out" = $'fmtest:w2:p2\tfm-secondmatetask\nfmtest:w2:p3\tfm-orphan\nfmtest:w2:p4\tfm-bravo-b20' ] \
+    || fail "list_live should exclude only this secondmate home's exact supervisor and preserve direct, orphan, and near-match tasks, got '$out'"
   assert_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w2' \
     "list_live did not scope the tab list call to this home's own workspace (w2)"
   assert_not_contains "$(cat "$log")" $'\x1f''tab'$'\x1f''list'$'\x1f''--workspace'$'\x1f''w1' \
     "list_live must never query the primary's (or a sibling secondmate's) workspace"
-  pass "fm_backend_herdr_list_live: scoped to this home's own workspace, never a sibling home's"
+  pass "fm_backend_herdr_list_live: native secondmate inventory excludes only its exact supervisor and preserves orphan discovery"
+}
+
+test_list_live_primary_does_not_apply_secondmate_supervisor_filter() {
+  local dir log resp fb out home
+  dir="$TMP_ROOT/list-live-primary-negative"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  home="$TMP_ROOT/list-live-primary-home"; mkdir -p "$home"
+  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"}]}}' > "$resp/1.out"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t1","label":"fm-bravo-b2"}]}}' > "$resp/2.out"
+  printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}' > "$resp/3.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HOME="$home" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT" )
+  [ "$out" = $'fmtest:w1:p1\tfm-bravo-b2' ] \
+    || fail "a primary home must preserve an fm task that happens to match another home's supervisor id, got '$out'"
+  pass "fm_backend_herdr_list_live: primary native inventory applies no secondmate supervisor filter"
 }
 
 # --- target parsing, key normalization ---------------------------------------
@@ -4422,6 +4504,12 @@ LOG="${FM_AXI_LOG:?}"
 if [ "${1:-}" = spawn ]; then
   # A spawn --json response naming the new tab/pane the shim must echo back.
   printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
+elif [ "${1:-}" = list ]; then
+  if [ -n "${FM_AXI_LIST_JSON:-}" ]; then
+    printf '%s\n' "$FM_AXI_LIST_JSON"
+  else
+    printf '{"workspace":{"label":"firstmate","id":"w9","tabCount":1},"counts":{"live":1,"husk":1,"gone":0,"tracked":2,"untracked":0,"foreign":0},"crew":[{"task":"axi1","state":"live","slot":"t1/s1","pane":"w9:p5"},{"task":"old","state":"husk","slot":"t1/s2","pane":"w9:p6"}],"foreign":[]}\n'
+  fi
 fi
 exit 0
 SH
@@ -4444,9 +4532,9 @@ test_create_task_delegates_to_agent_axi() {
 $out
 EOF
   [ "$tab" = "w9:t3" ] && [ "$pane" = "w9:p5" ] || fail "create_task should echo agent-axi's tab/pane ids, got '$out'"
-  # agent-axi was invoked: spawn, task id (label minus fm-), session from the
-  # container, cwd, --json, and the launch argv after `--`.
-  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
+  # agent-axi was invoked with the exact workspace from the verified
+  # container, plus its session, cwd, and launch argv after `--`.
+  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''axi1'$'\x1f''--workspace-id'$'\x1f''w1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
     "create_task did not invoke agent-axi spawn with the expected argv"
   # The invoking home is passed through unchanged (ledger-home resolution).
   assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/fmhome" "create_task did not pass the invoking FM_HOME to agent-axi"
@@ -4477,6 +4565,41 @@ EOF
   assert_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create'$'\x1f''--workspace'$'\x1f''w1'$'\x1f''--cwd'$'\x1f''/tmp/proj'$'\x1f''--label'$'\x1f''fm-axi1' \
     "native fallback did not create the tab through herdr"
   pass "fm_backend_herdr_create_task: falls back byte-identically to the native path when agent-axi is absent"
+}
+
+test_list_live_delegates_to_agent_axi() {
+  local dir hlog resp fb axilog axifb out
+  dir="$TMP_ROOT/axi-list-delegate"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  out=$(PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT") \
+    || fail "list_live should delegate to agent-axi when it is on PATH"
+  [ "$out" = $'fmtest:w9:p5\tfm-axi1' ] \
+    || fail "delegated list_live should report only agent-axi live rows, got '$out'"
+  assert_contains "$(cat "$axilog")" $'\x1f''list'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--json' \
+    "list_live did not invoke agent-axi list with the expected session"
+  [ ! -s "$hlog" ] || fail "delegated list_live must not derive live tasks from Herdr tab labels"
+  pass "fm_backend_herdr_list_live: delegates recovery inventory to agent-axi and excludes husks"
+}
+
+test_list_live_excludes_secondmate_supervisor() {
+  local dir hlog resp fb axilog axifb home out supervisor_list
+  dir="$TMP_ROOT/axi-list-secondmate-supervisor"; mkdir -p "$dir/responses" "$dir/home"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  printf 'secondmate1\n' > "$dir/home/.fm-secondmate-home"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  supervisor_list='{"crew":[{"task":"secondmate1","state":"live","pane":"w9:p2"},{"task":"crew1","state":"live","pane":"w9:p3"}]}'
+  out=$(PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_AXI_LIST_JSON="$supervisor_list" FM_HOME="$dir/home" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_list_live fmtest' "$ROOT") \
+    || fail "list_live should delegate to agent-axi for a secondmate home"
+  [ "$out" = $'fmtest:w9:p3\tfm-crew1' ] \
+    || fail "list_live must exclude the secondmate supervisor, got '$out'"
+  pass "fm_backend_herdr_list_live: excludes the secondmate supervisor from agent-axi recovery inventory"
 }
 
 test_kill_delegates_to_agent_axi() {
@@ -4538,6 +4661,7 @@ test_workspace_ensure_refuses_an_ambiguous_label_with_no_launcher
 test_workspace_ensure_other_home_ignores_the_launcher_identity
 test_container_ensure_refuses_an_ambiguous_home_label
 test_container_ensure_starts_server_and_workspace
+test_server_ensure_scrubs_home_and_harness_identity
 test_container_ensure_reuses_existing_workspace
 test_container_ensure_creates_with_no_focus_flag
 test_container_ensure_uses_secondmate_home_label
@@ -4548,6 +4672,8 @@ test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_create_task_delegates_to_agent_axi
 test_create_task_fallback_when_agent_axi_absent
+test_list_live_delegates_to_agent_axi
+test_list_live_excludes_secondmate_supervisor
 test_kill_delegates_to_agent_axi
 test_kill_fallback_when_agent_axi_absent
 test_create_task_refuses_duplicate_label
@@ -4612,6 +4738,7 @@ test_projection_reclaim_replaces_only_exact_husk_and_advances_binding
 test_projection_recovery_is_read_only_and_refuses_live_duplicate_risk
 test_workspace_find_matches_only_this_homes_own_label
 test_list_live_scoped_to_this_homes_workspace_only
+test_list_live_primary_does_not_apply_secondmate_supervisor_filter
 test_parse_target
 test_parse_target_splits_every_pane_id_shape
 test_parse_target_refuses_unresolvable_targets
