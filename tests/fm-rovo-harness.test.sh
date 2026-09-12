@@ -67,5 +67,20 @@ EOF
   pass "fm-spawn: configured Rovo selection refuses before launch"
 }
 
+test_raw_rovo_selection_with_extra_environment_refuses_before_launch() {
+  local id=rovo-raw-z3 rec output status
+  rec=$(make_spawn_case raw pi "$id")
+  IFS='|' read -r CASE_DIR HOME_DIR PROJECT_DIR WORKTREE_DIR FAKEBIN_DIR <<EOF
+$rec
+EOF
+  output=$(run_spawn "$HOME_DIR" "$WORKTREE_DIR" "$FAKEBIN_DIR" "$CASE_DIR/launch.log" \
+    "$id" "$PROJECT_DIR" --harness 'env EXTRA=1 ROVODEV_CLI=1 rovo run --yolo' --mode no-mistakes --yolo off)
+  status=$?
+  assert_rovo_refused_without_launch "$output" "$status" "$HOME_DIR" "$id" \
+    "$CASE_DIR/launch.log" "raw"
+  pass "fm-spawn: raw Rovo selection refuses before launch"
+}
+
 test_direct_rovo_selection_refuses_before_launch
 test_configured_rovo_selection_refuses_before_launch
+test_raw_rovo_selection_with_extra_environment_refuses_before_launch

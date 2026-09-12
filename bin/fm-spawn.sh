@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Spawn a direct report: a crewmate in a treehouse or Orca worktree, or a
 # secondmate in its isolated firstmate home.
-# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>]
-#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] --secondmate
+# Usage: fm-spawn.sh <task-id> <project-dir> --mode <no-mistakes|direct-PR|local-only> --yolo <on|off> [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> <project-dir> --scout [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] [--ticket <id>]
+#        fm-spawn.sh <task-id> [<firstmate-home>] [--harness <name>|harness|launch-command] [--model <name>] [--effort <level>] [--backend <name>] [--account <name>] [--session-name <text>] --secondmate
 #   --mode and --yolo are this task's delivery contract, REQUIRED for every ship
 #   spawn and refused on --scout and --secondmate spawns. Firstmate resolves both
 #   per task at intake (AGENTS.md section 7); data/projects.md holds the captain's
@@ -48,6 +48,10 @@
 #   axes chosen by firstmate at intake. They are only threaded into harnesses whose
 #   installed CLIs were verified to support that axis; unsupported axes are omitted
 #   from that harness's launch rather than guessed.
+#   --account <pin> selects a Claude account through cswap for this launch only.
+#   Pinned launches do not register trust in the supervisor store.
+#   --session-name <text> names supported harness sessions and is refused for batches.
+#   --ticket <id> records the Atlas ticket for a ship or scout dispatch.
 #   --backend <name> is the explicit runtime session-provider backend for this
 #   exact task only (docs/configuration.md "Runtime backend" owns when that flag
 #   is authorized). Without it, the script resolves FM_BACKEND, then
@@ -1387,6 +1391,16 @@ shell_quote() {
   printf "'"
 }
 
+claude_launch_via_cswap() {
+  local account=$1 launch=$2 replacement
+  case "$launch" in
+    *' claude '*) ;;
+    *) return 1 ;;
+  esac
+  replacement=" cswap run $(shell_quote "$account") -- claude "
+  printf '%s\n' "${launch/ claude /$replacement}"
+}
+
 resolve_pi_executable() {
   local candidate dir
   candidate=$(type -P -- "$1" 2>/dev/null) || return 1
@@ -1659,12 +1673,14 @@ case "$ARG3" in
 esac
 
 if [ "$RAW_LAUNCH" -eq 1 ]; then
-  case " $LAUNCH " in
-    *" ROVODEV_CLI=1 rovo run --yolo "*)
-      echo "error: rovo dispatch is disabled; select a supported harness" >&2
-      exit 1
-      ;;
-  esac
+  for word in $LAUNCH; do
+    case "$word" in
+      rovo|*/rovo)
+        echo "error: rovo dispatch is disabled; select a supported harness" >&2
+        exit 1
+        ;;
+    esac
+  done
 fi
 if [ "$HARNESS" = rovo ]; then
   echo "error: rovo dispatch is disabled; select a supported harness" >&2
