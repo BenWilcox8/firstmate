@@ -88,9 +88,33 @@ printf '# Codex attribution live guard\n' > "$HOME_DIR/data/codexproof/brief.md"
   printf 'herdr_pane_id=%s\n' "$PANE"
 } > "$HOME_DIR/state/codexproof.meta"
 
-"$LAB_HELPER" run "$SESSION" agent start codex-proof \
-  --kind codex --pane "$PANE" --timeout 120000 -- -m gpt-5.6-terra >/dev/null \
-  || fail "the real Codex agent did not become ready"
+START_OUT=$("$LAB_HELPER" run "$SESSION" agent start codex-proof \
+  --kind codex --pane "$PANE" --timeout 120000 -- -m gpt-5.6-terra 2>&1)
+START_RC=$?
+if [ "$START_RC" -ne 0 ]; then
+  TRUST_SCREEN=$("$LAB_HELPER" run "$SESSION" agent read "$PANE" --source visible --lines 40 2>/dev/null || true)
+  case "$TRUST_SCREEN" in
+    *"Do you trust the contents of this directory?"*"1. Yes, continue"*) ;;
+    *) fail "the real Codex agent did not become ready: $START_OUT" ;;
+  esac
+  "$LAB_HELPER" run "$SESSION" agent send-keys "$PANE" enter >/dev/null \
+    || fail "the isolated Codex trust dialog could not be accepted"
+  "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until done --timeout 60000 >/dev/null \
+    || fail "the real Codex agent did not become ready after the isolated trust decision"
+fi
+
+# Codex can report idle while its informational hooks modal still owns input.
+# Close it without trusting or changing any hook configuration before exit.
+START_SCREEN=$("$LAB_HELPER" run "$SESSION" agent read "$PANE" --source visible --lines 80 2>/dev/null || true)
+case "$START_SCREEN" in
+  *Hooks*)
+    "$LAB_HELPER" run "$SESSION" agent send-keys "$PANE" escape >/dev/null \
+      || fail "the isolated Codex hooks modal could not be closed"
+    "$LAB_HELPER" run "$SESSION" agent wait "$PANE" --until idle --until done --timeout 60000 >/dev/null \
+      || fail "the real Codex agent did not become ready after closing its hooks modal"
+    pass "the isolated Codex hooks modal was closed without trusting hooks"
+    ;;
+esac
 
 PROCESS_INFO=$("$LAB_HELPER" run "$SESSION" pane process-info --pane "$PANE") \
   || fail "the real Codex process information could not be read"
