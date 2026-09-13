@@ -1,0 +1,2 @@
+$ bash tests/fm-daemon-staged-digest-stability.test.sh
+not ok - a malformed staged-id wake was suppressed

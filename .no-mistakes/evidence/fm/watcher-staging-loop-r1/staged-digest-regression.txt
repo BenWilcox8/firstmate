@@ -1,0 +1,10 @@
+$ bash tests/fm-daemon-staged-digest-stability.test.sh
+ok - pending staged digests stay stable, real worker events remain deliverable, receipts follow real submits, and malformed staged-id wakes remain actionable
+$ bash tests/fm-daemon-codex-short-wake.test.sh
+ok - failed Codex short submit retains exact sha256=1e46f8d41284f3ff70646c6581cf8c9cd80d472f6d230a55050f9d47370a5808 and retries the same note
+ok - non-Codex Herdr transport remains direct
+ok - executed daemon startup diagnostic names the resolved primary harness
+ok - staged transport check is non-recursive while external and fallback notes remain actionable
+ok - same-digest staging does not reclassify a prior failure fallback
+ok - failed short reference leaves its durable wake actionable
+ok - composed staging-to-watcher classification has no echo and preserves actionable controls
