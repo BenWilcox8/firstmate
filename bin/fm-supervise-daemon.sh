@@ -805,13 +805,23 @@ inject_last_verdict() {  # <state>
 }
 
 # Build the one batched, single-line digest from the escalation buffer.
+# Keep staged-note presentation rows in the buffer as routing evidence, but do
+# not count them as new work. Their daemon-written provenance already binds
+# them to a durable copy of this digest. Including them changes the digest hash
+# after a failed short submit and recursively creates a new staged note.
 escalate_digest() {  # <state>
-  local state=$1 buf n msg
+  local state=$1 buf n=0 msg='' item=''
   buf="$state/.subsuper-escalations"
   [ -s "$buf" ] || return 1
-  n=$(wc -l < "$buf" 2>/dev/null || echo 0)
-  # Join buffered items with the literal " | " separator into one digest line.
-  msg=$(awk 'NR>1{printf " | "} {printf "%s",$0} END{print ""}' "$buf" 2>/dev/null)
+  while IFS= read -r item || [ -n "$item" ]; do
+    if staged_note_check_id "$item" "$state" >/dev/null; then
+      continue
+    fi
+    [ "$n" -eq 0 ] || msg="$msg | "
+    msg="$msg$item"
+    n=$((n + 1))
+  done < "$buf"
+  [ "$n" -gt 0 ] || return 1
   # Single-line wrapper: no embedded newlines (inject_msg also collapses as a
   # safety net, but keeping the source single-line makes the intent explicit).
   printf 'Supervisor escalate (%s event(s)): %s (pre-read; re-arm not needed — watcher daemon-managed)' "$n" "$msg"
@@ -885,6 +895,20 @@ staged_note_delivery_write() {  # <state> <note-id>
   printf '%s\n' "$id" > "$state/.subsuper-staged-delivered-inbox-$id"
 }
 
+# Print the exact ID for a captain-inbox check that this daemon staged.
+# This provenance is not a delivery receipt. It only proves that the check is
+# the presentation wake for a durable digest that remains in the source buffer.
+staged_note_check_id() {  # <reason> <state>
+  local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
+  case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
+  rest=${reason#"$prefix"}
+  case "$rest" in *' - '?*) ;; *) return 1 ;; esac
+  id=${rest%%' - '*}
+  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  [ -f "$state/.subsuper-staged-inbox-$id" ] || return 1
+  printf '%s\n' "$id"
+}
+
 # A successfully delivered staging note's check wake exists only to present the
 # durable record selected by the short reference. It must not become a new
 # daemon escalation about that same record. Require both exact note identity
@@ -892,12 +916,8 @@ staged_note_delivery_write() {  # <state> <note-id>
 # notes reused by staging, and notes whose short submit failed have no receipt
 # and keep the established fail-safe check classification.
 is_staged_note_check() {  # <reason> <state>
-  local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
-  case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
-  rest=${reason#"$prefix"}
-  id=${rest%% *}
-  [ "$rest" != "$id" ] || return 1
-  case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
+  local reason=$1 state=$2 id
+  id=$(staged_note_check_id "$reason" "$state") || return 1
   [ -f "$state/.subsuper-staged-delivered-inbox-$id" ]
 }
 
