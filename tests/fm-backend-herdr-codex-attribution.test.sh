@@ -74,7 +74,6 @@ start_fixture() { # <node-wrapper> <entry-point>
   FIXTURE_CHILD=$child
   FIXTURE_PGID=$(ps -o pgid= -p "$child" 2>/dev/null | tr -d '[:space:]')
   FIXTURE_COMM=$(ps -o comm= -p "$child" 2>/dev/null | awk '{ sub(/^.*\//, ""); print }')
-  FIXTURE_ARGS=$(ps -o args= -p "$child" 2>/dev/null)
   [ "$FIXTURE_COMM" = MainThread ] \
     || fail "the fixture did not expose the Linux MainThread command name"
 }
