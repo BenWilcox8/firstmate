@@ -9,7 +9,7 @@ if [ "$(uname -s)" != Linux ]; then
   echo "skip: the MainThread Node wrapper is specific to Linux"
   exit 0
 fi
-for tool in node setsid jq ps; do
+for tool in cc setsid jq ps; do
   command -v "$tool" >/dev/null 2>&1 \
     || fail "$tool is required for the Linux Codex attribution regression"
 done
@@ -39,15 +39,26 @@ trap cleanup_all EXIT
 trap 'cleanup_all; exit 130' INT
 trap 'cleanup_all; exit 143' TERM
 
-printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/codex"
-printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/not-codex"
-printf 'setInterval(() => {}, 1000);\n' > "$TMP_ROOT/-codex"
-ln -s "$(command -v node)" "$TMP_ROOT/-node"
+cat > "$TMP_ROOT/mainthread-node.c" <<'C'
+#include <sys/prctl.h>
+#include <unistd.h>
+
+int main(void) {
+  if (prctl(PR_SET_NAME, "MainThread", 0, 0, 0) != 0) return 1;
+  for (;;) sleep(60);
+}
+C
+cc -o "$TMP_ROOT/node" "$TMP_ROOT/mainthread-node.c" \
+  || fail "the MainThread Node-wrapper fixture did not compile"
+printf 'fixture\n' > "$TMP_ROOT/codex"
+printf 'fixture\n' > "$TMP_ROOT/not-codex"
+printf 'fixture\n' > "$TMP_ROOT/-codex"
+ln -s "$TMP_ROOT/node" "$TMP_ROOT/-node"
 cat > "$TMP_ROOT/process-info.jq" <<'JQ'
 {result:{type:"pane_process_info",process_info:{pane_id:$pane,shell_pid:$shell,foreground_process_group_id:$pgid,foreground_processes:[{pid:$child,name:"MainThread",argv:[$node,$entry]}]}}}
 JQ
 
-start_fixture() { # <node-binary> <entry-point>
+start_fixture() { # <node-wrapper> <entry-point>
   local node_binary=$1 entry_point=$2 child='' attempt=0
   local fixture_command="set -m; \"\$1\" \"\$2\"; echo fixture-ended"
   setsid bash --noprofile --norc -c "$fixture_command" \
@@ -65,11 +76,11 @@ start_fixture() { # <node-binary> <entry-point>
   FIXTURE_COMM=$(ps -o comm= -p "$child" 2>/dev/null | awk '{ sub(/^.*\//, ""); print }')
   FIXTURE_ARGS=$(ps -o args= -p "$child" 2>/dev/null)
   [ "$FIXTURE_COMM" = MainThread ] \
-    || fail "the Node fixture did not expose the Linux MainThread command name"
+    || fail "the fixture did not expose the Linux MainThread command name"
 }
 
-classify_fixture() { # <kernel-entry-point> <herdr-entry-point> [node-binary]
-  local kernel_entry=$1 herdr_entry=$2 node_binary=${3:-node} out
+classify_fixture() { # <kernel-entry-point> <herdr-entry-point> [node-wrapper]
+  local kernel_entry=$1 herdr_entry=$2 node_binary=${3:-$TMP_ROOT/node} out
   cleanup_fixture
   start_fixture "$node_binary" "$kernel_entry"
   HERDR_NODE_BINARY=$node_binary HERDR_ENTRY_POINT=$herdr_entry \
