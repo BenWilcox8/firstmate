@@ -124,4 +124,25 @@ assert_absent "$STATE/.subsuper-staged-delivered-inbox-$first_id" \
 
 handle_pending_wakes || fail "the daemon did not handle the receipted staged wake"
 [ ! -s "$STATE/.wake-queue" ] || fail "the receipted staged wake remained in the queue"
-pass "pending staged digests stay stable, real worker events remain deliverable, and receipts follow real submits"
+
+# A receipt only authorizes the producer's exact "<id> - <summary>" wake.
+# A different check that merely repeats a staged ID must stay actionable.
+escalate_add "$STATE" "malformed-envelope fixture"
+FM_HOME="$HOME_ROOT" FM_STATE_OVERRIDE="$STATE" FM_SUPERVISOR_BACKEND=herdr \
+  FM_DAEMON_PRIMARY_HARNESS=codex escalate_flush "$STATE" busy-override \
+  || fail "the malformed-envelope fixture could not be delivered"
+malformed_id=${INJECT_DURABLE_NOTE_ID:-}
+[ -n "$malformed_id" ] || fail "the malformed-envelope fixture returned no staged note ID"
+assert_present "$STATE/.subsuper-staged-delivered-inbox-$malformed_id" \
+  "the malformed-envelope fixture was not receipted"
+handle_pending_wakes || fail "the daemon did not handle the receipted producer wake"
+: > "$STATE/.subsuper-escalations"
+malformed_reason="check: captain inbox note $malformed_id malformed-envelope"
+append_wake "$STATE" check "inbox:$malformed_id-malformed" "$malformed_reason"
+FM_HOME="$HOME_ROOT" FM_STATE_OVERRIDE="$STATE" FM_ESCALATE_BATCH_SECS=999 \
+  handle_durable_wakes "check: rearm-resurface" "$STATE" >/dev/null 2>&1 \
+  || fail "the daemon did not route the malformed staged-id wake"
+assert_grep "$malformed_reason" "$STATE/.subsuper-escalations" \
+  "a malformed staged-id wake was suppressed"
+
+pass "pending staged digests stay stable, real worker events remain deliverable, receipts follow real submits, and malformed staged-id wakes remain actionable"

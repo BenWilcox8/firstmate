@@ -902,8 +902,8 @@ staged_note_check_id() {  # <reason> <state>
   local reason=$1 state=$2 prefix='check: captain inbox note ' rest id
   case "$reason" in "$prefix"*) ;; *) return 1 ;; esac
   rest=${reason#"$prefix"}
-  id=${rest%% *}
-  [ "$rest" != "$id" ] || return 1
+  case "$rest" in *' - '?*) ;; *) return 1 ;; esac
+  id=${rest%%' - '*}
   case "$id" in ''|*[!A-Za-z0-9_-]*) return 1 ;; esac
   [ -f "$state/.subsuper-staged-inbox-$id" ] || return 1
   printf '%s\n' "$id"
