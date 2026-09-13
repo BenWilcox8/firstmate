@@ -5,6 +5,7 @@ When injection cannot confirm a submit past `FM_MAX_DEFER_SECS`, `inject_wedge_a
 For a Codex primary on Herdr, the daemon first stores the complete digest as a durable captain-inbox note and sends only its short note reference to the pane.
 The staged note's exact ID is bound to the digest SHA-256, and its own `check` wake is self-handled only after a successful pane submit writes a post-submit delivery receipt.
 A failed or unconfirmed short submit leaves the source buffer and the durable note actionable, so it cannot hide a failed delivery.
+An exact staged-note presentation wake remains routing evidence but does not count as a new digest event, so retries retain that note's digest identity.
 Other harness and backend combinations retain direct digest transport.
 The active alert is pane-independent because a tmux status-line flash has no cross-backend equivalent and cannot reach an unattended captain reliably.
 The durable marker and tmux flash remain as additional signals.
@@ -75,4 +76,5 @@ Production leaves the seam unset and uses the configured real channels.
 
 `tests/fm-daemon.test.sh` covers directive parsing, rate limiting, timeout and process-group cleanup, argv-safe dispatch, channel fallback, and safe `command:` summary delivery.
 It also covers the delivery ladder above on both supported supervisor backends: the busy-override delivery, the durable inbox fallback and its one-note-per-digest rule, the never-type-into-a-pending-box guard, and the busy source the alarm names.
+`tests/fm-daemon-staged-digest-stability.test.sh` covers repeated failed short-reference retries, stable staged digest identity, a new worker event, the real post-submit receipt, and an actionable malformed wake.
 [`verification/supervision.md`](verification/supervision.md#wedge-alarm-channels) records the bounded manual macOS and Herdr channel proof.
