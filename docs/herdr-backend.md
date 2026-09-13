@@ -181,6 +181,8 @@ The re-derived slot/geometry/label-scan bash that agent-axi's ledger now owns wa
 
 `config/herdr-layout` and the `FM_HERDR_LAYOUT` / `FM_HERDR_SPLIT_MAX` / `FM_HERDR_SPLIT_RATIO` overrides no longer exist; agent-axi owns the plan (its own `--plan` / built-in `home` + `overflow` plans).
 `fm_backend_herdr_pane_agent_state` stays for presentation-husk checks, while `fm_backend_herdr_recovery_pane_agent_state` backs the recovery verb and its compatibility view with stronger process proof.
+On Linux, the recovery classifier accepts Codex's `MainThread` Node wrapper only when Herdr argv and the operating-system command line independently identify exact `MainThread node <path>/codex` invocation shapes.
+Path basenames are normalized, but leading-hyphen `node` and `codex` names are refused.
 The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` also stay because they provide recovery scoping, not placement, and match every other backend's contract.
 
 ### Native fallback contract

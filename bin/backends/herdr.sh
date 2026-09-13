@@ -1951,12 +1951,16 @@ fm_backend_herdr_recovery_registry_sample() {  # <session> <pane-id>
 }
 
 # Read and normalize the exact pane process identity that Herdr reports.
+# The Linux Codex wrapper is exact and conjunctive.
+# Both Herdr argv and the operating-system command line must identify `MainThread node <path>/codex`.
 fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
   local out
   out=$(fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null) || return 1
   printf '%s' "$out" | jq -ceS --arg pane "$2" '
+    def path_base:
+      split("/")[-1];
     def base:
-      split("/")[-1] | ltrimstr("-");
+      path_base | ltrimstr("-");
     .result
     | select(.type == "pane_process_info")
     | .process_info
@@ -1981,6 +1985,9 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
           name: (.name | base),
           argv0: ((.argv0 // .argv[0]) | base),
           argv: (.argv // []),
+          codex_mainthread: ((.name | path_base) == "MainThread"
+            and (((.argv[0] // .argv0) | path_base) == "node")
+            and (((.argv[1] // "") | path_base) == "codex")),
           agent: ((.name | base) as $name
             | (.argv[0] // .argv0) as $argv0
             | (($name | test("^(claude|codex|opencode|grok)"))
@@ -2008,7 +2015,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
   rows=$("$ps_bin" -axo pid=,ppid=,pgid=,stat=,comm=,args= 2>/dev/null) || return 1
   shell_pid=$(printf '%s' "$snapshot" | jq -er '.shell_pid' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$snapshot" | jq -er '.foreground_process_group_id' 2>/dev/null) || return 1
-  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0, (.agent | tostring)] | @tsv' 2>/dev/null) || return 1
+  foreground=$(printf '%s' "$snapshot" | jq -er '.foreground_processes[] | ["F", .pid, .name, .argv0, (.agent | tostring), (.codex_mainthread | tostring)] | @tsv' 2>/dev/null) || return 1
   {
     printf '%s\n' "$foreground"
     printf '%s\n' "$rows" | awk '
@@ -2025,13 +2032,21 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       sub(/^-/, "", value)
       return value
     }
+    function path_base(value) {
+      sub(/^.*\//, "", value)
+      return value
+    }
     function is_shell(value) {
       return value == "sh" || value == "bash" || value == "zsh" || value == "dash" || value == "ksh" || value == "fish"
+    }
+    function is_codex_mainthread(value, args, fields) {
+      split(args, fields, " ")
+      return value == "MainThread" && path_base(fields[1]) == "node" && path_base(fields[2]) == "codex"
     }
     function is_agent(value, args, fields, argv0) {
       split(args, fields, " ")
       argv0 = fields[1]
-      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
+      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || is_codex_mainthread(value, args) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
     }
     function is_shell_broker(value, args) {
       return value == "treehouse" && args == "treehouse get"
@@ -2042,7 +2057,8 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
       foreground_name[$2] = base($3)
       foreground_argv[$2] = base($4)
       foreground_agent[$2] = $5
-      if ($5 != "true" && $5 != "false") invalid = 1
+      foreground_codex_mainthread[$2] = $6
+      if (($5 != "true" && $5 != "false") || ($6 != "true" && $6 != "false")) invalid = 1
       next
     }
     $1 == "P" {
@@ -2082,7 +2098,9 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
         }
       }
       for (pid in foreground) {
-        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || (foreground_argv[pid] != comm[pid] && !(foreground_agent[pid] == "true" && (comm[pid] == "agent" || comm[pid] == "MainThread")))) invalid = 1
+        codex_mainthread = is_codex_mainthread(comm[pid], command_line[pid]) ? "true" : "false"
+        if (foreground_codex_mainthread[pid] != codex_mainthread) invalid = 1
+        if (!descendant[pid] || pgid[pid] != fg || foreground_name[pid] != comm[pid] || (foreground_argv[pid] != comm[pid] && !(foreground_agent[pid] == "true" && (comm[pid] == "agent" || comm[pid] == "MainThread")) && foreground_codex_mainthread[pid] != "true")) invalid = 1
       }
       for (i = 1; i <= count; i++) {
         pid = order[i]
