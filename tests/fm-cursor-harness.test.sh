@@ -183,7 +183,7 @@ test_tmux_classifies_cursor_pane_without_inferring_dead() {
 # it, and the verdicts below would be about the runner rather than the ordering.
 test_cursor_marker_outranks_inherited_claudecode() {
   local out fakebin base_path
-  base_path=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+  base_path=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
   fakebin=$(fm_fakebin "$TMP_ROOT/marker-ordering")
   fm_fake_blind_ancestry "$fakebin"
   # This is the exact hazard: cursor does NOT clear an inherited CLAUDECODE, so

@@ -699,11 +699,12 @@ pass "human gaps are reported with their operator step and never claimed as fixe
 
 # --- a non-zsh login shell is rendered with separate -l and -c --------------
 
-new_case Darwin with-herdr gui /bin/bash
+BASH_LOGIN_SHELL=$(fm_test_tool bash)
+new_case Darwin with-herdr gui "$BASH_LOGIN_SHELL"
 CASE_RESOLVE_DSCL=1
 doctor --fix
 expect_code 0 "$DOCTOR_RC" "--fix left a bash-login-shell host unready"
-assert_herdr_launch_agent_contract "$CASE_PLIST" "$CASE_BIN/herdr" /bin/bash
+assert_herdr_launch_agent_contract "$CASE_PLIST" "$CASE_BIN/herdr" "$BASH_LOGIN_SHELL"
 pass "a bash Directory Services login shell is rendered with -l -c"
 
 new_case Darwin with-herdr gui
@@ -719,13 +720,13 @@ pass "custom Directory Services shell paths remain valid plist arguments"
 
 # --- shell resolution falls back to an executable environment shell, then sh -
 
-new_case Darwin with-herdr gui /bin/bash
+new_case Darwin with-herdr gui "$BASH_LOGIN_SHELL"
 CASE_RESOLVE_DSCL=1
 CASE_DSCL_FAIL=1
-CASE_ENV_SHELL=/bin/bash
+CASE_ENV_SHELL=$BASH_LOGIN_SHELL
 doctor --fix
 expect_code 0 "$DOCTOR_RC" "--fix rejected an executable SHELL fallback"
-assert_herdr_launch_agent_contract "$CASE_PLIST" "$CASE_BIN/herdr" /bin/bash
+assert_herdr_launch_agent_contract "$CASE_PLIST" "$CASE_BIN/herdr" "$CASE_ENV_SHELL"
 
 new_case Darwin with-herdr gui /bin/sh
 CASE_RESOLVE_DSCL=1
@@ -756,7 +757,7 @@ expect_code 0 "$DOCTOR_RC" "initial repair did not install a healthy login-shell
 assert_herdr_launch_agent_contract "$CASE_PLIST" "$CASE_BIN/herdr" /bin/sh
 : > "$CASE_LAUNCHCTL_LOG"
 rm -f "$CASE_STATE/dscl-count"
-CASE_SECOND_LOGIN_SHELL=/bin/bash
+CASE_SECOND_LOGIN_SHELL=$BASH_LOGIN_SHELL
 doctor --fix
 expect_code 0 "$DOCTOR_RC" "repeated repair drifted when a second shell lookup would differ"
 assert_contains "$DOCTOR_OUT" 'check launchagent=ok:' "the installed login-shell plist was reported as drifted"
@@ -889,4 +890,3 @@ assert_contains "$DOCTOR_OUT" 'check entrypoint-link=human:' "an operator-owned 
   || fail "--fix overwrote a file it did not create"
 unset FM_ROOT_OVERRIDE
 pass "the entrypoint symlink is recreated when absent and never overwritten when operator-owned"
-

@@ -223,6 +223,7 @@ make_fake_ps_harness() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'REAL_PS="%s"\n' "$SESSION_START_REAL_PS"
+    # shellcheck disable=SC2016 # The generated fake expands this at run time.
     printf 'harness=${FM_FAKE_HARNESS:-%s}\n' "$harness"
     cat <<'SH'
 set -u

@@ -2184,6 +2184,8 @@ test_yolo_off_refuses_before_forge_call() {
     "yolo-off-refuses: refusal did not name the override flag"
   [ ! -s "$case_dir/gh-axi.log" ] \
     || fail "yolo-off-refuses: gh-axi was invoked despite a yolo=off refusal"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "yolo-off-refuses: gh pr merge ran despite a yolo=off refusal"
   pass "fm-pr-merge refuses before the forge call when yolo=off"
 }
 
@@ -2214,6 +2216,8 @@ test_yolo_missing_refuses_before_forge_call() {
     "yolo-missing-refuses: refusal did not identify the missing field"
   [ ! -s "$case_dir/gh-axi.log" ] \
     || fail "yolo-missing-refuses: gh-axi was invoked despite a missing-yolo refusal"
+  assert_no_grep 'pr merge' "$case_dir/gh.log" \
+    "yolo-missing-refuses: gh pr merge ran despite a missing-yolo refusal"
   pass "fm-pr-merge treats a missing yolo= field as yolo=off (safe default)"
 }
 
@@ -2238,8 +2242,7 @@ test_yolo_on_allows_merge() {
   set -e
 
   expect_code 0 "$rc" "yolo-on-proceeds: merge should succeed when yolo=on"
-  assert_grep 'pr merge 102 --repo example/repo --squash' "$case_dir/gh-axi.log" \
-    "yolo-on-proceeds: the forge call was not reached despite yolo=on"
+  assert_logged_gh_merge "$case_dir" 102 example/repo --squash
   pass "fm-pr-merge proceeds when the task meta has yolo=on"
 }
 
@@ -2265,9 +2268,8 @@ test_captain_authorized_overrides_yolo_off() {
   set -e
 
   expect_code 0 "$rc" "captain-authorized-override: merge should succeed with --captain-authorized even when yolo=off"
-  assert_grep 'pr merge 103 --repo example/repo --squash' "$case_dir/gh-axi.log" \
-    "captain-authorized-override: the forge call was not reached despite --captain-authorized"
-  assert_no_grep 'captain-authorized' "$case_dir/gh-axi.log" \
+  assert_logged_gh_merge "$case_dir" 103 example/repo --squash
+  assert_no_grep 'captain-authorized' "$case_dir/gh.log" \
     "captain-authorized-override: --captain-authorized was forwarded to the forge CLI"
   pass "fm-pr-merge passes through --captain-authorized as the yolo=off override"
 }

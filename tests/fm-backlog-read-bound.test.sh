@@ -21,7 +21,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=$(fm_test_core_path):${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
 TMP_ROOT=$(fm_test_tmproot fm-backlog-read-bound-tests)
 trap fm_test_cleanup EXIT
 
@@ -352,7 +352,7 @@ PATH="$MIG_FAKEBIN:$BASE_PATH" FM_HOME="$MIG" \
 [ "$VERIFY_MIG_STATUS" -ne 0 ] \
   || fail "verify must not attest an inventory whose migrated-prefix read wedged: $(cat "$VERIFY_MIG_OUT")"
 case "$(cat "$VERIFY_MIG_OUT")" in
-  *'no captain-held task'*|*absent*) 
+  *'no captain-held task'*|*absent*)
     fail "the migrated-prefix bound hit was spent as an unresolved key: $(cat "$VERIFY_MIG_OUT")" ;;
 esac
 case "$(cat "$VERIFY_MIG_OUT")" in

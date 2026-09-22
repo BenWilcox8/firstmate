@@ -32,7 +32,7 @@ TMP_ROOT=$(fm_test_tmproot fm-gemini-harness)
 
 test_gemini_marker_outranks_inherited_claudecode() {
   local out fakebin base_path
-  base_path=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+  base_path=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
   fakebin=$(fm_fakebin "$TMP_ROOT/marker-ordering")
   fm_fake_blind_ancestry "$fakebin"
   # This is the exact hazard: gemini does not clear an inherited CLAUDECODE, so

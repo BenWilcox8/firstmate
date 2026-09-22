@@ -366,6 +366,7 @@ test_no_mistakes_dod_wording() {
   for spelling in 'Captain:' "Captain's words:" "Captain's ask:" "Captain's intent:" 'Captain,'; do
     assert_no_grep "$spelling" "$brief" "rendered intent contract still teaches operator-address labels"
   done
+  # shellcheck disable=SC2016 # Backticks are literal generated Markdown.
   assert_grep 'legacy `# Task` section' "$brief" "rendered intent contract must preserve legacy requirements"
   assert_grep "no-mistakes itself provides for the mechanics" "$brief" \
     "no-mistakes DOD lost its guidance-reference sentence"
