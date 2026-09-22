@@ -5,47 +5,40 @@
 
 ## Verification inputs
 
-The current candidate timings came from the 2026-08-20 concurrent proof recorded in [fm-test-isolation-proof.md](fm-test-isolation-proof.md).
-The proof ran 24 candidates with four workers and no failures.
+Balance hints come from serial runs of the real lanes on `ubuntu-latest`.
+The concurrent isolation proof in [fm-test-isolation-proof.md](fm-test-isolation-proof.md) establishes concurrency safety, not serial CI duration.
+Local timings are not interchangeable with CI timings: platform and machine load can affect each script differently and change their relative weights.
 
-| duration_ms | script |
+The retained hints are the slowest completed value each script reached across six CI runs on 2026-09-10: [34459949083](https://github.com/kunchenguid/firstmate/actions/runs/34459949083), [34460760299](https://github.com/kunchenguid/firstmate/actions/runs/34460760299), [34462530836](https://github.com/kunchenguid/firstmate/actions/runs/34462530836), [34462758357](https://github.com/kunchenguid/firstmate/actions/runs/34462758357), [34466966385](https://github.com/kunchenguid/firstmate/actions/runs/34466966385), and [34470382458](https://github.com/kunchenguid/firstmate/actions/runs/34470382458).
+Shard 2 completed in all six, so its scripts come from the uploaded `fm-test-timing-portable-parallel-2` artifacts.
+Shard 1 was cancelled at its job cap in five of the six, so its scripts come from the `FM_TEST_END duration_ms=` markers in each cancelled job's log, which record every script that finished before the cancellation, plus the one complete `fm-test-timing-portable-parallel-1` artifact from run 34462758357.
+Observed maxima provide conservative packing weights, not an upper bound on future durations.
+
+The measurements cover all 24 candidates, with six samples per script except:
+
+| Samples | Scripts |
 |---:|---|
-| 45356 | `tests/fm-backend-herdr.test.sh` |
-| 35415 | `tests/fm-x-mode.test.sh` |
-| 35095 | `tests/fm-captain-hold-lifecycle.test.sh` |
-| 27529 | `tests/fm-arm-pretool-check.test.sh` |
-| 20922 | `tests/fm-test-run.test.sh` |
-| 17558 | `tests/fm-crew-state.test.sh` |
-| 16582 | `tests/fm-cd-pretool-check.test.sh` |
-| 9766 | `tests/fm-lint.test.sh` |
-| 9562 | `tests/fm-herdr-lab.test.sh` |
-| 6768 | `tests/fm-grok-harness.test.sh` |
-| 6290 | `tests/fm-pr-merge.test.sh` |
-| 5569 | `tests/fm-composer-ghost.test.sh` |
-| 4563 | `tests/fm-send-popup-settle.test.sh` |
-| 4021 | `tests/fm-tmux-submit-busy.test.sh` |
-| 3544 | `tests/fm-composer-lib.test.sh` |
-| 3025 | `tests/fm-send-strict.test.sh` |
-| 2753 | `tests/fm-send-settle.test.sh` |
-| 2166 | `tests/fm-review-diff.test.sh` |
-| 1315 | `tests/fm-brief.test.sh` |
-| 975 | `tests/fm-spawn-batch.test.sh` |
-| 598 | `tests/fm-pi-primary-types.test.sh` |
-| 513 | `tests/fm-ensure-agents-md.test.sh` |
-| 331 | `tests/fm-supervision-instructions.test.sh` |
-| 99 | `tests/fm-transition-lib.test.sh` |
+| 4 | `tests/fm-lint.test.sh` |
+| 3 | `tests/fm-pi-primary-types.test.sh`, `tests/fm-review-diff.test.sh` |
+| 1 | `tests/fm-brief.test.sh`, `tests/fm-transition-lib.test.sh` |
+
+The two scripts with one sample are the tail of shard 1 that only the complete run reached.
+Collect completed per-script measurements for every member before calculating a split.
+A cancelled lane's elapsed duration is only a lower bound; its unfinished scripts have no completed duration for that invocation.
+The complete historical run supplies tail-script hints, not a completion time for any later cancelled invocation or for the rebalanced jobs.
 
 ## Parallel lanes
 
-The two parallel lanes use longest-processing-time assignment from those measured durations.
+The two parallel lanes use longest-processing-time assignment over those hints.
+[`bin/fm-test-run.sh`](../bin/fm-test-run.sh) holds the duration values in `portable_parallel_weight_hints` and the ordered memberships and lane-specific prerequisite constraints beside `list_portable_parallel_1` and `list_portable_parallel_2`.
+Read the derived packing estimates with that runner's `--check-coverage`; its header and `--help` own the output fields and the selection-specific `--list-scheduled` weight rules.
+The largest individual hint sets a lower bound on the estimated duration of any split, regardless of how evenly the remaining work is assigned.
+The CI cap follows the three-tier timeout policy in [Timeouts](#timeouts) below.
 
-| Lane | Script count | Estimated duration |
-|---|---:|---:|
-| `portable-parallel-1` | 11 | 134295 ms (~134.3 s) |
-| `portable-parallel-2` | 13 | 126020 ms (~126.0 s) |
-| imbalance | | 8275 ms |
-
-`bin/fm-test-run.sh` contains the exact ordered memberships in `list_portable_parallel_1` and `list_portable_parallel_2`.
+[`tests/fm-test-run.test.sh`](../tests/fm-test-run.test.sh), in `test_portable_parallel_lanes_stay_duration_balanced`, requires every parallel member to have a hint and the lane sums to differ by no more than five percent of the larger sum.
+Its scheduling regressions also check stored parallel lane order and preserve serial-weight scheduling for other selections.
+These checks do not detect a script outgrowing an existing hint or establish measured job headroom.
+Refresh `portable_parallel_weight_hints` with the slowest completed `duration_ms` per script from several green CI runs' `fm-test-timing-portable-parallel-*` artifacts whenever the parallel set gains scripts or a member grows materially.
 
 ## Portable serial remainder
 
@@ -63,49 +56,38 @@ Each shard is still strictly serial in itself, and separate runners mean no two 
 `bin/fm-test-run.sh` owns `n` and refuses any lane whose `of<n>` disagrees with it.
 `.github/workflows/ci.yml` derives the same `n` from `strategy.job-total` rather than a literal, so changing the shard count in either file without the other fails the lane loudly instead of leaving part of the required suite unrun.
 
-Assignment uses longest-processing-time bin packing over per-script duration hints in `bin/fm-test-run.sh`.
-The 174 current hints retain the larger existing hint or successful exit-0 observation from the 2026-09-12 integration runs.
-The inputs include the complete green run [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430).
-They also include successful script records from these workflows:
+Assignment uses longest-processing-time bin packing over duration hints in `bin/fm-test-run.sh`.
+The merged table retains the larger local or upstream hint for each script.
+Local measurements came from these workflows on 2026-09-12:
 
+- [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430), the complete green run.
 - [34687245844](https://github.com/BenWilcox8/firstmate/actions/runs/34687245844) and [34688385628](https://github.com/BenWilcox8/firstmate/actions/runs/34688385628).
 - [34693005421](https://github.com/BenWilcox8/firstmate/actions/runs/34693005421) and [34695201096](https://github.com/BenWilcox8/firstmate/actions/runs/34695201096).
 - [34697219751](https://github.com/BenWilcox8/firstmate/actions/runs/34697219751) and [34699090764](https://github.com/BenWilcox8/firstmate/actions/runs/34699090764).
-- [34700273710](https://github.com/BenWilcox8/firstmate/actions/runs/34700273710), the measurement cutoff for this partition.
+- [34700273710](https://github.com/BenWilcox8/firstmate/actions/runs/34700273710), the local measurement cutoff.
 
-Cancelled workflows are not green verdicts, and only their completed exit-0 records supply duration measurements.
-Interrupted shards leave unfinished scripts unobserved; those scripts retain their prior successful timings.
-The shipped hints total 6053782 ms, and all 174 current serial scripts have a duration hint.
-Each shard remains serial, and six separate runners preserve the unchanged 20-minute job bound.
+Upstream measurements came from successful script records in [35279383618](https://github.com/kunchenguid/firstmate/actions/runs/35279383618) and [35282466441](https://github.com/kunchenguid/firstmate/actions/runs/35282466441) on 2026-09-17.
+An unfinished or failed invocation is not a healthy duration sample.
+A cancelled workflow supplies only its completed exit-0 records, not a green workflow verdict.
+An exit-0 capability skip measures only that skip path.
+The native-Windows test retains its separate 5121 ms measurement.
+Local measurements for endpoint retirement and Herdr layout remain lower bounds.
 
-An exit-0 capability skip measures only that skip path, not the skipped live behavior.
-Keep larger platform-specific measurements when portable CI skips a test.
-In particular, retain the 5121 ms native-Windows measurement for `tests/fm-pi-windows-shell-invocation.test.sh`.
-Existing isolated measurements for endpoint retirement and Herdr layout remain valid lower bounds.
-
-The runner's executable LPT selection produces this six-way partition.
-The retained-max sums are estimates for scheduling, not measured passes for this partition.
-The observed maximum CI setup/finalization overhead was 20888 ms.
-The capacity check adds a 39112 ms contingency, for a 60000 ms allowance per job.
-The maximum retained sum plus that allowance is 1068996 ms, leaving 131004 ms below the unchanged 1200000 ms job bound.
-
-| Lane | Script count | Retained-max hint | Hint plus setup allowance |
-|---|---:|---:|---:|
-| `portable-serial-1of6` | 26 | 1008946 ms | 1068946 ms |
-| `portable-serial-2of6` | 30 | 1008996 ms | 1068996 ms |
-| `portable-serial-3of6` | 29 | 1008948 ms | 1068948 ms |
-| `portable-serial-4of6` | 30 | 1008968 ms | 1068968 ms |
-| `portable-serial-5of6` | 30 | 1008979 ms | 1068979 ms |
-| `portable-serial-6of6` | 29 | 1008945 ms | 1068945 ms |
-
-The observed overhead is a scheduling input, not a future-runtime guarantee.
-The current partition uses the fixed measurement cutoff above; later passing-run variation alone does not require another update.
-Refresh the hints when a script change or a repeated capacity failure requires a new measurement set.
+Nine serial runners use this combined table.
+Run `bin/fm-test-run.sh --check-coverage` for the current inventory and `--list-lanes` for the executable partition.
+The earlier local overhead observation was 20888 ms, with a 39112 ms contingency.
+That 60000 ms scheduling allowance is not a future-runtime guarantee.
+Current job bounds follow [Timeouts](#timeouts).
+No previous workflow proves the merged partition green.
 
 Hints affect balance only.
-The coverage guard keeps the partition complete and disjoint for every valid hint table.
-An unmeasured script receives `PORTABLE_SERIAL_DEFAULT_WEIGHT_MS`, and the guard refuses an unmeasured share above `PORTABLE_SERIAL_MAX_UNHINTED_PERCENT`.
+The coverage guard keeps the partition complete and disjoint.
+An unmeasured script receives `PORTABLE_SERIAL_DEFAULT_WEIGHT_MS`.
+The guard refuses an unmeasured share above `PORTABLE_SERIAL_MAX_UNHINTED_PERCENT`.
 Do not weaken that limit to hide missing measurements.
+Refresh hints when scripts change or repeated capacity failures require new measurements.
+`tests/fm-ci-workflow.test.sh` compares the parsed CI matrix with the executable runner lanes.
+The runner rejects parallel `--jobs` on a serial lane.
 
 Refresh the hints from downloaded timing artifacts:
 
@@ -118,10 +100,10 @@ bin/fm-test-run.sh --check-coverage
 ```
 
 Merge those successful observations with the existing hints by retaining the larger duration for each current serial path.
-Update the table above from the resulting scheduled partition.
 Prefer complete green workflows; an interrupted shard can leave an incomplete or absent artifact.
 When using an interrupted workflow, account for every missing script and never count failed or cancelled commands as passing measurements.
 Retain native-only measurements separately when portable CI cannot run their behavior.
+Measure native-Windows-only scripts through the focused Git Bash runner and retain that `duration_ms` separately, because the portable CI shards skip them.
 
 ## Coverage guard
 
@@ -136,6 +118,18 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 `bin/fm-test-run.sh --aggregate-json` creates the combined summary artifact.
 `.github/workflows/ci.yml` owns the exact artifact names and aggregation wiring.
 
+## Lint partitions and end-to-end latency
+
+`bin/fm-lint.sh` owns two canonical CI partitions, each running the same full source-aware ShellCheck analysis with two bounded workers, pinned versions, workflow validation, and backend-purity checks.
+Its `--list-files` interface exposes partition membership; `tests/fm-lint.test.sh` verifies complete/disjoint executed roots and unchanged analysis flags.
+The workflow uploads each partition's quiet telemetry to distinguish analysis cost, memory use, and host contention.
+No fast mode, path skips, reduced checks, or paid runner provisioning is part of this layout.
+
+The performance objective is a complete green run under fifteen minutes including start delay: roughly twelve minutes of longest-path execution, at most two minutes of runner delay, and less than one minute of other overhead.
+The candidate uses fourteen long-lived Linux jobs (nine serial, two parallel, Herdr, two lint), plus short checks and macOS; insufficient shared account capacity can erase the packing gain.
+Compare complete before/after runs, preserve cancelled and partial-run evidence, and measure a representative normal-run sample before claiming a P95 improvement.
+The workflow retains per-PR supersession without cancelling main pushes or changing the compliance workflow's event semantics.
+
 ## Local entry points
 
 [CONTRIBUTING.md](../CONTRIBUTING.md) owns the local test policy and common entry points.
@@ -143,11 +137,16 @@ Portable shards, each portable serial shard, and the Herdr lane upload runner-ge
 
 ## Timeouts
 
-| Lane | Bound | Rationale |
-|---|---|---|
-| portable parallel 1/2 | job `timeout-minutes: 10` | The measured shard sums are about three minutes and the timeout is a hang tripwire. |
-| portable serial 1-6 | job `timeout-minutes: 20` | The largest retained-max sum is 1008996 ms. The 60000 ms setup allowance gives 1068996 ms, leaving 131004 ms before the bound. |
-| Herdr | family-run step `timeout-minutes: 20`; job `timeout-minutes: 75` backstop | Healthy runs finished around 7 minutes before this lane gained `fm-backend-herdr-focus-flash-e2e`, which measures about 2 minutes against a real lab locally, so the step bound is still the hang tripwire (cleanup and timing artifacts still upload) while the job cap stays a last-resort backstop. Refresh this figure from the lane's uploaded timing artifact. |
+CI job timeouts follow one three-tier policy, so the workflow reads as a policy rather than as a collection of per-job numbers.
+Every tier is a hang tripwire with headroom above the healthy duration, never a packing estimate or a runtime target.
+A lane that reaches its tier bound is wedged, not slow, so change the policy here rather than treating the bound as a way to fit a slower lane.
 
-Timeouts are hang tripwires rather than expected healthy durations.
-`.github/workflows/ci.yml` owns the exact numbers.
+| Tier | Jobs | Bound | Rationale |
+|---|---|---|---|
+| Fast | coverage guard, repo invariants, timing aggregate | 5 minutes | Seconds-long local work, so the tripwire only catches a hung runner. |
+| Normal | lint partitions, portable parallel shards, portable serial shards, macOS stock Bash | 30 minutes, one value shared by every job in the tier | One shared hang tripwire keeps every ordinary test and lint lane on the same policy instead of allowing per-lane packing estimates or one-off caps to set the bound. |
+| Heavy | Herdr | family-run step 20 minutes under a 75-minute job-level last-resort backstop | Healthy runs finish in about 7-10 minutes, so the step tripwire fails a wedged suite while the `always()` cleanup and timing upload still run, and the job cap only catches a hang outside that step. |
+
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml) holds the executable values and names each job's tier beside its `timeout-minutes`.
+[`tests/fm-ci-workflow.test.sh`](../tests/fm-ci-workflow.test.sh) holds the policy against the parsed workflow: every job belongs to exactly one tier, the workflow carries exactly three distinct job-level values, the fast tier stays within 5-10 minutes, the normal jobs share one 30-minute budget, and the Herdr family-run step is the 20-minute tripwire below its job backstop with an `always()` teardown after it.
+A passing coverage guard does not establish a healthy job duration; refresh the healthy figures above from the lanes' uploaded timing artifacts.

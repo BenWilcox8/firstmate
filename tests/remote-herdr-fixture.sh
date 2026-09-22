@@ -43,18 +43,19 @@ SH
 printf '%s\n' "$*" >> "$LOG"
 jq_state() { jq "$@" "$STATE"; }
 save() { tmp="$STATE.tmp.$$"; cat > "$tmp" && mv "$tmp" "$STATE"; }
-ws=""; label=""; cwd=""
+ws=""; label=""; cwd=""; pane=""
 args=("$@")
 for ((i=0; i<${#args[@]}; i++)); do
   case "${args[$i]}" in
     --workspace) ws=${args[$((i+1))]:-} ;;
     --label) label=${args[$((i+1))]:-} ;;
     --cwd) cwd=${args[$((i+1))]:-} ;;
+    --pane) pane=${args[$((i+1))]:-} ;;
   esac
 done
 case "${1:-} ${2:-}" in
   "status --json")
-    printf '{"client":{"version":"0.7.5","protocol":16},"server":{"running":true}}\n' ;;
+    printf '{"client":{"version":"0.7.5","protocol":16},"server":{"running":true,"protocol":16,"compatible":true}}\n' ;;
   "server "*|"server") : ;;
   "workspace list") jq_state '{result:{workspaces:.workspaces}}' ;;
   "workspace create")

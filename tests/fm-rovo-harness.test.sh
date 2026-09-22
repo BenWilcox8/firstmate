@@ -6,7 +6,6 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 TMP_ROOT=$(fm_test_tmproot fm-rovo-harness)
-
 make_spawn_case() {
   local name=$1 harness=$2 id=$3 case_dir home project worktree fakebin
   case_dir="$TMP_ROOT/$name"
