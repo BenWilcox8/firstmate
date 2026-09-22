@@ -37,6 +37,15 @@ case "${1:-}" in
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
+          # A spawn types a short line that sources its staged launch file;
+          # log the staged command, which is what the pane runs.
+          case "$a" in
+            ". '"*"'")
+              staged=${a#". '"}
+              staged=${staged%"'"}
+              [ ! -f "$staged" ] || a=$(cat "$staged")
+              ;;
+          esac
           printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
         fi
         prev=$a

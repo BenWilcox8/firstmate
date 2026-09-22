@@ -311,11 +311,21 @@ $launch") \
   pass "relaunch rebuilds the compact-adviser switch for the replacement agent in both allowlist postures"
 }
 
-# A command-prefix assignment only covers the first simple command. A raw
-# compound launch such as `cd <dir> && <probe>` must still start the probe with
-# the switch on, so this drives that escape hatch and executes the pane's
-# launch under a contrary ambient value.
-test_raw_compound_launch_command_carries_the_switch() {
+write_adviser_probe() {  # <dir>
+  mkdir -p "$1"
+  cat > "$1/probe" <<'SH'
+#!/bin/sh
+printf '%s\n' "${COMPACT_ADVISER_DISABLE-unset}"
+SH
+  chmod +x "$1/probe"
+}
+
+# A raw launch in this fork is one executable with literal arguments, so the
+# disabled-harness gate can name what runs. A compound launch such as
+# `cd <dir> && <probe>` is refused before any launch is sent. The accepted raw
+# shape must still start its agent with the switch on, so this executes the
+# pane's launch under a contrary ambient value.
+test_raw_launch_command_carries_the_switch() {
   local rec out status seen launch probe_dir
   rec=$(make_case raw-compound claude raw-compound-a1)
   read_case "$rec"
@@ -323,26 +333,35 @@ test_raw_compound_launch_command_carries_the_switch() {
     > "$HOME_DIR/config/crew-dispatch.json"
 
   probe_dir="$CASE_DIR/agent-cwd"
-  mkdir -p "$probe_dir"
-  cat > "$probe_dir/probe" <<'SH'
-#!/bin/sh
-printf '%s\n' "${COMPACT_ADVISER_DISABLE-unset}"
-SH
-  chmod +x "$probe_dir/probe"
+  write_adviser_probe "$probe_dir"
 
   out=$(run_case_spawn raw-compound-a1 "$PROJ_DIR" --mode no-mistakes --yolo off \
     "cd $probe_dir && ./probe")
   status=$?
-  expect_code 0 "$status" "raw compound launch spawn should succeed: $out"
+  expect_code 1 "$status" "a raw compound launch must be refused: $out"
+  assert_contains "$out" "shell operators, expansions, substitutions, and nested shells are refused" \
+    "the raw compound refusal did not name the single-executable rule"
+  [ ! -s "$LAUNCH_LOG" ] || fail "a refused raw compound launch still sent a launch command: $(cat "$LAUNCH_LOG")"
+
+  rec=$(make_case raw-single claude raw-single-a1)
+  read_case "$rec"
+  printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
+    > "$HOME_DIR/config/crew-dispatch.json"
+  probe_dir="$CASE_DIR/agent-cwd"
+  write_adviser_probe "$probe_dir"
+  out=$(run_case_spawn raw-single-a1 "$PROJ_DIR" --mode no-mistakes --yolo off \
+    "$probe_dir/probe --literal-arg")
+  status=$?
+  expect_code 0 "$status" "a single-executable raw launch spawn should succeed: $out"
   launch=$(cat "$LAUNCH_LOG")
-  [ -n "$launch" ] || fail "raw compound launch spawn sent no launch command"
+  [ -n "$launch" ] || fail "a single-executable raw launch sent no launch command"
   seen=$(env -i HOME="$TMP_ROOT/pane-home" PATH="$FAKEBIN_DIR:$PATH" TERM=xterm \
     TMUX=synthetic-pane COMPACT_ADVISER_DISABLE="$CONTRARY" \
     /bin/sh -c "$launch") \
-    || fail "raw compound launch: the emitted launch failed to run"
+    || fail "single-executable raw launch: the emitted launch failed to run"
   assert_equals 1 "$seen" \
-    "a raw compound launch must start its agent with the compact adviser disabled, even after cd"
-  pass "a compound raw launch-command still starts its agent with the compact-adviser switch on"
+    "a single-executable raw launch must start its agent with the compact adviser disabled"
+  pass "a raw compound launch is refused, and a single-executable raw launch starts with the compact-adviser switch on"
 }
 
 test_ship_allowlist_absent
@@ -350,4 +369,4 @@ test_ship_allowlist_enabled
 test_launch_command_carries_the_switch_without_the_pane_export
 test_secondmate_launch
 test_relaunch_rebuilds_the_switch
-test_raw_compound_launch_command_carries_the_switch
+test_raw_launch_command_carries_the_switch
