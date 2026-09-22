@@ -378,6 +378,9 @@ test_matrix_codex_multiline_idle_animation() {
 "${ESC}[2mnot a Codex status${ESC}[0m"
   assert_screen "codex multiline animation rejects an unknown dim footer" pending \
     "$CAPS_STYLED" "$malformed_footer"
+  unknown=$'transcript\n'"$top"$'\n'"$prompt"$'\n'"${bottom/⢀/⣿}"$'\n'"$footer"
+  assert_screen "codex multiline animation rejects an unknown cell below the glyph row" pending \
+    "$CAPS_STYLED" "$unknown"
   pass "matrix: Codex multiline animation needs the exact dim placeholder and allowed cells"
 }
 
@@ -397,6 +400,10 @@ test_matrix_codex_animation_safety_guards() {
   assert_screen "pasted braille in the Codex composer" pending \
     "$CAPS_STYLED" "$pasted"
   assert_screen "dim Codex placeholder with an unknown trailing cell" pending \
+    "$CAPS_STYLED" "$unknown"
+  # Ghost stripping removes a dark cell, so only the exact cell proof can see it.
+  unknown=$'transcript\n'"${ESC}[1m›${ESC}[0m${ESC}[2m Ask Codex to do anything ${ESC}[0m${ESC}[38;2;92;90;109m⣿${ESC}[0m"
+  assert_screen "dim Codex placeholder with an unknown dark cell" pending \
     "$CAPS_STYLED" "$unknown"
   assert_screen "shell prompt with the Codex placeholder shape" unknown \
     "$CAPS_STYLED" "$shell"

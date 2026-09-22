@@ -676,6 +676,10 @@ The steering doorbell (`fm_task_inbox_ring` in `bin/fm-task-inbox-lib.sh`) defer
 After the fix, braille-only rows bound the wrap region (the status footer sits beneath the starfield row, so the region never reaches it), starfield cells behind the placeholder are stripped from the glyph row, and the same capture reads `empty` under the Herdr and Zellij styled profiles and with a tmux cursor on the glyph row, while a plain (`styled=0`) capture still reads `unknown`, never `pending`.
 A second read-only capture of the same pane, taken during the fix with a bright starfield cell drawn between the `›` and the placeholder, read `pending` before and `empty` after as well.
 `test_matrix_codex_idle_starfield_furniture` in `tests/fm-composer-lib.test.sh` carries both samples byte-for-byte, the divergence (the same screen with letters in place of the starfield reads `pending`), and the over-stripping negatives (wrapped typed input, braille mixed with text, a typed row with a middle dot, and the footer or a starfield row alone).
+The 2026-09-22 fork reconciliation replaced the glyph-row strip with the stricter exact Codex idle proof: the glyph row must show the dim placeholder with only reviewed animation cells, and the rows under it must hold only those cells or a Codex footer (`_fm_composer_bare_codex_idle_tail_ok` in `bin/fm-composer-lib.sh`).
+Both samples above still read `empty` in the unit fixtures.
+On 2026-09-22, codex-cli 0.155.1 on NixOS was captured idle in an isolated Herdr 0.8.2 lab session through the adapter's own `pane read --source recent --lines 200 --format ansi` and 20-row tail, and the stricter proof read `empty`.
+That capture drew the placeholder but no starfield cell, so the starfield case under the stricter proof rests on the byte-for-byte fixtures of the earlier capture.
 
 The live guard that refreshes this entry launches the installed codex idle in an isolated tmux server and asserts `empty` through both the cursor-anchored tmux read and the cursorless styled read Herdr and Zellij use, naming codex and `codex --version` on failure; it is default-on wherever codex and tmux are installed and spends no tokens:
 
@@ -685,6 +689,8 @@ tests/fm-composer-codex-idle-live-e2e.test.sh
 
 The verification machine runs its fleet on Herdr and has no tmux installed, so on 2026-09-15 that guard reported `skip: live: tmux absent` there, and the Herdr capture above is this entry's live evidence.
 The guard also notes whether the starfield and the placeholder were actually drawn during its read, because codex need not animate them under every model or mode; a refresh on a tmux host should record that note beside the verdict rather than assume the starfield was exercised.
+On 2026-09-22 the guard first failed on tmux 3.7b with codex-cli 0.155.1, because codex drew inline at the top of the 45-row pane and the cursorless read took a tail of blank viewport rows.
+The isolated Herdr capture above showed that Herdr's recent read ends at the last drawn row, so the guard now drops trailing blank rows before its tail and passed with `starfield furniture observed=no placeholder observed=yes`.
 
 ## Steering-inbox doorbell
 

@@ -98,7 +98,14 @@ styled=''
 dismissed=0
 while [ "$i" -lt "$budget" ]; do
   tmux_verdict=$(fm_tmux_composer_state "$SESSION:$WIN")
-  styled=$(tmux capture-pane -e -p -t "$SESSION:$WIN" 2>/dev/null | tail -n "$FM_COMPOSER_CAPTURE_LINES")
+  # Herdr's recent read ends at the last drawn row, while tmux also returns the
+  # blank viewport rows under it. Codex draws inline at the top of a tall pane,
+  # so drop those blank rows before the bounded tail.
+  styled=$(tmux capture-pane -e -p -t "$SESSION:$WIN" 2>/dev/null \
+    | awk '{ row[NR] = $0; plain = $0; gsub(/\033\[[0-9;?]*[A-Za-z]/, "", plain)
+             if (plain ~ /[^[:space:]]/) last = NR }
+           END { for (i = 1; i <= last; i++) print row[i] }' \
+    | tail -n "$FM_COMPOSER_CAPTURE_LINES")
   cursorless_verdict=$(classify_cursorless "$styled")
   if [ "$tmux_verdict" = empty ] && [ "$cursorless_verdict" = empty ]; then
     break

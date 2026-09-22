@@ -141,9 +141,9 @@
 # its idle composer in greys on both sides of the ghost luminance ceiling, so
 # the brighter cells survive the strip and used to read as typed input. Those
 # cells are recognised by SHAPE instead (fm_composer_strip_braille, declared
-# next to the idle placeholders below), and only
-# where a bare composer's furniture can sit: behind the glyph row's content
-# and on the rows that bound its wrap region.
+# next to the idle placeholders below) on the rows that bound a bare
+# composer's wrap region. Braille behind the glyph itself needs the exact
+# Codex idle proof (_fm_composer_bare_codex_idle_animation).
 #
 # UNICODE WHITESPACE (issue #1988; open PRs #1995/#2047 target the same
 # defect and #1995's naming is adopted here so the implementations converge):
@@ -508,8 +508,11 @@ FM_COMPOSER_OMP_STATUS_RE_DEFAULT='^[[:space:]]*(π|󰵗)[[:space:]]+·[[:space:
 #   - a row whose non-whitespace content is entirely braille cells is screen
 #     furniture; it never counts as wrapped typed content and it bounds a bare
 #     composer's wrap region exactly as the status rows above do;
-#   - braille cells behind the glyph row's content are stripped before that
-#     row's emptiness decision when NOTHING else follows the glyph;
+#   - braille cells behind the glyph are never stripped by shape: the glyph
+#     row reads empty only with the exact dim placeholder and reviewed cells
+#     (FM_COMPOSER_CODEX_IDLE_ANIMATION_CELLS), and the rows below it must
+#     hold only those cells or a Codex footer
+#     (_fm_composer_bare_codex_idle_tail_ok);
 #   - a row that mixes braille with any other non-whitespace text stays typed
 #     content, because a human can type a braille character.
 # fm_composer_strip_braille is the ONE byte-exact remover: under LC_ALL=C awk
@@ -1258,6 +1261,58 @@ _fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
   case "$percent" in ''|*[!0-9]*) return 1 ;; esac
 }
 
+# _fm_composer_bare_codex_idle_status_footer accepts Codex's colored status
+# line: a gpt model segment and at least two more segments, joined by dim
+# separators. Typed text cannot be dim, so the dim separators prove the row
+# is harness furniture. Use _fm_composer_bare_codex_idle_footer for the
+# all-dim usage footer.
+_fm_composer_bare_codex_idle_status_footer() {  # <raw-row> <styled>
+  local raw=$1 styled=$2 plain dim_content rest
+  [ "$styled" = 1 ] || return 1
+  dim_content=$(printf '%s\n' "$raw" | FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_strip_ghost)
+  fm_composer_normalize_trim_var dim_content
+  [ -n "$dim_content" ] || return 1
+  case "$dim_content" in *'·'*) return 1 ;; esac
+  plain=$(_fm_composer_row_content "$raw" 0)
+  fm_composer_normalize_trim_var plain
+  case "$plain" in gpt-*' · '*' · '*) ;; *) return 1 ;; esac
+  rest=${plain#*' · '}
+  rest=${rest#*' · '}
+  [ -n "$rest" ]
+}
+
+# _fm_composer_bare_codex_idle_tail_ok checks the rows below a proven Codex
+# animation row. The braille-furniture rule ends the composer region at the
+# first animation row, so these rows need their own proof. Every row in the
+# contiguous non-blank run must hold only reviewed animation cells, except that
+# its last row may be a Codex footer. Any other row can be typed input.
+_fm_composer_bare_codex_idle_tail_ok() {  # <screen> <styled> <glyph-row>
+  local screen=$1 styled=$2 row=$(($3 + 1)) raw plain next
+  while :; do
+    raw=$(_fm_composer_screen_row "$row" "$screen")
+    plain=$(_fm_composer_row_content "$raw" 0)
+    fm_composer_normalize_trim_var plain
+    [ -n "$plain" ] || return 0
+    if ! _fm_composer_codex_animation_only "$plain"; then
+      next=$(_fm_composer_screen_row "$((row + 1))" "$screen")
+      next=$(_fm_composer_row_content "$next" 0)
+      fm_composer_normalize_trim_var next
+      [ -z "$next" ] || return 1
+      _fm_composer_bare_codex_idle_footer "$raw" "$styled" \
+        || _fm_composer_bare_codex_idle_status_footer "$raw" "$styled" \
+        || return 1
+    fi
+    row=$((row + 1))
+  done
+}
+
+# _fm_composer_plain_has_braille: 0 when <plain> carries a braille cell.
+_fm_composer_plain_has_braille() {  # <plain>
+  local rest
+  rest=$(printf '%s\n' "$1" | fm_composer_strip_braille)
+  [ "$rest" != "$1" ]
+}
+
 _fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <last>
   local screen=$1 styled=$2 first=$3 last=$4 row raw content plain animation_row_seen=0
   [ "$styled" = 1 ] && [ "$last" -gt "$first" ] || return 1
@@ -1293,11 +1348,19 @@ _fm_composer_classify_bare_row() {  # <screen> <styled> <row>
   content=$(_fm_composer_row_content "$raw" "$styled")
   plain=$(_fm_composer_row_content "$raw" 0)
   if _fm_composer_bare_codex_idle_animation "$raw" "$content" "$plain" "$styled"; then
-    printf 'empty'
+    if _fm_composer_bare_codex_idle_tail_ok "$screen" "$styled" "$row"; then
+      printf 'empty'
+    else
+      printf 'pending'
+    fi
     return 0
   fi
-  _fm_composer_bare_row_strip_furniture_var content
-  _fm_composer_bare_row_strip_furniture_var plain
+  # Ghost stripping can remove a dark braille cell. Without the exact Codex
+  # proof above, a braille cell behind the glyph is unproven input.
+  if [ "$styled" = 1 ] && _fm_composer_plain_has_braille "$plain"; then
+    printf 'pending'
+    return 0
+  fi
   state=$(fm_composer_classify_content 0 "$content" \
     "${FM_COMPOSER_IDLE_RE:-$FM_COMPOSER_IDLE_RE_DEFAULT}" insensitive "$plain" 0 "$styled")
   if [ "$styled" != 1 ] && [ "$state" = pending ]; then
@@ -1326,21 +1389,6 @@ _fm_composer_row_is_braille_furniture() {  # <row>
   rest=$(printf '%s\n' "$row" | fm_composer_strip_braille)
   fm_composer_normalize_trim_var rest
   [ -z "$rest" ]
-}
-
-# _fm_composer_bare_row_strip_furniture_var: on a bare agent-glyph row, reduce
-# the row to its glyph when everything behind the glyph is braille furniture,
-# in place through the named variable; a row whose tail carries anything else,
-# and a row with no agent glyph, are left untouched. This is the glyph-row half
-# of the braille rule: codex 0.154's starfield cells behind its (stripped)
-# placeholder must not stand in for typed input.
-_fm_composer_bare_row_strip_furniture_var() {  # <varname>
-  local __fmbf_name=$1 __fmbf_text=${!1} __fmbf_glyph='' __fmbf_body
-  fm_composer_leading_agent_glyph_var __fmbf_glyph "$__fmbf_text" || return 0
-  __fmbf_body=${__fmbf_text#*"$__fmbf_glyph"}
-  if _fm_composer_row_is_braille_furniture "$__fmbf_body"; then
-    printf -v "$__fmbf_name" '%s' "$__fmbf_glyph"
-  fi
 }
 
 # _fm_composer_wrap_region_ok: 0 when every row STRICTLY BELOW <glyph-row>
@@ -1383,7 +1431,6 @@ _fm_composer_classify_bare_wrap() {  # <screen> <styled> <glyph-row> <cursor-row
     raw=$(_fm_composer_screen_row "$row" "$screen")
     content=$(_fm_composer_row_content "$raw" "$styled")
     if [ "$row" -eq "$g" ]; then
-      _fm_composer_bare_row_strip_furniture_var content
       if fm_composer_leading_agent_glyph_var glyph "$content"; then
         content=${content#*"$glyph"}
       fi
