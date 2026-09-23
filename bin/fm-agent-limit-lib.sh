@@ -14,7 +14,7 @@
 #     which process names are agents.
 #   - A firstmate home records that exact session and pane as a ship or scout
 #     task (state/<id>.meta with backend=herdr).
-# An agent counts while it is open in a Herdr pane. A ghost Atlas leg, a
+# An agent counts while it is open in a Herdr pane. A ghost leg, a
 # closed pane, or a pane whose agent has exited never counts, because the
 # count starts from Herdr's live panes and never from task records or tickets.
 # Parking a ticket closes its agent's pane, so a parked ticket's worker stops

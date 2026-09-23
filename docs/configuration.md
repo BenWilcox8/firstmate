@@ -413,9 +413,9 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 
 The concurrent agent limit caps how many workers run at once on this machine.
 Its main use is to spread many small tasks over a longer period while the captain is away.
-The count starts with the live Herdr panes, then matches each agent pane to a ship or scout task record; it never counts Atlas tickets or task records by themselves.
+The count starts with the live Herdr panes, then matches each agent pane to a ship or scout task record; it never counts tickets or task records by themselves.
 An agent counts while it is open in a Herdr pane.
-A ghost Atlas leg, a closed pane, or an exited agent never counts.
+A ghost leg, a closed pane, or an exited agent never counts.
 Parking a ticket closes its agent's pane, so a parked ticket's worker stops counting.
 An agent that is still open in a pane always counts, whatever its pipeline is waiting on.
 The count covers every local firstmate home on the machine, whichever home asks.
