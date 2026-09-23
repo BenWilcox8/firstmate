@@ -2166,7 +2166,7 @@ if len(sys.argv) > 2 and sys.argv[2] == 'poll_list':
 sys.exit(1)
 PYEOF
   cat > "$fakebin/python3" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 exec "$real_py" "$harness" "\$@"
 EOF
   chmod +x "$fakebin/python3"
@@ -2521,7 +2521,7 @@ if len(sys.argv) > 2 and sys.argv[2] == 'poll_list':
 sys.exit(1)
 PYEOF
   cat > "$fakebin/python3" <<EOF
-#!/bin/bash
+#!/usr/bin/env bash
 exec "$real_py" "$harness" "\$@"
 EOF
   chmod +x "$fakebin/python3"

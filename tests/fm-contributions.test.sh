@@ -549,7 +549,7 @@ test_unreadable_pending_is_not_empty() {
 }
 
 wrap_forge() { # home: log gh calls and apply per-call faults from $FORGE/fault
-  local home=$1
+  local home=$1 real_date
   mv "$home/fakebin/gh" "$home/fakebin/gh-fixture"
   cat > "$home/fakebin/gh" <<'SH'
 #!/usr/bin/env bash
@@ -572,11 +572,16 @@ case "$fault:$*" in
 esac
 exec "$(dirname "$0")/gh-fixture" "$@"
 SH
-  # A controllable clock lets the budget expire between two forge calls.
-  cat > "$home/fakebin/date" <<'SH'
-#!/bin/sh
-if [ "$*" = +%s ] && [ -f "$FORGE/clock" ]; then cat "$FORGE/clock"; else exec /bin/date "$@"; fi
+  # A controllable clock lets the budget expire between two forge calls. The
+  # real date is resolved from PATH (tests/lib.sh fm_test_tool): NixOS has no
+  # /bin/date.
+  real_date=$(fm_test_tool date) || return 1
+  {
+    printf '#!/bin/sh\nREAL_DATE='"'"'%s'"'"'\n' "$real_date"
+    cat <<'SH'
+if [ "$*" = +%s ] && [ -f "$FORGE/clock" ]; then cat "$FORGE/clock"; else exec "$REAL_DATE" "$@"; fi
 SH
+  } > "$home/fakebin/date"
   chmod +x "$home/fakebin/gh" "$home/fakebin/date"
 }
 
@@ -589,7 +594,7 @@ test_budget_exhaustion_keeps_prior_record() { # exhaust|hang
   cp "$home/data/delivery/contributions.json" "$home/prior.json"
   # Both modes freeze the clock: an unfrozen one can tick past a one-second
   # budget before the first forge call, so nothing is ever observed.
-  /bin/date +%s > "$home/forge/clock"
+  date +%s > "$home/forge/clock"
   printf '%s\n' "$mode" > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=1 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail "poll failed when its budget ran out ($mode)"
@@ -611,7 +616,7 @@ test_genuine_failure_near_deadline_is_unavailable() {
   forge_home "$home"
   wrap_forge "$home"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  /bin/date +%s > "$home/forge/clock"
+  date +%s > "$home/forge/clock"
   printf 'fail-late\n' > "$home/forge/fault"
   out=$(with_home "$home" "$ROOT/bin/fm-contributions.sh" poll) || fail 'poll failed on a genuine forge failure'
   [ "$out" = 'contributions: observation unavailable for https://github.com/o/r/pull/8' ] \
@@ -741,7 +746,7 @@ test_reservation_defers_later_url_when_fifteen_seconds_do_not_remain() {
   wrap_forge "$home"
   printf -- '- [ ] filed - Measured defect https://github.com/o/r/issues/9 (repo: sample) (kind: ship)\n' >> "$home/data/backlog.md"
   mutate_record "$home" delivery '.records[0].checked_at="2026-09-15T08:00:00Z"'
-  /bin/date +%s > "$home/forge/clock"
+  date +%s > "$home/forge/clock"
   printf 'reserve\n' > "$home/forge/fault"
   out=$(with_home "$home" env FM_CONTRIBUTIONS_BUDGET=20 "$ROOT/bin/fm-contributions.sh" poll) \
     || fail 'reservation poll failed'

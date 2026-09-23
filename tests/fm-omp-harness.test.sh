@@ -53,10 +53,13 @@ export NODE_NO_WARNINGS=1
 # exact signal under test. Every `-c` body below ends in a no-op so bash does
 # not exec-optimize the single command away and replace the named process.
 make_named_shells() {  # <dir> -> echoes <bindir>
-  local dir=$1 name
+  local dir=$1 name bash_bin
+  # The shell is resolved from PATH (tests/lib.sh fm_test_tool): NixOS has no
+  # /bin/bash.
+  bash_bin=$(fm_test_tool bash) || return 1
   mkdir -p "$dir"
   for name in omp ompd comp; do
-    ln -sf /bin/bash "$dir/$name"
+    ln -sf "$bash_bin" "$dir/$name"
   done
   printf '%s' "$dir"
 }
