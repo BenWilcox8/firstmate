@@ -138,6 +138,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-atlas-hook.sh`       | Record an Atlas ticket lifecycle event as a best-effort side effect of spawn, merge, or teardown - complete or land for proved work, abort for an empty leg; answer `wired` queries that report whether this home has an Atlas pointer |
 | `fm-atlas-module.sh`     | Print the optional Atlas module's supervisor block, a ticketed worker's crewmate block, and the ticket-less dispatch warning, only in a wired home |
 | `fm-atlas-boundary-check.sh` | Fail when Atlas text appears in a core file beyond its registered hook points     |
+| `fm-atlas-lib.sh`        | Own the optional Atlas module's pointer rule and crew-name rule for its scripts |
 | `fm-harness.sh`          | Detect the running harness and resolve crew or secondmate harness, model, and effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
 | `fm-x-lib.sh`            | Shared Relay config, relay, and reply-threading helpers                              |

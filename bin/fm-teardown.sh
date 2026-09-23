@@ -65,24 +65,12 @@
 # product. Teardown proceeds only once the report exists and the shared
 # unresolved-decision completion gate verifies its captain-held inventory.
 # Once every landed-work refusal has passed, and before any record is erased,
-# teardown discharges the task's recorded Atlas ticket (atlas_ticket= in its
-# meta). A leg that produced work is discharged as landed: complete, release the
-# node, and land it when no open ticket remains, with a scout landing its errand
-# on the report path as the evidence. A leg that produced NOTHING passes those
-# refusals vacuously, so it is discharged the other way: the still-started ticket
-# is aborted back to the queue with the reason that killed the dispatch, and the
-# node is released with it. That abort is the one discharge --force can also
-# make, because an empty leg needs no proof; a forced teardown that is discarding
-# real work still records nothing, since it may not claim a landing it has not
-# proved. The whole call goes through bin/fm-atlas-hook.sh, which owns the
-# best-effort contract and can never fail a teardown; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all. `--captain-word <words>`
-# or `--captain-word=<words>` passes the captain's exact words from chat to that
-# landing, which records them as the Atlas approval first. When the Atlas refuses
-# the landing, the hook
-# still releases the node and hands back its keyed status line, and teardown
-# writes that line into a fresh status log after it retires the task's own, so
-# the refusal outlives the records it was raised on.
+# teardown passes what it proved - the kind, whether the leg produced work,
+# whether it is forced, the verified PR URL, and the report path - to the
+# optional module's close-out hook (bin/fm-atlas-hook.sh cleanup), which owns
+# what that means and is best effort. A refused close-out's keyed status line
+# comes back to teardown, which writes it into a fresh status log after it
+# retires the task's own, so the refusal outlives the records it was raised on.
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
@@ -148,7 +136,7 @@
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
 #        [--captain-word <words>|--captain-word=<words>]
-#   --captain-word passes the captain's exact words to the Atlas landing (see
+#   --captain-word passes the captain's exact words to the close-out hook (see
 #   above); it is used only when cleanup records a landing.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
@@ -294,8 +282,7 @@ fi
 ID=$1
 FORCE=
 LEGACY_RECORD_GIVEN=0
-# --captain-word <words>: the captain's exact words, recorded as the Atlas
-# approval before cleanup completes and lands the ticket.
+# --captain-word <words>: the captain's exact words, passed to the close-out hook.
 CAPTAIN_WORD=
 shift
 while [ "$#" -gt 0 ]; do
@@ -1756,7 +1743,7 @@ validate_worktree_teardown_safety() {
   fi
 }
 
-# Did this task's leg produce ANYTHING? The Atlas close-out below turns on this:
+# Did this task's leg produce ANYTHING? The close-out hook below turns on this:
 # a cleanup whose landed-work test passes vacuously - there is no work, so
 # nothing can fail it - would otherwise close the ticket on generic evidence and
 # record ground nobody ever built.
@@ -1767,7 +1754,7 @@ validate_worktree_teardown_safety() {
 # work that landed as a fast-forward leaves the default branch containing every
 # commit the branch has, which reads exactly like a leg that never committed.
 # The durable landing records (pr= and merged_local=) and the pushed branch are
-# what separate those two, and none of them depends on the Atlas being reachable.
+# what separate those two, and none of them depends on an outside service.
 teardown_leg_produced_work() {  # 0 = work, 1 = provably nothing
   local dirty_raw dirty base unique branch remote
   [ -z "$PR_URL" ] || return 0
@@ -3173,66 +3160,25 @@ fi
 # Every landed/discard-work refusal above has now passed, so a leg that produced
 # work has PROVED it landed (a ship task's content reached the default branch or
 # its PR merged; a scout's report exists and its decision gate passed). This is
-# the one moment in the whole fleet where that proof and the task's records are
-# both in hand, and the records are about to be erased below, so the Atlas ticket
-# is discharged here.
-#
-# A leg that produced NOTHING passes those refusals vacuously, and complete/land
-# would then record ground nobody built, so it takes the other discharge: the
-# ticket is aborted back to the queue with the reason that killed the dispatch,
-# and the node is released with it. That is the honest close for a killed
-# dispatch, and it is the one a forced cleanup can also make - forcing proves
-# nothing about work, but an empty leg needs no proof. A forced teardown that IS
-# discarding work still records nothing at all, exactly as before, because
-# recording it as landed would put a false fact in a log that replays forever.
-# A ticket a crewmate or a merge already discharged is never re-queued as a dead
-# dispatch: only a still-started ticket is aborted.
-# Best effort by contract: bin/fm-atlas-hook.sh never fails a teardown.
-atlas_hook() {  # <hook args...>
-  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$FM_ROOT/bin/fm-atlas-hook.sh" "$@" || true
-}
-
-ATLAS_GATE_LINE=
-atlas_unproved=0
-if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
-  # A ticket a crewmate or a merge already discharged is never re-queued as a
-  # dead dispatch. Every other answer - started, queued, or a state cleanup
-  # could not read - takes the abort, because abort claims nothing about work
-  # while complete and land would claim a landing that never happened.
-  case "$(atlas_hook state "$ID")" in
-    completed|abandoned) ;;
-    *) atlas_unproved=1 ;;
-  esac
-fi
-
-if [ "$atlas_unproved" = 1 ]; then
-  if [ "$KIND" = scout ]; then
-    atlas_reason="Scout task $ID was cleaned up with no work produced: no report was written."
-  else
-    atlas_reason="Task $ID was cleaned up with no work produced: nothing committed, pushed or reported."
-  fi
-  [ "$FORCE" != "--force" ] || atlas_reason="$atlas_reason The cleanup was forced."
-  atlas_hook abort "$ID" --actor fm-teardown --reason "$atlas_reason"
-elif [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
-  if [ "$KIND" = scout ]; then
-    atlas_evidence="report at $DATA/$ID/report.md"
-    atlas_summary="Scout task $ID delivered its report; the errand is carried out."
-  elif [ -n "$PR_URL" ]; then
-    atlas_evidence="$PR_URL"
-    atlas_summary="Task $ID landed; cleanup verified the merged PR before removing the isolated copy."
-  else
-    atlas_evidence="task $ID landed on the project's default branch"
-    atlas_summary="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
-  fi
-  # A refused close-out's status line is held here rather than written, because
-  # the status log it belongs in is retired below; it is written after that.
-  ATLAS_GATE_LINE=$(atlas_hook land "$ID" \
+# the one moment where that proof and the task's records are both in hand, so the
+# optional module's close-out hook runs here with the facts cleanup proved; it
+# decides what they mean and is best effort, so it never fails a teardown. A
+# refused close-out's status line comes back rather than being written, because
+# the status log it belongs in is retired below; it is written after that.
+MODULE_CLEANUP_LINE=
+if [ "$KIND" != secondmate ]; then
+  cleanup_produced=yes
+  teardown_leg_produced_work || cleanup_produced=no
+  MODULE_CLEANUP_LINE=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" cleanup "$ID" \
     --actor fm-teardown \
     --defer-status \
-    ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
-    --evidence "$atlas_evidence" \
-    --summary "$atlas_summary")
+    --kind "$KIND" \
+    --produced "$cleanup_produced" \
+    ${FORCE:+--forced} \
+    ${PR_URL:+--pr-url "$PR_URL"} \
+    --report "$DATA/$ID/report.md" \
+    ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} || true)
 fi
 
 # A Herdr close may reposition shared workspace order, so the whole
@@ -3591,12 +3537,12 @@ fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
-# The retired log is gone, so a refused Atlas close-out starts a fresh one: the
-# keyed gate line is an open blocker the watcher surfaces, and it stays listed
-# with the orphan status logs until the supervisor resolves it.
-if [ -n "$ATLAS_GATE_LINE" ]; then
-  printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status" \
-    || echo "warning: the refused Atlas close-out could not be recorded: $ATLAS_GATE_LINE" >&2
+# The retired log is gone, so a refused close-out starts a fresh one: the keyed
+# line is an open blocker the watcher surfaces, and it stays listed with the
+# orphan status logs until the supervisor resolves it.
+if [ -n "$MODULE_CLEANUP_LINE" ]; then
+  printf '%s\n' "$MODULE_CLEANUP_LINE" >> "$STATE/$ID.status" \
+    || echo "warning: the refused close-out could not be recorded: $MODULE_CLEANUP_LINE" >&2
 fi
 rm -f "$STATE/$ID.turn-ended" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \

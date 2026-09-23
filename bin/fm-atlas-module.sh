@@ -8,6 +8,7 @@
 # Usage: fm-atlas-module.sh supervisor-block
 #        fm-atlas-module.sh crewmate-brief <task-id> [--ticket <ticket-id>]
 #        fm-atlas-module.sh dispatch-check <task-id> [--ticket <ticket-id>]
+#        fm-atlas-module.sh worker-env <task-id>
 #
 #   supervisor-block  prints the supervisor instructions for an Atlas-wired home:
 #                     a banner, then docs/atlas-module/supervisor-block.md.
@@ -25,13 +26,25 @@
 #                     ship or scout with no ticket, because that work will not
 #                     appear on the map. bin/fm-spawn.sh calls it for a fresh ship
 #                     or scout spawn. The warning is advisory and never blocks.
+#   worker-env        prints the shell lines a ship or scout worker pane needs for
+#                     the Atlas, each `export NAME=<value>` or `unset NAME...`. In
+#                     a wired home: `unset SPECS_REPO`, then
+#                     `export ATLAS_AXI_BY=<its crew name>`, so every atlas-axi
+#                     write it makes is attributed to its task, then
+#                     `export ATLAS_REPO=<the repo, shell-quoted>`, so a bare
+#                     atlas-axi reaches this home's map. In a home that is not
+#                     wired: `unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY`, so a value
+#                     the firstmate shell inherited never reaches the worker.
+#                     bin/fm-spawn.sh sends each line to the worker pane, fresh and
+#                     relaunched, and passes each exported name through its launch
+#                     environment. This verb is the one exception to the rule
+#                     below, because clearing inherited values is not an Atlas call.
 #
-# The author name is fm-<task-id>, or the task id itself when it already starts
-# with fm-. It is the same holder name `fm-atlas-hook.sh start` gives the ticket,
-# so the worker's own writes carry the name the ticket is held under.
+# The author name is the task's crew name, the same name `fm-atlas-hook.sh start`
+# holds the ticket under, so the worker's own writes carry that name.
 #
-# A home is wired when `fm-atlas-hook.sh wired` resolves its config/specs
-# pointer; that hook owns the resolution rule. In a home that is not wired, every
+# A home is wired when its config/specs pointer resolves. bin/fm-atlas-lib.sh owns
+# that rule and the crew-name rule. In a home that is not wired, every
 # verb prints nothing, so the home behaves as if the module did not exist.
 #
 # NEVER BLOCKS. Every path exits 0, including a missing fragment, an unusable
@@ -45,13 +58,16 @@ MODULE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)/docs/atlas-module"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+# shellcheck source=bin/fm-atlas-lib.sh
+. "$SCRIPT_DIR/fm-atlas-lib.sh"
 
 usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
 }
 
 atlas_wired() {
-  [ -n "$("$SCRIPT_DIR/fm-atlas-hook.sh" wired 2>/dev/null || true)" ]
+  fm_atlas_repo "$CONFIG" >/dev/null
 }
 
 # Ids become sed replacements and state paths, so they keep fm-spawn's closed
@@ -59,13 +75,6 @@ atlas_wired() {
 safe_id() {
   case "$1" in
     ''|-*|.*|*[!A-Za-z0-9._-]*) return 1 ;;
-  esac
-}
-
-holder_for() {  # <task-id>
-  case "$1" in
-    fm-*) printf '%s\n' "$1" ;;
-    *) printf 'fm-%s\n' "$1" ;;
   esac
 }
 
@@ -106,7 +115,7 @@ print_crewmate_brief() {  # <task-id> [--ticket <ticket-id>]
   safe_id "$ticket" || return 0
   atlas_wired || return 0
   [ -r "$fragment" ] || return 0
-  holder=$(holder_for "$id")
+  holder=$(fm_atlas_holder "$id")
   printf '\n'
   sed -e "s|{TICKET}|$ticket|g" -e "s|{HOLDER}|$holder|g" "$fragment"
 }
@@ -122,6 +131,18 @@ print_dispatch_check() {  # <task-id> [--ticket <ticket-id>]
   echo "warning: $id is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map" >&2
 }
 
+print_worker_env() {  # <task-id>
+  local id=${1:-} repo
+  safe_id "$id" || return 0
+  if ! repo=$(fm_atlas_repo "$CONFIG"); then
+    printf 'unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY\n'
+    return 0
+  fi
+  printf 'unset SPECS_REPO\n'
+  printf 'export ATLAS_AXI_BY=%s\n' "$(fm_atlas_holder "$id")"
+  printf "export ATLAS_REPO='%s'\n" "$(printf '%s' "$repo" | sed "s/'/'\\\\''/g")"
+}
+
 run_module() {
   local verb=${1:-}
   [ "$#" -eq 0 ] || shift
@@ -130,6 +151,7 @@ run_module() {
     supervisor-block) print_supervisor_block ;;
     crewmate-brief) print_crewmate_brief "$@" ;;
     dispatch-check) print_dispatch_check "$@" ;;
+    worker-env) print_worker_env "$@" ;;
     *) printf 'fm-atlas-module: unknown verb %s\n' "${verb:-(none)}" >&2 ;;
   esac
 }
