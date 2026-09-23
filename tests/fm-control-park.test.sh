@@ -165,7 +165,9 @@ esac
 exec "$FM_TEST_REAL_PS" "$@"
 SH
   chmod +x "$fb/ps"
-  # atlas-axi: records every call and models one ticket's state.
+  # atlas-axi: records every call and models one ticket's state and the park in
+  # force. A park identical to the one in force appends nothing, so its `at`
+  # stays; a blocker of c99 names nothing on the map and is refused.
   cat > "$fb/atlas-axi" <<'SH'
 #!/usr/bin/env bash
 D=$FM_FAKE_DIR
@@ -178,11 +180,30 @@ done
 printf '%s\n' "$*" >> "$D/atlas"
 case "$1 $2" in
   'ticket show')
-    printf '{"change":{"node":"proj/node","state":"%s"}}\n' "$(cat "$D/ticket-state")"
+    parked=null
+    [ "$(cat "$D/ticket-state")" != parked ] \
+      || parked=$(jq -c --arg at "$(cat "$D/park-at")" '. + {at: $at}' "$D/park-body")
+    printf '{"change":{"node":"proj/node","state":"%s","parked":%s}}\n' "$(cat "$D/ticket-state")" "$parked"
     ;;
   'ticket park')
     [ "${FM_FAKE_ATLAS_FAIL:-}" != park ] || { echo "gate refused the park" >&2; exit 1; }
-    printf 'parked' > "$D/ticket-state"
+    why=$4 on='' sid=''
+    shift 4
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --on) on=$2; shift 2 ;;
+        --session) sid=$2; shift 2 ;;
+        *) shift ;;
+      esac
+    done
+    [ "$on" != c99 ] || { echo "nothing on the map answers to --on c99" >&2; exit 1; }
+    body=$(jq -cn --arg why "$why" --arg on "$on" --arg id "$sid" \
+      '{why: $why, on: (if $on == "" then null else $on end), session: {id: $id}}')
+    if [ "$(cat "$D/ticket-state")" != parked ] || [ "$body" != "$(cat "$D/park-body" 2>/dev/null)" ]; then
+      printf '%s' "$body" > "$D/park-body"
+      printf 'at-%s' "$(wc -l < "$D/atlas")" > "$D/park-at"
+      printf 'parked' > "$D/ticket-state"
+    fi
     ;;
   'ticket unpark')
     [ "${FM_FAKE_ATLAS_FAIL:-}" != unpark ] || { echo "gate 5 refused the unpark" >&2; exit 1; }
@@ -539,21 +560,31 @@ test_repark_leaves_a_reused_endpoint_alone() {
   grep -qxF "ticket park c7 waits on the new review --home main --harness claude --session $SID --task t1 --on c13" "$dir/fake/atlas" \
     || fail "parking again should re-record the Atlas park, got: $(cat "$dir/fake/atlas")"
   [ ! -s "$dir/fake/literal" ] || fail "parking again must send nothing to the pane, got: $(cat "$dir/fake/literal")"
+  out=$(run_control "$dir" t1 park --reason "waits on the new review" --on c13); rc=$?
+  expect_code 0 "$rc" "parking again with the park already recorded should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" parked_reason)" = "waits on the new review" ] || fail "an identical park must keep the reason"
   pass "park again: only the reason, blocker, and Atlas park are refreshed, and a reused endpoint id is left alone"
 }
 
+# The Atlas refuses a park update whose blocker names nothing, and the ticket
+# stays parked under its prior park, so the state alone cannot tell the refusal
+# apart from an update.
 test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it() {
   local dir out rc before
   dir=$(park_case repark-atlas-fail)
-  printf 'started' > "$dir/fake/ticket-state"
   before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
-  out=$(FM_FAKE_ATLAS_FAIL=park run_control "$dir" t1 park --reason "waits on the new review"); rc=$?
+  out=$(run_control "$dir" t1 park --reason "waits on the new review" --on c99); rc=$?
   expect_code 1 "$rc" "parking again should fail when the Atlas does not record it"$'\n'"$out"
   assert_contains "$out" "park was not updated" "the failure should say the park was not updated"
   assert_contains "$out" "prior park record was kept" "the failure should say the prior record stays"
   assert_not_contains "$out" "worker is still running" "the failure must not claim a worker still runs"
   cmp -s "$before" "$dir/home/state/t1.meta" || fail "a failed park update must restore the prior park record"
-  pass "park again: an Atlas that does not record the update keeps the prior park record"
+  [ "$(cat "$dir/fake/ticket-state")" = parked ] || fail "the refused update must leave the ticket parked"
+  out=$(run_control "$dir" t1 park --reason "waits on the captain" --on c99); rc=$?
+  expect_code 1 "$rc" "a refused blocker-only update should fail too"$'\n'"$out"
+  assert_contains "$out" "park was not updated" "the blocker-only failure should say the park was not updated"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a failed blocker-only update must restore the prior park record"
+  pass "park again: an Atlas that refuses the update while the ticket stays parked keeps the prior park record"
 }
 
 # --- 5. resume refusals and rollback --------------------------------------------

@@ -33,6 +33,7 @@
 #     (s) fm-teardown --force records nothing when it is discarding real work
 #     (v) abort returns a dead dispatch's ticket to the queue, and demands a reason
 #     (w) state reads the recorded ticket's state back, silently or not at all
+#     (w1) parked reads the park in force back, silently or not at all
 #     (w2) park records the worker's native session on the ticket and demands
 #          it; unpark returns the ticket to started with what changed
 #     (x) fm-teardown aborts a leg that produced nothing, forced or not
@@ -410,6 +411,36 @@ test_state_reports_the_recorded_ticket_state() {
   out=$(run_hook "$home" state task-a1 2>/dev/null)
   [ -z "$out" ] || fail "state: an unwired home must print nothing, got: $out"
   pass "state reads back the recorded ticket's state, and prints nothing when there is none"
+}
+
+test_parked_reports_the_park_in_force() {
+  local home out rc want
+  home=$(make_home parked-in-force c7 parked)
+  cat > "$home/ticket.json" <<'JSON'
+{"change":{"id":"c7","state":"parked","node":"n42","parked":{"at":"2026-09-22T20:00:00.000Z","by":"fm-control","why":"waits on\nthe merge word","on":"n149","stage":"implement","session":{"home":"main","task":"task-a1","harness":"claude","id":"0f3c2a9e-1111-4a2b-9c3d-000000000001"}}}}
+JSON
+  set +e
+  out=$(run_hook "$home" parked task-a1 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "parked: the hook must exit 0"
+  want=$'at=2026-09-22T20:00:00.000Z\nwhy=waits on the merge word\non=n149\nsession=0f3c2a9e-1111-4a2b-9c3d-000000000001'
+  [ "$out" = "$want" ] || fail "parked: expected the park in force as key=value lines, got:"$'\n'"$out"
+  home=$(make_home parked-none)
+  cat > "$home/ticket.json" <<'JSON'
+{"change":{"id":"c7","state":"started","node":"n42","parked":null}}
+JSON
+  out=$(run_hook "$home" parked task-a1 2>&1)
+  [ -z "$out" ] || fail "parked: a ticket that is not parked must print nothing, got: $out"
+  home=$(make_home parked-unwired c7 parked)
+  rm -f "$home/config/specs"
+  out=$(run_hook "$home" parked task-a1 2>&1)
+  [ -z "$out" ] || fail "parked: an unwired home must print nothing, got: $out"
+  atlas_log_empty "$home" "parked: an unwired home must make no Atlas call"
+  home=$(make_home parked-hang c7 parked)
+  out=$(FM_FAKE_ATLAS_HANG=1 FM_ATLAS_HOOK_TIMEOUT_SECS=1 run_hook "$home" parked task-a1 2>&1)
+  [ -z "$out" ] || fail "parked: a failed read must print nothing, got: $out"
+  pass "parked reads back the park in force, and prints nothing when there is none"
 }
 
 # --- (i)(j) a broken Atlas never blocks -------------------------------------
@@ -963,6 +994,7 @@ test_abort_demands_a_reason
 test_park_records_the_session_and_unpark_reopens_it
 test_park_demands_its_session
 test_state_reports_the_recorded_ticket_state
+test_parked_reports_the_park_in_force
 test_failing_atlas_warns_once_and_exits_zero
 test_hanging_atlas_is_bounded_by_the_timeout
 test_merge_local_discharges_the_ticket

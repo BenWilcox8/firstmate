@@ -16,6 +16,7 @@
 #                              [--on <ticket|node>] [--actor <name>]
 #        fm-atlas-hook.sh unpark <task-id> [--reason <text>] [--actor <name>]
 #        fm-atlas-hook.sh state <task-id>
+#        fm-atlas-hook.sh parked <task-id>
 #        fm-atlas-hook.sh wired
 #
 #   start     tells the Atlas the task's recorded ticket is now being worked by
@@ -49,6 +50,13 @@
 #             abandoned) and nothing else, so a caller can tell a leg nobody
 #             discharged from one a crewmate or a merge already closed. Read-only:
 #             it prints nothing at all on any skip or failure.
+#   parked    prints the park in force on the recorded ticket as key=value
+#             lines: at= (when the Atlas recorded it), why= (the reason), on=
+#             (the blocker as the Atlas resolved it, empty when none), and
+#             session= (the native session id). A caller compares them with
+#             the park it sent, because a park refused on a ticket that was
+#             already parked still reads parked. Read-only: it prints nothing
+#             at all when the ticket is not parked, and on any skip or failure.
 #
 #   wired     is the read-only query the rest of the fleet uses to ask whether
 #             this home is wired to an Atlas at all. It prints the resolved repo
@@ -95,7 +103,7 @@
 # every path exits 0, including an unusable Atlas, a missing atlas-axi, a missing
 # jq, a hung call, and any internal error. A call that was attempted and failed
 # prints exactly one warning line to stderr. Besides that warning, only state,
-# wired, and a land --defer-status refusal line print anything. Callers
+# parked, wired, and a land --defer-status refusal line print anything. Callers
 # still append `|| true` so a caller running under `set -e` is safe even if this
 # script is replaced by an older copy.
 #
@@ -296,6 +304,17 @@ hook_state() {
   [ -z "$TICKET_STATE" ] || printf '%s\n' "$TICKET_STATE"
 }
 
+# Read-only, and silent on every skip: the park in force, or nothing.
+hook_parked() {
+  local json
+  command -v jq >/dev/null 2>&1 || return 0
+  json=$(atlas_axi_try ticket show "$TICKET" --json 2>/dev/null) || return 0
+  printf '%s' "$json" | jq -r '
+    .change.parked // empty | select(type == "object")
+    | "at=\(.at // "")", "why=\(.why // "" | gsub("[\n\r\t]"; " "))",
+      "on=\(.on // "")", "session=\(.session.id // "")"' 2>/dev/null || true
+}
+
 hook_park() {
   local -a args=(ticket park "$TICKET" "$REASON" --home "$PARK_HOME" \
     --harness "$PARK_HARNESS" --session "$PARK_SESSION" --task "$ID")
@@ -361,7 +380,7 @@ run_hook() {
       atlas_repo || return 0
       return 0
       ;;
-    start|complete|land|abort|park|unpark|state) ;;
+    start|complete|land|abort|park|unpark|state|parked) ;;
     '') warn "no hook verb given"; return 0 ;;
     *) warn "unknown hook verb $VERB"; return 0 ;;
   esac
@@ -500,6 +519,7 @@ run_hook() {
     park) hook_park ;;
     unpark) hook_unpark ;;
     state) hook_state ;;
+    parked) hook_parked ;;
   esac
 }
 
