@@ -170,8 +170,7 @@ Do this in the same turn, because nothing later will remind you.
   No brief scaffold carries Atlas content, and `tests/fm-brief.test.sh` keeps the generated scaffolds signal-free on purpose.
   A crewmate that is never told to read `atlas-working` cannot walk the stages its ticket declares.
 - Add the `normal` merge-kind line above to that same brief whenever the ticket carries `--merge normal`.
-- Do not add `--repo` or `--by` to a brief's Atlas commands.
-  On a wired home, `bin/fm-spawn.sh` launches every ship and scout worker with `ATLAS_REPO` and `ATLAS_AXI_BY`, so a bare `atlas-axi` reaches this home's map and each write is attributed to that task; an unwired home clears the Atlas environment.
+- On a wired home, `bin/fm-spawn.sh` launches every ship and scout worker with `ATLAS_REPO` and `ATLAS_AXI_BY`.
 
 ## Recorded captain rulings
 

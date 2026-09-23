@@ -6,7 +6,7 @@
 # Usage: fm-atlas-hook.sh start <task-id> [--actor <name>]
 #        fm-atlas-hook.sh complete <task-id> --evidence <text> [--summary <text>]
 #                                            [--restage <stage>] [--actor <name>]
-#                                            [--captain-word <words>] [--defer-status]
+#                                            [--captain-word <words>]
 #        fm-atlas-hook.sh land <task-id> --evidence <text> [--summary <text>]
 #                                        [--actor <name>] [--captain-word <words>]
 #                                        [--defer-status]
@@ -53,9 +53,9 @@
 #              first record them as the captain's Atlas approval, `ticket approve
 #              <c> --word <words>`, on a ticket that is not yet closed, so a
 #              captain-authorized merge or acceptance can pass the captain gate.
-#   --defer-status  prints a refusal's status line on stdout instead of writing
-#              it (see THE CAPTAIN GATE), for a caller about to retire the task's
-#              status log; that caller writes the line after the retirement.
+#   --defer-status  is for land only and prints a refusal's status line on
+#              stdout instead of writing it (see THE CAPTAIN GATE), for teardown
+#              to write after it retires the task's status log.
 #
 # THE CAPTAIN GATE. The Atlas refuses `ticket complete` and `land` while a ticket
 # waits on the captain's approval, or promised the captain a look and has no
@@ -77,7 +77,7 @@
 # every path exits 0, including an unusable Atlas, a missing atlas-axi, a missing
 # jq, a hung call, and any internal error. A call that was attempted and failed
 # prints exactly one warning line to stderr. Besides that warning, only state,
-# wired, and a --defer-status refusal line print anything. Callers
+# wired, and a land --defer-status refusal line print anything. Callers
 # still append `|| true` so a caller running under `set -e` is safe even if this
 # script is replaced by an older copy.
 #
@@ -372,7 +372,10 @@ run_hook() {
       --reason=*) REASON=${a#--reason=} ;;
       --captain-word) want_value=captain-word ;;
       --captain-word=*) CAPTAIN_WORD=${a#--captain-word=}; CAPTAIN_WORD_SUPPLIED=1 ;;
-      --defer-status) DEFER_STATUS=1 ;;
+      --defer-status)
+        [ "$VERB" = land ] || { warn "$VERB called with --defer-status, which only land supports"; return 0; }
+        DEFER_STATUS=1
+        ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done

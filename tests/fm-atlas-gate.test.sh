@@ -388,6 +388,34 @@ test_land_refused() {
   pass "$store: a refused land releases the node, never lands it, and leaves one keyed status line"
 }
 
+test_complete_rejects_defer_status() {
+  local store=$1 out rc log_before log_after
+  make_home "$store" complete-defer human none
+  case "$store" in
+    mock) log_before=$(wc -l < "$REPO/atlas/mock/log") ;;
+  esac
+  set +e
+  out=$(in_home "$store" "$HOOK" complete task-a1 --actor fm-pr-merge --defer-status \
+    --evidence https://example.invalid/pr/defer --summary "merged" 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "$store: an unsupported --defer-status must preserve the best-effort exit"
+  [ "$(printf '%s\n' "$out" | grep -c '^atlas-hook:')" = 1 ] \
+    || fail "$store: an unsupported --defer-status must warn once: $out"
+  assert_absent "$HOME_DIR/state/task-a1.status" \
+    "$store: an unsupported --defer-status wrote a status line"
+  case "$store" in
+    mock)
+      log_after=$(wc -l < "$REPO/atlas/mock/log")
+      [ "$log_before" = "$log_after" ] \
+        || fail "mock: an unsupported --defer-status called Atlas"
+      ;;
+  esac
+  [ "$(node_field "$store" "$REPO" .holder)" = fm-task-a1 ] \
+    || fail "$store: an unsupported --defer-status changed the node"
+  pass "$store: complete rejects --defer-status before any Atlas call"
+}
+
 test_land_defer_status() {
   local store=$1 out
   make_home "$store" land-defer human none
@@ -839,6 +867,7 @@ for store in $STORES; do
   test_complete_refused_for_testing_brief "$store"
   test_complete_with_captain_word "$store"
   test_land_refused "$store"
+  test_complete_rejects_defer_status "$store"
   test_land_defer_status "$store"
   test_pr_merge_refused "$store"
   test_pr_merge_with_captain_word "$store"
