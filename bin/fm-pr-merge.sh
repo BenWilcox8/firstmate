@@ -149,6 +149,15 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+for arg in "$@"; do
+  case "$arg" in
+    --captain-word*)
+      echo "error: --captain-word is never forwarded to the forge CLI; pass it before --" >&2
+      exit 2
+      ;;
+  esac
+done
+
 caller_has_merge_method() {
   local arg
   for arg in "$@"; do

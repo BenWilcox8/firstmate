@@ -465,6 +465,27 @@ test_pr_merge_with_captain_word() {
   pass "$store: fm-pr-merge --captain-word approves and completes the ticket with no manual Atlas step"
 }
 
+test_pr_merge_rejects_forwarded_captain_word() {
+  local store=$1 rc out form
+  make_home "$store" pr-forwarded-word human none yolo=on
+  make_fake_forge
+  for form in equals positional; do
+    set +e
+    case "$form" in
+      equals) out=$(run_pr_merge "$store" -- --captain-word=words 2>&1) ;;
+      positional) out=$(run_pr_merge "$store" -- --captain-word words 2>&1) ;;
+    esac
+    rc=$?
+    set -e
+    expect_code 2 "$rc" "$store: fm-pr-merge accepted a forwarded --captain-word=$form"
+    assert_contains "$out" "never forwarded to the forge CLI" \
+      "$store: fm-pr-merge did not explain the forwarded captain-word rule"
+    [ ! -s "$HOME_DIR/gh.log" ] \
+      || fail "$store: fm-pr-merge called the forge with a forwarded --captain-word"
+  done
+  pass "$store: fm-pr-merge refuses captain words after the forge boundary"
+}
+
 test_merge_local_with_captain_word() {
   local store=$1 proj rc
   MODE=local-only make_home "$store" local-word human none yolo=on
@@ -776,6 +797,7 @@ for store in $STORES; do
   test_land_defer_status "$store"
   test_pr_merge_refused "$store"
   test_pr_merge_with_captain_word "$store"
+  test_pr_merge_rejects_forwarded_captain_word "$store"
   test_merge_local_with_captain_word "$store"
   test_teardown_refused "$store"
   test_teardown_with_captain_word "$store"
