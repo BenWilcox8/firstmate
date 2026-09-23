@@ -150,6 +150,7 @@ case "${1:-}" in
         upd "$(node_file "$(jq -r .node "$f")")" --arg t "$to" '.holder = $t | .cond = "underway"'
         ;;
       approve)
+        [ "${FM_MOCK_APPROVE_FAIL:-}" = 1 ] && die "captain approval service is unavailable"
         f=$(ticket_file "$3"); word=$(opt --word "$@" || true)
         case "$(jq -r .state "$f")" in
           completed|abandoned) die "$3 is $(jq -r .state "$f") - the captain's word belongs on work that has not closed yet" ;;
@@ -375,6 +376,27 @@ test_complete_with_captain_word() {
   [ -z "$(gate_lines "$HOME_DIR/state/task-a1.status")" ] \
     || fail "$store: an approved close-out must not raise a gate line"
   pass "$store: --captain-word records the captain's exact words as the approval, then completes"
+}
+
+test_complete_coalesces_failed_approval_warning() {
+  local store=$1 out rc
+  [ "$store" = mock ] || return 0
+  make_home "$store" approval-failed human none
+  set +e
+  out=$(FM_MOCK_APPROVE_FAIL=1 in_home "$store" "$HOOK" complete task-a1 \
+    --actor fm-pr-merge --captain-word "merge it" \
+    --evidence https://example.invalid/pr/approval --summary "merged" 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "mock: a failed approval must preserve the hook's best-effort exit"
+  [ "$(printf '%s\n' "$out" | grep -c '^atlas-hook:')" = 1 ] \
+    || fail "mock: a failed approval and refused close-out must warn once: $out"
+  assert_contains "$out" "captain approval failed" \
+    "mock: the refusal warning did not retain the failed approval reason"
+  assert_one_gate_line "$store" "$HOME_DIR/state/task-a1.status" "captain's approval" "failed approval"
+  [ -z "$(node_field "$store" "$REPO" .holder)" ] \
+    || fail "mock: a failed approval left the refused node held"
+  pass "mock: a failed approval is coalesced into one close-out warning"
 }
 
 test_land_refused() {
@@ -880,6 +902,7 @@ for store in $STORES; do
   test_complete_refused_for_approval "$store"
   test_complete_refused_for_testing_brief "$store"
   test_complete_with_captain_word "$store"
+  test_complete_coalesces_failed_approval_warning "$store"
   test_land_refused "$store"
   test_complete_rejects_defer_status "$store"
   test_land_defer_status "$store"

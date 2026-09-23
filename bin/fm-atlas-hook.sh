@@ -199,13 +199,16 @@ ticket_read() {
 
 # Record the captain's exact words as the Atlas approval, before any act the
 # captain gate stands in front of. Only an open ticket can take the captain's
-# word; a failed approval warns and the close-out that follows reports the gate.
+# word. A close-out refusal reports a failed approval with its own refusal.
 captain_approve() {
+  CAPTAIN_APPROVAL_ERR=
   [ -n "$CAPTAIN_WORD" ] || return 0
   case "$TICKET_STATE" in
     completed|abandoned) return 0 ;;
   esac
-  atlas_axi_call "captain approval" ticket approve "$TICKET" --word "$CAPTAIN_WORD" >/dev/null || true
+  atlas_axi_try ticket approve "$TICKET" --word "$CAPTAIN_WORD" >/dev/null && return 0
+  CAPTAIN_APPROVAL_ERR=$ATLAS_ERR
+  return 1
 }
 
 # Complete the ticket unless the crewmate already did. Silent: returns 1 with
@@ -225,7 +228,7 @@ ticket_complete_once() {
 # retire that log. One warning line tells the caller the Atlas step did not
 # succeed.
 gate_refused() {  # <refused act> <node already released: yes|no>
-  local act=$1 released=$2 refusal=$ATLAS_ERR gate node_note line
+  local act=$1 released=$2 refusal=$ATLAS_ERR gate node_note line approval_note=
   case "$refusal" in
     *"no testing brief"*) gate="the testing brief is missing" ;;
     *"reviewed by the captain"*) gate="the captain's approval is missing" ;;
@@ -236,14 +239,17 @@ gate_refused() {  # <refused act> <node already released: yes|no>
   else
     node_note="node $TICKET_NODE could not be released ($(printf '%s' "$ATLAS_ERR" | cut -c1-80))"
   fi
-  line="blocked [key=atlas-gate-$TICKET]: the Atlas refused to $act for task $ID: $gate; $node_note"
+  if [ -n "$CAPTAIN_APPROVAL_ERR" ]; then
+    approval_note="; captain approval failed: $(printf '%s' "$CAPTAIN_APPROVAL_ERR" | tr '\n' ' ' | cut -c1-120)"
+  fi
+  line="blocked [key=atlas-gate-$TICKET]: the Atlas refused to $act for task $ID: $gate$approval_note; $node_note"
   if [ "$DEFER_STATUS" = 1 ]; then
     printf '%s\n' "$line"
-    printf 'atlas-hook: %s refused for %s (%s); %s; the status line went to the caller\n' "$act" "$ID" "$gate" "$node_note" >&2
+    printf 'atlas-hook: %s refused for %s (%s%s); %s; the status line went to the caller\n' "$act" "$ID" "$gate" "$approval_note" "$node_note" >&2
   elif printf '%s\n' "$line" >> "$STATE/$ID.status" 2>/dev/null; then
-    printf 'atlas-hook: %s refused for %s (%s); %s; the status log says so\n' "$act" "$ID" "$gate" "$node_note" >&2
+    printf 'atlas-hook: %s refused for %s (%s%s); %s; the status log says so\n' "$act" "$ID" "$gate" "$approval_note" "$node_note" >&2
   else
-    printf 'atlas-hook: %s refused for %s (%s); %s; the status line could not be written\n' "$act" "$ID" "$gate" "$node_note" >&2
+    printf 'atlas-hook: %s refused for %s (%s%s); %s; the status line could not be written\n' "$act" "$ID" "$gate" "$approval_note" "$node_note" >&2
   fi
 }
 
@@ -278,7 +284,7 @@ hook_start() {
 
 hook_complete() {
   ticket_read || return 1
-  captain_approve
+  captain_approve || true
   if [ -n "$RESTAGE" ] && [ "$TICKET_STATE" = started ]; then
     # A restage the captain gate refuses says nothing the refused completion
     # below will not say, so only a restage failing for another reason warns.
@@ -289,17 +295,21 @@ hook_complete() {
       esac
     fi
   fi
-  ticket_complete_once && return 0
+  if ticket_complete_once; then
+    [ -z "$CAPTAIN_APPROVAL_ERR" ] || warn "captain approval failed for $ID" "$CAPTAIN_APPROVAL_ERR"
+    return 0
+  fi
   gate_refused "complete ticket $TICKET" no
 }
 
 hook_land() {
   ticket_read || return 1
-  captain_approve
+  captain_approve || true
   if ! ticket_complete_once; then
     gate_refused "complete ticket $TICKET" no
     return 0
   fi
+  [ -z "$CAPTAIN_APPROVAL_ERR" ] || warn "captain approval failed for $ID" "$CAPTAIN_APPROVAL_ERR"
   atlas_axi_call "release" release "$TICKET_NODE" >/dev/null || return 1
   if node_has_open_ticket; then
     return 0
@@ -345,6 +355,7 @@ run_hook() {
   SUMMARY=
   RESTAGE=
   CAPTAIN_WORD=
+  CAPTAIN_APPROVAL_ERR=
   CAPTAIN_WORD_SUPPLIED=0
   DEFER_STATUS=0
   REASON=
