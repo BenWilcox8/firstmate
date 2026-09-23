@@ -3651,9 +3651,20 @@ ORPHAN_DESCENDANT=$(cat "$TMP_ROOT/orphan-dead.descendant")
 
 # The reproduction condition itself: the listener is already an orphan in the
 # kernel's sense before anything is asserted about reaping it.
+# An orphan is adopted by init or, on a host with a child subreaper such as
+# `systemd --user`, by that subreaper; either way its new parent is no longer
+# inside this test's own process tree.
 orphan_ppid=$(ps -o ppid= -p "$ORPHAN_PID" 2>/dev/null | tr -d '[:space:]')
-[ "$orphan_ppid" = 1 ] \
-  || fail "the listener under test was not reparented away from its session (ppid $orphan_ppid)"
+case "$orphan_ppid" in
+  ''|*[!0-9]*|0) fail "the listener under test has no readable parent (ppid '$orphan_ppid')" ;;
+esac
+orphan_ancestor=$orphan_ppid
+while [ "$orphan_ancestor" -gt 1 ]; do
+  [ "$orphan_ancestor" != "$$" ] \
+    || fail "the listener under test was not reparented away from its session (ppid $orphan_ppid)"
+  orphan_ancestor=$(ps -o ppid= -p "$orphan_ancestor" 2>/dev/null | tr -d '[:space:]')
+  case "$orphan_ancestor" in ''|*[!0-9]*) break ;; esac
+done
 kill -0 -"$ORPHAN_PID" 2>/dev/null \
   || fail "the listener's process group was not running"
 kill -0 "$ORPHAN_DESCENDANT" 2>/dev/null \

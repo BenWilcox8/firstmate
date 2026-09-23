@@ -231,6 +231,11 @@ EOF
 
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
+  local ps_env=()
+  # A Herdr case proves the endpoint against its own fake process table, and
+  # pins the native pane path: a host agent-axi would drive the fake herdr.
+  [ ! -x "$dir/fake/herdr-ps" ] \
+    || ps_env=(FM_HERDR_PS_BIN="$dir/fake/herdr-ps" FM_BACKEND_HERDR_AXI_BIN=)
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), and a relaunch reaches it through fm-control.sh, so this runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
@@ -248,11 +253,17 @@ run_control() {  # <case-dir> <args...>
     FM_FAKE_TRACE_RELEASE="${FM_FAKE_TRACE_RELEASE:-}" \
     FM_FAKE_META_WRITER_READY="${FM_FAKE_META_WRITER_READY:-}" \
     FM_FAKE_TRACE_EXPORTED="${FM_FAKE_TRACE_EXPORTED:-}" \
+    "${ps_env[@]+"${ps_env[@]}"}" \
     "$CONTROL" "$@" 2>&1
 }
 
 run_spawn() {  # <case-dir> <args...>
   local dir=$1; shift
+  local ps_env=()
+  # A Herdr case proves recovery against its own fake process table, and pins
+  # the native pane path: a host agent-axi would drive the fake herdr.
+  [ ! -x "$dir/fake/herdr-ps" ] \
+    || ps_env=(FM_HERDR_PS_BIN="$dir/fake/herdr-ps" FM_BACKEND_HERDR_AXI_BIN=)
   # A claude spawn pre-registers workspace trust in the launching user's own
   # store (bin/fm-claude-trust.sh), so it runs against a throwaway HOME;
   # without it this suite would write the developer's real ~/.claude.json.
@@ -262,6 +273,7 @@ run_spawn() {  # <case-dir> <args...>
     PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' \
     FM_SPAWN_NO_GUARD=1 GROK_HOME="$dir/grokhome" \
+    "${ps_env[@]+"${ps_env[@]}"}" \
     "$SPAWN" "$@" 2>&1
 }
 
@@ -1815,6 +1827,13 @@ test_reclaim_refuses_an_unreadable_endpoint() {
 make_herdr_stub() {  # <case-dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
+  # The process table behind the fake panes (FM_HERDR_PS_BIN, see run_spawn).
+  cat > "$1/fake/herdr-ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash bash' \
+  '4242 1 4242 S bash bash' '4243 4242 4243 S claude claude'
+SH
+  chmod +x "$1/fake/herdr-ps"
   # The herdr server-ensure poll must actually wait between reads, so this case
   # keeps the real sleep rather than the tmux cases' instant stub.
   rm -f "$fb/sleep"
@@ -1862,9 +1881,16 @@ case "${1:-} ${2:-}" in
     fi
     exit 0 ;;
   'pane process-info')
-    # Only asked for once an agent IS registered, to prove it at process level.
-    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' \
-      "$(cat "$D/herdr-pane")"
+    # The recovery classifier proves both states at process level against the
+    # fake process table in herdr-ps: a registered agent is the claude process
+    # 4243 under shell 4242, and a pane holding no agent is the idle shell 100.
+    if [ -f "$D/herdr-agent-live" ]; then
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' \
+        "$(cat "$D/herdr-pane")"
+    else
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":100,"foreground_process_group_id":100,"foreground_processes":[{"pid":100,"name":"bash","argv":["bash"]}]}}}\n' \
+        "$(cat "$D/herdr-pane")"
+    fi
     exit 0 ;;
   'pane send-text')
     # Mirrors the tmux fake's `becomes`: delivering the launch brief is what
