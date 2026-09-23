@@ -160,8 +160,33 @@ test_limit_is_inherited_by_secondmate_homes() {
   pass "config/agent-limit: a secondmate home inherits the primary limit"
 }
 
+test_reads_only_sessions_the_homes_record() {
+  local dir=$TMP_ROOT/recorded-sessions home out fakebin
+  dir="$TMP_ROOT/recorded-sessions"
+  home="$dir/home"
+  mkdir -p "$dir"
+  make_home "$home"
+  fakebin=$(make_fake_herdr "$dir")
+  add_pane "$dir" default w1:p1 w1 "$dir/wt-x" claude claude
+  add_pane "$dir" fm-lab-only w1:p1 w1 "$dir/wt-a" claude claude
+  task_meta "$home" task-a ship claude fm-lab-only:w1:p1
+  out=$(run_count "$dir" "$home" "$fakebin" --json) || fail "count failed: $out"
+  [ "$(printf '%s' "$out" | jq -c '[.count, .sessions]')" = '[1,["fm-lab-only"]]' ] \
+    || fail "the count should read only the session its homes record: $out"
+  assert_no_grep "--session default" "$dir/herdr/calls" "the count read a session no home records"
+
+  rm -f "$home/state/task-a.meta"
+  : > "$dir/herdr/calls"
+  out=$(run_count "$dir" "$home" "$fakebin" --json) || fail "count failed: $out"
+  [ "$(printf '%s' "$out" | jq -c '[.count, .sessions]')" = '[0,[]]' ] \
+    || fail "a home with no Herdr records should read no session: $out"
+  [ ! -s "$dir/herdr/calls" ] || fail "a home with no Herdr records still called Herdr: $(cat "$dir/herdr/calls")"
+  pass "fm-agent-count: reads only the Herdr sessions the homes record, and none when there are none"
+}
+
 test_counts_only_crewmate_agents_open_in_herdr
 test_reports_limit_default_config_and_off
 test_session_states
 test_unreadable_pane_is_listed_not_counted
 test_limit_is_inherited_by_secondmate_homes
+test_reads_only_sessions_the_homes_record

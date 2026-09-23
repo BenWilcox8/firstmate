@@ -29,9 +29,10 @@
 # local home on the machine counts from any one of them. Remote secondmate
 # records (remote_host=) name panes on another machine and are skipped.
 #
-# Sessions: the `default` session plus every session a home's Herdr record
-# names. A session whose server is not running holds no agents. Any other
-# Herdr error makes the whole count unreadable, and the caller decides.
+# Sessions: every session a home's Herdr record names, and no other, so a
+# test home in a lab session never reads the captain's live session. A session
+# whose server is not running holds no agents. Any other Herdr error makes the
+# whole count unreadable, and the caller decides.
 #
 # The limit: config/agent-limit holds one positive integer or the word `off`.
 # An absent file means FM_AGENT_LIMIT_DEFAULT. The file is inherited by
@@ -166,8 +167,8 @@ fm_agent_limit_session_panes() {
 }
 
 # fm_agent_limit_count_json <start-home> [session...]: print the count document.
-# With no sessions, the sessions are `default` plus those the homes' records
-# name. Returns 1 with an error on stderr when Herdr cannot be read.
+# With no sessions, the sessions are those the homes' records name.
+# Returns 1 with an error on stderr when Herdr cannot be read.
 fm_agent_limit_count_json() {
   local start=$1 homes records sessions session panes pane_rows pane ws cwd snapshot agent_name
   local out='' unreadable=''
@@ -180,7 +181,7 @@ fm_agent_limit_count_json() {
   if [ "$#" -gt 0 ]; then
     sessions=$(printf '%s\n' "$@")
   else
-    sessions=$( { printf 'default\n'; printf '%s\n' "$records" | cut -f1; } | awk 'NF && !seen[$0]++')
+    sessions=$(printf '%s\n' "$records" | cut -f1 | awk 'NF && !seen[$0]++')
   fi
   while IFS= read -r session; do
     [ -n "$session" ] || continue

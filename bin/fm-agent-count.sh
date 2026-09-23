@@ -15,7 +15,7 @@
 #               unmanaged, and unreadable. Each pane entry has session, pane,
 #               workspace, home, task, kind, and harness.
 #   --session   count only this Herdr session (repeatable). The default is
-#               the `default` session plus every session a home records.
+#               every session a home's Herdr task record names.
 # The limit is config/agent-limit: one positive whole number, or `off`.
 # Absent means the default (30). To go past the limit once, pass --over-limit
 # to bin/fm-spawn.sh; to disable it, write `off` to config/agent-limit.
