@@ -34,6 +34,9 @@ SPAWN="$ROOT/bin/fm-spawn.sh"
 TEARDOWN="$ROOT/bin/fm-teardown.sh"
 BOOTSTRAP="$ROOT/bin/fm-bootstrap.sh"
 TMP_ROOT=$(fm_test_tmproot fm-backlog-atomicity)
+# The stub tasks-axi scripts run under a PATH with no bash on it, so their
+# shebang names bash by absolute path; NixOS has no /bin/bash.
+STUB_SHEBANG="#!$(fm_test_tool bash)"
 
 command -v tasks-axi >/dev/null 2>&1 || {
   printf 'ok - skipped (tasks-axi is not installed; the fused transitions are inert without it)\n'
@@ -347,7 +350,7 @@ run_bounded_fm_tasks_axi() {  # <fallback-bin> <bound> [args...]
 test_fm_tasks_axi_fallback_bounds_the_call_without_a_timeout_binary() {
   local case_dir fb out rc=0 started
   case_dir=$(make_home fm-tasks-axi-fallback)
-  fb=$(make_fallback_bin "$case_dir" '#!/bin/bash
+  fb=$(make_fallback_bin "$case_dir" "$STUB_SHEBANG"'
 exec sleep 300')
   started=$SECONDS
   out=$(run_bounded_fm_tasks_axi "$fb" 2 show never-answers) || rc=$?
@@ -363,7 +366,7 @@ exec sleep 300')
 test_fm_tasks_axi_fallback_passes_the_child_status_and_output_through() {
   local case_dir fb out rc=0
   case_dir=$(make_home fm-tasks-axi-passthrough)
-  fb=$(make_fallback_bin "$case_dir" '#!/bin/bash
+  fb=$(make_fallback_bin "$case_dir" "$STUB_SHEBANG"'
 echo "stub failed"
 exit 7')
   out=$(run_bounded_fm_tasks_axi "$fb" 5 show x) || rc=$?
@@ -378,7 +381,7 @@ test_fm_tasks_axi_fails_closed_when_nothing_can_bound_the_call() {
   case_dir=$(make_home fm-tasks-axi-unboundable)
   fb="$case_dir/unboundablebin"
   mkdir -p "$fb"
-  printf '#!/bin/bash\nexit 0\n' > "$fb/tasks-axi"
+  printf '%s\nexit 0\n' "$STUB_SHEBANG" > "$fb/tasks-axi"
   chmod +x "$fb/tasks-axi"
   out=$(run_bounded_fm_tasks_axi "$fb" 5 show x) || rc=$?
   [ "$rc" -eq 127 ] \
@@ -404,7 +407,7 @@ test_fm_tasks_axi_gnu_timeout_forces_termination_of_a_sigterm_ignoring_child() {
   mkdir -p "$fb"
   ln -s "$(command -v timeout)" "$fb/timeout"
   ln -s "$(command -v sleep)" "$fb/sleep"
-  printf '#!/bin/bash\ntrap "" TERM\nexec sleep 300\n' > "$fb/tasks-axi"
+  printf '%s\ntrap "" TERM\nexec sleep 300\n' "$STUB_SHEBANG" > "$fb/tasks-axi"
   chmod +x "$fb/tasks-axi"
   started=$SECONDS
   out=$(run_bounded_fm_tasks_axi "$fb" 2 show never-answers) || rc=$?
