@@ -22,7 +22,9 @@ OUT.mkdir()
 # 15-char kernel name, so "synthetic-claude" becomes "synthetic-claud" and
 # never matches the claude regex, so fm-lock.sh exits without writing .lock.
 FAKE = LAB / "claude"
-FAKE.symlink_to("/bin/bash")
+# Resolve bash from PATH: NixOS and other hosts without an FHS layout have no
+# /bin/bash.
+FAKE.symlink_to(shutil.which("bash") or "/bin/bash")
 PROCS = []
 
 # The suite may itself run inside a Claude session. Its CLAUDE_CODE_SESSION_ID

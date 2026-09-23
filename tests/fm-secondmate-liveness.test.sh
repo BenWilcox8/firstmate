@@ -177,13 +177,16 @@ SH
 # --- unit level: fm_backend_herdr_agent_state -------------------------------
 
 test_herdr_agent_state_maps_recovery_classifier() {
-  local pane_state expected out
+  local row pane_state server_state expected out
 
-  for row in 'dead missing' 'no-agent dead' 'live alive' 'unknown unreadable'; do
-    pane_state=${row%% *}
-    expected=${row#* }
-    out=$(FM_TEST_PANE_STATE="$pane_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
-    [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state should map to $expected, got '$out'"
+  # The server read is stubbed too: an unreadable pane consults the session
+  # server, and a host with a real herdr binary must not decide this verdict.
+  # A positively stopped server is missing; a running or unreadable one is not.
+  for row in 'dead running missing' 'no-agent running dead' 'live running alive' \
+    'unknown running unreadable' 'unknown unknown unreadable' 'unknown stopped missing'; do
+    read -r pane_state server_state expected <<<"$row"
+    out=$(FM_TEST_PANE_STATE="$pane_state" FM_TEST_SERVER_STATE="$server_state" bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_recovery_pane_agent_state() { printf "%s" "$FM_TEST_PANE_STATE"; }; fm_backend_herdr_server_running_state() { printf "%s" "$FM_TEST_SERVER_STATE"; }; fm_backend_herdr_agent_state "sess:p1"' "$ROOT")
+    [ "$out" = "$expected" ] || fail "Herdr pane state $pane_state with a $server_state server should map to $expected, got '$out'"
   done
 
   out=$(bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_agent_state "no-colon-target"' "$ROOT")

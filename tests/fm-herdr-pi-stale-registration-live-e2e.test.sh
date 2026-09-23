@@ -121,7 +121,21 @@ wait_process_state agent 100 || version_fail \
   "pi is running and registered ($STATUS) but pane process-info reads '$(fm_backend_herdr_pane_process_state "$SESSION" "$PANE_ID")', not 'agent'. Observed foreground: $(herdr pane process-info --pane "$PANE_ID" --session "$SESSION" 2>/dev/null | jq -c '.result.process_info.foreground_processes'). Teach bin/fm-agent-process-lib.sh's fm_agent_process_classify the identity this release actually reports"
 FOREGROUND=$(herdr pane process-info --pane "$PANE_ID" --session "$SESSION" 2>/dev/null \
   | jq -c '[.result.process_info.foreground_processes[] | {name, argv0}]')
-STATE=$(fm_backend_agent_state herdr "$TARGET")
+# This fork's recovery read requires an exact, stable process proof, so a
+# transient foreground helper beside Pi (a host Pi extension's node child named
+# MainThread, observed 2026-09-22 on pi 0.87.1 under herdr 0.8.2) reads
+# `unreadable` until it exits. That refuses recovery, which is safe. The guard
+# waits a bounded time for the settled verdict, and fails at once on any
+# verdict that would license recovery of the running Pi.
+STATE=
+for _ in $(seq 1 50); do
+  STATE=$(fm_backend_agent_state herdr "$TARGET")
+  case "$STATE" in
+    alive) break ;;
+    unreadable) sleep 0.2 ;;
+    *) version_fail "a running, registered pi read '$STATE' before its process proof settled; only 'unreadable' may precede 'alive'" ;;
+  esac
+done
 [ "$STATE" = alive ] || version_fail "a running, registered pi reads '$STATE' rather than 'alive' (registration '$(registered_status)', pane state '$(fm_backend_herdr_pane_agent_state "$SESSION" "$PANE_ID")', process state '$(fm_backend_herdr_pane_process_state "$SESSION" "$PANE_ID")', agent get: $(herdr agent get "$PANE_ID" --session "$SESSION" 2>&1 | tr -d '\n'))"
 note "pi $PI_VERSION under herdr $HERDR_VERSION: registered $STATUS, foreground $FOREGROUND"
 pass "real herdr $HERDR_VERSION + pi $PI_VERSION: a running registered pi classifies alive at process level"
