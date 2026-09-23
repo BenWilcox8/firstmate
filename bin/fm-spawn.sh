@@ -262,7 +262,8 @@
 #   30). The refusal names the count, the limit, and both overrides:
 #   --over-limit lets this one spawn through, and off in config/agent-limit
 #   disables the limit. A --relaunch into the task's own open pane replaces an
-#   agent and is exempt. Secondmate spawns are never limited. Batch
+#   agent and is exempt; a --resume-session opens a new pane and is limited.
+#   Secondmate spawns are never limited. Batch
 #   dispatch passes --over-limit to every pair, and each pair checks the count
 #   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
 #   bin/fm-agent-count.sh prints them.
@@ -1483,6 +1484,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
       echo "error: task $ID's session cannot be resumed: $FM_NATIVE_SESSION_REASON; nothing was created" >&2
       exit 1
     }
+    # A resume opens a new pane, so it adds an agent to the live Herdr count
+    # exactly as a new spawn does (bin/fm-agent-limit-lib.sh).
+    if [ "$KIND" != secondmate ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ]; then
+      fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
+    fi
   fi
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in

@@ -9,6 +9,7 @@
 #                                         (--note <text> | --note-file <path>)
 #        fm-control.sh <task-id> park --reason <text> [--on <ticket|node>]
 #        fm-control.sh <task-id> resume [--note <text> | --note-file <path>]
+#                                       [--over-limit]
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -48,6 +49,8 @@
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
 #              standing charter is never rewritten.
+#              A parked task is resumed instead, exactly as `resume` does, and
+#              only then does relaunch take resume's --over-limit.
 #              Records a durable checkpoint and that note, exits the old agent,
 #              then delegates the launch to its single owner,
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
@@ -82,7 +85,10 @@
 #              a resume never falls back to a fresh session. --note is delivered
 #              as a durable inbox steer once the agent runs. The park record is
 #              cleared only after the resumed agent is confirmed running; a
-#              failure after the unpark re-records the Atlas park.
+#              failure after the unpark re-records the Atlas park. The new
+#              endpoint adds an agent, so on Herdr the resume refuses at the
+#              agent limit (bin/fm-agent-limit-lib.sh) before it changes
+#              anything, and --over-limit lets this one resume through.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
@@ -155,6 +161,7 @@ fi
 }
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 [ -d "$STATE" ] || {
   echo "error: state dir '$STATE' is missing; fm-control cannot resolve tasks for FM_HOME '$FM_HOME'" >&2
   exit 1
@@ -174,6 +181,8 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-agent-limit-lib.sh
+. "$SCRIPT_DIR/fm-agent-limit-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
@@ -237,6 +246,7 @@ REASON=
 REASON_SET=0
 PARK_ON=
 PARK_ON_SET=0
+OVER_LIMIT=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -273,6 +283,7 @@ for control_arg in "$@"; do
     --reason=*) REASON=${control_arg#--reason=}; REASON_SET=1 ;;
     --on) control_want_value=on ;;
     --on=*) PARK_ON=${control_arg#--on=}; PARK_ON_SET=1 ;;
+    --over-limit) OVER_LIMIT=1 ;;
     --note-file=*)
       [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
       NOTE=$(cat "${control_arg#--note-file=}")
@@ -292,7 +303,10 @@ if [ "$VERB" != relaunch ]; then
 fi
 case "$VERB" in
   relaunch|resume) ;;
-  *) [ "$NOTE_SET" = 0 ] || die "--note applies to 'relaunch' and 'resume' only" ;;
+  *)
+    [ "$NOTE_SET" = 0 ] || die "--note applies to 'relaunch' and 'resume' only"
+    [ "$OVER_LIMIT" = 0 ] || die "--over-limit applies to 'resume' and to 'relaunch' of a parked task only"
+    ;;
 esac
 if [ "$VERB" = park ]; then
   [ -n "$REASON" ] || die "park requires a non-empty --reason that says what the work waits on"
@@ -1227,6 +1241,15 @@ do_resume() {
     || die "task $ID's recorded worktree '${WT:-none}' is missing; its session cannot be resumed where its work lives, and it stays parked"
   fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$(resume_claude_config)" \
     || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
+  # The resume opens a new pane, so it is held to the agent limit. The launch
+  # re-checks it; checking here first keeps a refused resume from touching the
+  # Atlas ticket or any pane.
+  if [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" = 0 ]; then
+    fm_backend_source herdr \
+      || die "task $ID was not resumed, because the herdr adapter could not be loaded to count its agents; it stays parked"
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" \
+      || die "task $ID was not resumed; it stays parked and nothing was changed"
+  fi
   # The park closed the recorded endpoint, and its id can now name another pane
   # (Herdr pane ids restart low after a server restart), so only a pane that
   # sits in this task's worktree is treated as the task's own. The resume
@@ -1259,6 +1282,7 @@ do_resume() {
   spawn_args=("$ID" --relaunch --resume-session --harness "$HARNESS")
   [ -z "$model" ] || [ "$model" = default ] || spawn_args+=(--model "$model")
   [ -z "$effort" ] || [ "$effort" = default ] || spawn_args+=(--effort "$effort")
+  [ "$OVER_LIMIT" = 0 ] || spawn_args+=(--over-limit)
   if ! "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     resume_rollback
     die "the resumed agent for $ID could not be launched; it stays parked with its session recorded, and its work is preserved at $WT"
@@ -1317,6 +1341,8 @@ case "$VERB" in
         || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile, so relaunch refuses a harness, model, or effort change for it"
       do_resume
     else
+      [ "$OVER_LIMIT" = 0 ] \
+        || die "--over-limit applies only when relaunch resumes a parked task; a relaunch into the task's own pane is never held to the agent limit"
       do_relaunch
     fi
     ;;

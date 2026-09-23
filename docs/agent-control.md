@@ -96,6 +96,8 @@ The resume always opens a new endpoint directly in the recorded worktree and rec
 The park closed the old one, and its id can since name another pane, for example after a Herdr server restart, when pane ids start low again.
 So only a pane that sits in the task's worktree counts as the task's own: an agent-free one, left by a park whose close never finished, is closed first, and an agent running there refuses the resume.
 Any other pane is left alone.
+The new endpoint adds an agent, so on Herdr a resume is held to the concurrent agent limit ([`docs/configuration.md`](configuration.md) "Concurrent agent limit") and refuses before it changes the ticket or any pane.
+`--over-limit` lets one resume through, and a relaunch of a parked task takes it as well.
 The resumed agent submits no prompt, so its busy state starts idle.
 The park record is cleared only after the resumed agent is confirmed running.
 A launch that fails after the unpark records the park on the ticket again.
