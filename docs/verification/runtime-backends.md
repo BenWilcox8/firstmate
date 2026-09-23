@@ -1058,6 +1058,30 @@ Herdr reports the wrapper as `MainThread`, with argv beginning with an exact `no
 The public control path accepts this identity only when Herdr and the operating-system process table independently agree on that shape.
 The portable regression in `tests/fm-backend-herdr-codex-attribution.test.sh` keeps unrelated MainThread processes, conflicting identity evidence, and leading-hyphen Node or Codex names unattributed.
 
+### Concurrent agent count
+
+The agent count that the spawn limit reads classifies each pane by its foreground process through the adapter's own recognition, so it was measured against real agents.
+Verified on 2026-09-22 with Herdr 0.8.2, Claude Code 2.1.280, Codex CLI 0.155.1, and Pi 0.87.1 on Linux x86_64:
+
+```sh
+tests/fm-agent-count-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - live: every open agent pane (claude codex pi) counts, and a shell pane and a parked task do not
+ok - live: closing the claude pane removes it from the count
+ok - live: an agent that exits in an open pane leaves the count
+ok - live: the lab session was torn down and the default session is unchanged
+```
+
+The guard starts each installed agent with no prompt, so it spends no model tokens and runs by default wherever Herdr and jq are installed.
+An absent agent is reported as a skip, and the guard fails when no agent was installed to check.
+Every Herdr call routes through the guarded lab helper for one disposable named session.
+Run it after every Herdr or agent upgrade rather than trusting the versions above.
+The portable regressions are `tests/fm-agent-count.test.sh` and `tests/fm-spawn-agent-limit.test.sh`.
+
 ### Away-mode transport
 
 The Pi/Herdr return and injection path was reverified on Herdr 0.7.3 and Pi 0.80.7:

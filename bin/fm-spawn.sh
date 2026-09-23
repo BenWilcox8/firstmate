@@ -255,6 +255,17 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
+# Concurrent agent limit (--over-limit):
+#   A crewmate or scout spawn on Herdr refuses, before any endpoint or record
+#   exists, when the crewmate agents open in Herdr across every local home
+#   already reach config/agent-limit (a positive number, or off; absent means
+#   30). The refusal names the count, the limit, and both overrides:
+#   --over-limit lets this one spawn through, and off in config/agent-limit
+#   disables the limit. A --relaunch into the task's own open pane replaces an
+#   agent and is exempt. Secondmate spawns are never limited. Batch
+#   dispatch passes --over-limit to every pair, and each pair checks the count
+#   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
+#   bin/fm-agent-count.sh prints them.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -475,6 +486,7 @@ ACCOUNT_SET=0
 SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
+OVER_LIMIT=0
 RESUME_SESSION=0
 RESUME_NEW_ENDPOINT=0
 RESUME_SESSION_ID=
@@ -506,6 +518,7 @@ for a in "$@"; do
     --scout) KIND=scout; KIND_SET=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
+    --over-limit) OVER_LIMIT=1 ;;
     --resume-session) RESUME_SESSION=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
@@ -584,6 +597,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # shellcheck source=bin/fm-cswap-lib.sh
 . "$SCRIPT_DIR/fm-cswap-lib.sh"
+# shellcheck source=bin/fm-agent-limit-lib.sh
+. "$SCRIPT_DIR/fm-agent-limit-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -1205,6 +1220,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
+  [ "$OVER_LIMIT" -eq 0 ] || shared_args+=(--over-limit)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1326,6 +1342,12 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   if [ "$BACKEND" = orca ]; then
     fm_backend_orca_runtime_check || exit 1
+  fi
+  # Concurrent agent limit (bin/fm-agent-limit-lib.sh): a new crewmate or scout
+  # on Herdr is one more agent in the live Herdr count. Checked before any
+  # endpoint or record exists.
+  if [ "$KIND" != secondmate ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ]; then
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
   fi
 fi
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
