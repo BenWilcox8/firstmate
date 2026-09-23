@@ -183,9 +183,11 @@ test_crewmate_brief_reads_the_recorded_ticket() {
   assert_contains "$out" "c903" "the fragment does not name the recorded ticket"
   assert_contains "$out" "ATLAS_AXI_BY=fm-relaunched-t4" \
     "a task id that already starts with fm- must be its own author name"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-atlas-module.sh" crewmate-brief fm-relaunched-t4 --ticket '')
+  [ -z "$out" ] || fail "an empty --ticket from a fresh spawn still took the recorded ticket: $out"
   out=$(FM_HOME="$home" "$ROOT/bin/fm-atlas-module.sh" crewmate-brief no-record-t5)
   [ -z "$out" ] || fail "a task with no recorded ticket still got a crewmate fragment: $out"
-  pass "the crewmate fragment falls back to the recorded ticket, and a task with none gets nothing"
+  pass "only a missing --ticket falls back to the recorded ticket, and a task with none gets nothing"
 }
 
 # --- the secondmate charter never mentions the Atlas --------------------------

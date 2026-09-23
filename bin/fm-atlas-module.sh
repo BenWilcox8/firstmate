@@ -9,6 +9,7 @@
 #        fm-atlas-module.sh crewmate-brief <task-id> [--ticket <ticket-id>]
 #        fm-atlas-module.sh dispatch-check <task-id> [--ticket <ticket-id>]
 #        fm-atlas-module.sh worker-env <task-id>
+#        fm-atlas-module.sh launch-env-names
 #
 #   supervisor-block  prints the supervisor instructions for an Atlas-wired home:
 #                     a banner, then docs/atlas-module/supervisor-block.md.
@@ -18,10 +19,12 @@
 #   crewmate-brief    prints docs/atlas-module/crewmate-brief.md with {TICKET}
 #                     set to the task's ticket and {HOLDER} set to its Atlas
 #                     author name. bin/fm-spawn.sh appends it to a ship or scout
-#                     worker's launch brief. The ticket is --ticket when given,
-#                     else the task's recorded atlas_ticket= in
-#                     state/<task-id>.meta, so a relaunch keeps the fragment. It
-#                     prints nothing for a task with no ticket.
+#                     worker's launch brief. A fresh spawn passes --ticket, empty
+#                     when the spawn has no ticket, and only that value counts,
+#                     so an older record under the same id never adds a ticket.
+#                     A relaunch passes no --ticket, so the ticket is the task's
+#                     recorded atlas_ticket= in state/<task-id>.meta and the
+#                     fragment stays. It prints nothing for a task with no ticket.
 #   dispatch-check    warns on stderr, in one line, when a wired home dispatches a
 #                     ship or scout with no ticket, because that work will not
 #                     appear on the map. bin/fm-spawn.sh calls it for a fresh ship
@@ -36,9 +39,17 @@
 #                     wired: `unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY`, so a value
 #                     the firstmate shell inherited never reaches the worker.
 #                     bin/fm-spawn.sh sends each line to the worker pane, fresh and
-#                     relaunched, and passes each exported name through its launch
-#                     environment. This verb is the one exception to the rule
-#                     below, because clearing inherited values is not an Atlas call.
+#                     relaunched. It exports only names that launch-env-names
+#                     prints, so each value also passes the launch environment.
+#   launch-env-names  prints ATLAS_AXI_BY and ATLAS_REPO, one name on each line.
+#                     When config/launch-env-allowlist turns on the filtered launch
+#                     environment, bin/fm-spawn.sh passes these names through it
+#                     for every pane kind, secondmates included, so a value that
+#                     the pane shell holds still reaches a bare atlas-axi.
+#
+# worker-env and launch-env-names are the exceptions to the rule below, because
+# they print in every home: to clear or pass through an inherited value is not
+# an Atlas call.
 #
 # The author name is the task's crew name, the same name `fm-atlas-hook.sh start`
 # holds the ticket under, so the worker's own writes carry that name.
@@ -89,16 +100,19 @@ print_supervisor_block() {
   printf '\n'
 }
 
-# Sets TICKET from --ticket in the arguments after the task id; empty when absent.
+# Sets TICKET from --ticket in the arguments after the task id, and TICKET_GIVEN
+# to 1 when --ticket appears at all, even with an empty value.
 parse_ticket() {
   TICKET=
+  TICKET_GIVEN=0
   while [ "$#" -gt 0 ]; do
     case "$1" in
       --ticket)
         TICKET=${2:-}
+        TICKET_GIVEN=1
         if [ "$#" -ge 2 ]; then shift 2; else shift; fi
         ;;
-      --ticket=*) TICKET=${1#--ticket=}; shift ;;
+      --ticket=*) TICKET=${1#--ticket=}; TICKET_GIVEN=1; shift ;;
       *) shift ;;
     esac
   done
@@ -110,7 +124,7 @@ print_crewmate_brief() {  # <task-id> [--ticket <ticket-id>]
   shift
   parse_ticket "$@"
   ticket=$TICKET
-  [ -n "$ticket" ] || ticket=$(sed -n 's/^atlas_ticket=//p' "$STATE/$id.meta" 2>/dev/null | tail -n 1)
+  [ "$TICKET_GIVEN" -eq 1 ] || ticket=$(sed -n 's/^atlas_ticket=//p' "$STATE/$id.meta" 2>/dev/null | tail -n 1)
   [ -n "$ticket" ] || return 0
   safe_id "$ticket" || return 0
   atlas_wired || return 0
@@ -143,6 +157,10 @@ print_worker_env() {  # <task-id>
   printf "export ATLAS_REPO='%s'\n" "$(printf '%s' "$repo" | sed "s/'/'\\\\''/g")"
 }
 
+print_launch_env_names() {
+  printf '%s\n' ATLAS_AXI_BY ATLAS_REPO
+}
+
 run_module() {
   local verb=${1:-}
   [ "$#" -eq 0 ] || shift
@@ -152,6 +170,7 @@ run_module() {
     crewmate-brief) print_crewmate_brief "$@" ;;
     dispatch-check) print_dispatch_check "$@" ;;
     worker-env) print_worker_env "$@" ;;
+    launch-env-names) print_launch_env_names ;;
     *) printf 'fm-atlas-module: unknown verb %s\n' "${verb:-(none)}" >&2 ;;
   esac
 }

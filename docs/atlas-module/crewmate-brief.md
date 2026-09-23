@@ -17,6 +17,7 @@ You can change the Atlas only in these ways, and only for ticket {TICKET} and it
 You never close a ticket and you never free its node.
 Do not run `ticket complete`, `ticket abandon`, `ticket abort`, `land`, or `release`, and do not change another ticket or node.
 Your part ends when your branch is committed and ready, whatever merge kind the ticket names.
+If you are a scout, your part ends when your report is written.
 You never merge, and you never fast-forward the default branch.
 When `atlas-working` tells you to merge or to complete the ticket, report `done:` to firstmate instead.
 Firstmate's guarded merge closes the ticket automatically after it lands your work, and your supervisor can also close it by hand.

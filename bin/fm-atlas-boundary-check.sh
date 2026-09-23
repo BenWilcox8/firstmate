@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # fm-atlas-boundary-check.sh - keep Atlas text inside the optional Atlas module.
 #
-# Usage: bin/fm-atlas-boundary-check.sh [--root <repo>] [--list]
+# Usage: bin/fm-atlas-boundary-check.sh [--root <repo>]
 #
 # The Atlas integration is an optional module, so that an upstream firstmate
 # merge and an Atlas or dashboard update touch different files. This check is the
@@ -21,9 +21,7 @@
 #
 # The check passes and prints one `ok` line, or it prints one line on stderr for
 # each core file over its allowance and exits 1. --root checks another
-# repository (the default is the one holding this script). --list prints the
-# module files and the registry with each file's current count, and checks
-# nothing.
+# repository (the default is the one holding this script).
 #
 # To add a hook point to a core file, add or raise that file's entry below in the
 # same change, so that every new Atlas line in a core file is a reviewed decision.
@@ -31,7 +29,6 @@ set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-LIST=0
 
 # The hook-point registry: <core path> <most Atlas-mentioning lines allowed>,
 # then an optional note on what those lines are.
@@ -39,7 +36,7 @@ hook_registry() {
   cat <<'EOF'
 AGENTS.md 1 the config/specs layout line that points to the module map
 bin/fm-session-start.sh 1 the call that prints the supervisor block
-bin/fm-spawn.sh 11 --ticket, atlas_ticket=, and the module and hook calls
+bin/fm-spawn.sh 13 --ticket, atlas_ticket=, and the module and hook calls
 bin/fm-pr-merge.sh 7 the --captain-word parse and the close-out call after a merge
 bin/fm-merge-local.sh 7 the --captain-word parse and the close-out call after a local landing
 bin/fm-teardown.sh 7 the --captain-word parse and the close-out call at cleanup
@@ -62,7 +59,6 @@ while [ "$#" -gt 0 ]; do
       ROOT_DIR=$2
       shift 2
       ;;
-    --list) LIST=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) echo "fm-atlas-boundary-check: unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -87,23 +83,6 @@ git -C "$ROOT_DIR" rev-parse --git-dir >/dev/null 2>&1 || {
   echo "fm-atlas-boundary-check: $ROOT_DIR is not a git repository" >&2
   exit 2
 }
-
-if [ "$LIST" -eq 1 ]; then
-  echo "module files:"
-  git -C "$ROOT_DIR" ls-files | while IFS= read -r path; do
-    case "$path" in tests/*) continue ;; esac
-    module_path "$path" && printf '  %s\n' "$path"
-  done
-  echo "hook-point registry (path current/allowed):"
-  hook_registry | while read -r path max note; do
-    if [ -f "$ROOT_DIR/$path" ]; then
-      printf '  %s %s/%s - %s\n' "$path" "$(atlas_lines "$ROOT_DIR/$path")" "$max" "$note"
-    else
-      printf '  %s absent/%s - %s\n' "$path" "$max" "$note"
-    fi
-  done
-  exit 0
-fi
 
 violations=0
 module_count=0

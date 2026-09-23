@@ -187,8 +187,9 @@
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
 #   config reread generations because the new agent reads the converged files.
 #   --ticket <id> names the Atlas ticket this work discharges. It is optional,
-#   and it is refused for --secondmate (a persistent home is not a ticket's work)
-#   and for batch id=repo dispatch (one ticket belongs to one crewmate). The id is
+#   and it is refused for --secondmate (a persistent home is not a ticket's work),
+#   for --relaunch (a relaunch keeps its recorded ticket), and for batch id=repo
+#   dispatch (one ticket belongs to one crewmate). The id is
 #   recorded as atlas_ticket= in the task's meta, where the lifecycle hooks read
 #   it back. The optional module (docs/atlas-module/README.md) owns every use of
 #   it, and its calls are best effort and can never fail the spawn.
@@ -272,7 +273,8 @@
 #   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
 #   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
 #   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
-#   marker FM_TASK_ID and each name the module hook above exports.
+#   marker FM_TASK_ID and, for every pane kind, each name that
+#   `fm-atlas-module.sh launch-env-names` prints; that header owns the names.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment. Raw commands must
 #   be POSIX sh compatible under this opt-in; the absent-file path is unchanged.
@@ -583,6 +585,7 @@ if [ "$TICKET_SET" -eq 1 ]; then
     *[!A-Za-z0-9._-]*) echo "error: --ticket must be an Atlas ticket id such as c201 (letters, digits, dot, underscore, and dash only)" >&2; exit 1 ;;
   esac
   [ "$KIND" != secondmate ] || { echo "error: --ticket applies to crewmate and scout spawns; a secondmate is a persistent home, not a ticket's work" >&2; exit 1; }
+  [ "$RELAUNCH" -eq 0 ] || { echo "error: --ticket applies to a fresh spawn; a relaunch keeps the ticket its task record names" >&2; exit 1; }
 fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -2389,6 +2392,10 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   SOURCE_BRIEF=$BRIEF
   BRIEF="$DATA/$ID/launch-brief.md"
   BRIEF_TMP="$DATA/$ID/.launch-brief.md.${BASHPID:-$$}"
+  # A fresh spawn names only its own ticket; a relaunch names none, so the
+  # module reads the ticket back from the task's own record.
+  SPAWN_TICKET_ARGS=(--ticket "$TICKET")
+  [ "$RELAUNCH" -eq 0 ] || SPAWN_TICKET_ARGS=()
   {
     cat "$SOURCE_BRIEF" &&
       printf '\n' &&
@@ -2397,7 +2404,7 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
         fm_brief_intent_overlay "$ACCEPTED_TASK_REQUIREMENTS"
       fi &&
       FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
-        "$FM_ROOT/bin/fm-atlas-module.sh" crewmate-brief "$ID" --ticket "$TICKET"
+        "$FM_ROOT/bin/fm-atlas-module.sh" crewmate-brief "$ID" ${SPAWN_TICKET_ARGS[@]+"${SPAWN_TICKET_ARGS[@]}"}
   } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render current launch contract for $SOURCE_BRIEF" >&2; exit 1; }
   if ! mv "$BRIEF_TMP" "$BRIEF"; then
     rm -f -- "$BRIEF_TMP"
@@ -4087,18 +4094,13 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # ones assigned an isolated worktree; a secondmate runs its own home instead.
 # The id reached a validated bare-slug charset above, so it carries no shell
 # syntax of its own.
-SPAWN_MODULE_ENV_NAMES=
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
   # Optional module hook: each line is `export NAME=<value the module quoted>`
   # or `unset NAME...`. Any other line is dropped, so only a plain variable
-  # name reaches the pane or the launch allowlist below.
+  # name reaches the pane.
   while IFS= read -r spawn_module_env; do
-    if [[ $spawn_module_env =~ ^export\ ([A-Z_][A-Z0-9_]*)= ]]; then
-      SPAWN_MODULE_ENV_NAMES="$SPAWN_MODULE_ENV_NAMES ${BASH_REMATCH[1]}"
-    elif ! [[ $spawn_module_env =~ ^unset(\ [A-Z_][A-Z0-9_]*)+$ ]]; then
-      continue
-    fi
+    [[ $spawn_module_env =~ ^export\ [A-Z_][A-Z0-9_]*= || $spawn_module_env =~ ^unset(\ [A-Z_][A-Z0-9_]*)+$ ]] || continue
     spawn_send_text_line "$T" "$spawn_module_env"
   done < <(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
     "$FM_ROOT/bin/fm-atlas-module.sh" worker-env "$ID" 2>/dev/null || true)
@@ -4122,6 +4124,14 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
 fi
 if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   LAUNCH_ENV_PREFIX='/usr/bin/env -i'
+  # Optional module hook: the names it passes through for every pane kind. A
+  # line that is not a plain variable name is dropped.
+  SPAWN_MODULE_ENV_NAMES=
+  while IFS= read -r spawn_module_name; do
+    [[ $spawn_module_name =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    SPAWN_MODULE_ENV_NAMES="$SPAWN_MODULE_ENV_NAMES $spawn_module_name"
+  done < <(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-module.sh" launch-env-names 2>/dev/null || true)
   for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \

@@ -31,7 +31,7 @@ Core files reach the module only through short, stable hook points:
 
 - `AGENTS.md`: one layout line for `config/specs` that points here.
 - `bin/fm-session-start.sh`: one call that prints the supervisor block.
-- `bin/fm-spawn.sh`: the `--ticket` flag, the `atlas_ticket=` record line, the dispatch warning call, the crewmate fragment call, the worker environment call, and the lifecycle start call.
+- `bin/fm-spawn.sh`: the `--ticket` flag, the `atlas_ticket=` record line, the dispatch warning call, the crewmate fragment call, the worker environment call, the launch environment names call, and the lifecycle start call.
 - `bin/fm-pr-merge.sh` and `bin/fm-merge-local.sh`: the `--captain-word` option and one close-out call after the merge.
 - `bin/fm-teardown.sh`: the `--captain-word` option and one close-out call that passes the facts cleanup proved.
 - `docs/configuration.md`, `docs/scripts.md`, and `docs/documentation-audiences.json`: one entry for each module file or setting.
