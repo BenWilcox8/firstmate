@@ -305,7 +305,9 @@ fm_native_session_locate() {  # <harness> <session-id> <file> <worktree> [<claud
     codex) fm_native_session_codex_header_ok "$file" "$sid" "$wt" || return 1 ;;
     pi|pi-signed) fm_native_session_pi_header_ok "$file" "$sid" "$wt" || return 1 ;;
   esac
+  # shellcheck disable=SC2034  # callers consume the proven session
   FM_NATIVE_SESSION_ID=$sid
+  # shellcheck disable=SC2034  # callers consume the proven session
   FM_NATIVE_SESSION_FILE=$file
 }
 

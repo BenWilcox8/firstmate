@@ -859,14 +859,14 @@ fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id>]
 # task id), which retirement must never do. Returns 1 with
 # FM_BACKEND_TASK_CLOSE_REASON set when the close is refused or unproven.
 fm_backend_task_endpoint_close() {  # <backend> <state-dir> <task-id> <target> <meta>
-  local backend=$1 state=$2 id=$3 target=$4 meta=$5 agent
+  local backend=$1 state=$2 id=$3 target=$4 meta=$5 endpoint_state
   FM_BACKEND_TASK_CLOSE_REASON=
   fm_backend_source "$backend" || {
     FM_BACKEND_TASK_CLOSE_REASON="backend '$backend' has no adapter here"
     return 1
   }
-  agent=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || agent=unreadable
-  case "$agent" in
+  endpoint_state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || endpoint_state=unreadable
+  case "$endpoint_state" in
     missing) return 0 ;;
     dead) ;;
     alive)
@@ -874,7 +874,7 @@ fm_backend_task_endpoint_close() {  # <backend> <state-dir> <task-id> <target> <
       return 1
       ;;
     *)
-      FM_BACKEND_TASK_CLOSE_REASON="its state reads '$agent', which never licenses a close"
+      FM_BACKEND_TASK_CLOSE_REASON="its state reads '$endpoint_state', which never licenses a close"
       return 1
       ;;
   esac
@@ -893,6 +893,7 @@ fm_backend_task_endpoint_close() {  # <backend> <state-dir> <task-id> <target> <
       }
       ;;
     *)
+      # shellcheck disable=SC2034 # Output globals are consumed by sourcing callers.
       FM_BACKEND_TASK_CLOSE_REASON="backend '$backend' cannot prove a close"
       return 1
       ;;

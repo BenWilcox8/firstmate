@@ -3443,6 +3443,7 @@ fm_backend_herdr_task_pane_close() {  # <state-dir> <task-id> <target> <meta>
   [ "$gone" = 1 ] || [ "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" != dead ] || gone=1
   fm_lock_release "$lock_path" || true
   if [ "$gone" != 1 ]; then
+    # shellcheck disable=SC2034  # the caller consumes the refusal reason
     FM_BACKEND_HERDR_PANE_CLOSE_REASON="the pane could not be confirmed closed after 3 attempts (a focused task tab, a contended lock, or an unreachable server blocks the close)"
     return 1
   fi
