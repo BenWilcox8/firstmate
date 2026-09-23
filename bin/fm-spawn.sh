@@ -462,6 +462,7 @@ ACCOUNT_SET=0
 SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
+OVER_LIMIT=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -489,6 +490,7 @@ for a in "$@"; do
     --scout) KIND=scout; KIND_SET=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
+    --over-limit) OVER_LIMIT=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -564,6 +566,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # shellcheck source=bin/fm-cswap-lib.sh
 . "$SCRIPT_DIR/fm-cswap-lib.sh"
+# shellcheck source=bin/fm-agent-limit-lib.sh
+. "$SCRIPT_DIR/fm-agent-limit-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -1180,6 +1184,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
+  [ "$OVER_LIMIT" -eq 0 ] || shared_args+=(--over-limit)
   for pair in "${POS[@]}"; do
     case "$pair" in
       *=*) : ;;
@@ -1302,6 +1307,12 @@ if [ "$RELAUNCH" -eq 0 ]; then
   if [ "$BACKEND" = orca ]; then
     fm_backend_orca_runtime_check || exit 1
   fi
+  # Concurrent agent limit (bin/fm-agent-limit-lib.sh): a new crewmate or scout
+  # on Herdr is one more agent in the live Herdr count. Checked before any
+  # endpoint or record exists.
+  if [ "$KIND" != secondmate ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ]; then
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
+  fi
 fi
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
 if ! fm_lock_try_acquire "$SPAWN_TASK_LOCK"; then
@@ -1354,6 +1365,12 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
+  # A relaunch into the task's own open pane replaces an agent. One whose pane
+  # is gone would open a new one, so it counts against the agent limit.
+  if [ "$RELAUNCH_STATE" = missing ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ] \
+    && [ "$(fm_meta_get "$RELAUNCH_META" kind)" != secondmate ]; then
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
+  fi
   [ "$RELAUNCH_STATE" = dead ] || {
     echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
     exit 1

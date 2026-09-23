@@ -229,3 +229,26 @@ EOF
        unmanaged: map(select(.role == "unmanaged") | del(.role)),
        unreadable: (rows($unreadable) | map({session: .[0], pane: .[1]}))}'
 }
+
+# fm_agent_limit_gate <start-home> <config-dir>: return 0 when one more agent
+# may start, or print the refusal on stderr and return 1. A limit of off passes
+# without reading Herdr. An unreadable limit file or Herdr count refuses rather
+# than guessing. Two spawns that check at the same moment can both pass: the
+# limit spreads work out and is not a reservation.
+fm_agent_limit_gate() {
+  local start=$1 config=$2 limit doc count
+  local override="pass --over-limit to start this one anyway, or write a larger number or off to $config/$FM_AGENT_LIMIT_CONFIG_NAME"
+  limit=$(fm_agent_limit_read "$config") || {
+    echo "error: spawn refused: the agent limit could not be read; fix the file, or $override" >&2
+    return 1
+  }
+  [ "$limit" != off ] || return 0
+  doc=$(fm_agent_limit_count_json "$start") || {
+    echo "error: spawn refused: the agent count could not be read from Herdr; $override" >&2
+    return 1
+  }
+  count=$(printf '%s' "$doc" | jq -r '.count')
+  [ "$count" -ge "$limit" ] || return 0
+  echo "error: spawn refused: agent limit reached: $count agents are open in Herdr and the limit is $limit ($(fm_agent_limit_source "$config") value); $override. bin/fm-agent-count.sh lists them." >&2
+  return 1
+}
