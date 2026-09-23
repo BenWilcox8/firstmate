@@ -202,14 +202,9 @@ See [`trace-context.md`](trace-context.md) for carrier semantics, supported rout
 
 `config/specs` is a local, gitignored, per-home file whose content is the absolute path to the local Atlas repo.
 It is installer-provisioned rather than firstmate-written, and it is not propagated into secondmate homes.
-
-The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atlas-hook.sh` resolves.
-That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.
-On a wired home, a ship or scout spawn without `--ticket` prints a one-line warning to stderr at dispatch time.
-The warning is advisory and does not block the spawn.
-Every ship or scout worker on a wired home is launched with `ATLAS_REPO` set to the resolved pointer and `ATLAS_AXI_BY` set to its holder author name (`fm-<task-id>`, unless the task id already starts with `fm-`), so a bare `atlas-axi` reaches the map and its writes are attributed; an unwired home clears `ATLAS_REPO`, `SPECS_REPO`, and `ATLAS_AXI_BY` before worker launch; `bin/fm-spawn.sh`'s header owns the mechanics.
-A home with no pointer, or a pointer to a directory holding no `atlas/`, makes no Atlas call at all and behaves exactly as it did before the hook existed.
-The hook's own header owns its verbs, its evidence arguments, and the best-effort contract that keeps a broken Atlas from ever failing the action that called it.
+The pointer is the switch for the optional Atlas module: a home is wired when the file names a readable directory that holds `atlas/`.
+A home with no pointer, or a pointer to a directory holding no `atlas/`, gets no Atlas instructions and makes no Atlas call at all.
+[`atlas-module/README.md`](atlas-module/README.md) maps what the module loads in a wired home and which file owns each part.
 
 ## Turn-end pane-churn absorb (config/turnend-churn-absorb)
 
