@@ -16,8 +16,8 @@
 #   5. locate: a recorded session is resumable only while its file exists.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
 NS="$ROOT/bin/fm-native-session.sh"
 TMP_ROOT=$(fm_test_tmproot fm-native-session)
@@ -376,8 +376,62 @@ test_locate_refuses_a_session_that_is_gone() {
   pass "locate: a deleted file, another Claude configuration, a disagreeing header, and a malformed id all refuse"
 }
 
+# The record comes from the REAL generated extension: spawn a pi worker with
+# fake tooling, fire its session_start handler in a plain Node host with a
+# session manager that names a saved session, and prove it through the capture.
+# drive_pi_session_start <ext> <session-id> <session-file> [reason]
+drive_pi_session_start() {
+  EXT_PATH="$1" SID="$2" SFILE="$3" REASON="${4:-startup}" node --input-type=module 2>&1 <<'EOF'
+import { pathToFileURL } from "node:url";
+const mod = await import(pathToFileURL(process.env.EXT_PATH).href);
+const handlers = {};
+mod.default({ on: (name, fn) => { handlers[name] = fn; } });
+if (!handlers["session_start"]) throw new Error("no session_start handler");
+const ctx = {
+  isIdle: () => true,
+  sessionManager: {
+    getSessionId: () => process.env.SID,
+    getSessionFile: () => process.env.SFILE,
+  },
+};
+await handlers["session_start"]({ type: "session_start", reason: process.env.REASON }, ctx);
+EOF
+}
+
+test_pi_worker_extension_records_its_session() {
+  local case_dir home proj wt fakebin id=park-pi-1 out rc state ext gen file
+  command -v node >/dev/null 2>&1 || { echo "skip: node is not installed"; return 0; }
+  case_dir="$TMP_ROOT/pi-spawn"
+  home="$case_dir/home"; proj="$case_dir/project"; wt="$case_dir/wt"
+  fakebin=$(make_spawn_fakebin "$case_dir/fake" pi)
+  fm_test_spawn_home "$home" pi
+  fm_git_worktree "$proj" "$wt" wt-pi-spawn
+  fm_test_spawn_brief "$home" "$id"
+  out=$(fm_test_run_spawn "$home" "$wt" "$fakebin" "$id" "$proj" --mode no-mistakes --yolo off 2>&1); rc=$?
+  expect_code 0 "$rc" "pi spawn should succeed"$'\n'"$out"
+  state="$home/state"
+  ext="$state/$id.pi-ext.ts"
+  gen=$(sed -n 's/^busy_gen=//p' "$state/$id.meta")
+  [ -n "$gen" ] || fail "pi spawn should record a busy generation"
+
+  file=$(pi_session_file "$case_dir/sessions" "$SID_A" "$wt")
+  out=$(drive_pi_session_start "$ext" "$SID_A" "$file") || fail "session_start drive failed: $out"
+  out=$(capture --harness pi --worktree "$wt" --pid "$$" --state "$state" --id "$id" --gen "$gen"); rc=$?
+  expect_code 0 "$rc" "the extension's record should prove the pi session"$'\n'"$out"
+  assert_contains "$out" "session=$SID_A" "the pi record should name the session"
+
+  # A /new or /resume inside Pi starts another session; the record follows it.
+  file=$(pi_session_file "$case_dir/sessions" "$SID_B" "$wt")
+  out=$(drive_pi_session_start "$ext" "$SID_B" "$file" new) || fail "second session_start drive failed: $out"
+  out=$(capture --harness pi --worktree "$wt" --pid "$$" --state "$state" --id "$id" --gen "$gen"); rc=$?
+  expect_code 0 "$rc" "the record should follow a session switch"$'\n'"$out"
+  assert_contains "$out" "session=$SID_B" "the pi record should name the session Pi switched to"
+  pass "pi worker extension: every session_start records the live session for the current incarnation"
+}
+
 test_claude_capture_proves_the_running_session
 test_claude_capture_refuses_what_it_cannot_prove
+test_pi_worker_extension_records_its_session
 test_locate_confirms_a_resumable_session
 test_locate_refuses_a_session_that_is_gone
 test_pi_capture_proves_the_extension_record

@@ -222,7 +222,12 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   case "$harness" in
     claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
     opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
-    pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
+    # The Pi worker extension also records its live native session beside
+    # itself (bin/fm-native-session-lib.sh), so a relaunch retires both.
+    pi|pi-signed)
+      printf '%s\n' "$state/$id.pi-ext.ts"
+      printf '%s\n' "$state/$id.pi-session"
+      ;;
     omp) printf '%s\n' "$state/$id.omp-ext.ts" ;;
     grok)
       printf '%s\n' "$wt/.fm-grok-turnend"

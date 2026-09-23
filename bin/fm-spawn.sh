@@ -3533,7 +3533,11 @@ EOF
 // "turn_end" fires at every inner turn boundary (one LLM response plus its
 // tool calls) and stays a wake NOTIFICATION touch for the watcher, never
 // current-state truth.
+// "session_start" (startup, reload, new, resume, fork) records the live native
+// session for bin/fm-native-session-lib.sh, which owns what the record proves:
+// Pi keeps no session file open, so a park can resume only what Pi names here.
 import { execFile } from "node:child_process";
+import { renameSync, writeFileSync } from "node:fs";
 const busyEvent = (state: string, event: string) =>
   new Promise<void>((resolve) => {
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
@@ -3541,7 +3545,19 @@ const busyEvent = (state: string, event: string) =>
       "--gen", "$BUSY_GEN", "--source", "pi-ext", "--event", event,
     ], () => resolve());
   });
+const recordSession = (ctx: any) => {
+  try {
+    const sm = ctx && ctx.sessionManager;
+    const id = sm && typeof sm.getSessionId === "function" ? sm.getSessionId() : undefined;
+    const file = sm && typeof sm.getSessionFile === "function" ? sm.getSessionFile() : undefined;
+    if (!id || !file) return;
+    const tmp = "$STATE_REAL/.$ID.pi-session." + process.pid;
+    writeFileSync(tmp, JSON.stringify({ gen: "$BUSY_GEN", id, file }) + "\n");
+    renameSync(tmp, "$STATE_REAL/$ID.pi-session");
+  } catch {}
+};
 export default function (pi: any) {
+  pi.on("session_start", (_event: any, ctx: any) => recordSession(ctx));
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;
