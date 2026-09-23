@@ -167,7 +167,8 @@ SH
   chmod +x "$fb/ps"
   # atlas-axi: records every call and models one ticket's state and the park in
   # force. A park identical to the one in force appends nothing, so its `at`
-  # stays; a blocker of c99 names nothing on the map and is refused.
+  # stays; a blocker of c99 names nothing on the map and is refused, and the
+  # node path proj/node is stored as the node id n42 it resolves to.
   cat > "$fb/atlas-axi" <<'SH'
 #!/usr/bin/env bash
 D=$FM_FAKE_DIR
@@ -197,6 +198,7 @@ case "$1 $2" in
       esac
     done
     [ "$on" != c99 ] || { echo "nothing on the map answers to --on c99" >&2; exit 1; }
+    [ "$on" != proj/node ] || on=n42
     body=$(jq -cn --arg why "$why" --arg on "$on" --arg id "$sid" \
       '{why: $why, on: (if $on == "" then null else $on end), session: {id: $id}}')
     if [ "$(cat "$D/ticket-state")" != parked ] || [ "$body" != "$(cat "$D/park-body" 2>/dev/null)" ]; then
@@ -438,18 +440,26 @@ test_park_refuses_a_session_its_resume_would_not_find() {
 # local record withdrawn while the ticket still holds that exact park. A retry
 # meets an Atlas that drops the identical park as a no-op, and still parks.
 test_park_retry_accepts_the_identical_park_already_in_force() {
-  local dir out rc
-  dir=$(new_case park-retry)
-  printf 'parked' > "$dir/fake/ticket-state"
-  jq -cn --arg why "waits" --arg on "" --arg id "$SID" \
-    '{why: $why, on: (if $on == "" then null else $on end), session: {id: $id}}' | tr -d '\n' > "$dir/fake/park-body"
-  printf 'at-0' > "$dir/fake/park-at"
-  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
-  expect_code 0 "$rc" "a retried park the Atlas already holds should succeed"$'\n'"$out"
-  [ "$(cat "$dir/fake/park-at")" = at-0 ] || fail "the setup needs the Atlas to drop the identical park as a no-op"
-  [ "$(meta_field "$dir" native_session)" = "$SID" ] || fail "the retried park should record the session"
-  [ ! -s "$dir/fake/windows" ] || fail "the retried park should close the endpoint"
-  pass "park: a retry whose ticket already holds the identical park is accepted"
+  local dir out rc sent stored
+  for sent in '' proj/node; do
+    stored=${sent:+n42}
+    dir=$(new_case park-retry)
+    printf 'parked' > "$dir/fake/ticket-state"
+    jq -cn --arg why "waits" --arg on "$stored" --arg id "$SID" \
+      '{why: $why, on: (if $on == "" then null else $on end), session: {id: $id}}' | tr -d '\n' > "$dir/fake/park-body"
+    printf 'at-0' > "$dir/fake/park-at"
+    if [ -n "$sent" ]; then
+      out=$(run_control "$dir" t1 park --reason "waits" --on "$sent"); rc=$?
+    else
+      out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+    fi
+    expect_code 0 "$rc" "a retried park the Atlas already holds should succeed (blocker '${sent:-none}')"$'\n'"$out"
+    [ "$(cat "$dir/fake/park-at")" = at-0 ] || fail "the setup needs the Atlas to drop the identical park as a no-op"
+    [ "$(meta_field "$dir" native_session)" = "$SID" ] || fail "the retried park should record the session"
+    [ "$(meta_field "$dir" parked_on)" = "$sent" ] || fail "the retried park should record the blocker as it was given"
+    [ ! -s "$dir/fake/windows" ] || fail "the retried park should close the endpoint"
+  done
+  pass "park: a retry whose ticket already holds the identical park is accepted, also for a node blocker the Atlas resolved"
 }
 
 test_park_refuses_unverified_harnesses_and_secondmates() {

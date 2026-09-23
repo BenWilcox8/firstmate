@@ -42,7 +42,11 @@
 #             `ticket park <c> "<reason>" --home <home> --harness <harness>
 #             --session <id> --task <task-id> [--on <blocker>]`. The ticket keeps
 #             its agent, task, stage, and node hold, and names the native session
-#             a resume reopens (bin/fm-control.sh <task-id> park).
+#             a resume reopens (bin/fm-control.sh <task-id> park). When the Atlas
+#             refuses the park, park prints one line on stdout, `refused: <the
+#             Atlas's first error line>`, besides its warning, because a refused
+#             update of a ticket that was already parked still reads parked, and
+#             a park identical to the one in force is recorded as a no-op.
 #   unpark    returns a parked ticket to started for the same agent, task, and
 #             session: `ticket unpark <c> ["<reason>"]`. A resume runs it before it
 #             reopens the session (bin/fm-control.sh <task-id> resume).
@@ -51,12 +55,11 @@
 #             discharged from one a crewmate or a merge already closed. Read-only:
 #             it prints nothing at all on any skip or failure.
 #   parked    prints the park in force on the recorded ticket as key=value
-#             lines: at= (when the Atlas recorded it), why= (the reason), on=
-#             (the blocker as the Atlas resolved it, empty when none), and
-#             session= (the native session id). A caller compares them with
-#             the park it sent, because a park refused on a ticket that was
-#             already parked still reads parked. Read-only: it prints nothing
-#             at all when the ticket is not parked, and on any skip or failure.
+#             lines: why= (the reason), on= (the blocker as the Atlas resolved
+#             it, empty when none), and session= (the native session id), so a
+#             caller can compare them with the park it sent. Read-only: it
+#             prints nothing at all when the ticket is not parked, and on any
+#             skip or failure.
 #
 #   wired     is the read-only query the rest of the fleet uses to ask whether
 #             this home is wired to an Atlas at all. It prints the resolved repo
@@ -103,9 +106,9 @@
 # every path exits 0, including an unusable Atlas, a missing atlas-axi, a missing
 # jq, a hung call, and any internal error. A call that was attempted and failed
 # prints exactly one warning line to stderr. Besides that warning, only state,
-# parked, wired, and a land --defer-status refusal line print anything. Callers
-# still append `|| true` so a caller running under `set -e` is safe even if this
-# script is replaced by an older copy.
+# parked, wired, a park refusal line, and a land --defer-status refusal line print
+# anything. Callers still append `|| true` so a caller running under `set -e` is
+# safe even if this script is replaced by an older copy.
 #
 # The hook stays silent, with no warning at all, when there is nothing to record:
 #   - this home has no config/specs pointer to a local Atlas repo, or the pointer
@@ -311,7 +314,7 @@ hook_parked() {
   json=$(atlas_axi_try ticket show "$TICKET" --json 2>/dev/null) || return 0
   printf '%s' "$json" | jq -r '
     .change.parked // empty | select(type == "object")
-    | "at=\(.at // "")", "why=\(.why // "" | gsub("[\n\r\t]"; " "))",
+    | "why=\(.why // "" | gsub("[\n\r\t]"; " "))",
       "on=\(.on // "")", "session=\(.session.id // "")"' 2>/dev/null || true
 }
 
@@ -319,7 +322,9 @@ hook_park() {
   local -a args=(ticket park "$TICKET" "$REASON" --home "$PARK_HOME" \
     --harness "$PARK_HARNESS" --session "$PARK_SESSION" --task "$ID")
   [ -z "$PARK_ON" ] || args+=(--on "$PARK_ON")
-  atlas_axi_call "ticket park" "${args[@]}" >/dev/null
+  atlas_axi_try "${args[@]}" >/dev/null && return 0
+  warn "ticket park failed for $ID" "$ATLAS_ERR"
+  printf 'refused: %s\n' "$(printf '%s' "$ATLAS_ERR" | tr '\n' ' ' | cut -c1-200)"
 }
 
 hook_unpark() {

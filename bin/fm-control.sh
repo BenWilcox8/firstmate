@@ -1034,29 +1034,27 @@ park_field() {  # <parked-read> <key>
   printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1
 }
 
-# atlas_park <reason> <harness> <session> <blocker> <new>: record the park on
-# the ticket and require the Atlas to read back exactly that park. The hook
-# itself never fails its caller, so the read-back is the proof. A refused park
-# on a ticket that was already parked still reads parked, so the reason and
-# session must match, the blocker must be present exactly when one was sent
-# (the Atlas stores the id it resolved it to), and a park that differs both from
-# the one already recorded (<new> is 1) and from the Atlas park in force before
-# the call must carry a new Atlas record, because the Atlas drops an identical
-# park as a no-op.
-atlas_park() {  # <reason> <harness> <session> <blocker> <new>
-  local reason=$1 harness=$2 session=$3 on=$4 new=$5 home before after got sent=0 held=0
+# atlas_park <reason> <harness> <session> <blocker>: record the park on the
+# ticket and require the Atlas to take it. The hook never fails its caller, so
+# it reports a refused park on stdout, because a refused update of a ticket that
+# was already parked still reads parked. The read-back then proves the park in
+# force: the same reason and session, and a blocker exactly when one was sent
+# (the Atlas stores the id it resolved it to).
+atlas_park() {  # <reason> <harness> <session> <blocker>
+  local reason=$1 harness=$2 session=$3 on=$4 home out after got sent=0 held=0
   home=$(park_home_name) \
     || { echo "error: this home's secondmate identity marker is unusable, so the Atlas park cannot name its home" >&2; return 1; }
-  before=$(atlas_ticket_parked)
-  if [ -n "$before" ] && [ "$(park_field "$before" why)" = "$reason" ] \
-    && [ "$(park_field "$before" session)" = "$session" ] && [ "$(park_field "$before" on)" = "$on" ]; then
-    new=0
-  fi
   if [ -n "$on" ]; then
-    atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session" --on "$on"
+    out=$(atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session" --on "$on")
   else
-    atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session"
+    out=$(atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session")
   fi
+  case "$out" in
+    *refused:*)
+      echo "error: the Atlas refused the park on ticket $(fm_meta_get "$META" atlas_ticket): ${out#*refused: }" >&2
+      return 1
+      ;;
+  esac
   after=$(atlas_ticket_parked)
   if [ -z "$after" ]; then
     got=$(atlas_ticket_state)
@@ -1066,8 +1064,7 @@ atlas_park() {  # <reason> <harness> <session> <blocker> <new>
   [ -z "$on" ] || sent=1
   [ -z "$(park_field "$after" on)" ] || held=1
   if [ "$(park_field "$after" why)" != "$reason" ] || [ "$(park_field "$after" session)" != "$session" ] \
-    || [ "$held" != "$sent" ] \
-    || { [ "$new" = 1 ] && [ "$(park_field "$after" at)" = "$(park_field "$before" at)" ]; }; then
+    || [ "$held" != "$sent" ]; then
     echo "error: the Atlas did not record this park on ticket $(fm_meta_get "$META" atlas_ticket); its park in force reads: $(printf '%s' "$after" | tr '\n' ' ')" >&2
     return 1
   fi
@@ -1104,7 +1101,7 @@ park_require_harness() {  # <verb>
 }
 
 do_park() {
-  local state pids gen sid file parked stamp reason on key value new=1
+  local state pids gen sid file parked stamp reason on key value
   local -a record prior
   park_require_kind park
   require_state_verified_backend park
@@ -1123,7 +1120,6 @@ do_park() {
     file=$(fm_meta_get "$META" native_session_file)
     [ -n "$sid" ] || die "task $ID is recorded as parked with no native session; reconcile its record before parking again"
     stamp=$parked
-    [ "$reason" != "$(fm_meta_get "$META" parked_reason)" ] || [ "$on" != "$(fm_meta_get "$META" parked_on)" ] || new=0
     for key in $PARK_KEYS; do
       value=$(fm_meta_get "$META" "$key")
       [ -z "$value" ] || prior+=("$key=$value")
@@ -1152,7 +1148,7 @@ do_park() {
   record+=("native_session=$sid" "native_session_harness=$HARNESS" "native_session_file=$file")
   park_meta_write "${record[@]}" \
     || die "task $ID's park could not be recorded in $META; nothing else was changed"
-  if atlas_ticketed && ! atlas_park "$reason" "$HARNESS" "$sid" "$on" "$new"; then
+  if atlas_ticketed && ! atlas_park "$reason" "$HARNESS" "$sid" "$on"; then
     if [ -n "$parked" ]; then
       park_meta_write "${prior[@]}" || true
       die "task $ID's park was not updated, because its Atlas ticket could not record it; its prior park record was kept"
@@ -1209,7 +1205,7 @@ resume_endpoint_owner() {
 resume_rollback() {
   [ "$RESUME_UNPARKED" = 1 ] || return 0
   RESUME_UNPARKED=0
-  atlas_park "$RESUME_REASON" "$HARNESS" "$RESUME_SESSION" "$(fm_meta_get "$META" parked_on)" 1 >/dev/null 2>&1 \
+  atlas_park "$RESUME_REASON" "$HARNESS" "$RESUME_SESSION" "$(fm_meta_get "$META" parked_on)" >/dev/null 2>&1 \
     || echo "error: task $ID's Atlas ticket could not be parked again after the failed resume; park it again with bin/fm-control.sh $ID park" >&2
 }
 

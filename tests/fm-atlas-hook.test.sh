@@ -35,7 +35,8 @@
 #     (w) state reads the recorded ticket's state back, silently or not at all
 #     (w1) parked reads the park in force back, silently or not at all
 #     (w2) park records the worker's native session on the ticket and demands
-#          it; unpark returns the ticket to started with what changed
+#          it, and reports a refusal on stdout; unpark returns the ticket to
+#          started with what changed
 #     (x) fm-teardown aborts a leg that produced nothing, forced or not
 #     (y) fm-teardown never aborts a ticket a merge or crewmate already closed,
 #         and never reads a landed fast-forward as an empty leg
@@ -384,6 +385,28 @@ test_park_records_the_session_and_unpark_reopens_it() {
   pass "park records the worker's native session on the ticket, and unpark reopens it"
 }
 
+# A refused park is reported on stdout, because a refused update of a ticket
+# that was already parked still reads parked; an accepted one prints nothing.
+test_park_reports_a_refusal_on_stdout() {
+  local home rc out err
+  home=$(make_home park-refused c7 parked)
+  err="$home/park.err"
+  set +e
+  out=$(FM_FAKE_ATLAS_FAIL=1 run_hook "$home" park task-a1 --actor fm-control --reason 'waits' \
+    --home main --harness claude --session 0f3c2a9e-1111-4a2b-9c3d-000000000001 --on c99 2>"$err")
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "park: a refused park must not fail the caller"
+  [ "$out" = "refused: atlas-axi: the store is unavailable" ] \
+    || fail "park: a refused park must print one refusal line on stdout, got: $out"
+  assert_contains "$(cat "$err")" "atlas-hook: ticket park failed for task-a1" "park: a refused park must still warn"
+  home=$(make_home park-accepted c7 parked)
+  out=$(run_hook "$home" park task-a1 --actor fm-control --reason 'waits' \
+    --home main --harness claude --session 0f3c2a9e-1111-4a2b-9c3d-000000000001 2>/dev/null)
+  [ -z "$out" ] || fail "park: an accepted park must print nothing on stdout, got: $out"
+  pass "park reports a refusal on stdout, and prints nothing when the Atlas takes the park"
+}
+
 test_park_demands_its_session() {
   local home rc out
   home=$(make_home park-no-session)
@@ -424,7 +447,7 @@ JSON
   rc=$?
   set -e
   expect_code 0 "$rc" "parked: the hook must exit 0"
-  want=$'at=2026-09-22T20:00:00.000Z\nwhy=waits on the merge word\non=n149\nsession=0f3c2a9e-1111-4a2b-9c3d-000000000001'
+  want=$'why=waits on the merge word\non=n149\nsession=0f3c2a9e-1111-4a2b-9c3d-000000000001'
   [ "$out" = "$want" ] || fail "parked: expected the park in force as key=value lines, got:"$'\n'"$out"
   home=$(make_home parked-none)
   cat > "$home/ticket.json" <<'JSON'
@@ -993,6 +1016,7 @@ test_abort_returns_the_ticket_to_the_queue
 test_abort_demands_a_reason
 test_park_records_the_session_and_unpark_reopens_it
 test_park_demands_its_session
+test_park_reports_a_refusal_on_stdout
 test_state_reports_the_recorded_ticket_state
 test_parked_reports_the_park_in_force
 test_failing_atlas_warns_once_and_exits_zero

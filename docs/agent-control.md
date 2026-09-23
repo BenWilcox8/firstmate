@@ -71,7 +71,7 @@ The park then runs in this order:
 
 1. Record the session and the reason in the task record.
 2. Record the park on the task's Atlas ticket, when it has one, and require the Atlas to read that park back.
-   The hook's `parked` read must show the same reason and session, a blocker only when one was sent, and a new Atlas record when the park changed.
+   The hook reports a refused park, and its `parked` read must then show the same reason and session, and a blocker only when one was sent.
    A refusal withdraws the record.
 3. Stop the agent through `exit`.
    A refusal re-opens the ticket and withdraws the record.
@@ -83,7 +83,8 @@ The park then runs in this order:
 
 Parking a parked task again only updates its reason, blocker, and Atlas park.
 It never closes a pane, because the recorded id can name another pane by then.
-A ticket that was already parked still reads parked when the Atlas refuses the update, so the same read-back applies.
+A ticket that was already parked still reads parked when the Atlas refuses the update, so the hook reports the refusal itself.
+A retry of a park that the Atlas already holds is accepted, because the Atlas records an identical park as a no-op.
 If the Atlas does not record the update, the prior park record stays.
 
 A resume first confirms that the recorded session file still exists, where the resume will look for it.
