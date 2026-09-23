@@ -1,0 +1,20 @@
+ok - park: the proven session and reason are recorded, the Atlas ticket is parked, and only the endpoint closes
+ok - park: a codex worker's open rollout is the recorded session
+ok - park: a session that cannot be proven refuses with nothing changed
+ok - park: an Atlas that does not record the park refuses with the worker still running
+ok - park: an unverified harness, a secondmate, and a missing reason all refuse
+ok - park: a worker that does not stop leaves the task and its ticket as they were
+ok - park: a session outside the configuration the resume launches with refuses with nothing changed
+ok - park: a retry whose ticket already holds the identical park is accepted, also for a node blocker the Atlas resolved
+ok - resume: the ticket is unparked first, the exact session reopens in a new endpoint in the worktree, and the note is steered
+ok - resume: a codex worker reopens through codex resume <session>
+ok - resume: the task's own leftover pane from an unfinished close is closed before the new endpoint opens
+ok - resume: a recorded endpoint id that now names another pane is left alone
+ok - resume: an agent already running in the task worktree refuses the resume
+ok - resume: a missing session file refuses before anything changes
+ok - resume: a launch that does not come up keeps the park and re-records it on the Atlas
+ok - resume: a ticket the Atlas will not unpark refuses before any launch
+ok - resume: a task that is not parked refuses
+ok - park again: only the reason, blocker, and Atlas park are refreshed, and a reused endpoint id is left alone
+ok - park again: an Atlas that refuses the update while the ticket stays parked keeps the prior park record
+ok - relaunch: a parked task resumes its recorded session instead of starting fresh

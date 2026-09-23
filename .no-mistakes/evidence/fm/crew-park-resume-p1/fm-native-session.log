@@ -1,0 +1,13 @@
+ok - claude capture: the per-process record plus its transcript prove the session
+ok - claude capture: a reused pid, another directory, an unsaved session, and a missing record all refuse
+ok - resume launch: each harness reopens the exact recorded session with its fleet flags kept
+ok - resume launch: a launch shape it does not recognize, or an unverified harness, refuses
+ok - pi worker extension: every session_start records the live session for the current incarnation
+ok - locate: a recorded session whose file still names it is resumable
+ok - locate: a deleted file, another Claude configuration, a disagreeing header, and a malformed id all refuse
+ok - pi capture: the current incarnation's extension record plus its session file prove the session
+ok - pi capture: no record, an earlier incarnation's record, an unsaved session, a disagreeing header, and another directory all refuse
+ok - codex capture: the rollout and thread lock the process holds open prove the session
+ok - codex capture: no rollout, two rollouts, a disagreeing lock or header, and another directory all refuse
+ok - claude capture: the config directory comes from the agent process's own environment
+ok - capture: a harness with no verified native session contract refuses

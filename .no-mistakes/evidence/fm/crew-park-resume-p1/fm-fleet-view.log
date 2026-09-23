@@ -1,0 +1,3 @@
+ok - fleet-view: long titles truncated at 120 chars with ellipsis; short titles unchanged
+ok - FM_SESSION_START_VERBOSE=1 restores full untruncated titles in fleet-view
+ok - fleet-view: a parked task reads as parked with its reason and resume command

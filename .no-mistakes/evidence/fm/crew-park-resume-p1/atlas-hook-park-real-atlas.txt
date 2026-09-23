@@ -1,0 +1,36 @@
+++ git -C $TMP/store init -q
+++ git -C $TMP/store -c user.name=x -c user.email=x@example.invalid commit -q --allow-empty -m init
+++ A create 'Park lab' --name parklab
+++ atlas-axi --repo $TMP/store --by manual create 'Park lab' --name parklab
+++ A create 'Node A' --under parklab --name node-a
+++ atlas-axi --repo $TMP/store --by manual create 'Node A' --under parklab --name node-a
+++ A create 'Blocker node' --under parklab --name blocker
+++ atlas-axi --repo $TMP/store --by manual create 'Blocker node' --under parklab --name blocker
++++ A ticket queue parklab/node-a 'Park t1' --captain-surface none --story 'as the captain I want t1 parked'
++++ atlas-axi --repo $TMP/store --by manual ticket queue parklab/node-a 'Park t1' --captain-surface none --story 'as the captain I want t1 parked'
+++ out=$'queued c1 on parklab/node-a: Park t1\n  $TMP/store/atlas/changes/n2/c1.md'
++++ printf %s $'queued c1 on parklab/node-a: Park t1\n  $TMP/store/atlas/changes/n2/c1.md'
++++ sed -n 's/^queued \(c[0-9]*\) .*/\1/p'
+++ c=c1
+++ A ticket start c1 --to fm-t1 --task t1
+++ atlas-axi --repo $TMP/store --by manual ticket start c1 --to fm-t1 --task t1
+++ printf 'atlas_ticket=%s\nharness=claude\n' c1
+++ S=0f3c2a9e-1111-4a2b-9c3d-000000000001
+++ set +x
+### 1. first park with a node-path blocker
+stdout: []
+### read-back:
+why=waits on review
+on=n3
+session=0f3c2a9e-1111-4a2b-9c3d-000000000001
+### 2. identical retry (Atlas no-op)
+stdout: []
+### 3. re-park with a typo blocker c99
+stdout: [refused: atlas-axi: nothing on the map answers to --on c99 - name a ticket (c7) or a node]
+stderr: atlas-hook: ticket park failed for t1 (atlas-axi: nothing on the map answers to --on c99 - name a ticket (c7) or a node); the map was not updated
+### read-back after refusal (unchanged):
+why=waits on review
+on=n3
+session=0f3c2a9e-1111-4a2b-9c3d-000000000001
+### state:
+parked
