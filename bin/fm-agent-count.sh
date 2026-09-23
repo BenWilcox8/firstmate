@@ -13,8 +13,10 @@
 #               (off when config/agent-limit says off, else none),
 #               at_limit, sessions, and the pane lists agents, supervisors,
 #               unmanaged, and unreadable. Each pane entry has session, pane,
-#               workspace, home, task, kind, and harness.
-#   --session   count only this Herdr session (repeatable). The default is
+#               workspace, home, task, kind, and harness; unknown values are
+#               null. Unreadable panes retain pane-list workspace and matching
+#               task-record fields when they are available.
+#   --session   count only this Herdr session (repeatable, deduplicated). The default is
 #               every session a home's Herdr task record names.
 # The limit is config/agent-limit: one positive whole number, or `off`.
 # Absent means the default (30). To go past the limit once, pass --over-limit

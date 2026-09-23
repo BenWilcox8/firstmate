@@ -133,7 +133,12 @@ test_session_states() {
   [ "$(printf '%s' "$out" | jq -c '[.count, .sessions, (.unmanaged | length)]')" = '[0,["fm-lab-other"],1]' ] \
     || fail "--session should read only the named session: $out"
   assert_no_grep "--session default" "$dir/herdr/calls" "--session still read the default session"
-  pass "fm-agent-count: a stopped session holds no agents, a Herdr error is reported, and --session narrows the read"
+
+  : > "$dir/herdr/calls"
+  out=$(run_count "$dir" "$HOME_MAIN" "$FAKEBIN" --json --session default --session default) || fail "duplicate-session count failed: $out"
+  [ "$(printf '%s' "$out" | jq -c '[.count, .sessions, (.agents | length)]')" = '[3,["default"],3]' ] \
+    || fail "repeated --session names should not duplicate panes or counts: $out"
+  pass "fm-agent-count: a stopped session holds no agents, a Herdr error is reported, and --session narrows and deduplicates the read"
 }
 
 test_unreadable_pane_is_listed_not_counted() {
@@ -141,11 +146,14 @@ test_unreadable_pane_is_listed_not_counted() {
   mkdir -p "$dir"
   build_fleet "$dir"
   add_pane "$dir" default w1:p5 w1 "$dir/wt-e" 'bad name!' claude
+  add_pane "$dir" default w1:p6 w9 "$dir/wt-f" 'bad name!' claude
   task_meta "$HOME_MAIN" task-e ship claude default:w1:p5
   out=$(run_count "$dir" "$HOME_MAIN" "$FAKEBIN" --json) || fail "count failed: $out"
-  [ "$(printf '%s' "$out" | jq -c '[.count, [.unreadable[].pane]]')" = '[3,["w1:p5"]]' ] \
-    || fail "a pane whose process could not be read should be listed as unreadable and not counted: $out"
-  pass "fm-agent-count: a pane whose process cannot be classified is listed, not counted"
+  [ "$(printf '%s' "$out" | jq -c '[.count, (.unreadable | map(select(.pane == "w1:p5") | [.workspace, .home, .task, .kind, .harness])), (.unreadable | map(select(.pane == "w1:p6") | [.workspace, .home, .task, .kind, .harness]))]')" = '[3,[["w1","main","task-e","ship","claude"]],[["w9",null,null,null,null]]]' ] \
+    || fail "unreadable panes should retain known fields and use null for unknown fields: $out"
+  [ "$(printf '%s' "$out" | jq -c '[.unreadable[] | keys | sort] | unique')" = '[["harness","home","kind","pane","session","task","workspace"]]' ] \
+    || fail "every unreadable pane should carry the documented JSON keys: $out"
+  pass "fm-agent-count: unreadable panes retain known fields, null unknown fields, and never count"
 }
 
 test_limit_is_inherited_by_secondmate_homes() {

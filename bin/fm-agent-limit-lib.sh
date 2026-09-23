@@ -34,6 +34,11 @@
 # whose server is not running holds no agents. Any other Herdr error makes the
 # whole count unreadable, and the caller decides.
 #
+# The JSON count lists agents, supervisors, unmanaged agents, and unreadable
+# panes. Every entry has session, pane, workspace, home, task, kind, and
+# harness keys. Unknown values are null; unreadable panes retain their pane-list
+# workspace and matching task-record fields when those are available.
+#
 # The limit: config/agent-limit holds one positive integer or the word `off`.
 # An absent file means FM_AGENT_LIMIT_DEFAULT. The file is inherited by
 # secondmate homes (bin/fm-config-inherit-lib.sh), so the whole fleet shares
@@ -180,7 +185,7 @@ fm_agent_limit_count_json() {
   }
   records=$(fm_agent_limit_records "$homes")
   if [ "$#" -gt 0 ]; then
-    sessions=$(printf '%s\n' "$@")
+    sessions=$(printf '%s\n' "$@" | awk 'NF && !seen[$0]++')
   else
     sessions=$(printf '%s\n' "$records" | cut -f1 | awk 'NF && !seen[$0]++')
   fi
@@ -192,7 +197,7 @@ fm_agent_limit_count_json() {
     while IFS=$'\t' read -r pane ws cwd; do
       [ -n "$pane" ] || continue
       if ! snapshot=$(fm_backend_herdr_recovery_process_snapshot "$session" "$pane"); then
-        unreadable="$unreadable$session"$'\t'"$pane"$'\n'
+        unreadable="$unreadable$session"$'\t'"$pane"$'\t'"$ws"$'\n'
         continue
       fi
       agent_name=$(printf '%s' "$snapshot" | jq -r '
@@ -211,25 +216,31 @@ EOF
     --arg panes "$out" --arg records "$records" --arg homes "$homes" \
     --arg unreadable "$unreadable" --arg sessions "$sessions" '
     def rows($s): $s | split("\n") | map(select(length > 0) | split("\t"));
+    def null_if_empty: if . == "" then null else . end;
+    def fields($p; $r; $home_of):
+      {session: $p.session, pane: $p.pane, workspace: ($p.workspace | null_if_empty),
+       home: (if $r.kind == "secondmate" then ($r.task | null_if_empty) else (($r.home // (if $p.cwd == null then null else $home_of[$p.cwd] end)) | null_if_empty) end),
+       task: ($r.task | null_if_empty), kind: ($r.kind | null_if_empty),
+       harness: (($r.harness | null_if_empty) // ($p.process | null_if_empty))};
     (rows($records) | map({key: (.[0] + "\t" + .[1]), value: {home: .[2], task: .[3], kind: .[4], harness: .[5]}}) | from_entries) as $rec
     | (rows($homes) | map({key: .[1], value: .[0]}) | from_entries) as $home_of
     | rows($panes) | map(
         {session: .[0], pane: .[1], workspace: .[2], cwd: .[3], process: .[4]} as $p
         | ($rec[$p.session + "\t" + $p.pane]) as $r
-        | {session: $p.session, pane: $p.pane, workspace: $p.workspace,
-           home: (if $r.kind == "secondmate" then $r.task else ($r.home // $home_of[$p.cwd] // null) end),
-           task: ($r.task // null), kind: ($r.kind // null),
-           harness: (if ($r.harness // "") != "" then $r.harness else $p.process end),
-           role: (if $r == null then (if $home_of[$p.cwd] then "supervisor" else "unmanaged" end)
-                  elif ($r.kind == "ship" or $r.kind == "scout") then "crewmate"
-                  elif $r.kind == "secondmate" then "supervisor"
-                  else "unmanaged" end)})
+        | (fields($p; $r; $home_of) +
+           {role: (if $r == null then (if $home_of[$p.cwd] then "supervisor" else "unmanaged" end)
+                   elif ($r.kind == "ship" or $r.kind == "scout") then "crewmate"
+                   elif $r.kind == "secondmate" then "supervisor"
+                   else "unmanaged" end)}))
     | {count: (map(select(.role == "crewmate")) | length),
        sessions: rows($sessions) | map(.[0]),
        agents: map(select(.role == "crewmate") | del(.role)),
        supervisors: map(select(.role == "supervisor") | del(.role)),
        unmanaged: map(select(.role == "unmanaged") | del(.role)),
-       unreadable: (rows($unreadable) | map({session: .[0], pane: .[1]}))}'
+       unreadable: (rows($unreadable) | map(
+         {session: .[0], pane: .[1], workspace: .[2]} as $p
+         | ($rec[$p.session + "\t" + $p.pane]) as $r
+         | fields($p; $r; $home_of)))}'
 }
 
 # fm_agent_limit_gate <start-home> <config-dir>: return 0 when one more agent
