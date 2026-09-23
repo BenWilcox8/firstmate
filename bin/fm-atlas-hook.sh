@@ -6,8 +6,10 @@
 # Usage: fm-atlas-hook.sh start <task-id> [--actor <name>]
 #        fm-atlas-hook.sh complete <task-id> --evidence <text> [--summary <text>]
 #                                            [--restage <stage>] [--actor <name>]
+#                                            [--captain-word <words>] [--defer-status]
 #        fm-atlas-hook.sh land <task-id> --evidence <text> [--summary <text>]
-#                                        [--actor <name>]
+#                                        [--actor <name>] [--captain-word <words>]
+#                                        [--defer-status]
 #        fm-atlas-hook.sh abort <task-id> --reason <text> [--actor <name>]
 #        fm-atlas-hook.sh state <task-id>
 #        fm-atlas-hook.sh wired
@@ -47,11 +49,35 @@
 #   --summary  defaults to a short generated line naming the task and the actor.
 #   --actor    is stamped as the Atlas `by:` author, so the log says which fleet
 #              script wrote the entry. Defaults to fm-atlas-hook.
+#   --captain-word  is the captain's exact words from chat. complete and land
+#              first record them as the captain's Atlas approval, `ticket approve
+#              <c> --word <words>`, on a ticket that is not yet closed, so a
+#              captain-authorized merge or acceptance can pass the captain gate.
+#   --defer-status  prints a refusal's status line on stdout instead of writing
+#              it (see THE CAPTAIN GATE), for a caller about to retire the task's
+#              status log; that caller writes the line after the retirement.
+#
+# THE CAPTAIN GATE. The Atlas refuses `ticket complete` and `land` while a ticket
+# waits on the captain's approval, or promised the captain a look and has no
+# testing brief. The Atlas is a map, never an authority, so a refusal never
+# changes the merge or cleanup that called the hook. It changes only what the
+# hook does next: complete and land still `release` the node, so a finished leg
+# never holds it, and append ONE keyed, supervisor-actionable line to the task's
+# status log:
+#   blocked [key=atlas-gate-<ticket>]: the Atlas refused to <act> for task
+#   <task-id>: <the missing gate, or the refusal's reason>; node <n> released
+# The watcher wakes the supervisor on it, and the key keeps it an open blocker
+# until the supervisor records the missing gate, closes the ticket, and resolves
+# that key (the atlas-firstmate-bridge skill owns that repair). One warning line
+# on stderr says the step was refused; a refused step is never reported as done.
+# A failed complete or land call for any other reason takes the same path, with
+# the Atlas's own first error line as the reason.
 #
 # BEST EFFORT, ALWAYS. This script never blocks or fails the action that calls it:
 # every path exits 0, including an unusable Atlas, a missing atlas-axi, a missing
 # jq, a hung call, and any internal error. A call that was attempted and failed
-# prints exactly one warning line to stderr; nothing else is printed. Callers
+# prints exactly one warning line to stderr. Besides that warning, only state,
+# wired, and a --defer-status refusal line print anything. Callers
 # still append `|| true` so a caller running under `set -e` is safe even if this
 # script is replaced by an older copy.
 #
@@ -123,12 +149,14 @@ atlas_repo() {
 }
 
 # Run one atlas-axi call under the shared repo, actor, and timeout. Prints the
-# call's stdout on success; warns once and returns 1 on failure.
-atlas_axi_call() {  # <label> <arg>...
-  local label=$1 err out rc timeout_secs
-  shift
+# call's stdout on success. On failure it prints nothing, returns 1, and leaves
+# the first line of the call's stderr in ATLAS_ERR, so a caller can say why; run
+# it outside a command substitution when that reason is needed.
+atlas_axi_try() {  # <arg>...
+  local err out rc timeout_secs
+  ATLAS_ERR=
   err=$(mktemp "${TMPDIR:-/tmp}/fm-atlas-hook.XXXXXX") || {
-    warn "$label failed for $ID" "no temp file"
+    ATLAS_ERR="no temp file"
     return 1
   }
   timeout_secs=$(hook_timeout_secs)
@@ -139,12 +167,22 @@ atlas_axi_call() {  # <label> <arg>...
   fi
   rc=$?
   if [ "$rc" -ne 0 ]; then
-    warn "$label failed for $ID" "$(head -n 1 "$err" 2>/dev/null)"
+    ATLAS_ERR=$(head -n 1 "$err" 2>/dev/null)
+    [ -n "$ATLAS_ERR" ] || ATLAS_ERR="atlas-axi exited $rc"
     rm -f -- "$err"
     return 1
   fi
   rm -f -- "$err"
   printf '%s\n' "$out"
+}
+
+# atlas_axi_try that also warns once on failure.
+atlas_axi_call() {  # <label> <arg>...
+  local label=$1
+  shift
+  atlas_axi_try "$@" && return 0
+  warn "$label failed for $ID" "$ATLAS_ERR"
+  return 1
 }
 
 # The ticket's node and state, read once into TICKET_NODE and TICKET_STATE.
@@ -157,14 +195,54 @@ ticket_read() {
   [ -n "$TICKET_NODE" ] || { warn "ticket lookup failed for $ID" "$TICKET names no node"; return 1; }
 }
 
-# Complete the ticket unless the crewmate already did. Returns 1 only when a call
-# was attempted and failed, so the caller can stop before release and land.
+# Record the captain's exact words as the Atlas approval, before any act the
+# captain gate stands in front of. Only an open ticket can take the captain's
+# word; a failed approval warns and the close-out that follows reports the gate.
+captain_approve() {
+  [ -n "$CAPTAIN_WORD" ] || return 0
+  case "$TICKET_STATE" in
+    completed|abandoned) return 0 ;;
+  esac
+  atlas_axi_call "captain approval" ticket approve "$TICKET" --word "$CAPTAIN_WORD" >/dev/null || true
+}
+
+# Complete the ticket unless the crewmate already did. Silent: returns 1 with
+# ATLAS_ERR set when the Atlas refused, and the caller reports the refusal.
 ticket_complete_once() {
   if [ "$TICKET_STATE" = completed ] || [ "$TICKET_STATE" = abandoned ]; then
     return 0
   fi
-  atlas_axi_call "ticket complete" ticket complete "$TICKET" \
+  atlas_axi_try ticket complete "$TICKET" \
     --evidence "$EVIDENCE" --summary "$SUMMARY" >/dev/null
+}
+
+# A refused close-out. The node is released anyway, because a refusal must not
+# leave a finished leg holding the node, and exactly one keyed status line says
+# which gate is missing, so the watcher wakes the supervisor. That line goes to
+# the task's status log, or to stdout under --defer-status for a caller about to
+# retire that log. One warning line tells the caller the Atlas step did not
+# succeed.
+gate_refused() {  # <refused act> <node already released: yes|no>
+  local act=$1 released=$2 refusal=$ATLAS_ERR gate node_note line
+  case "$refusal" in
+    *"no testing brief"*) gate="the testing brief is missing" ;;
+    *"reviewed by the captain"*) gate="the captain's approval is missing" ;;
+    *) gate="reason: $(printf '%s' "$refusal" | tr '\n' ' ' | cut -c1-160)" ;;
+  esac
+  if [ "$released" = yes ] || atlas_axi_try release "$TICKET_NODE" >/dev/null; then
+    node_note="node $TICKET_NODE released"
+  else
+    node_note="node $TICKET_NODE could not be released ($(printf '%s' "$ATLAS_ERR" | cut -c1-80))"
+  fi
+  line="blocked [key=atlas-gate-$TICKET]: the Atlas refused to $act for task $ID: $gate; $node_note"
+  if [ "$DEFER_STATUS" = 1 ]; then
+    printf '%s\n' "$line"
+    printf 'atlas-hook: %s refused for %s (%s); %s; the status line went to the caller\n' "$act" "$ID" "$gate" "$node_note" >&2
+  elif printf '%s\n' "$line" >> "$STATE/$ID.status" 2>/dev/null; then
+    printf 'atlas-hook: %s refused for %s (%s); %s; the status log says so\n' "$act" "$ID" "$gate" "$node_note" >&2
+  else
+    printf 'atlas-hook: %s refused for %s (%s); %s; the status line could not be written\n' "$act" "$ID" "$gate" "$node_note" >&2
+  fi
 }
 
 node_has_open_ticket() {
@@ -198,20 +276,34 @@ hook_start() {
 
 hook_complete() {
   ticket_read || return 1
+  captain_approve
   if [ -n "$RESTAGE" ] && [ "$TICKET_STATE" = started ]; then
-    atlas_axi_call "restage $RESTAGE" restage "$TICKET_NODE" "$RESTAGE" >/dev/null || true
+    # A restage the captain gate refuses says nothing the refused completion
+    # below will not say, so only a restage failing for another reason warns.
+    if ! atlas_axi_try restage "$TICKET_NODE" "$RESTAGE" >/dev/null; then
+      case "$ATLAS_ERR" in
+        *"reviewed by the captain"*) ;;
+        *) warn "restage $RESTAGE failed for $ID" "$ATLAS_ERR" ;;
+      esac
+    fi
   fi
-  ticket_complete_once
+  ticket_complete_once && return 0
+  gate_refused "complete ticket $TICKET" no
 }
 
 hook_land() {
   ticket_read || return 1
-  ticket_complete_once || return 1
+  captain_approve
+  if ! ticket_complete_once; then
+    gate_refused "complete ticket $TICKET" no
+    return 0
+  fi
   atlas_axi_call "release" release "$TICKET_NODE" >/dev/null || return 1
   if node_has_open_ticket; then
     return 0
   fi
-  atlas_axi_call "land" land "$TICKET_NODE" --evidence "$EVIDENCE" >/dev/null
+  atlas_axi_try land "$TICKET_NODE" --evidence "$EVIDENCE" >/dev/null && return 0
+  gate_refused "land node $TICKET_NODE for ticket $TICKET" yes
 }
 
 run_hook() {
@@ -250,6 +342,8 @@ run_hook() {
   EVIDENCE=
   SUMMARY=
   RESTAGE=
+  CAPTAIN_WORD=
+  DEFER_STATUS=0
   REASON=
   for a in "$@"; do
     if [ -n "$want_value" ]; then
@@ -259,6 +353,7 @@ run_hook() {
         summary) SUMMARY=$a ;;
         restage) RESTAGE=$a ;;
         reason) REASON=$a ;;
+        captain-word) CAPTAIN_WORD=$a ;;
       esac
       want_value=
       continue
@@ -274,6 +369,9 @@ run_hook() {
       --restage=*) RESTAGE=${a#--restage=} ;;
       --reason) want_value=reason ;;
       --reason=*) REASON=${a#--reason=} ;;
+      --captain-word) want_value=captain-word ;;
+      --captain-word=*) CAPTAIN_WORD=${a#--captain-word=} ;;
+      --defer-status) DEFER_STATUS=1 ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done
