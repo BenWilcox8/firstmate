@@ -54,6 +54,10 @@ unset HERDR_ENV HERDR_PANE_ID
 # to the PATH bash so the tests still exercise the path instead of failing to
 # launch a shell at all.
 SYSTEM_BASH=$(command -v /bin/bash 2>/dev/null || command -v bash)
+# Restricted PATHs below end in the portable core-tool path, not only FHS
+# directories, because NixOS keeps bash, jq, and the coreutils outside /usr/bin
+# and /bin.
+CORE_PATH=$(fm_test_core_path)
 
 # make_herdr_fakebin: a `herdr` stub that logs every invocation (one line,
 # unit-separated args, to $FM_HERDR_LOG) and returns the canned response for
@@ -90,6 +94,16 @@ if [ "${1:-}" = terminal ] && [ "${2:-}" = title ] && [ "${3:-}" = clear ]; then
 fi
 n=$next
 echo "$n" > "$COUNT_FILE"
+# A fixture that lays down $RESP/by-command/ answers each call by its first
+# two arguments (for example pane-get.out), however many times it is asked.
+if [ -d "$RESP/by-command" ]; then
+  key="${1:-}-${2:-}"
+  if [ -f "$RESP/by-command/$key.exit" ]; then
+    exit "$(cat "$RESP/by-command/$key.exit")"
+  fi
+  [ -f "$RESP/by-command/$key.out" ] && cat "$RESP/by-command/$key.out"
+  exit 0
+fi
 if [ -f "$RESP/$n.exit" ]; then
   exit "$(cat "$RESP/$n.exit")"
 fi
@@ -387,7 +401,7 @@ test_cli_helper_sets_env_and_appends_trailing_session_flag() {
 # shellcheck disable=SC2016
 run_with_clients() {  # <dir> <path> <body>
   local dir=$1 path=$2 body=$3
-  FM_HERDR_PAIR_DIR="$dir" PATH="$path:$dir/tools:/usr/bin:/bin" \
+  FM_HERDR_PAIR_DIR="$dir" PATH="$path:$dir/tools:$CORE_PATH:/usr/bin:/bin" \
     bash -c ". \"\$0/bin/backends/herdr.sh\"; $body" "$ROOT"
 }
 
@@ -464,23 +478,29 @@ test_recovery_grade_read_widens_only_at_its_own_boundary() {
 # The fixture pairs a canned `pane process-info` body with REAL processes:
 # the shell pid it names is a real process this test owns, so the descendant
 # walk runs against the real operating-system process table.
+#
+# The middle verdict is the recovery verb, which this fork backs with its own
+# exact classifier (tests/fm-backend-herdr-recovery-state.test.sh owns its full
+# matrix). It samples the pane twice and reads `dead` only when the process
+# table matches Herdr's view exactly: a recognized shell root in its own
+# foreground group, carrying the same name Herdr reports. Any other shape,
+# including a synthetic pid or an inexact foreground identity, reads
+# `unreadable`, which also refuses recovery.
 
 stale_registration_case() {  # <dir-suffix> <agent_status> <process-info-body|-> [process-info-exit]
-  local dir="$TMP_ROOT/stale-reg-$1" resp log fb n
-  mkdir -p "$dir/responses"; resp="$dir/responses"; log="$dir/log"; : > "$log"
+  local dir="$TMP_ROOT/stale-reg-$1" resp log fb
+  mkdir -p "$dir/responses/by-command"; resp="$dir/responses"; log="$dir/log"; : > "$log"
   # The probe below classifies the same pane three times (pane state, the
-  # recovery-grade read, the husk check), and the canned fake consumes
-  # responses in call order, so the same three-call script is laid down for
-  # each pass:
-  for n in 0 3 6; do
-    # +1: pane get -> the pane structurally exists
-    printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/$((n + 1)).out"
-    # +2: agent get -> a registered agent with the given status
-    printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "$2" > "$resp/$((n + 2)).out"
-    # +3: pane process-info -> the pane's actual process view
-    [ "$3" = - ] || printf '%s\n' "$3" > "$resp/$((n + 3)).out"
-    [ -z "${4:-}" ] || printf '%s\n' "$4" > "$resp/$((n + 3)).exit"
-  done
+  # recovery-grade read, the husk check), and the recovery-grade read samples
+  # the pane twice, so the fake answers each command with the same body
+  # however often it is asked:
+  # pane get -> the pane structurally exists
+  printf '{"result":{"pane":{"pane_id":"w1:p2"}}}\n' > "$resp/by-command/pane-get.out"
+  # agent get -> a registered agent with the given status
+  printf '{"result":{"agent":{"agent":"pi","agent_status":"%s"}}}\n' "$2" > "$resp/by-command/agent-get.out"
+  # pane process-info -> the pane's actual process view
+  [ "$3" = - ] || printf '%s\n' "$3" > "$resp/by-command/pane-process-info.out"
+  [ -z "${4:-}" ] || printf '%s\n' "$4" > "$resp/by-command/pane-process-info.exit"
   fb=$(make_herdr_fakebin "$dir")
   PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
     bash -c '. "$0/bin/backends/herdr.sh"
@@ -488,16 +508,53 @@ stale_registration_case() {  # <dir-suffix> <agent_status> <process-info-body|->
       fm_backend_herdr_tab_is_husk fmtest w1:p2 && printf husk || printf refused' "$ROOT"
 }
 
+# write_named_sleeper: make <lab>/run-<name> a launcher for a real
+# long-running process that the kernel names <name>. The launcher executes a
+# <lab>/<name> symlink to a real binary, because a copied platform binary fails
+# code signing on macOS. The symlink points at `sleep` when that is a real
+# binary. A multi-call coreutils (NixOS) renames itself after the program it
+# runs and refuses unknown names, so there the symlink points at perl instead.
+write_named_sleeper() {  # <lab> <name>
+  local lab=$1 name=$2 sleep_bin target args
+  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  mkdir -p "$lab"
+  target=$sleep_bin
+  args='"'"$name"'", @ARGV'
+  if [ "$(basename "$(readlink -f "$sleep_bin" 2>/dev/null || printf '%s' "$sleep_bin")")" = coreutils ]; then
+    target=$(command -v perl) || fail "perl not found"
+    args='"'"$name"'", "-e", "sleep shift", @ARGV'
+  fi
+  ln -sf "$target" "$lab/$name"
+  # shellcheck disable=SC2016 # perl expands $0 and @ARGV itself.
+  printf '%s\n' '#!/usr/bin/env perl' \
+    'use File::Basename qw(dirname);' \
+    "my \$target = dirname(\$0) . '/$name';" \
+    "exec { \$target } $args or die \"exec \$target: \$!\";" > "$lab/run-$name"
+  chmod +x "$lab/run-$name"
+}
+
+# start_shell_standin: start a real, childless, sleeping process that the
+# kernel names `zsh`, as the leader of its own process group, so it matches
+# shell_only_process_info exactly. Sets SHELL_STANDIN_PID. perl's setpgrp
+# gives it the foreground group a login shell owns, because this
+# non-interactive suite has no job control.
+start_shell_standin() {  # <dir-suffix>
+  local lab="$TMP_ROOT/shell-standin-$1"
+  write_named_sleeper "$lab" zsh
+  perl -e 'setpgrp(0, 0) or die "setpgrp: $!"; exec { $ARGV[0] } @ARGV or die "exec: $!"' "$lab/run-zsh" 300 &
+  SHELL_STANDIN_PID=$!
+  sleep 0.3
+}
+
 shell_only_process_info() {  # <shell-pid>
   printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"zsh","argv0":"zsh","argv":["-zsh"],"cmdline":"-zsh"}]}}}' "$1" "$1" "$1"
 }
 
 test_stale_registration_over_a_shell_only_pane_is_agent_free() {
-  local sleep_bin shell_pid out
-  sleep_bin=$(command -v sleep) || fail "sleep not found"
-  # A real, childless process stands in for the pane's shell.
-  "$sleep_bin" 300 &
-  shell_pid=$!
+  local shell_pid out
+  # A real, childless shell-named process stands in for the pane's shell.
+  start_shell_standin shell-only
+  shell_pid=$SHELL_STANDIN_PID
   out=$(stale_registration_case shell-only idle "$(shell_only_process_info "$shell_pid")")
   kill "$shell_pid" 2>/dev/null || true
   [ "$out" = "stale-agent dead refused" ] \
@@ -506,10 +563,9 @@ test_stale_registration_over_a_shell_only_pane_is_agent_free() {
 }
 
 test_stale_registration_ignores_status_and_reads_the_process() {
-  local sleep_bin shell_pid out status
-  sleep_bin=$(command -v sleep) || fail "sleep not found"
-  "$sleep_bin" 300 &
-  shell_pid=$!
+  local shell_pid out status
+  start_shell_standin shell-only-statuses
+  shell_pid=$SHELL_STANDIN_PID
   for status in working 'done' blocked; do
     out=$(stale_registration_case "shell-only-$status" "$status" "$(shell_only_process_info "$shell_pid")")
     [ "$out" = "stale-agent dead refused" ] \
@@ -525,8 +581,11 @@ test_registered_agent_with_a_live_foreground_process_stays_alive() {
   # only argv0 says pi.
   out=$(stale_registration_case live-pi idle \
     '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"node","argv0":"pi","argv":["pi"],"cmdline":"pi"}]}}}')
-  [ "$out" = "live alive refused" ] \
-    || fail "a registered agent whose foreground process is Pi must stay live/alive, got '$out'"
+  # The exact recovery verb proves identity against the real process table,
+  # where these pids do not exist, so it refuses with unreadable. The fork's
+  # recovery-state suite proves the exact live Pi shapes read alive.
+  [ "$out" = "live unreadable refused" ] \
+    || fail "a registered agent whose foreground process is Pi must stay live and refuse recovery, got '$out'"
   pass "herdr stale registration: a registered agent with a live Pi foreground process still reads alive"
 }
 
@@ -536,8 +595,10 @@ test_registered_agent_with_a_non_shell_foreground_process_stays_alive() {
   # not a shell-only pane, so the registration keeps its authority.
   out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 stale_registration_case live-tool working \
     '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4250,"foreground_processes":[{"pid":4250,"name":"git","argv0":"git","argv":["git","status"],"cmdline":"git status"}]}}}')
-  [ "$out" = "live alive refused" ] \
-    || fail "a registered agent with a non-shell foreground process must stay live/alive, got '$out'"
+  # The exact recovery verb reads any other foreground command as unreadable,
+  # which also refuses recovery.
+  [ "$out" = "live unreadable refused" ] \
+    || fail "a registered agent with a non-shell foreground process must stay live and refuse recovery, got '$out'"
   pass "herdr stale registration: only a shell-only pane demotes a registration"
 }
 
@@ -596,27 +657,27 @@ test_exhausted_settle_window_keeps_a_non_shell_foreground_live() {
 }
 
 test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_alive() {
-  local lab sleep_bin shell_pid out shell_verdict
-  sleep_bin=$(command -v sleep) || fail "sleep not found"
-  lab="$TMP_ROOT/stale-reg-descendant-bin"; mkdir -p "$lab"
-  # A symlink to a real long-running binary so the kernel records `pi` as the
-  # executable identity (a copied platform binary fails code signing on macOS).
-  ln -sf "$sleep_bin" "$lab/pi"
+  local lab shell_pid out shell_verdict
+  lab="$TMP_ROOT/stale-reg-descendant-bin"
+  # A real long-running process that the kernel names `pi`.
+  write_named_sleeper "$lab" pi
   # A real shell whose child is that agent-named process, while the canned
   # foreground view shows only the shell (a suspended or backgrounded agent).
-  sh -c "'$lab/pi' 300; :" &
+  sh -c "'$lab/run-pi' 300; :" &
   shell_pid=$!
   sleep 0.3
   out=$(stale_registration_case descendant idle "$(shell_only_process_info "$shell_pid")")
   pkill -P "$shell_pid" 2>/dev/null || true
   kill "$shell_pid" 2>/dev/null || true
-  [ "$out" = "live alive refused" ] \
-    || fail "a registered agent with a live agent-named descendant must stay live/alive, got '$out'"
+  # Herdr's canned view names the real `sh` root zsh, so the exact recovery
+  # verb reads unreadable, which also refuses recovery.
+  [ "$out" = "live unreadable refused" ] \
+    || fail "a registered agent with a live agent-named descendant must stay live and refuse recovery, got '$out'"
   # The divergence itself: the identical canned foreground view reads
   # stale-agent for a childless shell, so the descendant walk is what carried
   # this verdict.
-  "$sleep_bin" 300 &
-  shell_pid=$!
+  start_shell_standin descendant-childless
+  shell_pid=$SHELL_STANDIN_PID
   shell_verdict=$(stale_registration_case descendant-childless idle "$(shell_only_process_info "$shell_pid")")
   kill "$shell_pid" 2>/dev/null || true
   [ "$shell_verdict" = "stale-agent dead refused" ] \
@@ -625,21 +686,22 @@ test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_aliv
 }
 
 test_agent_descendant_under_a_spaced_install_path_stays_alive() {
-  local lab sleep_bin shell_pid out
-  sleep_bin=$(command -v sleep) || fail "sleep not found"
+  local lab shell_pid out
   # The executable path the process table reports contains a space (the macOS
   # `/Library/Application Support/...` shape), so a field-split read of the
   # process table sees only a fragment of the name.
   lab="$TMP_ROOT/stale-reg-spaced-bin/Application Support/Some Dir"; mkdir -p "$lab"
-  ln -sf "$sleep_bin" "$lab/pi"
-  sh -c "'$lab/pi' 300; :" &
+  write_named_sleeper "$lab" pi
+  sh -c "'$lab/run-pi' 300; :" &
   shell_pid=$!
   sleep 0.3
   out=$(stale_registration_case spaced-descendant idle "$(shell_only_process_info "$shell_pid")")
   pkill -P "$shell_pid" 2>/dev/null || true
   kill "$shell_pid" 2>/dev/null || true
-  [ "$out" = "live alive refused" ] \
-    || fail "an agent-named descendant under a spaced install path must stay live/alive, got '$out'"
+  # Herdr's canned view names the real `sh` root zsh, so the exact recovery
+  # verb reads unreadable, which also refuses recovery.
+  [ "$out" = "live unreadable refused" ] \
+    || fail "an agent-named descendant under a spaced install path must stay live and refuse recovery, got '$out'"
   pass "herdr stale registration: the descendant walk reads a spaced executable path whole"
 }
 
@@ -676,8 +738,10 @@ test_registered_agent_with_an_empty_foreground_over_a_real_shell_settles_via_des
   out=$(stale_registration_case empty-foreground idle \
     "$(printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[]}}}' "$shell_pid" "$shell_pid")")
   kill "$shell_pid" 2>/dev/null || true
-  [ "$out" = "stale-agent dead refused" ] \
-    || fail "an empty foreground list over a real childless shell must settle to stale-agent via the descendant walk, not unreadable, got '$out'"
+  # The recovery verb still refuses: the exact classifier needs Herdr's
+  # foreground view to name the process it proves.
+  [ "$out" = "stale-agent unreadable refused" ] \
+    || fail "an empty foreground list over a real childless shell must settle to stale-agent via the descendant walk and still refuse recovery, got '$out'"
   pass "herdr stale registration: an empty foreground list over a real shell is not unreadable, it settles via the descendant walk"
 }
 
@@ -866,7 +930,7 @@ esac
 SH
   chmod +x "$dir/bin/herdr"
   for shape in legacy-equal legacy-older no-protocol stopped; do
-    out=$(FM_HERDR_STATUS_SHAPE=$shape PATH="$dir/tools:/usr/bin:/bin" \
+    out=$(FM_HERDR_STATUS_SHAPE=$shape PATH="$dir/tools:$CORE_PATH:/usr/bin:/bin" \
       bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_client_status "$1" fm-remote' "$ROOT" "$dir/bin/herdr")
     case "$shape" in
       legacy-equal) [ "$out" = 'true|true' ] || fail "legacy equal protocols should read compatible, got: $out" ;;
@@ -2024,7 +2088,7 @@ test_projection_close_rechecks_foreground_client_after_agent_validation() {
   out=$(ROOT="$ROOT" EVENTS="$events" ATTACHED="$attached" bash -c '
     . "$ROOT/bin/backends/herdr.sh"
     fm_backend_herdr_projection_focus_snapshot() { printf "w9\tw9:t2"; }
-    fm_backend_herdr_pane_agent_state() {
+    fm_backend_herdr_recovery_pane_agent_state() {
       printf "agent\n" >> "$EVENTS"
       : > "$ATTACHED"
       printf no-agent

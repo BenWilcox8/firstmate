@@ -196,8 +196,9 @@ run_shim() {  # <home> <command args...>
     FM_CONFIG_OVERRIDE="$home/config" "$ROOT/bin/fm-decision-hold.sh" "$@"
 }
 
-write_origin_meta() {  # <home> <id> [kind]
+write_origin_meta() {  # <home> <id> [kind] [extra meta lines...]
   local home=$1 id=$2 kind=${3:-scout}
+  shift 3 2>/dev/null || shift $#
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" \
     "worktree=$home/projects/missing-$id" \
@@ -205,7 +206,8 @@ write_origin_meta() {  # <home> <id> [kind]
     "harness=codex" \
     "kind=$kind" \
     "mode=$kind" \
-    "spawn_gen=fixture-$id"
+    "spawn_gen=fixture-$id" \
+    "$@"
 }
 
 # --- markdown-to-beads migration resolution ----------------------------------
@@ -2951,8 +2953,11 @@ test_retained_row_artifacts_survive_captain_answers() {
   show=$(tasks_in "$home" show "$local_id" --full) || fail "the released local merge disappeared"
   assert_not_contains "$show" "hold_kind: captain" \
     "local merge approval retained its captain hold kind"
+  # The released answer is the captain's explicit landing word, and this task
+  # has no standing yolo posture, so the merge carries that authority.
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-merge-local.sh" "$local_id" \
+    --captain-authorized \
     > "$home/local-merge.out" 2> "$home/local-merge.err" \
     || fail "approved local merge failed: $(cat "$home/local-merge.err")"
   run_teardown "$home" "$local_id" > "$home/local-teardown.out" \
@@ -3409,12 +3414,13 @@ test_pr_merge_entrypoint_refuses_a_captain_held_task() {
   fm_write_meta "$home/state/$pr_id.meta" \
     "window=firstmate:fm-$pr_id" "endpoint_task_id=$pr_id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "pr=$pr" "spawn_gen=fixture-$pr_id"
+    "pr=$pr" "spawn_gen=fixture-$pr_id" "yolo=on"
   run_captain "$home" hold "$pr_id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the PR entrypoint fixture"
 
   # Without the entrypoint guard, this run reaches gh and returns success even
   # though the task is still held for the captain.
+  # The task carries standing yolo authority, so only the hold can refuse it.
   set +e
   run_pr_merge "$home" "$pr_id" "$pr" > "$home/pr.out" 2> "$home/pr.err"
   rc=$?
@@ -3445,13 +3451,14 @@ test_local_merge_entrypoint_refuses_a_captain_held_task() {
   fm_write_meta "$home/state/$local_id.meta" \
     "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
-    "spawn_gen=fixture-$local_id"
+    "spawn_gen=fixture-$local_id" "yolo=on"
   run_captain "$home" hold "$local_id" --reason "captain local merge approval pending" \
     >/dev/null || fail "could not hold the local entrypoint fixture"
   before=$(git -C "$local_repo" rev-parse main)
 
   # Without the entrypoint guard, this run fast-forwards main while the task
   # still carries the captain hold.
+  # The task carries standing yolo authority, so only the hold can refuse it.
   set +e
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
@@ -3475,8 +3482,9 @@ test_pr_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() {
   configure_merged_github "$home"
   id=sample-missing-pr-authority
   pr=https://github.com/sample/sample/pull/43
-  write_origin_meta "$home" "$id" ship
+  write_origin_meta "$home" "$id" ship yolo=on
 
+  # The task carries standing yolo authority, so only the record read can refuse.
   # A backlog that exists but cannot be read may hide a live captain hold, so
   # the merge must refuse without reaching the forge.
   chmod 000 "$home/data/backlog.md"
@@ -3515,7 +3523,7 @@ test_local_merge_entrypoint_separates_an_unreadable_record_from_an_absent_one() 
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=local-only" \
-    "spawn_gen=fixture-$id"
+    "spawn_gen=fixture-$id" "yolo=on"
   before=$(git -C "$repo" rev-parse main)
 
   # Unreadable authority record: refuse, and leave the default branch where it was.
@@ -3626,7 +3634,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$old_wt" \
     "project=$old_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "spawn_gen=original-$id"
+    "spawn_gen=original-$id" "yolo=on"
   printf 'done: merge ready\n' > "$home/state/$id.status"
 
   teardown_ready="$home/reuse-teardown-ready"
@@ -3681,7 +3689,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$new_wt" \
     "project=$new_repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "spawn_gen=replacement-$id"
+    "spawn_gen=replacement-$id" "yolo=on"
   tasks_in "$home" start "$id" >/dev/null || fail "could not start the reused PR task"
   : > "$merge_release"
   set +e
@@ -3716,7 +3724,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_write_meta "$local_home/state/$local_id.meta" \
     "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
     "worktree=$local_old_wt" "project=$local_old_repo" "harness=codex" \
-    "kind=ship" "mode=local-only" "spawn_gen=original-$local_id"
+    "kind=ship" "mode=local-only" "spawn_gen=original-$local_id" "yolo=on"
   printf 'done: local merge ready\n' > "$local_home/state/$local_id.status"
 
   local_teardown_ready="$local_home/reuse-teardown-ready"
@@ -3782,7 +3790,7 @@ test_merge_entrypoints_refuse_a_reused_task_incarnation() {
   fm_write_meta "$local_home/state/$local_id.meta" \
     "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" \
     "worktree=$local_new_wt" "project=$local_new_repo" "harness=codex" \
-    "kind=ship" "mode=local-only" "spawn_gen=replacement-$local_id"
+    "kind=ship" "mode=local-only" "spawn_gen=replacement-$local_id" "yolo=on"
   tasks_in "$local_home" start "$local_id" >/dev/null \
     || fail "could not start the reused local task"
   : > "$local_merge_release"
@@ -3822,7 +3830,7 @@ test_merge_entrypoints_serialize_forced_teardown_before_task_reads() {
   fm_write_meta "$home/state/$id.meta" \
     "window=firstmate:fm-$id" "endpoint_task_id=$id" "worktree=$wt" \
     "project=$repo" "harness=codex" "kind=ship" "mode=no-mistakes" \
-    "spawn_gen=fixture-$id"
+    "spawn_gen=fixture-$id" "yolo=on"
   printf 'done: merge ready\n' > "$home/state/$id.status"
   run_captain "$home" hold "$id" --reason "captain merge approval pending" >/dev/null \
     || fail "could not hold the PR teardown-race fixture"
@@ -3899,7 +3907,7 @@ SH
   fm_write_meta "$local_home/state/$local_id.meta" \
     "window=firstmate:fm-$local_id" "endpoint_task_id=$local_id" "worktree=$local_wt" \
     "project=$local_repo" "harness=codex" "kind=ship" "mode=local-only" \
-    "spawn_gen=fixture-$local_id"
+    "spawn_gen=fixture-$local_id" "yolo=on"
   printf 'done: local merge ready\n' > "$local_home/state/$local_id.status"
   run_captain "$local_home" hold "$local_id" \
     --reason "captain local merge approval pending" >/dev/null \
@@ -4000,7 +4008,9 @@ test_released_merge_passes_the_entrypoint_and_lands() {
   show=$(tasks_in "$home" show "$id" --full) || fail "the released merge task disappeared"
   assert_not_contains "$show" "hold_kind: captain" \
     "the approved merge remained captain-held after its release"
-  run_pr_merge "$home" "$id" "$pr" > "$home/merge.out" 2> "$home/merge.err" \
+  # The released answer is the captain's explicit merge word, and this task has
+  # no standing yolo posture, so the merge carries that authority.
+  run_pr_merge "$home" "$id" "$pr" --captain-authorized > "$home/merge.out" 2> "$home/merge.err" \
     || fail "the released merge was refused: $(cat "$home/merge.err")"
   PATH="$home/fakebin:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$home" \
     FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \

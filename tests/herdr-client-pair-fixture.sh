@@ -60,5 +60,12 @@ SH
 esac
 exit 0
 SH
-  chmod +x "$dir/stale/herdr" "$dir/current/herdr"
+  # The adapter's recovery-grade read proves a registration against the
+  # operating-system process table, not the registry alone, so the tools
+  # directory also carries a process table matching the pane's process view.
+  cat > "$dir/tools/ps" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' '1 0 1 S init /sbin/init' '4242 1 4242 Ss bash -bash' '4243 4242 4243 S+ claude claude'
+SH
+  chmod +x "$dir/stale/herdr" "$dir/current/herdr" "$dir/tools/ps"
 }
