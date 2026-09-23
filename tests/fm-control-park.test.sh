@@ -9,17 +9,21 @@
 #   1. park proves the running session, records it with the reason, records
 #      the park on the Atlas ticket, exits the agent, and closes only its
 #      endpoint; the worktree, brief, and status log stay.
-#   2. A session park cannot prove, an Atlas that does not record the park, an
-#      unverified harness, and a secondmate all refuse with nothing changed.
+#   2. A session park cannot prove, a session the resume would not find, an
+#      Atlas that does not record the park, an unverified harness, and a
+#      secondmate all refuse with nothing changed.
 #   3. resume unparks the ticket first, reopens the exact recorded session in a
 #      new endpoint in the same worktree, clears the park record, and delivers
 #      the note as a durable steer.
 #   4. The resume always opens a new endpoint: it closes the task's own
 #      leftover pane from an unfinished close, leaves a pane that merely reuses
 #      the recorded id alone, and refuses while an agent runs in the worktree.
-#   5. A missing session file refuses before anything changes, and a launch
+#   5. Parking a parked task again only refreshes its reason, blocker, and
+#      Atlas park, never closes a pane, and keeps the prior record when the
+#      Atlas does not record the update.
+#   6. A missing session file refuses before anything changes, and a launch
 #      that does not come up re-records the Atlas park.
-#   6. relaunch of a parked task resumes its session instead of starting fresh.
+#   7. relaunch of a parked task resumes its session instead of starting fresh.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -388,6 +392,27 @@ test_park_withdraws_when_the_worker_does_not_stop() {
   pass "park: a worker that does not stop leaves the task and its ticket as they were"
 }
 
+# A Claude worker started on another account profile keeps its session under
+# that profile, where the resume launch never looks, so the park refuses it.
+test_park_refuses_a_session_its_resume_would_not_find() {
+  local dir out rc before profile pid
+  dir=$(new_case park-account)
+  profile="$dir/account-profile"
+  pid=$(stand_in claude "CLAUDE_CONFIG_DIR=$profile" ':')
+  mkdir -p "$profile/sessions" "$profile/projects/-wt"
+  jq -cn --argjson pid "$pid" --arg sid "$SID" --arg cwd "$(meta_field "$dir" worktree)" --arg start "$(proc_start "$pid")" \
+    '{pid: $pid, sessionId: $sid, cwd: $cwd, procStart: $start}' > "$profile/sessions/$pid.json"
+  printf '{"type":"user"}\n' > "$profile/projects/-wt/$SID.jsonl"
+  printf '%s' "$pid" > "$dir/fake/fgpid"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 1 "$rc" "park of a session the resume would not find should refuse"$'\n'"$out"
+  assert_contains "$out" "its resume would not find the session" "the refusal should say the resume would not find the session"
+  assert_nothing_changed "$dir" "$before" "a park its resume would not find"
+  ! grep -q 'ticket park' "$dir/fake/atlas" || fail "a park its resume would not find must not touch the Atlas"
+  pass "park: a session outside the configuration the resume launches with refuses with nothing changed"
+}
+
 test_park_refuses_unverified_harnesses_and_secondmates() {
   local dir out rc
   dir=$(new_case park-grok grok)
@@ -492,7 +517,46 @@ test_resume_refuses_an_agent_running_in_the_worktree() {
   pass "resume: an agent already running in the task worktree refuses the resume"
 }
 
-# --- 4. resume refusals and rollback --------------------------------------------
+# --- 4. park again ---------------------------------------------------------------
+
+# After a server restart the recorded endpoint id can name another agent-free
+# pane. Parking again only refreshes the record and the Atlas park, and leaves
+# that pane alone.
+test_repark_leaves_a_reused_endpoint_alone() {
+  local dir out rc stamp
+  dir=$(park_case repark-reused)
+  stamp=$(meta_field "$dir" parked)
+  printf 'fmses:fm-t1\n' >> "$dir/fake/windows"
+  printf 'zsh' > "$dir/fake/command"
+  printf '%s' "$TMP_ROOT" > "$dir/fake/cwd"
+  out=$(run_control "$dir" t1 park --reason "waits on the new review" --on c13); rc=$?
+  expect_code 0 "$rc" "parking a parked task again should succeed"$'\n'"$out"
+  grep -qx 'fmses:fm-t1' "$dir/fake/windows" || fail "parking again must leave another pane that reuses the recorded id alone"
+  [ "$(meta_field "$dir" parked_reason)" = "waits on the new review" ] || fail "parking again should refresh the reason"
+  [ "$(meta_field "$dir" parked_on)" = c13 ] || fail "parking again should refresh the blocker"
+  [ "$(meta_field "$dir" parked)" = "$stamp" ] || fail "parking again should keep the original park time"
+  [ "$(meta_field "$dir" native_session)" = "$SID" ] || fail "parking again should keep the recorded session"
+  grep -qxF "ticket park c7 waits on the new review --home main --harness claude --session $SID --task t1 --on c13" "$dir/fake/atlas" \
+    || fail "parking again should re-record the Atlas park, got: $(cat "$dir/fake/atlas")"
+  [ ! -s "$dir/fake/literal" ] || fail "parking again must send nothing to the pane, got: $(cat "$dir/fake/literal")"
+  pass "park again: only the reason, blocker, and Atlas park are refreshed, and a reused endpoint id is left alone"
+}
+
+test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it() {
+  local dir out rc before
+  dir=$(park_case repark-atlas-fail)
+  printf 'started' > "$dir/fake/ticket-state"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(FM_FAKE_ATLAS_FAIL=park run_control "$dir" t1 park --reason "waits on the new review"); rc=$?
+  expect_code 1 "$rc" "parking again should fail when the Atlas does not record it"$'\n'"$out"
+  assert_contains "$out" "park was not updated" "the failure should say the park was not updated"
+  assert_contains "$out" "prior park record was kept" "the failure should say the prior record stays"
+  assert_not_contains "$out" "worker is still running" "the failure must not claim a worker still runs"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a failed park update must restore the prior park record"
+  pass "park again: an Atlas that does not record the update keeps the prior park record"
+}
+
+# --- 5. resume refusals and rollback --------------------------------------------
 
 test_resume_refuses_a_missing_session_file() {
   local dir out rc before
@@ -540,7 +604,7 @@ test_resume_refuses_a_task_that_is_not_parked() {
   pass "resume: a task that is not parked refuses"
 }
 
-# --- 5. relaunch of a parked task --------------------------------------------
+# --- 6. relaunch of a parked task --------------------------------------------
 
 test_relaunch_of_a_parked_task_resumes_its_session() {
   local dir out rc
@@ -561,6 +625,7 @@ test_park_refuses_an_unproven_session
 test_park_refuses_when_the_atlas_does_not_record_it
 test_park_refuses_unverified_harnesses_and_secondmates
 test_park_withdraws_when_the_worker_does_not_stop
+test_park_refuses_a_session_its_resume_would_not_find
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
 test_resume_closes_its_own_leftover_pane_first
@@ -570,4 +635,6 @@ test_resume_refuses_a_missing_session_file
 test_resume_that_does_not_come_up_parks_the_ticket_again
 test_resume_refuses_when_the_atlas_does_not_unpark
 test_resume_refuses_a_task_that_is_not_parked
+test_repark_leaves_a_reused_endpoint_alone
+test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it
 test_relaunch_of_a_parked_task_resumes_its_session

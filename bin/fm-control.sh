@@ -64,10 +64,11 @@
 #              on the task's Atlas ticket when it has one, exits the agent
 #              through `exit`, then closes ONLY its endpoint with proof it is
 #              gone. The worktree, branch, task record, backlog item, status log,
-#              and inbox all stay. A session that cannot be proven refuses with
-#              nothing changed. A ship or scout only. Parking a parked task again
-#              updates its reason and blocker, re-records the Atlas park, and
-#              retries a close that did not finish.
+#              and inbox all stay. A session that cannot be proven, or that the
+#              resume launch would not find, refuses with nothing changed. A ship
+#              or scout only. Parking a parked task again only updates its reason
+#              and blocker and re-records the Atlas park; it never closes a pane
+#              (resume closes the task's own leftover pane).
 #   resume     Reopens a parked task's recorded session: confirms the session
 #              file still exists, returns the Atlas ticket to started (ticket
 #              unpark) and requires the Atlas to confirm it, then launches the
@@ -965,6 +966,12 @@ do_relaunch() {
 
 PARK_KEYS="parked parked_reason parked_on native_session native_session_harness native_session_file"
 
+# The Claude configuration a resume launches with (bin/fm-spawn.sh forwards
+# the same one), so the park and the resume look for a session in one place.
+resume_claude_config() {
+  printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+}
+
 one_line() {  # <text>: a meta value is one line
   printf '%s' "$1" | tr '\n\r\t' '   '
 }
@@ -1069,24 +1076,30 @@ park_require_harness() {  # <verb>
 }
 
 do_park() {
-  local state pids gen sid file parked stamp reason
-  local -a record
+  local state pids gen sid file parked stamp reason key value
+  local -a record prior
   park_require_kind park
   require_state_verified_backend park
   park_require_harness park
   reason=$(one_line "$REASON")
   parked=$(fm_meta_get "$META" parked)
-  state=$(agent_state_settled)
   if [ -n "$parked" ]; then
-    # Parking a parked task refreshes the reason and blocker, re-records the
-    # Atlas park, and retries a close that did not finish.
-    [ "$state" != alive ] \
-      || die "task $ID is recorded as parked, but an agent runs in its endpoint $T; reconcile it before parking again"
+    # Parking a parked task refreshes only its reason, blocker, and Atlas park.
+    # It never touches a pane: the recorded id can name another pane by now,
+    # and resume closes the task's own leftover pane.
+    if [ "$(agent_state_settled)" = alive ] && [ "$(resume_endpoint_owner)" = own ]; then
+      die "task $ID is recorded as parked, but an agent runs in its worktree at $T; reconcile it before parking again"
+    fi
     sid=$(fm_meta_get "$META" native_session)
     file=$(fm_meta_get "$META" native_session_file)
     [ -n "$sid" ] || die "task $ID is recorded as parked with no native session; reconcile its record before parking again"
     stamp=$parked
+    for key in $PARK_KEYS; do
+      value=$(fm_meta_get "$META" "$key")
+      [ -z "$value" ] || prior+=("$key=$value")
+    done
   else
+    state=$(agent_state_settled)
     case "$state" in
       alive) ;;
       dead|missing) die "task $ID has no running agent (its endpoint reads '$state'), so there is no live session to prove; nothing was changed" ;;
@@ -1100,6 +1113,8 @@ do_park() {
       || die "task $ID cannot be parked: $FM_NATIVE_SESSION_REASON; nothing was changed"
     sid=$FM_NATIVE_SESSION_ID
     file=$FM_NATIVE_SESSION_FILE
+    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$(resume_claude_config)" \
+      || die "task $ID cannot be parked, because its resume would not find the session: $FM_NATIVE_SESSION_REASON; nothing was changed"
     stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
   record=("parked=$stamp" "parked_reason=$reason")
@@ -1108,10 +1123,18 @@ do_park() {
   park_meta_write "${record[@]}" \
     || die "task $ID's park could not be recorded in $META; nothing else was changed"
   if atlas_ticketed && ! atlas_park "$reason" "$HARNESS" "$sid" "$PARK_ON"; then
-    [ -n "$parked" ] || park_meta_write || true
+    if [ -n "$parked" ]; then
+      park_meta_write "${prior[@]}" || true
+      die "task $ID's park was not updated, because its Atlas ticket could not record it; its prior park record was kept"
+    fi
+    park_meta_write || true
     die "task $ID was not parked, because its Atlas ticket could not record the park; its worker is still running and nothing else was changed"
   fi
-  if [ -z "$parked" ] && ! park_stop_agent; then
+  if [ -n "$parked" ]; then
+    echo "parked $ID harness=$HARNESS session=$sid backend=$BACKEND worktree=$WT"
+    return 0
+  fi
+  if ! park_stop_agent; then
     if atlas_ticketed; then
       atlas_unpark "park of $ID was refused: its worker did not stop" || true
     fi
@@ -1119,7 +1142,7 @@ do_park() {
     die "task $ID was not parked, because its worker did not stop; the park record was withdrawn"
   fi
   fm_backend_task_endpoint_close "$BACKEND" "$STATE" "$ID" "$T" "$META" \
-    || die "task $ID is parked with its session recorded, but its endpoint $T could not be closed: $FM_BACKEND_TASK_CLOSE_REASON; close that pane by hand, or run park again to retry"
+    || die "task $ID is parked with its session recorded, but its endpoint $T could not be closed: $FM_BACKEND_TASK_CLOSE_REASON; close that pane by hand, or resume the task, which closes its own leftover pane first"
   echo "parked $ID harness=$HARNESS session=$sid backend=$BACKEND endpoint=$T worktree=$WT"
 }
 
@@ -1161,7 +1184,7 @@ resume_rollback() {
 }
 
 do_resume() {
-  local parked file state model effort cfg
+  local parked file state model effort
   local -a spawn_args
   park_require_kind resume
   require_state_verified_backend resume
@@ -1176,8 +1199,7 @@ do_resume() {
     || die "task $ID's recorded session belongs to '$(fm_meta_get "$META" native_session_harness)', not its recorded harness $HARNESS; it stays parked"
   [ -n "$WT" ] && [ -d "$WT" ] \
     || die "task $ID's recorded worktree '${WT:-none}' is missing; its session cannot be resumed where its work lives, and it stays parked"
-  cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
-  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$cfg" \
+  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$(resume_claude_config)" \
     || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
   # The park closed the recorded endpoint, and its id can now name another pane
   # (Herdr pane ids restart low after a server restart), so only a pane that

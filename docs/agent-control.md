@@ -64,6 +64,8 @@ The captain can then close that worker's pane and pick the same conversation up 
 A park proves the session before it changes anything, because a wrong id is worse than none: it resumes another conversation, or silently a fresh one.
 Each proof comes from evidence the harness itself keeps for the exact running process, never from a guess such as the newest session file in the directory.
 A session that cannot be proven refuses the park, and the worker keeps running.
+The park also confirms that the resume will find the session where it looks for it.
+For example, a Claude worker that uses another account profile's configuration refuses the park, because the resume launches with the configuration of the firstmate home.
 
 The park then runs in this order:
 
@@ -76,7 +78,11 @@ The park then runs in this order:
 4. Close only the endpoint, with proof that it is gone.
    On Herdr this uses the same primitives as teardown: the session presentation lock, the focus-preserving close for a projected task pane, otherwise the agent-axi slot release and the serialized close.
    A close that cannot be proven leaves the task parked and names the pane.
-   Parking again retries the close.
+   The resume closes that pane if it is still in the task's worktree.
+
+Parking a parked task again only updates its reason, blocker, and Atlas park.
+It never closes a pane, because the recorded id can name another pane by then.
+If the Atlas does not record the update, the prior park record stays.
 
 A resume first confirms that the recorded session file still exists, where the resume will look for it.
 A missing file refuses with the task still parked, and a resume never falls back to a fresh session.
