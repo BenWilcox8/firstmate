@@ -1,0 +1,33 @@
+ok - mock: a complete the captain gate refuses releases the node and leaves one keyed status line
+ok - mock: a complete refused for a missing testing brief names that gate
+ok - mock: --captain-word records the captain's exact words as the approval, then completes
+ok - mock: a failed approval is coalesced into one close-out warning
+ok - mock: a refused land releases the node, never lands it, and leaves one keyed status line
+ok - mock: complete rejects --defer-status before any Atlas call
+ok - mock: --defer-status hands the gate line to the caller instead of writing it
+ok - mock: fm-pr-merge still merges when the gate refuses, releases the node, and wakes the supervisor
+ok - mock: fm-pr-merge --captain-word approves and completes the ticket with no manual Atlas step
+ok - mock: fm-pr-merge refuses captain words after the forge boundary
+ok - mock: fm-merge-local --captain-word approves and completes the ticket
+ok - mock: fm-teardown releases a refused node and its gate line outlives the retired records
+ok - mock: fm-teardown --captain-word approves, completes, and lands the ticket
+ok - mock: an empty or missing --captain-word is refused before anything happens
+ok - mock: every Atlas entry point accepts a non-empty --captain-word=<words>
+ok - real: a complete the captain gate refuses releases the node and leaves one keyed status line
+ok - real: a complete refused for a missing testing brief names that gate
+ok - real: --captain-word records the captain's exact words as the approval, then completes
+ok - real: a refused land releases the node, never lands it, and leaves one keyed status line
+ok - real: complete rejects --defer-status before any Atlas call
+ok - real: --defer-status hands the gate line to the caller instead of writing it
+ok - real: fm-pr-merge still merges when the gate refuses, releases the node, and wakes the supervisor
+ok - real: fm-pr-merge --captain-word approves and completes the ticket with no manual Atlas step
+ok - real: fm-pr-merge refuses captain words after the forge boundary
+ok - real: fm-merge-local --captain-word approves and completes the ticket
+ok - real: fm-teardown releases a refused node and its gate line outlives the retired records
+ok - real: fm-teardown --captain-word approves, completes, and lands the ticket
+ok - real: an empty or missing --captain-word is refused before anything happens
+ok - real: every Atlas entry point accepts a non-empty --captain-word=<words>
+ok - spawn: a wired worker replaces ambient Atlas values with this home's values
+ok - spawn: an unwired worker clears ambient Atlas values, including with env -i
+ok - relaunch: a wired worker replaces ambient Atlas values again
+ok - relaunch: an unwired worker clears ambient Atlas values

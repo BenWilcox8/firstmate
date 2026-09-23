@@ -1,0 +1,12 @@
+=== Refused merge close-out (actual fm-atlas-hook public interface) ===
+atlas-hook: complete ticket c1 refused for task-evidence (the captain's approval is missing); node n2 released; the status log says so
+hook_exit=0
+status_log:
+blocked [key=atlas-gate-c1]: the Atlas refused to complete ticket c1 for task task-evidence: the captain's approval is missing; node n2 released
+atlas_state_after_refusal:
+{"id":"c1","state":"started","captain":null}
+{"id":"n2","path_":null,"holder":null,"cond":"underway"}
+=== Captain exact words allow close-out ===
+hook_exit=0
+atlas_state_after_approval:
+{"id":"c1","state":"completed","captain":{"verdict":"approved","word":"Captain: merge it exactly as reviewed.","at":"2026-09-23T03:08:51.598Z","by":"fm-pr-merge"}}
