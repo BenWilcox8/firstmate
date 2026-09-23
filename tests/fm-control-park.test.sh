@@ -14,9 +14,12 @@
 #   3. resume unparks the ticket first, reopens the exact recorded session in a
 #      new endpoint in the same worktree, clears the park record, and delivers
 #      the note as a durable steer.
-#   4. A missing session file refuses before anything changes, and a launch
+#   4. The resume always opens a new endpoint: it closes the task's own
+#      leftover pane from an unfinished close, leaves a pane that merely reuses
+#      the recorded id alone, and refuses while an agent runs in the worktree.
+#   5. A missing session file refuses before anything changes, and a launch
 #      that does not come up re-records the Atlas park.
-#   5. relaunch of a parked task resumes its session instead of starting fresh.
+#   6. relaunch of a parked task resumes its session instead of starting fresh.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -54,9 +57,10 @@ SID=0f3c2a9e-3333-4a2b-9c3d-000000000003
 #
 # tmux: the relaunch suite's lifecycle model, plus what park and resume touch.
 # An exit command stops the agent, and a launch that reopens a session (or
-# carries a brief) starts the harness named in `becomes`. kill-window and
-# new-window change the window inventory, so a closed endpoint reads missing
-# and a resume's new one is found.
+# carries a brief) starts the harness named in `becomes`. The window inventory
+# is `session:name` lines, so kill-window and new-window change what each
+# session lists: a closed endpoint reads missing and a resume's new one is
+# found. FM_FAKE_KILL_FAILS leaves a killed window in place.
 make_stubs() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
@@ -101,23 +105,37 @@ case "${1:-}" in
     done
     printf 'fakepane\n'; exit 0 ;;
   capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
-  list-windows) [ -f "$D/windows" ] && cat "$D/windows"; exit 0 ;;
+  list-windows)
+    ses=''
+    while [ $# -gt 0 ]; do
+      case "$1" in -t) ses=$2; shift 2 ;; *) shift ;; esac
+    done
+    [ -f "$D/windows" ] && sed -n "s/^$ses://p" "$D/windows"
+    exit 0 ;;
   has-session|new-session|set-window-option) exit 0 ;;
   kill-window)
-    : > "$D/windows"
+    [ -z "${FM_FAKE_KILL_FAILS:-}" ] || exit 0
+    target=''
+    while [ $# -gt 0 ]; do
+      case "$1" in -t) target=$2; shift 2 ;; *) shift ;; esac
+    done
+    target=$(printf '%s' "$target" | tr -d '=')
+    grep -vxF "$target" "$D/windows" > "$D/windows.next" || true
+    mv "$D/windows.next" "$D/windows"
     exit 0 ;;
   new-window)
     shift
-    name='' dir=''
+    name='' dir='' ses=''
     while [ $# -gt 0 ]; do
       case "$1" in
         -n) name=$2; shift 2 ;;
         -c) dir=$2; shift 2 ;;
-        -t|-F) shift 2 ;;
+        -t) ses=${2%:}; shift 2 ;;
+        -F) shift 2 ;;
         *) shift ;;
       esac
     done
-    printf '%s\n' "$name" >> "$D/windows"
+    printf '%s:%s\n' "$ses" "$name" >> "$D/windows"
     printf 'zsh' > "$D/command"
     printf '%s' "$dir" > "$D/cwd"
     printf '%s\n' "$name" >> "$D/new-windows"
@@ -242,7 +260,7 @@ EOF
   printf '%s\n' "$dir/atlas" > "$home/config/specs"
   printf 'started' > "$dir/fake/ticket-state"
   : > "$dir/fake/literal"; : > "$dir/fake/keys"; : > "$dir/fake/atlas"
-  printf 'fm-t1\n' > "$dir/fake/windows"
+  printf 'fmses:fm-t1\n' > "$dir/fake/windows"
   printf '%s' "$wt" > "$dir/fake/cwd"
   printf '%s' "$harness" > "$dir/fake/command"
   printf '%s' "$harness" > "$dir/fake/becomes"
@@ -275,6 +293,7 @@ run_control() {  # <case-dir> <args...>
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
     FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 \
     FM_FAKE_ATLAS_FAIL="${FM_FAKE_ATLAS_FAIL:-}" FM_FAKE_NEVER_DIES="${FM_FAKE_NEVER_DIES:-}" \
+    FM_FAKE_KILL_FAILS="${FM_FAKE_KILL_FAILS:-}" \
     FM_TEST_REAL_PS="$FM_TEST_REAL_PS" \
     "$CONTROL" "$@" 2>&1
 }
@@ -324,7 +343,7 @@ test_park_codex_records_the_open_rollout() {
 assert_nothing_changed() {  # <case-dir> <meta-before> <label>
   cmp -s "$2" "$1/home/state/t1.meta" || fail "$3 must leave the task record unchanged"
   ! grep -qx '/exit' "$1/fake/literal" || fail "$3 must not exit the agent"
-  grep -qx 'fm-t1' "$1/fake/windows" || fail "$3 must not close the endpoint"
+  grep -qx 'fmses:fm-t1' "$1/fake/windows" || fail "$3 must not close the endpoint"
 }
 
 test_park_refuses_an_unproven_session() {
@@ -386,6 +405,7 @@ test_resume_reopens_the_exact_session_in_a_new_endpoint() {
   [ -n "$launch" ] || fail "resume should launch claude --resume with the recorded session, got: $(cat "$dir/fake/literal")"
   assert_not_contains "$launch" "encode launch-brief" "resume must not launch the brief as a fresh session"
   grep -qx 'fm-t1' "$dir/fake/new-windows" || fail "resume should open a new endpoint for the parked task"
+  grep -qx 'firstmate:fm-t1' "$dir/fake/windows" || fail "resume should record its new endpoint in the inventory"
   [ "$(cat "$dir/fake/cwd")" = "$(meta_field "$dir" worktree)" ] || fail "resume should open the endpoint in the task worktree"
   [ -z "$(meta_field "$dir" parked)" ] || fail "resume should clear the park record"
   [ -z "$(meta_field "$dir" native_session)" ] || fail "resume should clear the recorded session with the park"
@@ -408,6 +428,50 @@ test_resume_codex_uses_its_resume_subcommand() {
   grep -qF "codex resume " "$dir/fake/literal" || fail "codex resume should use codex resume, got: $(cat "$dir/fake/literal")"
   grep -qF "'$SID'" "$dir/fake/literal" || fail "codex resume should name the recorded session"
   pass "resume: a codex worker reopens through codex resume <session>"
+}
+
+# A park whose close never finished leaves the task's own agent-free pane in its
+# worktree; the resume closes that pane before it opens the new one.
+test_resume_closes_its_own_leftover_pane_first() {
+  local dir out rc
+  dir=$(new_case resume-leftover)
+  out=$(FM_FAKE_KILL_FAILS=1 run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 1 "$rc" "a park whose close cannot be proven should report it"$'\n'"$out"
+  assert_contains "$out" "is parked with its session recorded" "the unfinished close should still leave the task parked"
+  grep -qx 'fmses:fm-t1' "$dir/fake/windows" || fail "the setup needs the leftover pane to remain"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume should close its own leftover pane and continue"$'\n'"$out"
+  ! grep -qx 'fmses:fm-t1' "$dir/fake/windows" || fail "resume should close the task's own leftover pane"
+  grep -qx 'firstmate:fm-t1' "$dir/fake/windows" || fail "resume should open its new endpoint"
+  pass "resume: the task's own leftover pane from an unfinished close is closed before the new endpoint opens"
+}
+
+# After a server restart the recorded endpoint id can name another pane. That
+# pane sits elsewhere, so the resume leaves it alone and opens its own.
+test_resume_leaves_a_reused_endpoint_alone() {
+  local dir out rc
+  dir=$(park_case resume-reused)
+  printf 'fmses:fm-t1\n' >> "$dir/fake/windows"
+  printf 'claude' > "$dir/fake/command"
+  printf '%s' "$TMP_ROOT" > "$dir/fake/cwd"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume should not be blocked by another pane reusing the recorded id"$'\n'"$out"
+  grep -qx 'fmses:fm-t1' "$dir/fake/windows" || fail "resume must leave another pane that reuses the recorded id alone"
+  grep -qx 'firstmate:fm-t1' "$dir/fake/windows" || fail "resume should open its own new endpoint"
+  pass "resume: a recorded endpoint id that now names another pane is left alone"
+}
+
+test_resume_refuses_an_agent_running_in_the_worktree() {
+  local dir out rc
+  dir=$(park_case resume-running)
+  printf 'fmses:fm-t1\n' >> "$dir/fake/windows"
+  printf 'claude' > "$dir/fake/command"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 1 "$rc" "resume should refuse when an agent runs in the task worktree"$'\n'"$out"
+  assert_contains "$out" "already runs in task t1's worktree" "the refusal should name the running agent"
+  [ -n "$(meta_field "$dir" parked)" ] || fail "a refused resume keeps the task parked"
+  ! grep -q 'ticket unpark' "$dir/fake/atlas" || fail "a refused resume must not unpark the ticket"
+  pass "resume: an agent already running in the task worktree refuses the resume"
 }
 
 # --- 4. resume refusals and rollback --------------------------------------------
@@ -480,6 +544,9 @@ test_park_refuses_when_the_atlas_does_not_record_it
 test_park_refuses_unverified_harnesses_and_secondmates
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
+test_resume_closes_its_own_leftover_pane_first
+test_resume_leaves_a_reused_endpoint_alone
+test_resume_refuses_an_agent_running_in_the_worktree
 test_resume_refuses_a_missing_session_file
 test_resume_that_does_not_come_up_parks_the_ticket_again
 test_resume_refuses_when_the_atlas_does_not_unpark

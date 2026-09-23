@@ -79,7 +79,10 @@ A missing file refuses with the task still parked, and a resume never falls back
 It then returns the ticket to started (`ticket unpark`) and requires the Atlas to confirm that before it launches anything.
 The launch goes through `bin/fm-spawn.sh --relaunch --resume-session`, so the fleet's launch environment and flags are the same as for any other launch.
 Only the brief argument is replaced by the native resume of the recorded session.
-The endpoint the park closed is authoritatively missing, so the resume opens a new one directly in the recorded worktree and records it.
+The resume always opens a new endpoint directly in the recorded worktree and records it.
+The park closed the old one, and its id can since name another pane, for example after a Herdr server restart, when pane ids start low again.
+So only a pane that sits in the task's worktree counts as the task's own: an agent-free one, left by a park whose close never finished, is closed first, and an agent running there refuses the resume.
+Any other pane is left alone.
 The resumed agent submits no prompt, so its busy state starts idle.
 The park record is cleared only after the resumed agent is confirmed running.
 A launch that fails after the unpark records the park on the ticket again.

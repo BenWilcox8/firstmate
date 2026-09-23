@@ -48,10 +48,12 @@
 #   native_session (bin/fm-native-session-lib.sh owns the resume form and the
 #   check that the session file still exists), and refuses before anything is
 #   created when that session cannot be found - never a fresh session in its
-#   place. A park closes the task's endpoint, so an authoritatively missing
-#   endpoint is accepted too: a new one is opened directly in the recorded
-#   worktree (no treehouse allocation) and replaces window=. The resumed agent
-#   submits no prompt, so its busy state is armed idle.
+#   place. It always opens a NEW endpoint directly in the recorded worktree
+#   (no treehouse allocation) and replaces window=, because the park closed the
+#   recorded one and its id can since name another pane (Herdr pane ids restart
+#   low after a server restart). It refuses while a pane still sits in the
+#   worktree; bin/fm-control.sh resume closes the task's own leftover pane
+#   first. The resumed agent submits no prompt, so its busy state is armed idle.
 #   A FRESH spawn on a task id this home already holds a record for is a
 #   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
 #   Such a spawn settles the endpoint the old record named in two halves. Before
@@ -1377,8 +1379,9 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  if [ "$RESUME_SESSION" -eq 1 ] && [ "$RELAUNCH_STATE" = missing ]; then
-    # A park closed the endpoint; the resume opens a new one in the worktree.
+  if [ "$RESUME_SESSION" -eq 1 ]; then
+    # A resume always opens a new endpoint in the worktree; the endpoint check
+    # for it runs below, once the recorded worktree is known.
     RESUME_NEW_ENDPOINT=1
   elif [ "$RELAUNCH_STATE" != dead ]; then
     echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
@@ -1430,6 +1433,24 @@ if [ "$RELAUNCH" -eq 1 ]; then
       echo "error: task $ID's recorded session belongs to '$(fm_meta_get "$RELAUNCH_META" native_session_harness)', not '$ARG3'; a session resumes only on its own harness" >&2
       exit 1
     }
+    # The park closed the recorded endpoint, and its id can now name another
+    # pane. A pane still sitting in the worktree is the task's own, and
+    # bin/fm-control.sh resume closes it before launching; this launch owner
+    # independently refuses rather than open a second endpoint beside it.
+    case "$RELAUNCH_STATE" in
+      missing) ;;
+      dead|alive)
+        RESUME_SEEN=$(fm_backend_current_path "$BACKEND" "$RELAUNCH_TARGET" 2>/dev/null || true)
+        if [ -z "$RESUME_SEEN" ] || fm_native_session_same_dir "$RESUME_SEEN" "$RELAUNCH_WT"; then
+          echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET still holds a pane in its worktree (or cannot be located); resume through bin/fm-control.sh $ID resume, which closes the task's own leftover pane first" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; refusing to resume beside an endpoint that cannot be classified" >&2
+        exit 1
+        ;;
+    esac
     RESUME_SESSION_ID=$(fm_meta_get "$RELAUNCH_META" native_session)
     RESUME_SESSION_FILE=$(fm_meta_get "$RELAUNCH_META" native_session_file)
     fm_native_session_locate "$ARG3" "$RESUME_SESSION_ID" "$RESUME_SESSION_FILE" \

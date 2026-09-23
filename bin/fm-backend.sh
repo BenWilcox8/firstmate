@@ -1058,6 +1058,21 @@ fm_backend_foreground_pids() {  # <backend> <target>
   esac
 }
 
+# fm_backend_current_path: the working directory of <target>'s pane, or
+# nothing, on the two backends with a recovery-grade classifier. A parked
+# task's recorded endpoint id can name another pane after a server restart
+# (Herdr pane ids restart low), so a resume asks where that pane sits before it
+# treats the pane as the task's own.
+fm_backend_current_path() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_current_path "$target" ;;
+    herdr) fm_backend_herdr_current_path "$target" ;;
+    *) return 1 ;;
+  esac
+}
+
 # Backward-compatible three-state view for existing callers. An
 # authoritatively missing endpoint is confidently not a live agent, while every
 # ambiguous, unreadable, or unverified result stays unknown.

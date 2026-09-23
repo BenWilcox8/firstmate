@@ -73,8 +73,11 @@
 #              unpark) and requires the Atlas to confirm it, then launches the
 #              recorded harness with its native resume of that exact session in
 #              the task's worktree through bin/fm-spawn.sh --relaunch
-#              --resume-session, which opens a new endpoint when the old one is
-#              gone. A missing session file refuses, with the task still parked;
+#              --resume-session, always in a new endpoint: the recorded id can
+#              name another pane by now, so only a pane sitting in the task's
+#              worktree counts as its own - an agent-free one is closed first,
+#              an agent running there refuses, and any other pane is left
+#              alone. A missing session file refuses, with the task still parked;
 #              a resume never falls back to a fresh session. --note is delivered
 #              as a durable inbox steer once the agent runs. The park record is
 #              cleared only after the resumed agent is confirmed running; a
@@ -1076,6 +1079,20 @@ RESUME_UNPARKED=0
 RESUME_SESSION=
 RESUME_REASON=
 
+# Whether the recorded endpoint's pane sits in this task's worktree (own), in
+# another directory (other), or cannot be located (unknown).
+resume_endpoint_owner() {
+  local seen
+  seen=$(fm_backend_current_path "$BACKEND" "$T" 2>/dev/null) || seen=
+  if [ -z "$seen" ]; then
+    printf 'unknown'
+  elif fm_native_session_same_dir "$seen" "$WT"; then
+    printf 'own'
+  else
+    printf 'other'
+  fi
+}
+
 resume_rollback() {
   [ "$RESUME_UNPARKED" = 1 ] || return 0
   RESUME_UNPARKED=0
@@ -1102,10 +1119,26 @@ do_resume() {
   cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
   fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$cfg" \
     || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
+  # The park closed the recorded endpoint, and its id can now name another pane
+  # (Herdr pane ids restart low after a server restart), so only a pane that
+  # sits in this task's worktree is treated as the task's own. The resume
+  # always opens a new endpoint; it first closes the task's own agent-free pane
+  # left by a park whose close never finished, and leaves any other pane alone.
   state=$(agent_state)
   case "$state" in
-    missing|dead) ;;
-    alive) die "an agent already runs in task $ID's endpoint $T; refusing to resume a second one onto the same work" ;;
+    missing) ;;
+    dead|alive)
+      case "$(resume_endpoint_owner)" in
+        own)
+          [ "$state" = dead ] \
+            || die "an agent already runs in task $ID's worktree at $T; refusing to resume a second one onto the same work"
+          fm_backend_task_endpoint_close "$BACKEND" "$STATE" "$ID" "$T" "$META" \
+            || die "task $ID's leftover pane $T could not be closed before the resume: $FM_BACKEND_TASK_CLOSE_REASON; it stays parked and nothing was changed"
+          ;;
+        other) ;;
+        *) die "task $ID's recorded endpoint $T still exists but its location cannot be read, so it cannot be told apart from the task's own pane; refusing to resume" ;;
+      esac
+      ;;
     *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to resume" ;;
   esac
   if atlas_ticketed; then
