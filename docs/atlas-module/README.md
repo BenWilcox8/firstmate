@@ -13,7 +13,7 @@ Then an upstream firstmate merge and an Atlas or dashboard update touch differen
 | Part | Role | When it loads |
 | --- | --- | --- |
 | [`supervisor-block.md`](supervisor-block.md) | Supervisor prompt fragment: the map-not-authority rule and the skill load points | `bin/fm-session-start.sh` prints it in every firstmate and secondmate session of a wired home |
-| [`crewmate-brief.md`](crewmate-brief.md) | Worker prompt fragment: what a ticketed worker may change on the Atlas | `bin/fm-spawn.sh` appends it to the launch brief of a ticketed ship or scout worker in a wired home |
+| [`crewmate-brief.md`](crewmate-brief.md) | Worker prompt fragment: what a ticketed worker can change on the Atlas | `bin/fm-spawn.sh` appends it to the launch brief of a ticketed ship or scout worker in a wired home |
 | `.agents/skills/atlas-firstmate-bridge/` | Supervisor skill: every supervisor-side Atlas rule | The supervisor loads it at the points the supervisor block names |
 | `bin/fm-atlas-module.sh` | Entry point for the prompt fragments, the dispatch warning, and the worker environment | Called by the core hook points below |
 | `bin/fm-atlas-lib.sh` | The pointer rule and the crew-name rule, shared by the module scripts | Sourced by the module scripts |

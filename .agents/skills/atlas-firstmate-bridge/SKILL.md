@@ -145,9 +145,9 @@ For `no-mistakes` that is the pipeline's automated review, which is wider than t
 For `direct-PR` and `local-only` there is no automated review, so queue such a ticket `--review human`, or run a read-only reviewer from the supervising session instead.
 The crewmate half of this module carries the worker's side of this ruling.
 
-## What a worker may write
+## What a worker can write
 
-The crewmate half of this module is the single owner of what a worker may change on the Atlas.
+The crewmate half of this module is the single owner of what a worker can change on the Atlas.
 In short: a worker restages, records checkpoints, and hands over to testing on its own ticket, and every write carries its own author name.
 It never closes a ticket and never frees a node.
 Never ask a worker to complete, land, abandon, abort, or release, and never pass it a `--repo` or `--by` for its Atlas commands.
@@ -165,7 +165,8 @@ A ticket closes in one of these ways, and never by its worker.
    So spawn ticketed work with `--ticket`, and land it only through those guarded paths.
 2. **By hand, by a supervisor.**
    A firstmate or secondmate can close a ticket itself with `atlas-axi ticket complete <c> --evidence "..." --summary "..."`.
-   Do this for work that landed while its task record held no ticket, for a refused close-out after its gate is met, and for any other ticket the hooks cannot reach.
+   Do this for work that landed while its task record held no ticket.
+   Do it also for a refused close-out after its gate is met, and for any other ticket that the hooks cannot reach.
    Then release the node, and land it when no open ticket remains on it.
 3. **Back to the queue, when a dispatch produced nothing.**
    Cleanup aborts the ticket with `ticket abort`, which also frees the node.
@@ -200,7 +201,13 @@ Do these steps in this order:
 
 A ghost leg is a started ticket whose worker is gone.
 One node holds one worker, so the next ticket on that node cannot start until the ghost is settled.
-Known causes include a refused close-out, a forced cleanup that discarded work, a task record that never held the ticket, a worker lost to a restart, and a node released to put a second worker on it.
+These are the known causes:
+
+- a refused close-out;
+- a forced cleanup that discarded work;
+- a task record that never held the ticket;
+- a worker lost to a restart;
+- a node released to put a second worker on it.
 
 Settle each ghost by what is true:
 
@@ -248,7 +255,7 @@ Each known collision between the two surfaces, and the one line that owns it.
 | --- | --- |
 | `atlas-axi ticket start` presented as the dispatch act | "Dispatch order": never the dispatch act, and the spawn's hook writes it |
 | `normal` merge kind tells a worker to fast-forward main | "Merge kind and delivery mode", and the crewmate half: the worker never lands |
-| Who may write the Atlas: the shared captain file said workers never write, `atlas-working` says they write at every stage | The crewmate half owns worker writes; "What a worker may write" points to it |
+| Who may write the Atlas: the shared captain file said workers never write, `atlas-working` says they write at every stage | The crewmate half owns worker writes; "What a worker can write" points to it |
 | Three owners for completing a ticket: `atlas-supervising`, this skill, and the hooks | "How a ticket closes": the guarded merge path, or a supervisor by hand, never the worker |
 | Briefs had no path to `atlas-working` | "Dispatch order": the spawn appends the crewmate half to every ticketed launch brief |
 | The adversarial reviewer file was said to exist nowhere | "The adversarial reviewer": the file is project-owned, and the delivery path's review stands in when a project lacks it |
