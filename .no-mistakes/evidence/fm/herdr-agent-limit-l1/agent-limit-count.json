@@ -1,0 +1,60 @@
+{
+  "count": 2,
+  "limit": 30,
+  "at_limit": false,
+  "sessions": [
+    "default"
+  ],
+  "agents": [
+    {
+      "session": "default",
+      "pane": "w1:p2",
+      "workspace": "w1",
+      "home": "main",
+      "task": "task-a",
+      "kind": "ship",
+      "harness": "claude"
+    },
+    {
+      "session": "default",
+      "pane": "w2:p2",
+      "workspace": "w2",
+      "home": "sm1",
+      "task": "task-b",
+      "kind": "scout",
+      "harness": "pi"
+    }
+  ],
+  "supervisors": [
+    {
+      "session": "default",
+      "pane": "w1:p1",
+      "workspace": "w1",
+      "home": "main",
+      "task": null,
+      "kind": null,
+      "harness": "claude"
+    },
+    {
+      "session": "default",
+      "pane": "w2:p1",
+      "workspace": "w2",
+      "home": "sm1",
+      "task": "sm1",
+      "kind": "secondmate",
+      "harness": "pi"
+    }
+  ],
+  "unmanaged": [
+    {
+      "session": "default",
+      "pane": "w9:p1",
+      "workspace": "w9",
+      "home": null,
+      "task": null,
+      "kind": null,
+      "harness": "codex"
+    }
+  ],
+  "unreadable": []
+}
