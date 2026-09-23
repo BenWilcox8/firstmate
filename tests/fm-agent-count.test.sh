@@ -104,6 +104,9 @@ test_reports_limit_default_config_and_off() {
   out=$(run_count "$dir" "$HOME_MAIN" "$FAKEBIN" --json 2>&1) && fail "a malformed config/agent-limit was accepted: $out"
   assert_contains "$out" "positive whole number or the word off" "a malformed limit should say what the file must hold"
 
+  printf '1 2\n' > "$HOME_MAIN/config/agent-limit"
+  out=$(run_count "$dir" "$HOME_MAIN" "$FAKEBIN" --json 2>&1) && fail "a limit file with two values was accepted: $out"
+
   printf '3\n' > "$HOME_MAIN/config/agent-limit"
   out=$(run_count "$dir" "$HOME_MAIN" "$FAKEBIN") || fail "plain count failed: $out"
   assert_contains "$out" "agents: 3 / 3" "the plain output should lead with the count and the limit"

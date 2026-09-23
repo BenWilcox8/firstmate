@@ -71,11 +71,12 @@ fm_agent_limit_read() {
     echo "error: $file must be a readable regular file" >&2
     return 1
   fi
-  value=$(tr -d '[:space:]' < "$file")
+  # Exactly one word, with any surrounding whitespace or newlines.
+  value=$(awk '{ for (i = 1; i <= NF; i++) { n++; w = $i } } END { if (n == 1) print w }' "$file")
   case "$value" in
     off) printf 'off\n' ;;
     ''|*[!0-9]*|0*)
-      echo "error: $file must hold one positive whole number or the word off (got '$value')" >&2
+      echo "error: $file must hold one positive whole number or the word off (got '$(head -c 40 "$file" | tr '\n' ' ')')" >&2
       return 1
       ;;
     *) printf '%s\n' "$value" ;;
