@@ -434,6 +434,24 @@ test_park_refuses_a_session_its_resume_would_not_find() {
   pass "park: a session outside the configuration the resume launches with refuses with nothing changed"
 }
 
+# A park whose stop failed and whose unpark rollback also failed leaves the
+# local record withdrawn while the ticket still holds that exact park. A retry
+# meets an Atlas that drops the identical park as a no-op, and still parks.
+test_park_retry_accepts_the_identical_park_already_in_force() {
+  local dir out rc
+  dir=$(new_case park-retry)
+  printf 'parked' > "$dir/fake/ticket-state"
+  jq -cn --arg why "waits" --arg on "" --arg id "$SID" \
+    '{why: $why, on: (if $on == "" then null else $on end), session: {id: $id}}' | tr -d '\n' > "$dir/fake/park-body"
+  printf 'at-0' > "$dir/fake/park-at"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 0 "$rc" "a retried park the Atlas already holds should succeed"$'\n'"$out"
+  [ "$(cat "$dir/fake/park-at")" = at-0 ] || fail "the setup needs the Atlas to drop the identical park as a no-op"
+  [ "$(meta_field "$dir" native_session)" = "$SID" ] || fail "the retried park should record the session"
+  [ ! -s "$dir/fake/windows" ] || fail "the retried park should close the endpoint"
+  pass "park: a retry whose ticket already holds the identical park is accepted"
+}
+
 test_park_refuses_unverified_harnesses_and_secondmates() {
   local dir out rc
   dir=$(new_case park-grok grok)
@@ -657,6 +675,7 @@ test_park_refuses_when_the_atlas_does_not_record_it
 test_park_refuses_unverified_harnesses_and_secondmates
 test_park_withdraws_when_the_worker_does_not_stop
 test_park_refuses_a_session_its_resume_would_not_find
+test_park_retry_accepts_the_identical_park_already_in_force
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
 test_resume_closes_its_own_leftover_pane_first

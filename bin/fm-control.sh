@@ -1039,13 +1039,19 @@ park_field() {  # <parked-read> <key>
 # itself never fails its caller, so the read-back is the proof. A refused park
 # on a ticket that was already parked still reads parked, so the reason and
 # session must match, the blocker must be present exactly when one was sent
-# (the Atlas stores the id it resolved it to), and a park that differs from the
-# one already recorded (<new> is 1) must carry a new Atlas record.
+# (the Atlas stores the id it resolved it to), and a park that differs both from
+# the one already recorded (<new> is 1) and from the Atlas park in force before
+# the call must carry a new Atlas record, because the Atlas drops an identical
+# park as a no-op.
 atlas_park() {  # <reason> <harness> <session> <blocker> <new>
   local reason=$1 harness=$2 session=$3 on=$4 new=$5 home before after got sent=0 held=0
   home=$(park_home_name) \
     || { echo "error: this home's secondmate identity marker is unusable, so the Atlas park cannot name its home" >&2; return 1; }
   before=$(atlas_ticket_parked)
+  if [ -n "$before" ] && [ "$(park_field "$before" why)" = "$reason" ] \
+    && [ "$(park_field "$before" session)" = "$session" ] && [ "$(park_field "$before" on)" = "$on" ]; then
+    new=0
+  fi
   if [ -n "$on" ]; then
     atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session" --on "$on"
   else
