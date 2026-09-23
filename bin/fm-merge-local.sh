@@ -40,6 +40,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 fm_lease_forbid_branch "local-only landing (fm-merge-local)"
 ID=${1:?usage: fm-merge-local.sh <task-id>}
 # --captain-authorized: explicit current captain merge instruction; passes
@@ -52,21 +54,13 @@ shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --captain-authorized) CAPTAIN_AUTHORIZED=true; shift ;;
-    --captain-word)
-      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
         exit 2
       fi
-      CAPTAIN_WORD=$2
-      shift 2
-      ;;
-    --captain-word=*)
-      CAPTAIN_WORD=${1#--captain-word=}
-      if [ -z "$CAPTAIN_WORD" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
-        exit 2
-      fi
-      shift
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
       ;;
     *) echo "usage: fm-merge-local.sh <task-id> [--captain-authorized] [--captain-word <words>]" >&2; exit 2 ;;
   esac
@@ -158,6 +152,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-merge-local \
   --restage merge \
-  ${CAPTAIN_WORD:+--captain-word "$CAPTAIN_WORD"} \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$before..$after on $DEFAULT" \
   --summary "Task $ID landed on local $DEFAULT as a fast-forward of $BRANCH." || true

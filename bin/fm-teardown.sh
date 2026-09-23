@@ -283,6 +283,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -296,29 +298,27 @@ CAPTAIN_WORD=
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --force) FORCE=--force ;;
-    --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
-    --captain-word)
-      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
-        exit 2
-      fi
-      CAPTAIN_WORD=$2
+    --force)
+      FORCE=--force
       shift
       ;;
-    --captain-word=*)
-      CAPTAIN_WORD=${1#--captain-word=}
-      if [ -z "$CAPTAIN_WORD" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
+    --legacy-record)
+      LEGACY_RECORD_GIVEN=1
+      shift
+      ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
         exit 2
       fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
       ;;
     *)
       echo "error: invalid teardown request" >&2
       exit 2
       ;;
   esac
-  shift
 done
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -3228,7 +3228,7 @@ elif [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
   ATLAS_GATE_LINE=$(atlas_hook land "$ID" \
     --actor fm-teardown \
     --defer-status \
-    ${CAPTAIN_WORD:+--captain-word "$CAPTAIN_WORD"} \
+    ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
     --evidence "$atlas_evidence" \
     --summary "$atlas_summary")
 fi

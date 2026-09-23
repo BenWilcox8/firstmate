@@ -596,7 +596,7 @@ test_teardown_with_captain_word() {
 test_empty_captain_word_is_refused() {
   local store=$1 rc out form log_before log_after
   make_home "$store" empty-word human none yolo=on
-  for form in positional equals; do
+  for form in positional equals option missing; do
     case "$store" in
       mock) log_before=$(wc -l < "$REPO/atlas/mock/log") ;;
     esac
@@ -609,6 +609,14 @@ test_empty_captain_word_is_refused() {
       equals)
         out=$(in_home "$store" "$HOOK" complete task-a1 --captain-word= \
           --evidence https://example.invalid/pr/empty --summary "merged" 2>&1)
+        ;;
+      option)
+        out=$(in_home "$store" "$HOOK" complete task-a1 --captain-word --actor \
+          --evidence https://example.invalid/pr/empty --summary "merged" 2>&1)
+        ;;
+      missing)
+        out=$(in_home "$store" "$HOOK" complete task-a1 --evidence https://example.invalid/pr/empty \
+          --summary "merged" --captain-word 2>&1)
         ;;
     esac
     rc=$?
@@ -629,11 +637,13 @@ test_empty_captain_word_is_refused() {
       || fail "$store: an empty --captain-word changed the node"
   done
   make_fake_forge
-  for form in positional equals; do
+  for form in positional equals option missing; do
     set +e
     case "$form" in
       positional) run_pr_merge "$store" --captain-word "" >/dev/null 2>&1 ;;
       equals) run_pr_merge "$store" --captain-word= >/dev/null 2>&1 ;;
+      option) run_pr_merge "$store" --captain-word --captain-authorized >/dev/null 2>&1 ;;
+      missing) run_pr_merge "$store" --captain-word >/dev/null 2>&1 ;;
     esac
     rc=$?
     set -e
@@ -643,6 +653,8 @@ test_empty_captain_word_is_refused() {
     case "$form" in
       positional) in_home "$store" "$TEARDOWN" task-a1 --captain-word "" >/dev/null 2>&1 ;;
       equals) in_home "$store" "$TEARDOWN" task-a1 --captain-word= >/dev/null 2>&1 ;;
+      option) in_home "$store" "$TEARDOWN" task-a1 --captain-word --force >/dev/null 2>&1 ;;
+      missing) in_home "$store" "$TEARDOWN" task-a1 --captain-word >/dev/null 2>&1 ;;
     esac
     rc=$?
     set -e
@@ -652,6 +664,8 @@ test_empty_captain_word_is_refused() {
     case "$form" in
       positional) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word "" >/dev/null 2>&1 ;;
       equals) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word= >/dev/null 2>&1 ;;
+      option) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word --captain-authorized >/dev/null 2>&1 ;;
+      missing) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word >/dev/null 2>&1 ;;
     esac
     rc=$?
     set -e
@@ -664,17 +678,17 @@ test_captain_word_equals_forms() {
   local store=$1 proj rc
   make_home "$store" complete-word-equals human none
   in_home "$store" "$HOOK" complete task-a1 --actor fm-pr-merge --restage merge \
-    --captain-word="yes, merge it" --evidence https://example.invalid/pr/equals --summary "merged" >/dev/null 2>&1
-  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "yes, merge it" ] \
+    --captain-word="-yes, merge it" --evidence https://example.invalid/pr/equals --summary "merged" >/dev/null 2>&1
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-yes, merge it" ] \
     || fail "$store: fm-atlas-hook did not accept --captain-word=<words>"
   make_home "$store" pr-word-equals human none yolo=off
   make_fake_forge
   set +e
-  run_pr_merge "$store" --captain-authorized --captain-word="merge it" >/dev/null 2>&1
+  run_pr_merge "$store" --captain-authorized --captain-word="-merge it" >/dev/null 2>&1
   rc=$?
   set -e
   expect_code 0 "$rc" "$store: fm-pr-merge did not accept --captain-word=<words>"
-  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "merge it" ] \
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-merge it" ] \
     || fail "$store: fm-pr-merge did not record --captain-word=<words>"
   MODE=local-only make_home "$store" local-word-equals human none yolo=on
   proj="$HOME_DIR/project"
@@ -684,17 +698,17 @@ test_captain_word_equals_forms() {
   git -C "$proj" add change.txt
   git -C "$proj" commit -qm change
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
-  in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word="land it" >/dev/null 2>&1 \
+  in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word="-land it" >/dev/null 2>&1 \
     || fail "$store: fm-merge-local did not accept --captain-word=<words>"
-  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "land it" ] \
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-land it" ] \
     || fail "$store: fm-merge-local did not record --captain-word=<words>"
   make_teardown_case "$store" teardown-word-equals
   set +e
-  in_home "$store" "$TEARDOWN" task-a1 --captain-word="ship it" >/dev/null 2>&1
+  in_home "$store" "$TEARDOWN" task-a1 --captain-word="-ship it" >/dev/null 2>&1
   rc=$?
   set -e
   expect_code 0 "$rc" "$store: fm-teardown did not accept --captain-word=<words>"
-  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "ship it" ] \
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-ship it" ] \
     || fail "$store: fm-teardown did not record --captain-word=<words>"
   pass "$store: every Atlas entry point accepts a non-empty --captain-word=<words>"
 }

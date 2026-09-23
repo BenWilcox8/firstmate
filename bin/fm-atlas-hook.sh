@@ -107,6 +107,8 @@ FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 
 usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
@@ -354,7 +356,14 @@ run_hook() {
         summary) SUMMARY=$a ;;
         restage) RESTAGE=$a ;;
         reason) REASON=$a ;;
-        captain-word) CAPTAIN_WORD=$a; CAPTAIN_WORD_SUPPLIED=1 ;;
+        captain-word)
+          if ! fm_atlas_parse_captain_word --captain-word "$a"; then
+            warn "$VERB called with an invalid --captain-word"
+            return 0
+          fi
+          CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+          CAPTAIN_WORD_SUPPLIED=1
+          ;;
       esac
       want_value=
       continue
@@ -371,7 +380,14 @@ run_hook() {
       --reason) want_value=reason ;;
       --reason=*) REASON=${a#--reason=} ;;
       --captain-word) want_value=captain-word ;;
-      --captain-word=*) CAPTAIN_WORD=${a#--captain-word=}; CAPTAIN_WORD_SUPPLIED=1 ;;
+      --captain-word=*)
+        if ! fm_atlas_parse_captain_word "$a"; then
+          warn "$VERB called with an invalid --captain-word"
+          return 0
+        fi
+        CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+        CAPTAIN_WORD_SUPPLIED=1
+        ;;
       --defer-status)
         [ "$VERB" = land ] || { warn "$VERB called with --defer-status, which only land supports"; return 0; }
         DEFER_STATUS=1

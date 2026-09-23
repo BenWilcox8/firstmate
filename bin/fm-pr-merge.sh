@@ -92,6 +92,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-merge-outcome-lib.sh
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 # Role partition: merging is MAIN-owned; the Pi supervision branch reports the
 # green PR and never merges (contract: bin/fm-lease-lib.sh; no-op in homes
 # without a branch actor).
@@ -128,21 +130,13 @@ CAPTAIN_WORD=
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --captain-authorized) CAPTAIN_AUTHORIZED=true; shift ;;
-    --captain-word)
-      if [ "$#" -lt 2 ] || [ -z "$2" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
         exit 2
       fi
-      CAPTAIN_WORD=$2
-      shift 2
-      ;;
-    --captain-word=*)
-      CAPTAIN_WORD=${1#--captain-word=}
-      if [ -z "$CAPTAIN_WORD" ]; then
-        echo "error: --captain-word needs the captain's exact words" >&2
-        exit 2
-      fi
-      shift
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
       ;;
     --) shift; break ;;
     *) break ;;
@@ -783,6 +777,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$SCRIPT_DIR/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-pr-merge \
   --restage merge \
-  ${CAPTAIN_WORD:+--captain-word "$CAPTAIN_WORD"} \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$URL" \
   --summary "Task $ID merged through $URL." || true
