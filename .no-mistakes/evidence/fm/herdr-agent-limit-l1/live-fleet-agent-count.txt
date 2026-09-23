@@ -1,0 +1,37 @@
+$ FM_HOME=~/firstmate bin/fm-agent-count.sh
+agents: 9 / 30 (limit from default)
+  main upstream-reconcile-r2 claude default:w2E:p3Y
+  main crew-park-resume-p1 claude default:w2E:p47
+  main atlas-module-overhaul-o1 claude default:w2E:p48
+  main herdr-agent-limit-l1 claude default:w2E:p49
+  dash-web-c3 dash-park-sessions-p1 claude default:w33:p9
+  dash-web-c3 dash-agent-count-c1 claude default:w33:pB
+  dash-web-c3 dash-close-refusal-r1 claude default:w33:pA
+  dash-web-c3 dash-stage-authors-a1 claude default:w33:pC
+  onestopgreek osg-theta-chi-semester claude default:w36:p3
+supervisors (not counted):
+  main - claude default:w2E:p2P
+  dash-web-c3 dash-web-c3 claude default:w33:p8
+  onestopgreek onestopgreek claude default:w36:p4
+  research-abstention-r1 research-abstention-r1 claude default:w39:p2
+unmanaged agents (not counted):
+  - - pi default:w2H:p1
+exit=0
+
+$ FM_HOME=~/firstmate bin/fm-agent-count.sh --json | jq "{count,limit,limit_source,override,at_limit,sessions,agents:(.agents|length),supervisors:(.supervisors|length),unmanaged:(.unmanaged|length),unreadable:(.unreadable|length)}"
+{
+  "count": 9,
+  "limit": 30,
+  "limit_source": "default",
+  "override": "none",
+  "at_limit": false,
+  "sessions": [
+    "default"
+  ],
+  "agents": 9,
+  "supervisors": 4,
+  "unmanaged": 1,
+  "unreadable": 0
+}
+
+# Cross-check: the main home keeps 29 Herdr ship/scout task records in state/, but only the 4 main tasks with an agent open in a Herdr pane are counted above.

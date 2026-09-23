@@ -1,0 +1,6 @@
+ok - fm-agent-count: counts crewmate agents open in Herdr across homes, lists supervisors and unmanaged agents apart
+ok - fm-agent-count: reports the default, configured, and off limits, and refuses a malformed limit file
+ok - fm-agent-count: a stopped session holds no agents, a Herdr error is reported, and --session narrows and deduplicates the read
+ok - fm-agent-count: unreadable panes retain known fields, null unknown fields, and never count
+ok - config/agent-limit: a secondmate home inherits the primary limit
+ok - fm-agent-count: reads only the Herdr sessions the homes record, and none when there are none

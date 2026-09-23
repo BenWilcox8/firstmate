@@ -1,0 +1,4 @@
+ok - live: every open agent pane (claude codex pi) counts, and a shell pane and a parked task do not
+ok - live: closing the claude pane removes it from the count
+ok - live: an agent that exits in an open pane leaves the count
+ok - live: the lab session was torn down and the default session is unchanged
