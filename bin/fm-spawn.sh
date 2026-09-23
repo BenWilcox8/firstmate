@@ -1215,9 +1215,9 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
-if [ "$RELAUNCH" -eq 0 ] && [ -z "$TICKET" ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
-  && [ -n "$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)" ]; then
-  echo "warning: $ID is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map" >&2
+if [ "$RELAUNCH" -eq 0 ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; }; then
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-module.sh" dispatch-check "$ID" --ticket "$TICKET" || true
 fi
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -2403,7 +2403,9 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
       fm_brief_worker_role &&
       if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
         fm_brief_intent_overlay "$ACCEPTED_TASK_REQUIREMENTS"
-      fi
+      fi &&
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+        "$FM_ROOT/bin/fm-atlas-module.sh" crewmate-brief "$ID" --ticket "$TICKET"
   } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render current launch contract for $SOURCE_BRIEF" >&2; exit 1; }
   if ! mv "$BRIEF_TMP" "$BRIEF"; then
     rm -f -- "$BRIEF_TMP"

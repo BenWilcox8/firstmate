@@ -822,6 +822,8 @@ fi
   --read-only "$READ_ONLY" \
   --afk "$AFK_PRESENT" \
   --x-mode "$X_MODE_PRESENT"
+# Optional module hook: prints nothing unless this home enables the module.
+FM_HOME="$FM_HOME" FM_CONFIG_OVERRIDE="$CONFIG" "$SCRIPT_DIR/fm-atlas-module.sh" supervisor-block || true
 
 # --- 5. read-once contract -------------------------------------------------
 # Ahead of the two digests it governs, not after them: a truncated tail is
