@@ -291,7 +291,7 @@ run_control() {  # <case-dir> <args...>
   env -u TMUX PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
     HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' FM_SPAWN_NO_GUARD=1 \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
-    FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 \
+    FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 FM_CONTROL_STATE_SETTLE=0.1 FM_CONTROL_READY_WAIT=0.1 \
     FM_FAKE_ATLAS_FAIL="${FM_FAKE_ATLAS_FAIL:-}" FM_FAKE_NEVER_DIES="${FM_FAKE_NEVER_DIES:-}" \
     FM_FAKE_KILL_FAILS="${FM_FAKE_KILL_FAILS:-}" \
     FM_TEST_REAL_PS="$FM_TEST_REAL_PS" \
@@ -368,6 +368,24 @@ test_park_refuses_when_the_atlas_does_not_record_it() {
   assert_contains "$out" "Atlas ticket could not record the park" "the refusal should name the Atlas"
   assert_nothing_changed "$dir" "$before" "an unrecorded Atlas park"
   pass "park: an Atlas that does not record the park refuses with the worker still running"
+}
+
+# A worker that never stops leaves nothing parked: the stop is retried while
+# the agent still reads alive, then the ticket is unparked and the record is
+# withdrawn, and the refusal is reported rather than lost.
+test_park_withdraws_when_the_worker_does_not_stop() {
+  local dir out rc
+  dir=$(new_case park-stuck)
+  out=$(FM_FAKE_NEVER_DIES=1 run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 1 "$rc" "park of a worker that does not stop should fail"$'\n'"$out"
+  assert_contains "$out" "its worker did not stop" "the failure should say the worker did not stop"
+  assert_contains "$out" "exit=unconfirmed" "the failure should carry the stop refusal"
+  [ "$(grep -cx '/exit' "$dir/fake/literal")" = 3 ] || fail "park should retry the stop three times, got: $(cat "$dir/fake/literal")"
+  [ -z "$(meta_field "$dir" parked)" ] || fail "a failed park must withdraw its record"
+  [ -z "$(meta_field "$dir" native_session)" ] || fail "a failed park must withdraw the recorded session"
+  [ "$(cat "$dir/fake/ticket-state")" = started ] || fail "a failed park must return the ticket to started"
+  grep -qx 'fmses:fm-t1' "$dir/fake/windows" || fail "a failed park must not close the endpoint"
+  pass "park: a worker that does not stop leaves the task and its ticket as they were"
 }
 
 test_park_refuses_unverified_harnesses_and_secondmates() {
@@ -542,6 +560,7 @@ test_park_codex_records_the_open_rollout
 test_park_refuses_an_unproven_session
 test_park_refuses_when_the_atlas_does_not_record_it
 test_park_refuses_unverified_harnesses_and_secondmates
+test_park_withdraws_when_the_worker_does_not_stop
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
 test_resume_closes_its_own_leftover_pane_first

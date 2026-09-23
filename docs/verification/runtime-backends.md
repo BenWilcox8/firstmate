@@ -360,6 +360,53 @@ Two findings from the run shaped the shipped behavior: an OpenCode vendor update
 Kimi was not installed on the verification machine; its receive path is the same one-line-plus-shell contract, and the portable ladder and enqueue regressions in `tests/fm-task-inbox.test.sh` and `tests/fm-send-inbox.test.sh` cover every harness-independent half.
 This guard is the refresh command after any harness upgrade; it spends a small number of real tokens per installed harness, reports an absent harness explicitly, and refuses a run that verified nothing.
 
+## Park and resume
+
+The native-session contract behind `bin/fm-control.sh park` and `resume` was verified on 2026-09-22 against real workers.
+The machine was NixOS x86_64 with herdr 0.8.2, Claude Code 2.1.280, codex-cli 0.155.1, and Pi 0.87.1.
+The proofs that `bin/fm-native-session-lib.sh` reads were observed first on the running processes:
+
+- A running Claude process keeps `~/.claude/sessions/<pid>.json` with `sessionId`, `cwd`, and `procStart`, and `procStart` equals field 22 of `/proc/<pid>/stat`.
+  Claude does not keep its transcript open.
+- A running codex process holds `sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` and `thread-writer-locks/<uuid>.lock` open; the rollout appears only after the first turn.
+  The native `codex` process and its `MainThread` Node wrapper share the pane's foreground process group.
+- Pi holds no session file open; `pi --session <file>` reopened a session and the agent recalled a word from its earlier turn.
+
+The live guard launches each installed harness through `bin/fm-spawn.sh --relaunch` into an isolated Herdr lab pane in a disposable worktree.
+The worker's first turn carries a unique word.
+The guard parks the worker, checks that the pane is gone and that a temporary Atlas store reads the ticket parked with the recorded session, and resumes it.
+For claude, it also stops and provisions the lab server between park and resume, as a reboot does.
+The proof is a file the resumed agent writes from memory alone.
+
+```sh
+FM_PARK_RESUME_LIVE_E2E=1 FM_HERDR_LAB_HELPER=/home/ben/firstmate/bin/fm-herdr-lab.sh \
+  FM_PARK_RESUME_ATLAS_DIR=<agent-dashboard checkout with ticket park> \
+  tests/fm-park-resume-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - claude: a real worker launched through the fleet path and took its first turn
+ok - claude: park recorded session 60961953-dda9-434a-bd0d-12356259076d on the task and the Atlas ticket, and closed the pane
+ok - claude: the lab Herdr server was stopped and started again, as a reboot does
+ok - claude: the resumed agent recalled the word from its parked conversation
+ok - codex: a real worker launched through the fleet path and took its first turn
+ok - codex: park recorded session 01a0cc3c-893a-7690-99c1-599798838311 on the task and the Atlas ticket, and closed the pane
+ok - codex: the resumed agent recalled the word from its parked conversation
+ok - pi: a real worker launched through the fleet path and took its first turn
+ok - pi: park recorded session 01a0cc3d-e216-7157-a945-6034408a9e36 on the task and the Atlas ticket, and closed the pane
+ok - pi: the resumed agent recalled the word from its parked conversation
+ok - park and resume kept every installed harness's conversation, and the live default session is unchanged
+```
+
+Four findings from the runs shaped the shipped behavior or the guard.
+Right after a turn, the Herdr classifier can read a Claude pane as unreadable because the agent's own hooks start short-lived processes, so park and resume re-sample a state read before they act, and park retries a refused stop while the agent still reads alive.
+A resume opens a new pane, so `bin/fm-spawn.sh` must not load the recorded pane into `HERDR_PANE_ID`, which is also the launcher's own pane identity.
+A doorbell typed while a resumed Claude replays its conversation was lost once, so the resume waits for an empty composer before it rings the note.
+A resumed Claude that was asked to write a "secret word" remembered it but declined, reading the request as exfiltration, so the guard names the fact a codename of the check.
+This guard spends real tokens and is the refresh command after a Claude, Codex, or Herdr upgrade.
+
 ## Gemini
 
 The Gemini crewmate adapter was verified on 2026-09-04 with gemini-cli 0.58.0 on Linux, Node v24.20.0, tmux 3.4.

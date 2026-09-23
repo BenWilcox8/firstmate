@@ -1407,7 +1407,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     }
   fi
-  if [ "$BACKEND" = herdr ]; then
+  # A resume opens a new endpoint instead of adopting the recorded one, so it
+  # must not load the recorded pane: HERDR_PANE_ID is also the launcher's own
+  # pane identity that the new endpoint's placement reads.
+  if [ "$BACKEND" = herdr ] && [ "$RESUME_NEW_ENDPOINT" -eq 0 ]; then
     HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
     HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
     HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)

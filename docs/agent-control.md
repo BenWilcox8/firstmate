@@ -70,6 +70,7 @@ The park then runs in this order:
 1. Record the session and the reason in the task record.
 2. Record the park on the task's Atlas ticket, when it has one, and require the Atlas to read it back as parked; a refusal withdraws the record.
 3. Stop the agent through `exit`; a refusal re-opens the ticket and withdraws the record.
+   An agent's own short-lived child processes can make one state read unclassifiable, so park and resume re-sample a read for a few seconds before they act, and park retries a refused stop while the agent still reads alive.
 4. Close only the endpoint, with proof that it is gone.
    On Herdr this uses the same primitives as teardown: the session presentation lock, the focus-preserving close for a projected task pane, otherwise the agent-axi slot release and the serialized close.
    A close that cannot be proven leaves the task parked and names the pane; parking again retries the close.
@@ -87,6 +88,7 @@ The resumed agent submits no prompt, so its busy state starts idle.
 The park record is cleared only after the resumed agent is confirmed running.
 A launch that fails after the unpark records the park on the ticket again.
 A `--note` reaches the resumed agent as a durable inbox steer.
+Its doorbell waits, for a bounded time, until the resumed agent's composer reads empty, because a doorbell typed while the TUI still replays the conversation can be lost; the watcher re-rings an unhandled steer in any case.
 
 A parked task is visible as parked everywhere firstmate reads the fleet.
 `bin/fm-crew-state.sh` reports `parked` from `park` with the reason and the resume command.
@@ -203,5 +205,5 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
 - `tests/fm-native-session.test.sh` - the native session proof per harness against real stand-in processes, the refusal of every session it cannot prove, the resume-time file check, the resume launch form, and the Pi worker extension's session record.
 - `tests/fm-control-park.test.sh` - park and resume: the recorded session and reason, the Atlas park and unpark and their order, the endpoint close, every refusal with nothing changed, the new endpoint in the same worktree, the rollback after a launch that does not come up, and relaunch of a parked task.
-- `tests/fm-park-resume-live-e2e.test.sh` - opt-in live proof in an isolated Herdr lab: real claude and codex workers each learn a fact, are parked with their panes closed, are resumed, and recall the fact.
+- `tests/fm-park-resume-live-e2e.test.sh` - opt-in live proof in an isolated Herdr lab: real claude, codex, and pi workers each learn a fact, are parked with their panes closed, are resumed (claude after a lab server restart), and recall the fact.
 - `tests/fm-endpoint-retire.test.sh` - endpoint retirement on both state-verified backends: the proven close, the live-agent refusal, the unproven close, the replacement spawn's ordering and leftover report, and a relaunch that opens and closes nothing.

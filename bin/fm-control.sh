@@ -120,6 +120,10 @@
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
+#   FM_CONTROL_STATE_SETTLE      park/resume re-sample window for an endpoint
+#                                that reads transiently unclassifiable (10)
+#   FM_CONTROL_READY_WAIT        resume's wait for the resumed agent's empty
+#                                composer before it rings the note (60)
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -175,6 +179,8 @@ SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
+STATE_SETTLE=${FM_CONTROL_STATE_SETTLE:-10}
+READY_WAIT=${FM_CONTROL_READY_WAIT:-60}
 
 die() {  # <message>
   echo "error: $1" >&2
@@ -391,6 +397,51 @@ wait_agent_state() {  # <timeout> <wanted>...
   done
   printf '%s' "$state"
   return 1
+}
+
+# agent_state_settled: a recovery-grade read that re-samples, for up to
+# STATE_SETTLE seconds, an endpoint that reads neither alive, dead, nor
+# missing. An agent's own short-lived children (its hooks, a status line) can
+# make the classifier's two process samples disagree, which it correctly
+# reports as unreadable; a re-sample is read-only, so waiting briefly for a
+# positive answer is safe. Prints the last observed state.
+agent_state_settled() {
+  local state elapsed=0
+  while :; do
+    state=$(agent_state)
+    case "$state" in
+      alive|dead|missing) printf '%s' "$state"; return 0 ;;
+    esac
+    awk -v e="$elapsed" -v t="$STATE_SETTLE" 'BEGIN{exit !(e < t)}' || break
+    sleep "$POLL"
+    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+  done
+  printf '%s' "$state"
+}
+
+# park_stop_agent: stop the agent through the exit verb. An exit refused while
+# the endpoint read transiently unclassifiable is retried, up to three times,
+# while a settled read still finds the agent alive; an agent a settled read
+# finds stopped is stopped. Prints the last attempt's refusal on failure.
+park_stop_agent() {
+  local attempt=0 err state
+  err=$(mktemp "$STATE/.$ID.park-exit.XXXXXX") || return 1
+  while :; do
+    # do_exit refuses through die, which exits its shell: keep it in a subshell.
+    if ( do_exit ) >/dev/null 2>"$err"; then
+      rm -f "$err"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    state=$(agent_state_settled)
+    case "$state" in
+      dead|missing) rm -f "$err"; return 0 ;;
+      alive) [ "$attempt" -lt 3 ] && continue ;;
+    esac
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  done
 }
 
 require_state_verified_backend() {  # <verb>
@@ -1018,14 +1069,14 @@ park_require_harness() {  # <verb>
 }
 
 do_park() {
-  local state pids gen sid file parked stamp reason exit_result
+  local state pids gen sid file parked stamp reason
   local -a record
   park_require_kind park
   require_state_verified_backend park
   park_require_harness park
   reason=$(one_line "$REASON")
   parked=$(fm_meta_get "$META" parked)
-  state=$(agent_state)
+  state=$(agent_state_settled)
   if [ -n "$parked" ]; then
     # Parking a parked task refreshes the reason and blocker, re-records the
     # Atlas park, and retries a close that did not finish.
@@ -1060,15 +1111,12 @@ do_park() {
     [ -n "$parked" ] || park_meta_write || true
     die "task $ID was not parked, because its Atlas ticket could not record the park; its worker is still running and nothing else was changed"
   fi
-  if [ -z "$parked" ]; then
-    exit_result=$(do_exit) || {
-      if atlas_ticketed; then
-        atlas_unpark "park of $ID was refused: its worker did not stop" || true
-      fi
-      park_meta_write || true
-      die "task $ID was not parked, because its worker did not stop; the park record was withdrawn"
-    }
-    : "$exit_result"
+  if [ -z "$parked" ] && ! park_stop_agent; then
+    if atlas_ticketed; then
+      atlas_unpark "park of $ID was refused: its worker did not stop" || true
+    fi
+    park_meta_write || true
+    die "task $ID was not parked, because its worker did not stop; the park record was withdrawn"
   fi
   fm_backend_task_endpoint_close "$BACKEND" "$STATE" "$ID" "$T" "$META" \
     || die "task $ID is parked with its session recorded, but its endpoint $T could not be closed: $FM_BACKEND_TASK_CLOSE_REASON; close that pane by hand, or run park again to retry"
@@ -1078,6 +1126,18 @@ do_park() {
 RESUME_UNPARKED=0
 RESUME_SESSION=
 RESUME_REASON=
+
+# resume_wait_composer_ready: wait up to READY_WAIT seconds for the resumed
+# agent's composer to read empty.
+resume_wait_composer_ready() {
+  local elapsed=0
+  while :; do
+    [ "$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null)" = empty ] && return 0
+    awk -v e="$elapsed" -v t="$READY_WAIT" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$POLL"
+    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+  done
+}
 
 # Whether the recorded endpoint's pane sits in this task's worktree (own), in
 # another directory (other), or cannot be located (unknown).
@@ -1124,7 +1184,7 @@ do_resume() {
   # sits in this task's worktree is treated as the task's own. The resume
   # always opens a new endpoint; it first closes the task's own agent-free pane
   # left by a park whose close never finished, and leaves any other pane alone.
-  state=$(agent_state)
+  state=$(agent_state_settled)
   case "$state" in
     missing) ;;
     dead|alive)
@@ -1167,6 +1227,11 @@ do_resume() {
   park_meta_write \
     || echo "warning: task $ID's resumed agent runs, but its park record could not be cleared from $META" >&2
   if [ -n "$NOTE" ]; then
+    # A resumed TUI replays its conversation before its composer takes input,
+    # and a doorbell typed earlier can be lost. The steer is durable either
+    # way (the watcher re-rings an unhandled one), so the wait is bounded and
+    # the note is sent when it ends.
+    resume_wait_composer_ready || true
     "$SCRIPT_DIR/fm-send.sh" "$ID" "$NOTE" >/dev/null \
       || echo "warning: task $ID resumed, but its note could not be delivered as a steer; send it again with bin/fm-send.sh $ID" >&2
   fi

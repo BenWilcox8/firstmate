@@ -10,7 +10,7 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 | Exit command | `/quit`; its slash popup needs about one second between text and Enter, which the shared submit path used by the control plane handles. |
 | Interrupt | Single Escape. |
 | Skill invocation | `$<skill>`, for example `$no-mistakes`; `/<skill>` is Claude-only and Codex rejects it as "Unrecognized command". |
-| Resume | `codex resume <session-id>`, using the id printed on quit. |
+| Resume | `codex resume <session-id>`; park proves the id from the running process (see Native session). |
 | Model flag | `--model <model>`. |
 | Effort flag | `-c 'model_reasoning_effort="<low\|medium\|high\|xhigh>"'`, verified on codex-cli 0.142.1 whose installed schema contains `model_reasoning_effort`, active config uses it, and bundled catalog advertises only these four values while omitting `max`. |
 | Model discovery | Open the current interactive session's `/model` picker. |
@@ -18,6 +18,17 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 A directory trust dialog appears on the first run for a repository root: "Do you trust the contents of this directory?"
 Accept it with Enter and verify the instructions begin processing.
 The decision persists for the repository, so later worktrees of the same project skip it.
+
+## Native session
+
+Verified 2026-09-22 on codex-cli 0.155.1.
+The native codex process, a child of the `MainThread` Node wrapper in the same foreground process group, holds two files open for the life of its session.
+They are its rollout `sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` and its thread lock `thread-writer-locks/<uuid>.lock`, and `/proc/<pid>/fd` names both.
+The rollout's first line is its `session_meta`, which carries the same id and the launch directory as `cwd`.
+Codex writes the rollout only after the first completed turn, so a session with no turn yet cannot be resumed.
+`codex resume <uuid>` accepts the fleet's launch flags (`--model`, `-c`, `--dangerously-bypass-approvals-and-sandbox`) and reopens the conversation in place.
+`../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
+A launch can show an update offer before the TUI starts; it holds keyboard input until it is answered.
 
 ## Skill popup
 
