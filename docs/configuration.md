@@ -418,10 +418,10 @@ Every claude launch's inline `--settings` JSON also carries `"attribution":{"com
 
 The concurrent agent limit caps how many workers run at once on this machine.
 Its main use is to spread many small tasks over a longer period while the captain is away.
-The count comes from the live Herdr server, not from Atlas tickets or task records.
-A worker counts only while an agent process is open in its Herdr pane, so a parked task, a ghost Atlas leg, a closed pane, or an exited agent never counts.
+The count starts with the live Herdr panes, then matches each agent pane to a ship or scout task record; it never counts Atlas tickets or task records by themselves.
+A worker counts only while an agent process is open in its recorded Herdr pane, so a parked task, a ghost Atlas leg, a closed pane, or an exited agent never counts.
 The count covers every local firstmate home on the machine, whichever home asks.
-Supervisor panes (MAIN and each secondmate) and agent panes that no home records are listed apart and are not counted.
+Supervisor panes (MAIN and each secondmate), unmanaged agent panes, and panes whose process cannot be read are listed apart and are not counted.
 
 `config/agent-limit` holds one positive whole number or the word `off`.
 When the file is absent, the limit is 30.
@@ -433,6 +433,7 @@ At the limit, the spawn refuses and names the count, the limit, and the two over
 To start one worker past the limit, pass `--over-limit` to that spawn.
 To disable the limit, write `off` to `config/agent-limit`; to change it, write another number.
 A relaunch into the task's own open pane replaces an agent and is not limited.
+A relaunch whose recorded pane is gone opens a new pane and is limited.
 Secondmate spawns are never limited.
 Two spawns that check at the same moment can both start, because the limit spreads work out and does not reserve places.
 
