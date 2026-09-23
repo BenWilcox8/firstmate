@@ -249,8 +249,7 @@
 #   30). The refusal names the count, the limit, and both overrides:
 #   --over-limit lets this one spawn through, and off in config/agent-limit
 #   disables the limit. A --relaunch into the task's own open pane replaces an
-#   agent and is exempt; one whose recorded pane is gone would open a new pane
-#   and is held to the limit. Secondmate spawns are never limited. Batch
+#   agent and is exempt. Secondmate spawns are never limited. Batch
 #   dispatch passes --over-limit to every pair, and each pair checks the count
 #   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
 #   bin/fm-agent-count.sh prints them.
@@ -1377,12 +1376,6 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  # A relaunch into the task's own open pane replaces an agent. One whose pane
-  # is gone would open a new one, so it counts against the agent limit.
-  if [ "$RELAUNCH_STATE" = missing ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ] \
-    && [ "$(fm_meta_get "$RELAUNCH_META" kind)" != secondmate ]; then
-    fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
-  fi
   [ "$RELAUNCH_STATE" = dead ] || {
     echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
     exit 1

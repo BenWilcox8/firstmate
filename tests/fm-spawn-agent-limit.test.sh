@@ -145,25 +145,9 @@ test_relaunch_in_its_own_pane_ignores_the_limit() {
   pass "fm-spawn: a relaunch into the task's own open pane replaces an agent and ignores the limit"
 }
 
-test_relaunch_without_its_pane_is_held_to_the_limit() {
-  local out rc
-  build_case relaunch-new-pane
-  make_fake_ps "$FAKEBIN"
-  printf '2\n' > "$HOME_DIR/config/agent-limit"
-  relaunch_task_meta w1:p9
-  out=$(FM_HERDR_PS_BIN="$FAKEBIN/ps" run_spawn old-task --relaunch); rc=$?
-  [ "$rc" -ne 0 ] || fail "a relaunch with no pane succeeded at the limit: $out"
-  assert_contains "$out" "agent limit reached: 2 agents are open in Herdr and the limit is 2" \
-    "a relaunch that would open a new pane was not held to the agent limit"
-  out=$(FM_HERDR_PS_BIN="$FAKEBIN/ps" run_spawn old-task --relaunch --over-limit)
-  assert_not_contains "$out" "agent limit" "--over-limit did not let the relaunch past the agent limit"
-  pass "fm-spawn: a relaunch whose pane is gone would add an agent, so it is held to the limit unless --over-limit"
-}
-
 test_under_the_limit_spawns
 test_at_the_limit_refuses
 test_over_limit_flag_passes
 test_config_off_passes
 test_unreadable_count_refuses
 test_relaunch_in_its_own_pane_ignores_the_limit
-test_relaunch_without_its_pane_is_held_to_the_limit
