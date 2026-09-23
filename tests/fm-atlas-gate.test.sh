@@ -545,8 +545,40 @@ test_teardown_with_captain_word() {
 }
 
 test_empty_captain_word_is_refused() {
-  local store=$1 rc
+  local store=$1 rc out form log_before log_after
   make_home "$store" empty-word human none yolo=on
+  for form in positional equals; do
+    case "$store" in
+      mock) log_before=$(wc -l < "$REPO/atlas/mock/log") ;;
+    esac
+    set +e
+    case "$form" in
+      positional)
+        out=$(in_home "$store" "$HOOK" complete task-a1 --captain-word "" \
+          --evidence https://example.invalid/pr/empty --summary "merged" 2>&1)
+        ;;
+      equals)
+        out=$(in_home "$store" "$HOOK" complete task-a1 --captain-word= \
+          --evidence https://example.invalid/pr/empty --summary "merged" 2>&1)
+        ;;
+    esac
+    rc=$?
+    set -e
+    expect_code 0 "$rc" "$store: the best-effort hook must exit 0 for an empty --captain-word"
+    [ "$(printf '%s\n' "$out" | grep -c '^atlas-hook:')" = 1 ] \
+      || fail "$store: an empty --captain-word must warn once: $out"
+    case "$store" in
+      mock)
+        log_after=$(wc -l < "$REPO/atlas/mock/log")
+        [ "$log_before" = "$log_after" ] \
+          || fail "mock: an empty --captain-word called Atlas"
+        ;;
+    esac
+    [ "$(ticket_field "$store" "$REPO" "$TICKET" .state)" = started ] \
+      || fail "$store: an empty --captain-word changed the ticket"
+    [ "$(node_field "$store" "$REPO" .holder)" = fm-task-a1 ] \
+      || fail "$store: an empty --captain-word changed the node"
+  done
   make_fake_forge
   set +e
   run_pr_merge "$store" --captain-word "" >/dev/null 2>&1

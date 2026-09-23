@@ -343,6 +343,7 @@ run_hook() {
   SUMMARY=
   RESTAGE=
   CAPTAIN_WORD=
+  CAPTAIN_WORD_SUPPLIED=0
   DEFER_STATUS=0
   REASON=
   for a in "$@"; do
@@ -353,7 +354,7 @@ run_hook() {
         summary) SUMMARY=$a ;;
         restage) RESTAGE=$a ;;
         reason) REASON=$a ;;
-        captain-word) CAPTAIN_WORD=$a ;;
+        captain-word) CAPTAIN_WORD=$a; CAPTAIN_WORD_SUPPLIED=1 ;;
       esac
       want_value=
       continue
@@ -370,12 +371,16 @@ run_hook() {
       --reason) want_value=reason ;;
       --reason=*) REASON=${a#--reason=} ;;
       --captain-word) want_value=captain-word ;;
-      --captain-word=*) CAPTAIN_WORD=${a#--captain-word=} ;;
+      --captain-word=*) CAPTAIN_WORD=${a#--captain-word=}; CAPTAIN_WORD_SUPPLIED=1 ;;
       --defer-status) DEFER_STATUS=1 ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done
   [ -z "$want_value" ] || { warn "$VERB called with a valueless --$want_value"; return 0; }
+  if [ "$CAPTAIN_WORD_SUPPLIED" = 1 ] && [ -z "$CAPTAIN_WORD" ]; then
+    warn "$VERB called with an empty --captain-word"
+    return 0
+  fi
   [ -n "$ACTOR" ] || ACTOR=fm-atlas-hook
 
   case "$VERB" in
