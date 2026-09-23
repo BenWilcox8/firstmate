@@ -3,7 +3,7 @@ name: atlas-firstmate-bridge
 description: >-
   Agent-only reference for composing the Atlas ticket doctrine with the AGENTS.md contract.
   Load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
-  Owns the dispatch order, the merge-kind mapping, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, and the ledger that names one owner for every known contradiction between the two surfaces.
+  Owns the dispatch order, the merge-kind mapping, the captain-word recording, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, and the ledger that names one owner for every known contradiction between the two surfaces.
 user-invocable: false
 metadata:
   internal: true
@@ -100,6 +100,21 @@ They compose by addition, never by substitution:
 
 An Atlas approval is never a merge authorization, and `yolo` never satisfies an Atlas captain-review gate.
 
+### Recording the captain's word
+
+The Atlas refuses `ticket complete` and `land` for a ticket that waits on the captain's approval, and for a ticket that promised the captain a look (`captain-review` on its path and a captain surface other than `none`) but has no testing brief.
+The captain usually gives the word in chat, not on the dashboard.
+**When the captain authorizes a merge or accepts delivered work in chat, record the captain's exact words as the Atlas approval.**
+Pass them to the guarded path that closes the ticket, as `--captain-word "<the captain's exact words>"`:
+
+- `bin/fm-pr-merge.sh` and `bin/fm-merge-local.sh` for a merge, beside `--captain-authorized` when the project's posture needs that flag;
+- `bin/fm-teardown.sh` for work that is accepted at cleanup, such as a scout report.
+
+The hook then runs `atlas-axi ticket approve <c> --word "<words>"` before it completes the ticket.
+Quote the captain, never a paraphrase, and never pass words the captain did not say.
+The flag is optional: without it, the close-out is attempted as before, and a refusal follows the rule in "Ghost legs" below.
+A recorded approval does not satisfy the testing-brief gate, which still needs a `ticket testing` handover.
+
 ### The adversarial reviewer
 
 `atlas-working` requires a committed `.claude/agents/adversarial-reviewer.md`.
@@ -127,14 +142,25 @@ Then, if there is room and ready tickets are queued, dispatch the next ready one
 Room with nothing ready is nothing to do.
 No room is a line in your own report, never a dispatch you let fail at the gate.
 
-## Ghost legs, and the repair a forced teardown needs
+## Ghost legs
 
-`bin/fm-teardown.sh` skips the Atlas hook under `--force`, which is correct: a forced teardown proves nothing, and recording it as landed would write a false fact into a log that replays forever.
-The consequence is not handled anywhere else.
-The hook's `release` call lives only inside `land`, so a forced teardown leaves the ticket started and the node held, and one node holds one crewmate.
-The next ticket on that node cannot be started by anyone.
-**After any forced teardown of a ticketed task, release the node by hand with `atlas-axi`, and record the truth: the work was discarded, not landed.**
-Do this in the same turn as the forced teardown, because nothing later will remind you.
+A ghost leg is a started ticket whose node is still held after its work stopped.
+One node holds one crewmate, so the next ticket on that node cannot be started by anyone.
+`bin/fm-atlas-hook.sh` owns the automatic close-outs; this section owns what firstmate must still do by hand.
+
+**A refused close-out.**
+When the Atlas refuses the merge or cleanup close-out, the hook still releases the node and writes one keyed line to the task's status log: `blocked [key=atlas-gate-<ticket>]: ...`, naming the ticket and the missing gate.
+Cleanup writes that line after it retires the task's records, so it stays as an orphan status log.
+The merge or cleanup itself is unchanged, and the ticket stays started.
+To resolve it: get the missing gate, which is the captain's word (`atlas-axi ticket approve <c> --word "<words>"`) or a testing brief (`atlas-axi ticket testing <c> ...`), then run `atlas-axi ticket complete <c>` with the evidence and a summary, and land the node when no open ticket remains.
+Then append `resolved [key=atlas-gate-<ticket>]: <how>` to that same status log.
+
+**A forced cleanup that discards work.**
+A forced cleanup of a leg that produced nothing aborts the ticket back to the queue, which also releases the node.
+A forced cleanup that discards real work records nothing, which is correct: it proves nothing, and recording it as landed would write a false fact into a log that replays forever.
+That ticket stays started and its node stays held.
+**After a forced cleanup that discarded real work on a ticketed task, release the node by hand with `atlas-axi`, and record the truth: the work was discarded, not landed.**
+Do this in the same turn, because nothing later will remind you.
 
 ## Duties this doctrine places on the home
 
@@ -144,6 +170,7 @@ Do this in the same turn as the forced teardown, because nothing later will remi
   No brief scaffold carries Atlas content, and `tests/fm-brief.test.sh` keeps the generated scaffolds signal-free on purpose.
   A crewmate that is never told to read `atlas-working` cannot walk the stages its ticket declares.
 - Add the `normal` merge-kind line above to that same brief whenever the ticket carries `--merge normal`.
+- On a wired home, `bin/fm-spawn.sh` launches every ship and scout worker with `ATLAS_REPO` and `ATLAS_AXI_BY`.
 
 ## Recorded captain rulings
 
@@ -162,13 +189,14 @@ Each known collision between the two surfaces, and the one line that owns it.
 | Crewmate merge authority is stated nowhere | Same section: a crewmate's part always ends with the branch committed |
 | AGENTS.md claimed briefs point crewmates at `atlas-working` | "Duties this doctrine places on the home": firstmate writes that pointer by hand |
 | `.claude/agents/adversarial-reviewer.md` exists nowhere | "The adversarial reviewer": the delivery path's review gate is the substitution |
-| Atlas cap of six against no concurrency cap | "Concurrency precedence": AGENTS.md governs parallelism, the cap is a resource ceiling |
+| Atlas agent limit against no concurrency cap | "Concurrency precedence": AGENTS.md governs parallelism, the cap is a resource ceiling |
 | `no-mistakes` names two different fields | "Merge kind and delivery mode": the mapping table, delivery mode binds |
 | Atlas captain-review against hard rule 2 | "Review kind and the captain gate": the two gates add, neither replaces the other |
 | Headroom counts a population firstmate does not | "Concurrency precedence": headroom is never a liveness fact |
 | Ready flag read as an intake or merge authorization | "The ready flag": dispatch timing only |
 | Heartbeat duties differ between the surfaces | "The heartbeat headroom duty": AGENTS.md order first, then the dispatch decision |
-| Forced teardown strands a held node | "Ghost legs": release by hand in the same turn |
+| Forced cleanup that discards work strands a held node | "Ghost legs": release by hand in the same turn |
+| The captain gate refuses a close-out, and the captain's chat word never reaches the Atlas | "Recording the captain's word" and "Ghost legs": pass `--captain-word`, and resolve each `atlas-gate` line |
 | The doctrine mandated from homes with no Atlas | "Scope": the doctrine binds only an Atlas-wired home |
 | The mandated Atlas skills live only in the dashboard repo | "Scope" and "Duties this doctrine places on the home": register that repo, and stop rather than improvise when a skill will not resolve |
 | The `--story` ruling recorded only outside this repo | "Recorded captain rulings" above |

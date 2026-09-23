@@ -57,7 +57,11 @@
 # (atlas_ticket= in its meta) is discharged with the PR URL as its evidence. That
 # call goes through bin/fm-atlas-hook.sh, which owns the best-effort contract and
 # can never fail a merge that has already happened; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all.
+# ticket, or a home with no Atlas, makes no call at all. Pass `--captain-word
+# <words>` or `--captain-word=<words>`, before the optional -- separator, with
+# the captain's exact words from chat to record them as the Atlas approval before
+# the ticket is completed; it is never forwarded to the forge CLI, and the hook's
+# header owns a refused close-out.
 #
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
@@ -74,7 +78,9 @@
 # --captain-authorized before the optional -- separator to override the guard
 # with an explicit current captain merge instruction; the flag is never
 # forwarded to the forge CLI.
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized]
+#                      [--captain-word <words>|--captain-word=<words>]
+#                      [-- <extra forge merge args>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -87,6 +93,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-merge-outcome-lib.sh
 . "$SCRIPT_DIR/fm-merge-outcome-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 # Role partition: merging is MAIN-owned; the Pi supervision branch reports the
 # green PR and never merges (contract: bin/fm-lease-lib.sh; no-op in homes
 # without a branch actor).
@@ -116,12 +124,34 @@ shift 2
 # --captain-authorized: explicit current captain merge instruction; passes
 # through the yolo= guard below. Required when yolo=off (the safe default).
 # Never forward this flag to the forge CLI.
+# --captain-word <words>: the captain's exact words, recorded as the Atlas
+# approval before the ticket is completed. Never forwarded to the forge CLI.
 CAPTAIN_AUTHORIZED=false
-if [ "${1:-}" = "--captain-authorized" ]; then
-  CAPTAIN_AUTHORIZED=true
-  shift
-fi
-[ "${1:-}" = "--" ] && shift
+CAPTAIN_WORD=
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --captain-authorized) CAPTAIN_AUTHORIZED=true; shift ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
+        exit 2
+      fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
+      ;;
+    --) shift; break ;;
+    *) break ;;
+  esac
+done
+
+for arg in "$@"; do
+  case "$arg" in
+    --captain-word*)
+      echo "error: --captain-word is never forwarded to the forge CLI; pass it before --" >&2
+      exit 2
+      ;;
+  esac
+done
 
 caller_has_merge_method() {
   local arg
@@ -748,5 +778,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$SCRIPT_DIR/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-pr-merge \
   --restage merge \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$URL" \
   --summary "Task $ID merged through $URL." || true

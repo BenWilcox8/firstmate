@@ -218,6 +218,12 @@
 #   behavior suite from the repository primary checkout while that marker is
 #   set (its header owns the refusal). A secondmate runs in its own home and is
 #   not marked.
+#   On the same channel, fresh and relaunched ship or scout panes receive the
+#   Atlas environment only when `fm-atlas-hook.sh wired` resolves this home's
+#   config/specs pointer: `export ATLAS_AXI_BY=<holder>`, where <holder> follows
+#   the fm-<task-id> rule of `fm-atlas-hook.sh start`, and `export
+#   ATLAS_REPO=<that repo>`, so a bare atlas-axi reaches the right map. An
+#   unwired home unsets ATLAS_REPO, SPECS_REPO, and ATLAS_AXI_BY before launch.
 #   Only after this isolation check, every fresh ship or scout requires a clean
 #   task worktree. When an origin configuration is detected, spawn fetches it,
 #   resolves the current remote default branch, and resets to its tip. Without
@@ -262,7 +268,8 @@
 #   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
 #   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
 #   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
-#   marker FM_TASK_ID that ship and scout panes receive above.
+#   marker FM_TASK_ID and, for wired ship and scout panes, the Atlas names
+#   ATLAS_AXI_BY and ATLAS_REPO described above.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment. Raw commands must
 #   be POSIX sh compatible under this opt-in; the absent-file path is unchanged.
@@ -4066,6 +4073,18 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # syntax of its own.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
+  SPAWN_ATLAS_REPO=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)
+  if [ -n "$SPAWN_ATLAS_REPO" ]; then
+    spawn_send_text_line "$T" "unset SPECS_REPO"
+    case "$ID" in
+      fm-*) spawn_send_text_line "$T" "export ATLAS_AXI_BY=$ID" ;;
+      *) spawn_send_text_line "$T" "export ATLAS_AXI_BY=fm-$ID" ;;
+    esac
+    spawn_send_text_line "$T" "export ATLAS_REPO=$(shell_quote "$SPAWN_ATLAS_REPO")"
+  else
+    spawn_send_text_line "$T" "unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY"
+  fi
 fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
@@ -4090,7 +4109,7 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID \
+    FM_TASK_ID ATLAS_AXI_BY ATLAS_REPO \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.

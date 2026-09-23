@@ -17,12 +17,16 @@
 # with the before..after range this script already computed. That call goes
 # through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
 # never fail a merge that has already landed; a task with no recorded ticket, or
-# a home with no Atlas, makes no call at all.
+# a home with no Atlas, makes no call at all. Pass `--captain-word <words>` or
+# `--captain-word=<words>` with the captain's exact words from chat to record
+# them as the Atlas approval before the ticket is completed; the hook's header
+# owns a refused close-out.
 # Merge authority: reads yolo= from the task's state/<id>.meta at entry and
 # refuses when the value is off or the field is absent (safe default). Pass
-# --captain-authorized as the second argument to override the guard with an
+# --captain-authorized to override the guard with an
 # explicit current captain merge instruction.
 # Usage: fm-merge-local.sh <task-id> [--captain-authorized]
+#        [--captain-word <words>|--captain-word=<words>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -38,12 +42,31 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 fm_lease_forbid_branch "local-only landing (fm-merge-local)"
 ID=${1:?usage: fm-merge-local.sh <task-id>}
 # --captain-authorized: explicit current captain merge instruction; passes
 # through the yolo= guard below. Never modifies the git operation itself.
+# --captain-word <words>: the captain's exact words, recorded as the Atlas
+# approval before the ticket is completed.
 CAPTAIN_AUTHORIZED=false
-[ "${2:-}" != --captain-authorized ] || CAPTAIN_AUTHORIZED=true
+CAPTAIN_WORD=
+shift
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --captain-authorized) CAPTAIN_AUTHORIZED=true; shift ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
+        exit 2
+      fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
+      ;;
+    *) echo "usage: fm-merge-local.sh <task-id> [--captain-authorized] [--captain-word <words>]" >&2; exit 2 ;;
+  esac
+done
 META="$STATE/$ID.meta"
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
 
@@ -131,5 +154,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-merge-local \
   --restage merge \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$before..$after on $DEFAULT" \
   --summary "Task $ID landed on local $DEFAULT as a fast-forward of $BRANCH." || true
