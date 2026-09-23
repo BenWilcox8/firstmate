@@ -243,6 +243,12 @@
 #   behavior suite from the repository primary checkout while that marker is
 #   set (its header owns the refusal). A secondmate runs in its own home and is
 #   not marked.
+#   On the same channel, fresh and relaunched ship or scout panes receive the
+#   Atlas environment only when `fm-atlas-hook.sh wired` resolves this home's
+#   config/specs pointer: `export ATLAS_AXI_BY=<holder>`, where <holder> follows
+#   the fm-<task-id> rule of `fm-atlas-hook.sh start`, and `export
+#   ATLAS_REPO=<that repo>`, so a bare atlas-axi reaches the right map. An
+#   unwired home unsets ATLAS_REPO, SPECS_REPO, and ATLAS_AXI_BY before launch.
 #   Only after this isolation check, every fresh ship or scout requires a clean
 #   task worktree. When an origin configuration is detected, spawn fetches it,
 #   resolves the current remote default branch, and resets to its tip. Without
@@ -261,6 +267,17 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
+# Concurrent agent limit (--over-limit):
+#   A crewmate or scout spawn on Herdr refuses, before any endpoint or record
+#   exists, when the crewmate agents open in Herdr across every local home
+#   already reach config/agent-limit (a positive number, or off; absent means
+#   30). The refusal names the count, the limit, and both overrides:
+#   --over-limit lets this one spawn through, and off in config/agent-limit
+#   disables the limit. A --relaunch into the task's own open pane replaces an
+#   agent and is exempt. Secondmate spawns are never limited. Batch
+#   dispatch passes --over-limit to every pair, and each pair checks the count
+#   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
+#   bin/fm-agent-count.sh prints them.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only
@@ -296,8 +313,9 @@
 #   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
 #   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
 #   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
-#   marker FM_TASK_ID that ship and scout panes receive above, plus the
-#   compact-adviser kill switch COMPACT_ADVISER_DISABLE, which the floor also
+#   marker FM_TASK_ID that ship and scout panes receive above, for wired ship
+#   and scout panes the Atlas names ATLAS_AXI_BY and ATLAS_REPO described above,
+#   plus the compact-adviser kill switch COMPACT_ADVISER_DISABLE, which the floor also
 #   pins to 1 with a literal assignment so it survives the cleared environment
 #   even on a host that never had it set.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
@@ -572,6 +590,7 @@ ACCOUNT_SET=0
 SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
+OVER_LIMIT=0
 POS=()
 want_value=
 for a in "$@"; do
@@ -602,6 +621,7 @@ for a in "$@"; do
     --scout) KIND=scout; KIND_SET=1 ;;
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
+    --over-limit) OVER_LIMIT=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -681,6 +701,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-remote-readiness-lib.sh"
 # shellcheck source=bin/fm-cswap-lib.sh
 . "$SCRIPT_DIR/fm-cswap-lib.sh"
+# shellcheck source=bin/fm-agent-limit-lib.sh
+. "$SCRIPT_DIR/fm-agent-limit-lib.sh"
 # Fail closed before any fleet mutation: a no-mistakes gate agent must never spawn
 # a direct report (see bin/fm-gate-refuse-lib.sh).
 fm_refuse_if_gate_agent
@@ -1348,6 +1370,7 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
   [ "$MODE_SET" -eq 0 ] || shared_args+=(--mode "$MODE")
   [ "$YOLO_SET" -eq 0 ] || shared_args+=(--yolo "$YOLO")
   [ -z "$ACCOUNT_ARG" ] || shared_args+=(--account "$ACCOUNT_ARG")
+  [ "$OVER_LIMIT" -eq 0 ] || shared_args+=(--over-limit)
   for pair in "${POS[@]}"; do
     case "$pair" in
     *=*) : ;;
@@ -1532,6 +1555,12 @@ if [ "$RELAUNCH" -eq 0 ]; then
   fi
   if [ "$BACKEND" = orca ]; then
     fm_backend_orca_runtime_check || exit 1
+  fi
+  # Concurrent agent limit (bin/fm-agent-limit-lib.sh): a new crewmate or scout
+  # on Herdr is one more agent in the live Herdr count. Checked before any
+  # endpoint or record exists.
+  if [ "$KIND" != secondmate ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ]; then
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
   fi
 fi
 SPAWN_TASK_LOCK="$STATE/.spawn-$ID.lock"
@@ -4918,6 +4947,18 @@ fi
 # syntax of its own.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
+  SPAWN_ATLAS_REPO=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)
+  if [ -n "$SPAWN_ATLAS_REPO" ]; then
+    spawn_send_text_line "$T" "unset SPECS_REPO"
+    case "$ID" in
+      fm-*) spawn_send_text_line "$T" "export ATLAS_AXI_BY=$ID" ;;
+      *) spawn_send_text_line "$T" "export ATLAS_AXI_BY=fm-$ID" ;;
+    esac
+    spawn_send_text_line "$T" "export ATLAS_REPO=$(shell_quote "$SPAWN_ATLAS_REPO")"
+  else
+    spawn_send_text_line "$T" "unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY"
+  fi
 fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
@@ -4945,7 +4986,7 @@ if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST \
+    FM_TASK_ID ATLAS_AXI_BY ATLAS_REPO COMPACT_ADVISER_DISABLE LAVISH_AXI_HOST \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.

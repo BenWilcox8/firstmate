@@ -85,7 +85,13 @@
 # real work still records nothing, since it may not claim a landing it has not
 # proved. The whole call goes through bin/fm-atlas-hook.sh, which owns the
 # best-effort contract and can never fail a teardown; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all.
+# ticket, or a home with no Atlas, makes no call at all. `--captain-word <words>`
+# or `--captain-word=<words>` passes the captain's exact words from chat to that
+# landing, which records them as the Atlas approval first. When the Atlas refuses
+# the landing, the hook
+# still releases the node and hands back its keyed status line, and teardown
+# writes that line into a fresh status log after it retires the task's own, so
+# the refusal outlives the records it was raised on.
 # Before destructive cleanup, teardown validates task check artifacts as
 # ordinary single-link files on the state device. It refuses and preserves
 # task state when that proof fails; otherwise it removes the task's check,
@@ -183,6 +189,9 @@
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
 # Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
+#        [--captain-word <words>|--captain-word=<words>]
+#   --captain-word passes the captain's exact words to the Atlas landing (see
+#   above); it is used only when cleanup records a landing.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
 #   checks, and discards secondmate child work for kind=secondmate. Only use it
 #   when the captain has explicitly said to discard the work.
@@ -318,6 +327,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-pending-reply-lib.sh"
 # shellcheck source=bin/fm-nm-run-lib.sh
 . "$SCRIPT_DIR/fm-nm-run-lib.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 if [ "$#" -lt 1 ] || ! fm_task_id_path_safe "$1"; then
   echo "error: invalid teardown request" >&2
   exit 2
@@ -325,17 +336,33 @@ fi
 ID=$1
 FORCE=
 LEGACY_RECORD_GIVEN=0
+# --captain-word <words>: the captain's exact words, recorded as the Atlas
+# approval before cleanup completes and lands the ticket.
+CAPTAIN_WORD=
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    --force) FORCE=--force ;;
-    --legacy-record) LEGACY_RECORD_GIVEN=1 ;;
+    --force)
+      FORCE=--force
+      shift
+      ;;
+    --legacy-record)
+      LEGACY_RECORD_GIVEN=1
+      shift
+      ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
+        exit 2
+      fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
+      ;;
     *)
       echo "error: invalid teardown request" >&2
       exit 2
       ;;
   esac
-  shift
 done
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: teardown refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
@@ -3376,6 +3403,7 @@ atlas_hook() {  # <hook args...>
     "$FM_ROOT/bin/fm-atlas-hook.sh" "$@" || true
 }
 
+ATLAS_GATE_LINE=
 atlas_unproved=0
 if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
   # A ticket a crewmate or a merge already discharged is never re-queued as a
@@ -3407,10 +3435,14 @@ elif [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
     atlas_evidence="task $ID landed on the project's default branch"
     atlas_summary="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
   fi
-  atlas_hook land "$ID" \
+  # A refused close-out's status line is held here rather than written, because
+  # the status log it belongs in is retired below; it is written after that.
+  ATLAS_GATE_LINE=$(atlas_hook land "$ID" \
     --actor fm-teardown \
+    --defer-status \
+    ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
     --evidence "$atlas_evidence" \
-    --summary "$atlas_summary"
+    --summary "$atlas_summary")
 fi
 
 # A Herdr close may reposition shared workspace order, so the whole
@@ -3809,6 +3841,13 @@ fi
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
+# The retired log is gone, so a refused Atlas close-out starts a fresh one: the
+# keyed gate line is an open blocker the watcher surfaces, and it stays listed
+# with the orphan status logs until the supervisor resolves it.
+if [ -n "$ATLAS_GATE_LINE" ]; then
+  printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status" \
+    || echo "warning: the refused Atlas close-out could not be recorded: $ATLAS_GATE_LINE" >&2
+fi
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
   "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \

@@ -225,6 +225,7 @@ The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atl
 That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.
 On a wired home, a ship or scout spawn without `--ticket` prints a one-line warning to stderr at dispatch time.
 The warning is advisory and does not block the spawn.
+Every ship or scout worker on a wired home is launched with `ATLAS_REPO` set to the resolved pointer and `ATLAS_AXI_BY` set to its holder author name (`fm-<task-id>`, unless the task id already starts with `fm-`), so a bare `atlas-axi` reaches the map and its writes are attributed; an unwired home clears `ATLAS_REPO`, `SPECS_REPO`, and `ATLAS_AXI_BY` before worker launch; `bin/fm-spawn.sh`'s header owns the mechanics.
 A home with no pointer, or a pointer to a directory holding no `atlas/`, makes no Atlas call at all and behaves exactly as it did before the hook existed.
 The hook's own header owns its verbs, its evidence arguments, and the best-effort contract that keeps a broken Atlas from ever failing the action that called it.
 
@@ -473,6 +474,34 @@ This applies only to agents Firstmate launches; the captain's own primary Firstm
 [`fm-spawn.sh --help`](../bin/fm-spawn.sh) owns the delivery mechanics, with focused regression coverage in [`tests/fm-spawn-compact-adviser-disable.test.sh`](../tests/fm-spawn-compact-adviser-disable.test.sh) and [`tests/fm-spawn-compact-adviser-disable-remote.test.sh`](../tests/fm-spawn-compact-adviser-disable-remote.test.sh).
 
 Every claude launch's inline `--settings` JSON also carries `"attribution":{"commit":"","pr":"","sessionUrl":false}`, so a spawned worker never writes a Co-Authored-By trailer, Claude-Session link, or generated-with line into a commit or PR body regardless of which settings scopes end up loaded.
+
+## Concurrent agent limit (config/agent-limit)
+
+The concurrent agent limit caps how many workers run at once on this machine.
+Its main use is to spread many small tasks over a longer period while the captain is away.
+The count starts with the live Herdr panes, then matches each agent pane to a ship or scout task record; it never counts Atlas tickets or task records by themselves.
+An agent counts while it is open in a Herdr pane.
+A ghost Atlas leg, a closed pane, or an exited agent never counts.
+Parking a ticket closes its agent's pane, so a parked ticket's worker stops counting.
+An agent that is still open in a pane always counts, whatever its pipeline is waiting on.
+The count covers every local firstmate home on the machine, whichever home asks.
+Supervisor panes (MAIN and each secondmate), unmanaged agent panes, and panes whose process cannot be read are listed apart and are not counted.
+
+`config/agent-limit` holds one positive whole number or the word `off`.
+When the file is absent, the limit is 30.
+A malformed file is an error, not a silent default.
+The primary home's file is inherited by every secondmate home through the inherited-local-material contract in [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md), so the fleet shares one limit.
+
+`bin/fm-spawn.sh` enforces the limit for each new crewmate or scout on Herdr, before it creates an endpoint or a record.
+At the limit, the spawn refuses and names the count, the limit, and the two overrides.
+To start one worker past the limit, pass `--over-limit` to that spawn.
+To disable the limit, write `off` to `config/agent-limit`; to change it, write another number.
+A relaunch into the task's own open pane replaces an agent and is not limited.
+Secondmate spawns are never limited.
+Two spawns that check at the same moment can both start, because the limit spreads work out and does not reserve places.
+
+`bin/fm-agent-count.sh` prints the count, the limit, and the pane lists; `--json` gives the same data as one document for the dashboard and other readers.
+[`bin/fm-agent-limit-lib.sh`](../bin/fm-agent-limit-lib.sh) owns the counting rules and the spawn check, and each script's header owns its exact options and output fields.
 
 ## Crew dispatch profiles (config/crew-dispatch.json)
 

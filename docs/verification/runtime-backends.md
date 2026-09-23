@@ -1606,6 +1606,30 @@ That combined case requires renewed live evidence for this fork's stricter recov
 `tests/fm-crew-state.test.sh` pins the recovery classifier: a stale registration over a shell-only pane reports agent gone rather than alive or unreachable, and a stale `working` record never reports the pane working.
 A stale-registration pane is never a husk: create, reclaim, presentation recovery, and session cleanup keep refusing it, and only recovery reuses it.
 
+### Concurrent agent count
+
+The agent count that the spawn limit reads classifies each pane by its foreground process through the adapter's own recognition, so it was measured against real agents.
+Verified on 2026-09-22 with Herdr 0.8.2, Claude Code 2.1.280, Codex CLI 0.155.1, and Pi 0.87.1 on Linux x86_64:
+
+```sh
+tests/fm-agent-count-live-e2e.test.sh
+```
+
+Observed output:
+
+```text
+ok - live: every open agent pane (claude codex pi) counts, and a shell pane and a parked task do not
+ok - live: closing the claude pane removes it from the count
+ok - live: an agent that exits in an open pane leaves the count
+ok - live: the lab session was torn down and the default session is unchanged
+```
+
+The guard starts each installed agent with no prompt, so it spends no model tokens and runs by default wherever Herdr and jq are installed.
+An absent agent is reported as a skip, and the guard fails when no agent was installed to check.
+Every Herdr call routes through the guarded lab helper for one disposable named session.
+Run it after every Herdr or agent upgrade rather than trusting the versions above.
+The portable regressions are `tests/fm-agent-count.test.sh` and `tests/fm-spawn-agent-limit.test.sh`.
+
 ### Away-mode transport
 
 The away daemon is no longer launched on Pi; the away posture there is the record `bin/fm-afk-contract.sh` owns.

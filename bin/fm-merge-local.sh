@@ -17,12 +17,16 @@
 # with the before..after range this script already computed. That call goes
 # through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
 # never fail a merge that has already landed; a task with no recorded ticket, or
-# a home with no Atlas, makes no call at all.
+# a home with no Atlas, makes no call at all. Pass `--captain-word <words>` or
+# `--captain-word=<words>` with the captain's exact words from chat to record
+# them as the Atlas approval before the ticket is completed; the hook's header
+# owns a refused close-out.
 # Merge authority: reads yolo= from the task's state/<id>.meta at entry and
 # refuses when the value is off or the field is absent (safe default). Pass
-# --captain-authorized as the second argument to override the guard with an
+# --captain-authorized to override the guard with an
 # explicit current captain merge instruction.
 # Usage: fm-merge-local.sh <task-id> [--captain-authorized]
+#        [--captain-word <words>|--captain-word=<words>]
 # The task's existing per-task control lock serializes the captain-hold check
 # through that fast-forward. A still-held or unreadable row refuses before the
 # merge, so a captain approval must be recorded as an `answer --release` before
@@ -39,18 +43,34 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
+# --captain-authorized: explicit current captain merge instruction; passes
+# through the yolo= guard below. Never modifies the git operation itself.
+# --captain-word <words>: the captain's exact words, recorded as the Atlas
+# approval before the ticket is completed.
 CAPTAIN_AUTHORIZED=false
-if [ "$#" -eq 2 ] && [ "$2" = --captain-authorized ]; then
-  CAPTAIN_AUTHORIZED=true
-elif [ "$#" -ne 1 ]; then
-  echo "error: invalid local merge request" >&2
-  exit 2
-fi
-if ! fm_pr_task_id_valid "$1"; then
+CAPTAIN_WORD=
+if [ "$#" -lt 1 ] || ! fm_pr_task_id_valid "$1"; then
   echo "error: invalid local merge request" >&2
   exit 2
 fi
 ID=$1
+shift
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --captain-authorized) CAPTAIN_AUTHORIZED=true; shift ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
+        exit 2
+      fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
+      ;;
+    *) echo "error: invalid local merge request" >&2; exit 2 ;;
+  esac
+done
 fm_backlog_directory_present "$STATE" "state directory" || {
   echo "error: local merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
   exit 1
@@ -196,5 +216,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-merge-local \
   --restage merge \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$before..$after on $DEFAULT" \
   --summary "Task $ID landed on local $DEFAULT as a fast-forward of $BRANCH." || true

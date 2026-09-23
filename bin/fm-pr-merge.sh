@@ -70,7 +70,11 @@
 # (atlas_ticket= in its meta) is discharged with the PR URL as its evidence. That
 # call goes through bin/fm-atlas-hook.sh, which owns the best-effort contract and
 # can never fail a merge that has already happened; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all.
+# ticket, or a home with no Atlas, makes no call at all. Pass `--captain-word
+# <words>` or `--captain-word=<words>`, before the optional -- separator, with
+# the captain's exact words from chat to record them as the Atlas approval before
+# the ticket is completed; it is never forwarded to the forge CLI, and the hook's
+# header owns a refused close-out.
 # Before either forge merge, the task's existing per-task control lock
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
@@ -105,7 +109,10 @@
 # explicit captain instruction and never skips the live green check, the
 # away-record read, or a captain hold.
 #
-# Usage: fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized] [--attended-override] [--allow-red <check-name>] [-- <extra forge merge args>]
+# Usage: fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized] [--attended-override]
+#                      [--allow-red <check-name>]
+#                      [--captain-word <words>|--captain-word=<words>]
+#                      [-- <extra forge merge args>]
 #
 # On GitLab, this script confirms the MR is actually merged before reporting it;
 # an auto-merge-queued or unconfirmed request leaves the poll armed and records
@@ -137,6 +144,8 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-merge-authority-lib.sh"
 # shellcheck source=bin/fm-afk-contract.sh
 . "$SCRIPT_DIR/fm-afk-contract.sh"
+# shellcheck source=bin/fm-atlas-word-lib.sh
+. "$SCRIPT_DIR/fm-atlas-word-lib.sh"
 
 if [ "$#" -lt 2 ]; then
   echo "error: invalid PR merge request" >&2
@@ -159,7 +168,10 @@ PR_NUMBER=$FM_PR_NUMBER
 # rebuilt from the parsed identity rather than read from any ambient default.
 PROJECT_URL="https://$FM_PR_HOST/$FM_PR_PATH"
 shift 2
+# --captain-word <words>: the captain's exact words, recorded as the Atlas
+# approval before the ticket is completed. Never forwarded to the forge CLI.
 CAPTAIN_AUTHORIZED=false
+CAPTAIN_WORD=
 ATTENDED_OVERRIDE=false
 ALLOW_RED=()
 while [ "$#" -gt 0 ]; do
@@ -186,6 +198,14 @@ while [ "$#" -gt 0 ]; do
       echo "error: --allow-red requires a separate check name argument" >&2
       exit 2
       ;;
+    --captain-word|--captain-word=*)
+      if ! fm_atlas_parse_captain_word "$1" "${2-}"; then
+        echo "error: --captain-word needs non-empty words, not another option" >&2
+        exit 2
+      fi
+      CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
+      shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
+      ;;
     --) shift; break ;;
     *) break ;;
   esac
@@ -194,6 +214,15 @@ if [ "${#ALLOW_RED[@]}" -gt 0 ] && [ "$PROVIDER" = gitlab ]; then
   echo "error: --allow-red does not apply to GitLab, where a merge already requires the head pipeline to have succeeded" >&2
   exit 2
 fi
+
+for arg in "$@"; do
+  case "$arg" in
+    --captain-word*)
+      echo "error: --captain-word is never forwarded to the forge CLI; pass it before --" >&2
+      exit 2
+      ;;
+  esac
+done
 
 caller_has_merge_method() {
   local arg
@@ -1282,5 +1311,6 @@ FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$SCRIPT_DIR/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-pr-merge \
   --restage merge \
+  ${CAPTAIN_WORD:+--captain-word="$CAPTAIN_WORD"} \
   --evidence "$URL" \
   --summary "Task $ID merged through $URL." || true
