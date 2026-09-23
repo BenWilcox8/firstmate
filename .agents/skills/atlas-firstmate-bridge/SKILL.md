@@ -83,6 +83,7 @@ Dispatch in this exact order, and treat any shortcut as a refusal to dispatch at
 In a firstmate home it creates a running leg with no backlog row, no task record, no isolated worktree, and no supervision, so AGENTS.md section 8's "no turn ends blind" cannot see the work at all.
 The hook writes the Atlas strictly after the spawn commits, so a rolled-back spawn leaves no started ticket behind.
 `--ticket` is refused for batch dispatch, so eight ready rows are eight separate spawns.
+`--ticket` is also refused with `--relaunch`, because a relaunch keeps the ticket that its task record names.
 A ship or scout spawned without `--ticket` in a wired home gets a one-line warning, because it will not appear on the map.
 
 ## The ready flag
