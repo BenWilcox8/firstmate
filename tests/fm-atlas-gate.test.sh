@@ -33,9 +33,9 @@
 #     (j) fm-teardown with --captain-word -> ticket completed, node landed
 #     (k) an empty --captain-word is refused before anything happens
 #   Worker environment
-#     (l) a fresh spawn exports ATLAS_REPO and ATLAS_AXI_BY into the pane
-#     (m) an unwired home exports ATLAS_AXI_BY but no ATLAS_REPO
-#     (n) a relaunch exports both again
+#     (l) a wired spawn replaces ambient Atlas values with this home's values
+#     (m) an unwired spawn clears every ambient Atlas value
+#     (n) a relaunch exports wired Atlas values again
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -736,11 +736,25 @@ pane_export() {  # <name>
   (eval "export $line" && printenv "$1")
 }
 
+pane_unsets() {  # <name>
+  awk -v name="$1" '
+    $1 == "send-keys" && $2 == "-t" {
+      for (i = 1; i <= NF; i++) {
+        if ($i == "unset") {
+          for (j = i + 1; j < NF; j++) if ($j == name) found = 1
+        }
+      }
+    }
+    END { exit(found ? 0 : 1) }
+  ' "$HOME_DIR/tmux/calls"
+}
+
 test_spawn_exports_atlas_environment() {
   local id=gate-env-a1 out rc
   make_spawn_home env-wired yes "$id"
   set +e
-  out=$(run_spawn "$id" "$HOME_DIR/project" --harness claude --mode no-mistakes --yolo off)
+  out=$(ATLAS_REPO=/other/specs SPECS_REPO=/other/specs ATLAS_AXI_BY=other-worker \
+    run_spawn "$id" "$HOME_DIR/project" --harness claude --mode no-mistakes --yolo off)
   rc=$?
   set -e
   expect_code 0 "$rc" "spawn: the launch must succeed"$'\n'"$out"
@@ -748,21 +762,26 @@ test_spawn_exports_atlas_environment() {
     || fail "spawn: the worker was not given the home's Atlas repo:"$'\n'"$(cat "$HOME_DIR/tmux/calls")"
   [ "$(pane_export ATLAS_AXI_BY)" = "fm-$id" ] \
     || fail "spawn: the worker was not given its Atlas author name:"$'\n'"$(cat "$HOME_DIR/tmux/calls")"
-  pass "spawn: a worker is launched with ATLAS_REPO from config/specs and ATLAS_AXI_BY=fm-<task>"
+  pane_unsets SPECS_REPO || fail "spawn: the worker retained an ambient SPECS_REPO"
+  pass "spawn: a wired worker replaces ambient Atlas values with this home's values"
 }
 
 test_spawn_unwired_home_exports_no_repo() {
   local id=fm-gate-env-b1 out rc
   make_spawn_home env-unwired no "$id"
   set +e
-  out=$(run_spawn "$id" "$HOME_DIR/project" --scout --harness claude)
+  printf '%s\n' ATLAS_REPO SPECS_REPO ATLAS_AXI_BY > "$HOME_DIR/config/launch-env-allowlist"
+  out=$(ATLAS_REPO=/other/specs SPECS_REPO=/other/specs ATLAS_AXI_BY=other-worker \
+    run_spawn "$id" "$HOME_DIR/project" --scout --harness claude)
   rc=$?
   set -e
   expect_code 0 "$rc" "spawn: the unwired launch must succeed"$'\n'"$out"
   pane_export ATLAS_REPO >/dev/null && fail "spawn: an unwired home exported an ATLAS_REPO"
-  [ "$(pane_export ATLAS_AXI_BY)" = "$id" ] \
-    || fail "spawn: an fm-prefixed task id must be the author name as-is:"$'\n'"$(cat "$HOME_DIR/tmux/calls")"
-  pass "spawn: an unwired home exports the author name but no Atlas repo"
+  pane_export SPECS_REPO >/dev/null && fail "spawn: an unwired home exported a SPECS_REPO"
+  pane_export ATLAS_AXI_BY >/dev/null && fail "spawn: an unwired home exported an Atlas author"
+  pane_unsets ATLAS_REPO && pane_unsets SPECS_REPO && pane_unsets ATLAS_AXI_BY \
+    || fail "spawn: an unwired worker did not clear the ambient Atlas values"
+  pass "spawn: an unwired worker clears ambient Atlas values, including with env -i"
 }
 
 test_relaunch_exports_atlas_environment() {
@@ -781,12 +800,38 @@ test_relaunch_exports_atlas_environment() {
     "tasktmp=/tmp/fm-$id" \
     "model=default" \
     "effort=default"
-  out=$(run_spawn "$id" --relaunch) || fail "relaunch: the relaunch failed: $out"
+  out=$(ATLAS_REPO=/other/specs SPECS_REPO=/other/specs ATLAS_AXI_BY=other-worker \
+    run_spawn "$id" --relaunch) || fail "relaunch: the relaunch failed: $out"
   [ "$(pane_export ATLAS_REPO)" = "$REPO" ] \
     || fail "relaunch: the worker was not given the home's Atlas repo:"$'\n'"$(cat "$HOME_DIR/tmux/calls")"
   [ "$(pane_export ATLAS_AXI_BY)" = "fm-$id" ] \
     || fail "relaunch: the worker was not given its Atlas author name"
-  pass "relaunch: the worker is launched with the same Atlas environment again"
+  pane_unsets SPECS_REPO || fail "relaunch: the worker retained an ambient SPECS_REPO"
+  pass "relaunch: a wired worker replaces ambient Atlas values again"
+}
+
+test_relaunch_unwired_clears_atlas_environment() {
+  local id=fm-gate-env-d1 out
+  make_spawn_home env-relaunch-unwired no "$id"
+  printf 'fm-%s\n' "$id" > "$HOME_DIR/tmux/windows"
+  fm_write_meta "$HOME_DIR/state/$id.meta" \
+    "window=firstmate:fm-$id" \
+    "endpoint_task_id=$id" \
+    "worktree=$HOME_DIR/wt" \
+    "project=$HOME_DIR/project" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "tasktmp=/tmp/fm-$id" \
+    "model=default" \
+    "effort=default"
+  printf '%s\n' ATLAS_REPO SPECS_REPO ATLAS_AXI_BY > "$HOME_DIR/config/launch-env-allowlist"
+  out=$(ATLAS_REPO=/other/specs SPECS_REPO=/other/specs ATLAS_AXI_BY=other-worker \
+    run_spawn "$id" --relaunch) || fail "relaunch: the unwired relaunch failed: $out"
+  pane_unsets ATLAS_REPO && pane_unsets SPECS_REPO && pane_unsets ATLAS_AXI_BY \
+    || fail "relaunch: an unwired worker did not clear the ambient Atlas values"
+  pass "relaunch: an unwired worker clears ambient Atlas values"
 }
 
 for store in $STORES; do
@@ -807,3 +852,4 @@ done
 test_spawn_exports_atlas_environment
 test_spawn_unwired_home_exports_no_repo
 test_relaunch_exports_atlas_environment
+test_relaunch_unwired_clears_atlas_environment
