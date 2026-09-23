@@ -131,7 +131,7 @@ Pass them to the guarded path that closes the ticket, as `--captain-word "<the c
 
 The hook then runs `atlas-axi ticket approve <c> --word "<words>"` before it completes the ticket.
 Quote the captain, never a paraphrase, and never pass words the captain did not say.
-The flag is optional: without it, the close-out is attempted as before, and a refusal follows "A refused close-out" in "Ghost legs" below.
+The flag is optional: without it, the hook attempts the close-out with no approval, and a refusal follows "A refused close-out" in "Ghost legs" below.
 A recorded approval does not satisfy the testing-brief gate, which still needs a `ticket testing` handover.
 
 ### The adversarial reviewer
