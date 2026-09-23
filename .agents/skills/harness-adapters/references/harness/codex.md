@@ -10,7 +10,7 @@ Verified on 2026-06-11 with codex-cli 0.139.0 unless a fact gives a newer versio
 | Exit command | `/quit`; its slash popup needs about one second between text and Enter, which the shared submit path used by the control plane handles. |
 | Interrupt | Single Escape. |
 | Skill invocation | `$<skill>`, for example `$no-mistakes`; `/<skill>` is Claude-only and Codex rejects it as "Unrecognized command". |
-| Resume | `codex resume <session-id>`; park proves the id from the running process (see Native session). |
+| Resume | `codex resume <session-id>`, with the id that park proves from the running process (see Native session). |
 | Model flag | `--model <model>`. |
 | Effort flag | `-c 'model_reasoning_effort="<low\|medium\|high\|xhigh>"'`, verified on codex-cli 0.142.1 whose installed schema contains `model_reasoning_effort`, active config uses it, and bundled catalog advertises only these four values while omitting `max`. |
 | Model discovery | Open the current interactive session's `/model` picker. |
@@ -28,7 +28,8 @@ The rollout's first line is its `session_meta`, which carries the same id and th
 Codex writes the rollout only after the first completed turn, so a session with no turn yet cannot be resumed.
 `codex resume <uuid>` accepts the fleet's launch flags (`--model`, `-c`, `--dangerously-bypass-approvals-and-sandbox`) and reopens the conversation in place.
 `../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
-A launch can show an update offer before the TUI starts; it holds keyboard input until it is answered.
+A launch can show an update offer before the TUI starts.
+The offer holds keyboard input until it is answered.
 
 ## Skill popup
 

@@ -49,7 +49,7 @@ The clear is refused before anything is sent when the recorded backend cannot de
 `exit` stops an agent and preserves everything else.
 Removing a worktree, closing an endpoint, or discarding work stays with [`bin/fm-teardown.sh`](../bin/fm-teardown.sh), which owns the landed-work test.
 
-**`park` and `resume` keep a conversation; `relaunch` replaces it.**
+**`park` and `resume` keep a conversation, and `relaunch` replaces it.**
 A relaunch gives a new agent the brief plus a progress note, which works on every adapter because the brief on disk is the durable instruction.
 A park keeps the conversation itself, so it exists only where a native session can be proven and reopened: claude, codex, pi, and pi-signed.
 Every other adapter refuses `park` and `resume` by name and keeps `relaunch`.
@@ -68,12 +68,15 @@ A session that cannot be proven refuses the park, and the worker keeps running.
 The park then runs in this order:
 
 1. Record the session and the reason in the task record.
-2. Record the park on the task's Atlas ticket, when it has one, and require the Atlas to read it back as parked; a refusal withdraws the record.
-3. Stop the agent through `exit`; a refusal re-opens the ticket and withdraws the record.
+2. Record the park on the task's Atlas ticket, when it has one, and require the Atlas to read it back as parked.
+   A refusal withdraws the record.
+3. Stop the agent through `exit`.
+   A refusal re-opens the ticket and withdraws the record.
    An agent's own short-lived child processes can make one state read unclassifiable, so park and resume re-sample a read for a few seconds before they act, and park retries a refused stop while the agent still reads alive.
 4. Close only the endpoint, with proof that it is gone.
    On Herdr this uses the same primitives as teardown: the session presentation lock, the focus-preserving close for a projected task pane, otherwise the agent-axi slot release and the serialized close.
-   A close that cannot be proven leaves the task parked and names the pane; parking again retries the close.
+   A close that cannot be proven leaves the task parked and names the pane.
+   Parking again retries the close.
 
 A resume first confirms that the recorded session file still exists, where the resume will look for it.
 A missing file refuses with the task still parked, and a resume never falls back to a fresh session.
@@ -88,7 +91,8 @@ The resumed agent submits no prompt, so its busy state starts idle.
 The park record is cleared only after the resumed agent is confirmed running.
 A launch that fails after the unpark records the park on the ticket again.
 A `--note` reaches the resumed agent as a durable inbox steer.
-Its doorbell waits, for a bounded time, until the resumed agent's composer reads empty, because a doorbell typed while the TUI still replays the conversation can be lost; the watcher re-rings an unhandled steer in any case.
+Its doorbell waits, for a bounded time, until the resumed agent's composer reads empty, because a doorbell typed while the TUI still replays the conversation can be lost.
+The watcher re-rings an unhandled steer in any case.
 
 A parked task is visible as parked everywhere firstmate reads the fleet.
 `bin/fm-crew-state.sh` reports `parked` from `park` with the reason and the resume command.

@@ -39,7 +39,8 @@ Verified 2026-09-22 on Pi 0.87.1.
 Pi keeps no session file open, so a running Pi's session is known only from Pi itself.
 The Firstmate worker extension records `ctx.sessionManager`'s session id and session file on every `session_start` (reasons `startup`, `reload`, `new`, `resume`, and `fork`) into `state/<id>.pi-session`, tagged with the incarnation's busy generation.
 The session file's first line is its `session` header, which carries the same id and the launch directory as `cwd`.
-`pi --session <session-file>` reopens that exact conversation; `--session-id` creates a missing session, so a resume never uses it.
+`pi --session <session-file>` reopens that exact conversation.
+`--session-id` creates a missing session, so a resume never uses it.
 `../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
 A Pi worker launched before this record existed cannot be parked.
 

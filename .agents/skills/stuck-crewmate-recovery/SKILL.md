@@ -30,7 +30,8 @@ Recover a genuinely stuck remote mate only through `bin/fm-spawn.sh <id> --secon
 A parked task is not a dead one.
 The digest prints `endpoint: parked` and `bin/fm-crew-state.sh <id>` reports `parked` from `park` when `bin/fm-control.sh <id> park` closed the worker on purpose and recorded its native session.
 Never recover or relaunch it fresh.
-When its work continues, resume it with `bin/fm-control.sh <id> resume`, which reopens that exact session in the same worktree; `relaunch` of a parked task does the same.
+When its work continues, resume it with `bin/fm-control.sh <id> resume`, which reopens that exact session in the same worktree.
+`relaunch` of a parked task does the same.
 
 Treat the digest's endpoint result as a presence signal, not proof that the task's work or validation run is gone.
 Read the targeted current state with `bin/fm-crew-state.sh <id>` before deciding to relaunch.

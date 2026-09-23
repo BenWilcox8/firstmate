@@ -368,9 +368,11 @@ The proofs that `bin/fm-native-session-lib.sh` reads were observed first on the 
 
 - A running Claude process keeps `~/.claude/sessions/<pid>.json` with `sessionId`, `cwd`, and `procStart`, and `procStart` equals field 22 of `/proc/<pid>/stat`.
   Claude does not keep its transcript open.
-- A running codex process holds `sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` and `thread-writer-locks/<uuid>.lock` open; the rollout appears only after the first turn.
+- A running codex process holds `sessions/YYYY/MM/DD/rollout-<ts>-<uuid>.jsonl` and `thread-writer-locks/<uuid>.lock` open.
+  The rollout appears only after the first turn.
   The native `codex` process and its `MainThread` Node wrapper share the pane's foreground process group.
-- Pi holds no session file open; `pi --session <file>` reopened a session and the agent recalled a word from its earlier turn.
+- Pi holds no session file open.
+  `pi --session <file>` reopened a session, and the agent recalled a word from its earlier turn.
 
 The live guard launches each installed harness through `bin/fm-spawn.sh --relaunch` into an isolated Herdr lab pane in a disposable worktree.
 The worker's first turn carries a unique word.
