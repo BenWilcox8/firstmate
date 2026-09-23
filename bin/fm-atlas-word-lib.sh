@@ -19,13 +19,17 @@ fm_atlas_parse_captain_word() {
       case "$word" in
         ''|-*) return 1 ;;
       esac
+      # shellcheck disable=SC2034
       FM_ATLAS_CAPTAIN_WORD=$word
+      # shellcheck disable=SC2034
       FM_ATLAS_CAPTAIN_WORD_CONSUMED=2
       ;;
     --captain-word=*)
       word=${option#--captain-word=}
       [ -n "$word" ] || return 1
+      # shellcheck disable=SC2034
       FM_ATLAS_CAPTAIN_WORD=$word
+      # shellcheck disable=SC2034
       FM_ATLAS_CAPTAIN_WORD_CONSUMED=1
       ;;
     *) return 2 ;;
