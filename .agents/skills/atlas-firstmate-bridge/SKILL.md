@@ -126,10 +126,12 @@ Where a project genuinely wants the committed agent file, it belongs in that pro
 
 ## Concurrency precedence
 
-AGENTS.md section 7 governs parallelism: dispatch isolated work immediately, with no concurrency cap, and serialize only for a true semantic dependency or shared mutable state.
-`atlas-axi limit` is a resource ceiling on the captain's machine, not a parallelism doctrine.
-Treat a full headroom reading as "no room right now", which is a line in your own report and a reason to wait, never a reason to call independent work dependent.
-The two counters also count different populations, so never use a headroom number as a liveness fact.
+AGENTS.md section 7 governs parallelism: dispatch isolated work immediately, with no cap beyond the agent limit, and serialize only for a true semantic dependency or shared mutable state.
+The resource ceiling on the captain's machine is firstmate's concurrent agent limit, not a parallelism doctrine: `bin/fm-agent-count.sh` reads the crewmate agents really open in Herdr against `config/agent-limit`, and `bin/fm-spawn.sh` enforces it ([`docs/configuration.md`](../../../docs/configuration.md) "Concurrent agent limit").
+Read room from that count, not from `atlas-axi limit` or `atlas-axi headroom`, which count started tickets, including parked work and ghost legs.
+Treat a full reading as "no room right now", which is a line in your own report and a reason to wait, never a reason to call independent work dependent.
+Pass `--over-limit` only when the captain asks for more concurrency.
+Neither counter is a liveness fact for one task.
 `bin/fm-crew-state.sh` and the recorded backend endpoint remain the only liveness truth.
 One node holds one crewmate, so two tickets on one node serialize even when the work is independent.
 

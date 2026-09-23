@@ -242,6 +242,18 @@
 #   containment test reads local refs only and never fetches, so this gate stays
 #   usable offline; a stale remote-tracking ref can therefore make an unpushed
 #   commit look contained, which is exactly why no remedy command is printed.
+# Concurrent agent limit (--over-limit):
+#   A crewmate or scout spawn on Herdr refuses, before any endpoint or record
+#   exists, when the crewmate agents open in Herdr across every local home
+#   already reach config/agent-limit (a positive number, or off; absent means
+#   30). The refusal names the count, the limit, and both overrides:
+#   --over-limit lets this one spawn through, and off in config/agent-limit
+#   disables the limit. A --relaunch into the task's own open pane replaces an
+#   agent and is exempt; one whose recorded pane is gone would open a new pane
+#   and is held to the limit. Secondmate spawns are never limited. Batch
+#   dispatch passes --over-limit to every pair, and each pair checks the count
+#   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
+#   bin/fm-agent-count.sh prints them.
 # Batch dispatch: pass one or more `id=repo` pairs instead of a single <id> <project>, e.g.
 #     fm-spawn.sh fix-a-k3=projects/foo add-b-q7=projects/bar [--scout]
 #   Each pair re-execs this script in single-task mode, so the single path stays the only

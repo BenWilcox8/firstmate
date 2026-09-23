@@ -145,7 +145,23 @@ test_unreadable_pane_is_listed_not_counted() {
   pass "fm-agent-count: a pane whose process cannot be classified is listed, not counted"
 }
 
+test_limit_is_inherited_by_secondmate_homes() {
+  local d=$TMP_ROOT/inherit
+  mkdir -p "$d/primary" "$d/secondmate"
+  printf '12\n' > "$d/primary/agent-limit"
+  (
+    unset FM_INHERITABLE_CONFIG
+    # shellcheck source=bin/fm-config-inherit-lib.sh
+    . "$ROOT/bin/fm-config-inherit-lib.sh"
+    propagate_inheritable_config "$d/primary" "$d/secondmate" >/dev/null 2>&1
+  ) || fail "propagating the primary config failed"
+  [ "$(cat "$d/secondmate/agent-limit" 2>/dev/null)" = 12 ] \
+    || fail "config/agent-limit was not inherited by a secondmate home"
+  pass "config/agent-limit: a secondmate home inherits the primary limit"
+}
+
 test_counts_only_crewmate_agents_open_in_herdr
 test_reports_limit_default_config_and_off
 test_session_states
 test_unreadable_pane_is_listed_not_counted
+test_limit_is_inherited_by_secondmate_homes
