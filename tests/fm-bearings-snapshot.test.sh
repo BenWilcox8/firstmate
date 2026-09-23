@@ -2926,6 +2926,55 @@ test_a_remote_home_without_any_ledger_is_explicitly_unreadable_without_remote_co
   pass "a missing remote ledger stays explicitly unreadable without remote summary computation"
 }
 
+test_parked_endpoints_are_not_unhealthy() {
+  local home mate fakebin json
+  home=$(make_home parked-endpoints)
+  mate="$TMP_ROOT/parked-endpoints-home"
+  make_valid_secondmate_home crew "$mate"
+  append_secondmate_registry "$home" crew "$mate"
+  mkdir -p "$home/projects/main-parked" "$home/projects/main-crashed" \
+    "$mate/projects/child-parked" "$mate/projects/child-crashed"
+  cat > "$home/data/backlog.md" <<'EOF'
+## In flight
+- [ ] main-parked - Parked main task (repo: sample) (kind: ship) (since 2026-07-11)
+- [ ] main-crashed - Crashed main task (repo: sample) (kind: ship) (since 2026-07-11)
+
+## Queued
+
+## Done
+EOF
+  cat > "$mate/data/backlog.md" <<'EOF'
+## In flight
+- [ ] child-parked - Parked child (repo: sample) (kind: ship) (since 2026-07-11)
+- [ ] child-crashed - Crashed child (repo: sample) (kind: ship) (since 2026-07-11)
+
+## Queued
+
+## Done
+EOF
+  fm_write_meta "$home/state/main-parked.meta" \
+    "window=firstmate:fm-dead-main-parked" "worktree=$home/projects/main-parked" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes" \
+    "parked=2026-07-11T17:00:00Z" "parked_reason=waits on review"
+  fm_write_meta "$home/state/main-crashed.meta" \
+    "window=firstmate:fm-dead-main-crashed" "worktree=$home/projects/main-crashed" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  fm_write_meta "$mate/state/child-parked.meta" \
+    "window=firstmate:fm-dead-child-parked" "worktree=$mate/projects/child-parked" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes" \
+    "parked=2026-07-11T17:00:00Z" "parked_reason=waits on review"
+  fm_write_meta "$mate/state/child-crashed.meta" \
+    "window=firstmate:fm-dead-child-crashed" "worktree=$mate/projects/child-crashed" "project=sample" \
+    "harness=claude" "kind=ship" "mode=no-mistakes"
+  fakebin=$(make_fakebin "$home")
+  json=$(run "$home" "$fakebin" --json --all-unhealthy)
+  printf '%s' "$json" | jq -e '
+    ([.unhealthy_endpoints[].id] | sort) == ["crew/child-crashed","main-crashed"]
+  ' >/dev/null || fail "parked endpoints were reported as unhealthy: $json"
+  pass "parked main and secondmate endpoints stay out of unhealthy endpoints"
+}
+
+test_parked_endpoints_are_not_unhealthy
 test_task_teardown_during_metadata_capture_does_not_abort_snapshot
 test_current_state_uses_captured_status_observation
 test_relaunched_task_does_not_inherit_reused_endpoint_state
