@@ -17,6 +17,7 @@ Then an upstream firstmate merge and an Atlas or dashboard update touch differen
 | `.agents/skills/atlas-firstmate-bridge/` | Supervisor skill: every supervisor-side Atlas rule | The supervisor loads it at the points the supervisor block names |
 | `bin/fm-atlas-module.sh` | Entry point for the prompt fragments, the dispatch warning, and the worker environment | Called by the core hook points below |
 | `bin/fm-atlas-lib.sh` | The pointer rule and the crew-name rule, shared by the module scripts | Sourced by the module scripts |
+| `bin/fm-atlas-word-lib.sh` | The `--captain-word` option parser | Sourced by the close-out hook, the two merge paths, and cleanup |
 | `bin/fm-atlas-hook.sh` | Ticket lifecycle calls: start, complete, land, abort, and the cleanup decision | Called by spawn, the two merge paths, and cleanup |
 | `bin/fm-atlas-boundary-check.sh` | Guard: the module file set and the hook-point registry | Run by `tests/fm-atlas-boundary.test.sh` |
 | `tests/fm-atlas-*.test.sh` | Module behavior tests | The ordinary test suite |
@@ -31,8 +32,8 @@ Core files reach the module only through short, stable hook points:
 - `AGENTS.md`: one layout line for `config/specs` that points here.
 - `bin/fm-session-start.sh`: one call that prints the supervisor block.
 - `bin/fm-spawn.sh`: the `--ticket` flag, the `atlas_ticket=` record line, the dispatch warning call, the crewmate fragment call, the worker environment call, and the lifecycle start call.
-- `bin/fm-pr-merge.sh` and `bin/fm-merge-local.sh`: one close-out call after the merge.
-- `bin/fm-teardown.sh`: one close-out call that passes the facts cleanup proved.
+- `bin/fm-pr-merge.sh` and `bin/fm-merge-local.sh`: the `--captain-word` option and one close-out call after the merge.
+- `bin/fm-teardown.sh`: the `--captain-word` option and one close-out call that passes the facts cleanup proved.
 - `docs/configuration.md`, `docs/scripts.md`, and `docs/documentation-audiences.json`: one entry for each module file or setting.
 
 The registry in `bin/fm-atlas-boundary-check.sh` is the enforced list.

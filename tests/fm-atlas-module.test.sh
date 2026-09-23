@@ -208,6 +208,31 @@ test_secondmate_charter_has_no_atlas_text() {
   pass "the secondmate charter never mentions the Atlas, even in a wired home"
 }
 
+# --- the worker environment ---------------------------------------------------
+
+# Spawn sends each worker-env line to the pane, so the lines must be exactly the
+# shell commands a worker shell runs: exports in a wired home, and a clear of
+# inherited values in a home with no pointer.
+test_worker_env_lines() {
+  local w home out
+  w="$TMP_ROOT/workerenv"
+  home="$w/home"
+  mkdir -p "$home/state" "$home/config" "$w/specs dir/atlas"
+  printf '%s\n' "$w/specs dir" > "$home/config/specs"
+
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-atlas-module.sh" worker-env env-t6)
+  [ "$out" = "unset SPECS_REPO"$'\n'"export ATLAS_AXI_BY=fm-env-t6"$'\n'"export ATLAS_REPO='$w/specs dir'" ] \
+    || fail "a wired worker-env did not print the expected shell lines: $out"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-atlas-module.sh" worker-env 'bad id')
+  [ -z "$out" ] || fail "an unusable task id still produced worker-env lines: $out"
+
+  rm "$home/config/specs"
+  out=$(FM_HOME="$home" "$ROOT/bin/fm-atlas-module.sh" worker-env env-t6)
+  [ "$out" = "unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY" ] \
+    || fail "an unwired worker-env did not clear the inherited values: $out"
+  pass "worker-env prints exports in a wired home and clears inherited values in an unwired one"
+}
+
 test_unwired_session_start_has_no_atlas_text
 test_hollow_pointer_is_not_wired
 test_wired_session_start_emits_supervisor_block
@@ -216,3 +241,4 @@ test_unticketed_worker_gets_no_atlas_text
 test_unwired_home_ticketed_worker_gets_no_atlas_text
 test_crewmate_brief_reads_the_recorded_ticket
 test_secondmate_charter_has_no_atlas_text
+test_worker_env_lines

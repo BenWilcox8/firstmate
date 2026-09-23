@@ -40,12 +40,12 @@ hook_registry() {
 AGENTS.md 1 the config/specs layout line that points to the module map
 bin/fm-session-start.sh 1 the call that prints the supervisor block
 bin/fm-spawn.sh 11 --ticket, atlas_ticket=, and the module and hook calls
-bin/fm-pr-merge.sh 2 the close-out call after a merge
-bin/fm-merge-local.sh 2 the close-out call after a local landing
-bin/fm-teardown.sh 2 the close-out call at cleanup
+bin/fm-pr-merge.sh 7 the --captain-word parse and the close-out call after a merge
+bin/fm-merge-local.sh 7 the --captain-word parse and the close-out call after a local landing
+bin/fm-teardown.sh 7 the --captain-word parse and the close-out call at cleanup
 bin/fm-test-run.sh 1 a timing hint for a module test
 docs/configuration.md 5 the config/specs pointer section
-docs/scripts.md 4 one index line for each module script
+docs/scripts.md 5 one index line for each module script
 docs/documentation-audiences.json 4 one inventory entry for each module document
 .agents/skills/firstmate-signalling/SKILL.md 1 names the dashboard signal command, atlas-axi
 EOF
