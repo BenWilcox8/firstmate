@@ -1,0 +1,7 @@
+ok - the Atlas boundary check passes on this repository
+ok - module files, tests, and the word Atlassian never count against the boundary
+ok - AGENTS.md may carry its one registered pointer line
+ok - Atlas doctrine added to AGENTS.md fails the boundary check
+ok - an Atlas mention in the secondmate charter template fails the boundary check
+ok - Atlas text in any unregistered core file fails, and every offending file is named
+exit=0

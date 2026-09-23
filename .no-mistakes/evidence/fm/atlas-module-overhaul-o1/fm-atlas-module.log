@@ -1,0 +1,10 @@
+ok - a home with no Atlas pointer gets no Atlas text in its session start
+ok - a pointer to a directory that holds no Atlas is not a wired home
+ok - a wired home gets the Atlas supervisor block right after the supervision block
+ok - a ticketed worker in a wired home gets the crewmate fragment with its ticket and author name
+ok - an unticketed worker gets no Atlas text in its launch brief
+ok - a worker in a home with no Atlas pointer gets no Atlas text, even with a ticket
+ok - only a missing --ticket falls back to the recorded ticket, and a task with none gets nothing
+ok - the secondmate charter never mentions the Atlas, even in a wired home
+ok - worker-env prints exports in a wired home and clears inherited values in an unwired one
+exit=0

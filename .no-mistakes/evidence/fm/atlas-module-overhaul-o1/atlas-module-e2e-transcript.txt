@@ -1,30 +1,34 @@
-### 1. Session start in a WIRED home (config/specs -> a repo that holds atlas/)
---- block order in the digest:
+### 1. Session start in a home with NO config/specs (unwired)
+$ bin/fm-session-start.sh | grep -ci atlas
+0
+
+### 2. Session start in an Atlas-wired home: the supervisor block, in order
+$ bin/fm-session-start.sh | grep -n "^(SUPERVISION OPERATING|ATLAS MODULE|READ-ONCE)"
 27:SUPERVISION OPERATING INSTRUCTIONS - primary harness: unknown
 50:ATLAS MODULE - supervisor instructions for this Atlas-wired home
 67:READ-ONCE CONTRACT
---- the emitted Atlas supervisor block:
+--- emitted Atlas module block ---
 ATLAS MODULE - supervisor instructions for this Atlas-wired home
+================================================================================
 This home is wired to an Atlas through `config/specs`, so these instructions bind here in addition to `AGENTS.md`.
 The Atlas is the captain's map of each project's nodes, regions, and tickets, shown on the dashboard.
 It is a map of work, never an authority over work: a ticket never grants an authority that `AGENTS.md` withholds.
+
 Load `atlas-supervising` and `atlas-firstmate-bridge` at each of these points:
 - at every intake, before you file, route, or dispatch the work;
 - before you dispatch, land, or clean up ticketed work;
 - at every heartbeat, after the fleet review that `AGENTS.md` requires;
 - whenever an Atlas instruction and `AGENTS.md` seem to disagree.
+
 `atlas-supervising` comes from the dashboard project and owns the ticket procedure.
 `atlas-firstmate-bridge` owns every supervisor rule for how that procedure composes with this home, and it wins where the two differ.
+
+
 ---
+READ-ONCE CONTRACT
 
-### 2. Session start in an UNWIRED home (no config/specs): lines mentioning atlas
-0
-
-### 3. Secondmate charter (fm-brief.sh --secondmate) scaffolded in a WIRED home: lines mentioning atlas
-fm-brief exit=0
-0
-
-### 4. Crewmate fragment appended to a ticketed worker's launch brief (fresh spawn, --ticket c631, task shipit)
+### 3. Crewmate fragment for a fresh ticketed spawn (wired home)
+$ bin/fm-atlas-module.sh crewmate-brief ship-a1 --ticket c631
 
 # Atlas ticket
 
@@ -33,7 +37,7 @@ The Atlas is the captain's map of each project's nodes and tickets, shown on the
 Load the `atlas-working` skill and use it for the ticket's stages, checkpoints, review, and testing handover.
 This section is firstmate's rule for workers, and it wins where `atlas-working` says something different.
 
-Your shell already names this home's Atlas (`ATLAS_REPO`) and your author name (`ATLAS_AXI_BY=fm-shipit`).
+Your shell already names this home's Atlas (`ATLAS_REPO`) and your author name (`ATLAS_AXI_BY=fm-ship-a1`).
 Run `atlas-axi` without `--repo` or `--by`, so that the Atlas records you as the author of every change you make.
 
 You can change the Atlas only in these ways, and only for ticket c631 and its node:
@@ -54,32 +58,46 @@ At the review stage, use the project's committed `.claude/agents/adversarial-rev
 If the project does not have it, do not create it.
 Then the review of your delivery path stands in for it, and the ticket stays in the review stage until that review passes.
 
-### 5. Stale-ticket fix: an older record under the same id holds atlas_ticket=c5
---- fresh ticket-less spawn (spawn passes --ticket ''), bytes printed:
-0
---- relaunch (no --ticket), falls back to the recorded ticket:
+### 4. Stale record: state/ship-a1.meta holds atlas_ticket=c5
+$ crewmate-brief ship-a1 --ticket ""   (fresh ticket-less spawn) -> expect empty
+[]
+$ crewmate-brief ship-a1               (relaunch) -> first line naming the recorded ticket
 This task works Atlas ticket c5.
---- dispatch-check for the fresh ticket-less spawn (stderr):
-warning: shipit is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map
 
-### 6. Worker env lines sent to a ship/scout pane: wired, then unwired
+### 5. Dispatch check
+$ dispatch-check ship-a1 --ticket ""   (wired)
+warning: ship-a1 is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map
+$ dispatch-check ship-a1 --ticket c631 (wired) -> silent
+$ dispatch-check ship-a1 --ticket ""   (unwired) -> silent
+
+### 6. Worker env lines (h2 behaviour preserved)
+$ worker-env ship-a1 (wired)
 unset SPECS_REPO
-export ATLAS_AXI_BY=fm-shipit
+export ATLAS_AXI_BY=fm-ship-a1
 export ATLAS_REPO='<tmp>/specs'
----
+$ worker-env ship-a1 (unwired)
 unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY
---- launch-env-names (joins the filtered launch-env allowlist for every pane kind, secondmates included):
+$ launch-env-names
 ATLAS_AXI_BY
 ATLAS_REPO
 
-### 7. Unwired home: the other verbs print nothing
-supervisor-block -> 0 bytes
-crewmate-brief shipit --ticket c631 -> 0 bytes
-dispatch-check shipit -> 0 bytes
+### 7. Unwired home: every content verb prints nothing
+supervisor-block -> []
+crewmate-brief ship-a1 --ticket c631 -> []
 
-### 8. Boundary guard: this repo, then a clone with Atlas text added to two core files
+### 8. Secondmate charter in a WIRED home never mentions the Atlas
+fm-brief.sh exit=0
+$ grep -ci atlas data/webmate/brief.md
+0
+
+### 9. AGENTS.md Atlas lines (at most one pointer)
+1
+
+### 10. Boundary guard: this repo passes; injected doctrine fails
+$ bin/fm-atlas-boundary-check.sh
 fm-atlas-boundary-check: ok module_files_mentioning=16 hook_files=11
 exit=0
+$ bin/fm-atlas-boundary-check.sh --root <clone with doctrine in AGENTS.md and a charter-template mention>
 fm-atlas-boundary-check: AGENTS.md has 2 Atlas line(s) outside the module; its hook-point allowance is 1. Move the text into the module, or register the hook point in bin/fm-atlas-boundary-check.sh.
-fm-atlas-boundary-check: bin/fm-daemon.sh has 1 Atlas line(s) outside the module; its hook-point allowance is 0. Move the text into the module, or register the hook point in bin/fm-atlas-boundary-check.sh.
+fm-atlas-boundary-check: bin/fm-brief.sh has 1 Atlas line(s) outside the module; its hook-point allowance is 0. Move the text into the module, or register the hook point in bin/fm-atlas-boundary-check.sh.
 exit=1
