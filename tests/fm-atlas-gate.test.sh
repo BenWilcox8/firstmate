@@ -843,8 +843,9 @@ test_spawn_unwired_home_exports_no_repo() {
   pane_export ATLAS_REPO >/dev/null && fail "spawn: an unwired home exported an ATLAS_REPO"
   pane_export SPECS_REPO >/dev/null && fail "spawn: an unwired home exported a SPECS_REPO"
   pane_export ATLAS_AXI_BY >/dev/null && fail "spawn: an unwired home exported an Atlas author"
-  pane_unsets ATLAS_REPO && pane_unsets SPECS_REPO && pane_unsets ATLAS_AXI_BY \
-    || fail "spawn: an unwired worker did not clear the ambient Atlas values"
+  if ! pane_unsets ATLAS_REPO || ! pane_unsets SPECS_REPO || ! pane_unsets ATLAS_AXI_BY; then
+    fail "spawn: an unwired worker did not clear the ambient Atlas values"
+  fi
   pass "spawn: an unwired worker clears ambient Atlas values, including with env -i"
 }
 
@@ -893,8 +894,9 @@ test_relaunch_unwired_clears_atlas_environment() {
   printf '%s\n' ATLAS_REPO SPECS_REPO ATLAS_AXI_BY > "$HOME_DIR/config/launch-env-allowlist"
   out=$(ATLAS_REPO=/other/specs SPECS_REPO=/other/specs ATLAS_AXI_BY=other-worker \
     run_spawn "$id" --relaunch) || fail "relaunch: the unwired relaunch failed: $out"
-  pane_unsets ATLAS_REPO && pane_unsets SPECS_REPO && pane_unsets ATLAS_AXI_BY \
-    || fail "relaunch: an unwired worker did not clear the ambient Atlas values"
+  if ! pane_unsets ATLAS_REPO || ! pane_unsets SPECS_REPO || ! pane_unsets ATLAS_AXI_BY; then
+    fail "relaunch: an unwired worker did not clear the ambient Atlas values"
+  fi
   pass "relaunch: an unwired worker clears ambient Atlas values"
 }
 
