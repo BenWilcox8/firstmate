@@ -136,6 +136,14 @@ while [ "$#" -gt 0 ]; do
       CAPTAIN_WORD=$2
       shift 2
       ;;
+    --captain-word=*)
+      CAPTAIN_WORD=${1#--captain-word=}
+      if [ -z "$CAPTAIN_WORD" ]; then
+        echo "error: --captain-word needs the captain's exact words" >&2
+        exit 2
+      fi
+      shift
+      ;;
     --) shift; break ;;
     *) break ;;
   esac

@@ -580,24 +580,74 @@ test_empty_captain_word_is_refused() {
       || fail "$store: an empty --captain-word changed the node"
   done
   make_fake_forge
-  set +e
-  run_pr_merge "$store" --captain-word "" >/dev/null 2>&1
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "$store: fm-pr-merge accepted an empty --captain-word"
-  [ ! -s "$HOME_DIR/gh.log" ] || fail "$store: fm-pr-merge merged despite an empty --captain-word"
-  set +e
-  in_home "$store" "$TEARDOWN" task-a1 --captain-word >/dev/null 2>&1
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "$store: fm-teardown accepted a valueless --captain-word"
-  assert_present "$HOME_DIR/state/task-a1.meta" "$store: fm-teardown acted on a valueless --captain-word"
-  set +e
-  in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word "" >/dev/null 2>&1
-  rc=$?
-  set -e
-  [ "$rc" -ne 0 ] || fail "$store: fm-merge-local accepted an empty --captain-word"
+  for form in positional equals; do
+    set +e
+    case "$form" in
+      positional) run_pr_merge "$store" --captain-word "" >/dev/null 2>&1 ;;
+      equals) run_pr_merge "$store" --captain-word= >/dev/null 2>&1 ;;
+    esac
+    rc=$?
+    set -e
+    expect_code 2 "$rc" "$store: fm-pr-merge accepted an empty --captain-word=$form"
+    [ ! -s "$HOME_DIR/gh.log" ] || fail "$store: fm-pr-merge forwarded an empty --captain-word"
+    set +e
+    case "$form" in
+      positional) in_home "$store" "$TEARDOWN" task-a1 --captain-word "" >/dev/null 2>&1 ;;
+      equals) in_home "$store" "$TEARDOWN" task-a1 --captain-word= >/dev/null 2>&1 ;;
+    esac
+    rc=$?
+    set -e
+    expect_code 2 "$rc" "$store: fm-teardown accepted an empty --captain-word=$form"
+    assert_present "$HOME_DIR/state/task-a1.meta" "$store: fm-teardown acted on an empty --captain-word"
+    set +e
+    case "$form" in
+      positional) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word "" >/dev/null 2>&1 ;;
+      equals) in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word= >/dev/null 2>&1 ;;
+    esac
+    rc=$?
+    set -e
+    expect_code 2 "$rc" "$store: fm-merge-local accepted an empty --captain-word=$form"
+  done
   pass "$store: an empty or missing --captain-word is refused before anything happens"
+}
+
+test_captain_word_equals_forms() {
+  local store=$1 proj rc
+  make_home "$store" complete-word-equals human none
+  in_home "$store" "$HOOK" complete task-a1 --actor fm-pr-merge --restage merge \
+    --captain-word="yes, merge it" --evidence https://example.invalid/pr/equals --summary "merged" >/dev/null 2>&1
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "yes, merge it" ] \
+    || fail "$store: fm-atlas-hook did not accept --captain-word=<words>"
+  make_home "$store" pr-word-equals human none yolo=off
+  make_fake_forge
+  set +e
+  run_pr_merge "$store" --captain-authorized --captain-word="merge it" >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "$store: fm-pr-merge did not accept --captain-word=<words>"
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "merge it" ] \
+    || fail "$store: fm-pr-merge did not record --captain-word=<words>"
+  MODE=local-only make_home "$store" local-word-equals human none yolo=on
+  proj="$HOME_DIR/project"
+  fm_git_init_commit "$proj"
+  git -C "$proj" checkout -q -b fm/task-a1
+  printf 'change\n' > "$proj/change.txt"
+  git -C "$proj" add change.txt
+  git -C "$proj" commit -qm change
+  git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
+  in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word="land it" >/dev/null 2>&1 \
+    || fail "$store: fm-merge-local did not accept --captain-word=<words>"
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "land it" ] \
+    || fail "$store: fm-merge-local did not record --captain-word=<words>"
+  make_teardown_case "$store" teardown-word-equals
+  set +e
+  in_home "$store" "$TEARDOWN" task-a1 --captain-word="ship it" >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "$store: fm-teardown did not accept --captain-word=<words>"
+  [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "ship it" ] \
+    || fail "$store: fm-teardown did not record --captain-word=<words>"
+  pass "$store: every Atlas entry point accepts a non-empty --captain-word=<words>"
 }
 
 # --- (l)-(n) the worker environment ------------------------------------------
@@ -730,6 +780,7 @@ for store in $STORES; do
   test_teardown_refused "$store"
   test_teardown_with_captain_word "$store"
   test_empty_captain_word_is_refused "$store"
+  test_captain_word_equals_forms "$store"
 done
 test_spawn_exports_atlas_environment
 test_spawn_unwired_home_exports_no_repo
