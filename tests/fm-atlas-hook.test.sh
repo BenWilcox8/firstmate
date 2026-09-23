@@ -33,6 +33,8 @@
 #     (s) fm-teardown --force records nothing when it is discarding real work
 #     (v) abort returns a dead dispatch's ticket to the queue, and demands a reason
 #     (w) state reads the recorded ticket's state back, silently or not at all
+#     (w2) park records the worker's native session on the ticket and demands
+#          it; unpark returns the ticket to started with what changed
 #     (x) fm-teardown aborts a leg that produced nothing, forced or not
 #     (y) fm-teardown never aborts a ticket a merge or crewmate already closed,
 #         and never reads a landed fast-forward as an empty leg
@@ -358,6 +360,41 @@ test_abort_demands_a_reason() {
     "abort: a reasonless abort was not refused"
   atlas_log_empty "$home" "abort: no Atlas call may be made without a reason"
   pass "abort refuses without the reason the act is made of"
+}
+
+test_park_records_the_session_and_unpark_reopens_it() {
+  local home rc
+  home=$(make_home park-started)
+  set +e
+  run_hook "$home" park task-a1 --actor fm-control --reason 'waits on the merge word' \
+    --home main --harness claude --session 0f3c2a9e-1111-4a2b-9c3d-000000000001 --on c12 >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "park: the hook must exit 0"
+  atlas_log_has "$home" 'ticket park c7 waits on the merge word --home main --harness claude --session 0f3c2a9e-1111-4a2b-9c3d-000000000001 --task task-a1 --on c12' \
+    "park: the ticket was not parked with its reason, home, harness, session, task, and blocker"
+  set +e
+  run_hook "$home" unpark task-a1 --actor fm-control --reason 'the captain approved the merge' >/dev/null 2>&1
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "unpark: the hook must exit 0"
+  atlas_log_has "$home" 'ticket unpark c7 the captain approved the merge' \
+    "unpark: the ticket was not returned to started with what changed"
+  pass "park records the worker's native session on the ticket, and unpark reopens it"
+}
+
+test_park_demands_its_session() {
+  local home rc out
+  home=$(make_home park-no-session)
+  set +e
+  out=$(run_hook "$home" park task-a1 --actor fm-control --reason 'waits' --home main --harness claude 2>&1)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "park: a missing session must not fail the caller"
+  assert_contains "$out" 'atlas-hook: park called for task-a1 without --reason, --home, --harness, and --session' \
+    "park: a park with no session was not refused"
+  atlas_log_empty "$home" "park: no Atlas call may be made without the session a resume needs"
+  pass "park refuses without the session a resume reopens"
 }
 
 test_state_reports_the_recorded_ticket_state() {
@@ -923,6 +960,8 @@ test_land_completes_releases_and_lands
 test_land_holds_back_while_a_ticket_is_open
 test_abort_returns_the_ticket_to_the_queue
 test_abort_demands_a_reason
+test_park_records_the_session_and_unpark_reopens_it
+test_park_demands_its_session
 test_state_reports_the_recorded_ticket_state
 test_failing_atlas_warns_once_and_exits_zero
 test_hanging_atlas_is_bounded_by_the_timeout
