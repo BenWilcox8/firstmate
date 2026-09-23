@@ -6,9 +6,9 @@
 # Usage: fm-atlas-hook.sh start <task-id> [--actor <name>]
 #        fm-atlas-hook.sh complete <task-id> --evidence <text> [--summary <text>]
 #                                            [--restage <stage>] [--actor <name>]
-#                                            [--captain-word <words>]
+#                                            [--captain-word <words>|--captain-word=<words>]
 #        fm-atlas-hook.sh land <task-id> --evidence <text> [--summary <text>]
-#                                        [--actor <name>] [--captain-word <words>]
+#                                        [--actor <name>] [--captain-word <words>|--captain-word=<words>]
 #                                        [--defer-status]
 #        fm-atlas-hook.sh abort <task-id> --reason <text> [--actor <name>]
 #        fm-atlas-hook.sh state <task-id>
@@ -49,10 +49,11 @@
 #   --summary  defaults to a short generated line naming the task and the actor.
 #   --actor    is stamped as the Atlas `by:` author, so the log says which fleet
 #              script wrote the entry. Defaults to fm-atlas-hook.
-#   --captain-word  is the captain's exact words from chat. complete and land
-#              first record them as the captain's Atlas approval, `ticket approve
-#              <c> --word <words>`, on a ticket that is not yet closed, so a
-#              captain-authorized merge or acceptance can pass the captain gate.
+#   --captain-word  is the captain's exact words from chat, passed as
+#              `--captain-word <words>` or `--captain-word=<words>`. complete and
+#              land first record them as the captain's Atlas approval, `ticket
+#              approve <c> --word <words>`, on a ticket that is not yet closed, so
+#              a captain-authorized merge or acceptance can pass the captain gate.
 #   --defer-status  is for land only and prints a refusal's status line on
 #              stdout instead of writing it (see THE CAPTAIN GATE), for teardown
 #              to write after it retires the task's status log.

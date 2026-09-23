@@ -17,14 +17,16 @@
 # with the before..after range this script already computed. That call goes
 # through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
 # never fail a merge that has already landed; a task with no recorded ticket, or
-# a home with no Atlas, makes no call at all. Pass --captain-word <words> with
-# the captain's exact words from chat to record them as the Atlas approval
-# before the ticket is completed; the hook's header owns a refused close-out.
+# a home with no Atlas, makes no call at all. Pass `--captain-word <words>` or
+# `--captain-word=<words>` with the captain's exact words from chat to record
+# them as the Atlas approval before the ticket is completed; the hook's header
+# owns a refused close-out.
 # Merge authority: reads yolo= from the task's state/<id>.meta at entry and
 # refuses when the value is off or the field is absent (safe default). Pass
 # --captain-authorized to override the guard with an
 # explicit current captain merge instruction.
-# Usage: fm-merge-local.sh <task-id> [--captain-authorized] [--captain-word <words>]
+# Usage: fm-merge-local.sh <task-id> [--captain-authorized]
+#        [--captain-word <words>|--captain-word=<words>]
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

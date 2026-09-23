@@ -207,7 +207,7 @@ The same pointer also names the Atlas that repo holds, so it is what `bin/fm-atl
 That hook lets a spawn, a merge, and a teardown record the Atlas ticket lifecycle themselves, instead of leaving it to a supervisor's memory.
 On a wired home, a ship or scout spawn without `--ticket` prints a one-line warning to stderr at dispatch time.
 The warning is advisory and does not block the spawn.
-Every ship or scout worker on a wired home is launched with `ATLAS_REPO` set to the resolved pointer and `ATLAS_AXI_BY` set to its `fm-<task-id>` author name, so a bare `atlas-axi` reaches the map and its writes are attributed; an unwired home clears `ATLAS_REPO`, `SPECS_REPO`, and `ATLAS_AXI_BY` before worker launch; `bin/fm-spawn.sh`'s header owns the mechanics.
+Every ship or scout worker on a wired home is launched with `ATLAS_REPO` set to the resolved pointer and `ATLAS_AXI_BY` set to its holder author name (`fm-<task-id>`, unless the task id already starts with `fm-`), so a bare `atlas-axi` reaches the map and its writes are attributed; an unwired home clears `ATLAS_REPO`, `SPECS_REPO`, and `ATLAS_AXI_BY` before worker launch; `bin/fm-spawn.sh`'s header owns the mechanics.
 A home with no pointer, or a pointer to a directory holding no `atlas/`, makes no Atlas call at all and behaves exactly as it did before the hook existed.
 The hook's own header owns its verbs, its evidence arguments, and the best-effort contract that keeps a broken Atlas from ever failing the action that called it.
 

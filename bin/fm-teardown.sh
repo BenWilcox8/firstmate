@@ -76,9 +76,10 @@
 # real work still records nothing, since it may not claim a landing it has not
 # proved. The whole call goes through bin/fm-atlas-hook.sh, which owns the
 # best-effort contract and can never fail a teardown; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all. --captain-word <words>
-# passes the captain's exact words from chat to that landing, which records them
-# as the Atlas approval first. When the Atlas refuses the landing, the hook
+# ticket, or a home with no Atlas, makes no call at all. `--captain-word <words>`
+# or `--captain-word=<words>` passes the captain's exact words from chat to that
+# landing, which records them as the Atlas approval first. When the Atlas refuses
+# the landing, the hook
 # still releases the node and hands back its keyed status line, and teardown
 # writes that line into a fresh status log after it retires the task's own, so
 # the refusal outlives the records it was raised on.
@@ -145,7 +146,8 @@
 # releases its durable treehouse lease so the pool slot is freed,
 # never left leased forever. If the treehouse return fails, teardown leaves the
 # leased home and state in place instead of hiding a still-held lease.
-# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record] [--captain-word <words>]
+# Usage: fm-teardown.sh <task-id> [--force] [--legacy-record]
+#        [--captain-word <words>|--captain-word=<words>]
 #   --captain-word passes the captain's exact words to the Atlas landing (see
 #   above); it is used only when cleanup records a landing.
 #   --force skips ordinary-task dirty and landed-work checks, skips scout report
