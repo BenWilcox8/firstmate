@@ -3,7 +3,7 @@ name: atlas-firstmate-bridge
 description: >-
   Agent-only reference for composing the Atlas ticket doctrine with the AGENTS.md contract.
   Load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
-  Owns the dispatch order, the merge-kind mapping, the captain-word recording, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, and the ledger that names one owner for every known contradiction between the two surfaces.
+  Owns the dispatch order, the merge-kind mapping, the captain-word recording, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, the park act for worker-gone work, and the ledger that names one owner for every known contradiction between the two surfaces.
 user-invocable: false
 metadata:
   internal: true
@@ -162,6 +162,15 @@ That ticket stays started and its node stays held.
 **After a forced cleanup that discarded real work on a ticketed task, release the node by hand with `atlas-axi`, and record the truth: the work was discarded, not landed.**
 Do this in the same turn, because nothing later will remind you.
 
+## Worker gone, work preserved: park
+
+Sometimes a ticketed task's work must wait while its worker goes away, for example on a captain decision, a merge word, a stop order, or a planned reboot.
+Park the task with `bin/fm-control.sh <task-id> park --reason "<what the work waits on>" [--on <ticket|node>]`.
+That one act proves and records the worker's native session, records the park and that session on the ticket (`atlas-axi ticket park`) through the Atlas hook, exits the agent, and closes only its pane.
+Do not add `release`, `defer`, or `abort` to it: the ticket keeps its agent, task, stage, and node hold, and that is how the same crewmate resumes.
+To continue the work, run `bin/fm-control.sh <task-id> resume [--note "<what changed>"]`: it unparks the ticket first, then reopens the same session in the same worktree.
+If the worker's session cannot be proven, the park refuses and the worker keeps running.
+
 ## Duties this doctrine places on the home
 
 - Register the dashboard repo (`agent-dashboard`) in `data/projects.md`.
@@ -197,6 +206,7 @@ Each known collision between the two surfaces, and the one line that owns it.
 | Heartbeat duties differ between the surfaces | "The heartbeat headroom duty": AGENTS.md order first, then the dispatch decision |
 | Forced cleanup that discards work strands a held node | "Ghost legs": release by hand in the same turn |
 | The captain gate refuses a close-out, and the captain's chat word never reaches the Atlas | "Recording the captain's word" and "Ghost legs": pass `--captain-word`, and resolve each `atlas-gate` line |
+| A waiting ticket's worker is gone, and `release`, `complete`, `abandon`, and `abort` each record something false | "Worker gone, work preserved: park": `bin/fm-control.sh park` is the one act |
 | The doctrine mandated from homes with no Atlas | "Scope": the doctrine binds only an Atlas-wired home |
 | The mandated Atlas skills live only in the dashboard repo | "Scope" and "Duties this doctrine places on the home": register that repo, and stop rather than improvise when a skill will not resolve |
 | The `--story` ruling recorded only outside this repo | "Recorded captain rulings" above |

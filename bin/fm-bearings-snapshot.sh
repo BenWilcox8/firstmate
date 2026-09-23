@@ -406,10 +406,10 @@ MODEL=$(printf '%s' "$SNAP" | jq \
   | ([.tasks[] | select(.kind != "secondmate" and .current_state.state == "working") | .id]) as $working_ids
   | ($live_ids + $done_ids) as $rel_ids
   | ([ .tasks[]
-       | select(.endpoint.exists == false or .endpoint.agent_alive == "dead")
+       | select(.parked == null and (.endpoint.exists == false or .endpoint.agent_alive == "dead"))
        | {id, backend, target:(.endpoint.target // "-"), exists:.endpoint.exists, agent:.endpoint.agent_alive} ]
      + [ (.secondmate_current.records // [])[] as $m | $m.endpoints[]?
-         | select(.endpoint.exists == false or .endpoint.agent_alive == "dead")
+         | select(.parked == null and (.endpoint.exists == false or .endpoint.agent_alive == "dead"))
          | {id:($m.id + "/" + .id),backend:"secondmate-home",target:(.endpoint.target // "-"),exists:.endpoint.exists,agent:.endpoint.agent_alive} ]) as $unhealthy_all
   | ([ (.secondmate_current.records // [])[]
        | ([.decisions_open[]? | select(.source == "backlog" and .verb == "captain-hold"

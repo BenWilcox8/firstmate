@@ -641,6 +641,29 @@ test_watcher_escalates_once_after_budget() {
   pass "watcher: a spent ring budget emits exactly one ordinary stale wake for recovery"
 }
 
+# The dead-pane case below escalates; the same unread steer on a PARKED task
+# (bin/fm-control.sh park closed its endpoint on purpose) must stay silent,
+# because the steer is delivered when the task resumes.
+test_watcher_parked_task_stays_silent() {
+  local dir state out log pid rec
+  dir=$(setup_watch_case parked)
+  state="$dir/state"; out="$dir/watch.out"; log="$dir/send.log"; : > "$log"
+  printf 'parked=2026-09-22T08:00:00Z\nparked_reason=waits on the merge word\n' >> "$state/t1.meta"
+  rec=$(inbox_lib "$state" fm_task_inbox_write "$state" t1 "please continue")
+  age_path "$rec"
+  watch_bg "$state" "$dir/fakebin" "$out" \
+    FM_SEND_LOG="$log" FM_FAKE_TMUX_CAPTURE="$(idle_capture "$dir")" \
+    FM_FAKE_TMUX_AGENT=zsh FM_TASK_INBOX_RING_MAX=99
+  pid=$!
+  sleep 4
+  kill -0 "$pid" 2>/dev/null || fail "the watcher woke on a parked task:"$'\n'"$(cat "$out")"
+  kill "$pid" 2>/dev/null; wait "$pid" 2>/dev/null
+  [ ! -s "$log" ] || fail "a parked task was typed into:"$'\n'"$(cat "$log")"
+  [ ! -s "$state/.wake-queue" ] || fail "a parked task queued a wake:"$'\n'"$(cat "$state/.wake-queue")"
+  [ -f "$rec" ] || fail "the steer to a parked task must stay durable for its resume"
+  pass "watcher: a parked task raises no stale wake and keeps its steer for the resume"
+}
+
 test_watcher_dead_pane_escalates_once_without_ringing() {
   local dir state out log pid rec
   dir=$(setup_watch_case dead-pane)
@@ -711,4 +734,5 @@ test_watcher_ack_silences_unwritable_ladder
 test_watcher_surfaces_unwritable_ladder
 test_watcher_escalates_once_after_budget
 test_watcher_dead_pane_escalates_once_without_ringing
+test_watcher_parked_task_stays_silent
 test_watcher_dead_pane_ignores_stale_busy_state

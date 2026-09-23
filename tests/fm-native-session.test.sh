@@ -429,8 +429,48 @@ test_pi_worker_extension_records_its_session() {
   pass "pi worker extension: every session_start records the live session for the current incarnation"
 }
 
+# --- 6. resume launch -----------------------------------------------------------
+
+# resume_launch <harness> <template> <session> <file>: run the pure transform.
+resume_launch() {
+  bash -c '. "$1"; fm_native_session_resume_launch "$2" "$3" "$4" "$5"' _ \
+    "$ROOT/bin/fm-native-session-lib.sh" "$@" 2>&1
+}
+
+test_resume_launch_reopens_the_exact_session() {
+  local brief out rc
+  # shellcheck disable=SC2016 # The template is literal launch text.
+  brief='"$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+  out=$(resume_launch claude "claude --dangerously-skip-permissions __MODELFLAG____NAMEFLAG__$brief" "$SID_A" /x/t.jsonl); rc=$?
+  expect_code 0 "$rc" "claude resume launch should build"$'\n'"$out"
+  [ "$out" = "claude --dangerously-skip-permissions __MODELFLAG____NAMEFLAG__--resume '$SID_A'" ] \
+    || fail "claude resume must replace the brief with --resume <id>, got: $out"
+
+  out=$(resume_launch codex "codex __MODELFLAG__--dangerously-bypass-approvals-and-sandbox -c \"notify=[1]\" $brief" "$SID_A" /x/r.jsonl); rc=$?
+  expect_code 0 "$rc" "codex resume launch should build"$'\n'"$out"
+  [ "$out" = "codex resume __MODELFLAG__--dangerously-bypass-approvals-and-sandbox -c \"notify=[1]\" '$SID_A'" ] \
+    || fail "codex resume must use the resume subcommand with the session id, got: $out"
+
+  out=$(resume_launch pi "__PIBIN____PITUIMODE__ __MODELFLAG__-e __PIEXT__ $brief" "$SID_A" "/x/pi sessions/s.jsonl"); rc=$?
+  expect_code 0 "$rc" "pi resume launch should build"$'\n'"$out"
+  [ "$out" = "__PIBIN____PITUIMODE__ __MODELFLAG__-e __PIEXT__ --session '/x/pi sessions/s.jsonl'" ] \
+    || fail "pi resume must open the exact session file, got: $out"
+  pass "resume launch: each harness reopens the exact recorded session with its fleet flags kept"
+}
+
+test_resume_launch_refuses_an_unknown_shape() {
+  local out rc
+  out=$(resume_launch claude "claude --print hello" "$SID_A" /x/t.jsonl); rc=$?
+  expect_code 1 "$rc" "a template without the brief argument must refuse"$'\n'"$out"
+  out=$(resume_launch grok "grok \"\$(x)\"" "$SID_A" /x/t.jsonl); rc=$?
+  expect_code 1 "$rc" "an unverified harness must refuse"$'\n'"$out"
+  pass "resume launch: a launch shape it does not recognize, or an unverified harness, refuses"
+}
+
 test_claude_capture_proves_the_running_session
 test_claude_capture_refuses_what_it_cannot_prove
+test_resume_launch_reopens_the_exact_session
+test_resume_launch_refuses_an_unknown_shape
 test_pi_worker_extension_records_its_session
 test_locate_confirms_a_resumable_session
 test_locate_refuses_a_session_that_is_gone

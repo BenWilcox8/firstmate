@@ -11,6 +11,10 @@
 #                                        [--actor <name>] [--captain-word <words>|--captain-word=<words>]
 #                                        [--defer-status]
 #        fm-atlas-hook.sh abort <task-id> --reason <text> [--actor <name>]
+#        fm-atlas-hook.sh park <task-id> --reason <text> --home <home>
+#                              --harness <harness> --session <native-session-id>
+#                              [--on <ticket|node>] [--actor <name>]
+#        fm-atlas-hook.sh unpark <task-id> [--reason <text>] [--actor <name>]
 #        fm-atlas-hook.sh state <task-id>
 #        fm-atlas-hook.sh wired
 #
@@ -33,6 +37,14 @@
 #             proved work. The store itself refuses a completed or abandoned
 #             ticket and treats an already queued one as a no-op, so a cleanup
 #             may run this as often as it likes.
+#   park      records that the task's worker is gone while its work is kept:
+#             `ticket park <c> "<reason>" --home <home> --harness <harness>
+#             --session <id> --task <task-id> [--on <blocker>]`. The ticket keeps
+#             its agent, task, stage, and node hold, and names the native session
+#             a resume reopens (bin/fm-control.sh <task-id> park).
+#   unpark    returns a parked ticket to started for the same agent, task, and
+#             session: `ticket unpark <c> ["<reason>"]`. A resume runs it before it
+#             reopens the session (bin/fm-control.sh <task-id> resume).
 #   state     prints the recorded ticket's state (queued, started, completed,
 #             abandoned) and nothing else, so a caller can tell a leg nobody
 #             discharged from one a crewmate or a merge already closed. Read-only:
@@ -45,7 +57,12 @@
 #             the never-blocks contract below holds here too.
 #
 #   --evidence is what proves the work (a merge range, a PR URL, a report path).
-#   --reason   is what killed the dispatch, and abort refuses without it.
+#   --reason   is what killed the dispatch for abort, why the work waits for park,
+#              and what changed for unpark; abort and park refuse without it.
+#   --home, --harness, --session, --on
+#              name park's supervising home, the agent tool, that tool's own
+#              resumable session id, and an optional blocker; park refuses
+#              without the first three.
 #   --summary  defaults to a short generated line naming the task and the actor.
 #   --actor    is stamped as the Atlas `by:` author, so the log says which fleet
 #              script wrote the entry. Defaults to fm-atlas-hook.
@@ -279,6 +296,19 @@ hook_state() {
   [ -z "$TICKET_STATE" ] || printf '%s\n' "$TICKET_STATE"
 }
 
+hook_park() {
+  local -a args=(ticket park "$TICKET" "$REASON" --home "$PARK_HOME" \
+    --harness "$PARK_HARNESS" --session "$PARK_SESSION" --task "$ID")
+  [ -z "$PARK_ON" ] || args+=(--on "$PARK_ON")
+  atlas_axi_call "ticket park" "${args[@]}" >/dev/null
+}
+
+hook_unpark() {
+  local -a args=(ticket unpark "$TICKET")
+  [ -z "$REASON" ] || args+=("$REASON")
+  atlas_axi_call "ticket unpark" "${args[@]}" >/dev/null
+}
+
 hook_start() {
   atlas_axi_call "ticket start" ticket start "$TICKET" --to "$HOLDER" --task "$ID" >/dev/null
 }
@@ -331,7 +361,7 @@ run_hook() {
       atlas_repo || return 0
       return 0
       ;;
-    start|complete|land|abort|state) ;;
+    start|complete|land|abort|park|unpark|state) ;;
     '') warn "no hook verb given"; return 0 ;;
     *) warn "unknown hook verb $VERB"; return 0 ;;
   esac
@@ -360,6 +390,10 @@ run_hook() {
   CAPTAIN_WORD_SUPPLIED=0
   DEFER_STATUS=0
   REASON=
+  PARK_HOME=
+  PARK_HARNESS=
+  PARK_SESSION=
+  PARK_ON=
   for a in "$@"; do
     if [ -n "$want_value" ]; then
       case "$want_value" in
@@ -376,6 +410,10 @@ run_hook() {
           CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
           CAPTAIN_WORD_SUPPLIED=1
           ;;
+        home) PARK_HOME=$a ;;
+        harness) PARK_HARNESS=$a ;;
+        session) PARK_SESSION=$a ;;
+        on) PARK_ON=$a ;;
       esac
       want_value=
       continue
@@ -404,6 +442,14 @@ run_hook() {
         [ "$VERB" = land ] || { warn "$VERB called with --defer-status, which only land supports"; return 0; }
         DEFER_STATUS=1
         ;;
+      --home) want_value=home ;;
+      --home=*) PARK_HOME=${a#--home=} ;;
+      --harness) want_value=harness ;;
+      --harness=*) PARK_HARNESS=${a#--harness=} ;;
+      --session) want_value=session ;;
+      --session=*) PARK_SESSION=${a#--session=} ;;
+      --on) want_value=on ;;
+      --on=*) PARK_ON=${a#--on=} ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done
@@ -427,6 +473,12 @@ run_hook() {
         return 0
       fi
       ;;
+    park)
+      if [ -z "$REASON" ] || [ -z "$PARK_HOME" ] || [ -z "$PARK_HARNESS" ] || [ -z "$PARK_SESSION" ]; then
+        warn "park called for $ID without --reason, --home, --harness, and --session"
+        return 0
+      fi
+      ;;
   esac
   [ -n "$SUMMARY" ] || SUMMARY="Task $ID closed out by $ACTOR."
 
@@ -445,6 +497,8 @@ run_hook() {
     complete) hook_complete ;;
     land) hook_land ;;
     abort) hook_abort ;;
+    park) hook_park ;;
+    unpark) hook_unpark ;;
     state) hook_state ;;
   esac
 }

@@ -15,7 +15,7 @@ The failure repeated across harnesses and homes, and the workaround (remember to
 
 `bin/fm-control-lib.sh` is the single executable owner of three capability tables, with no side effects, so it can be read as a contract:
 
-- The **verb allowlist**: `interrupt`, `exit`, `relaunch`.
+- The **verb allowlist**: `interrupt`, `exit`, `relaunch`, `park`, `resume`.
   There is no arbitrary-text and no generic raw-key entry point.
   A caller either names an allowlisted verb or is refused.
 - **Per-harness mechanics**: the key that cancels a running turn, how many times it must be delivered, whether the composer needs clearing afterwards, the command that exits the agent, and which task kinds the adapter is verified to run.
@@ -32,7 +32,9 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 | --- | --- | --- |
 | `interrupt` | Deliver the harness's verified interrupt sequence while leaving the agent running. | Delivery succeeds while the endpoint still exists and the agent is still alive where the backend can classify that; cancellation is confirmed only from an adapter-owned acknowledgement and otherwise reports `cancel=unconfirmed`. |
 | `exit` | Stop the agent, preserving the endpoint, the worktree, and every uncommitted change. | The backend's recovery-grade classifier reports the agent gone. Already-stopped is idempotent success. |
-| `relaunch` | Replace the running agent with a new one in the same endpoint and worktree, on the exact recorded adapter or an explicitly chosen harness, model, and effort. | The new agent is alive on the recorded endpoint, and the durable record names the harness that is actually running. |
+| `relaunch` | Replace the running agent with a new one in the same endpoint and worktree, on the exact recorded adapter or an explicitly chosen harness, model, and effort. A parked task is resumed instead. | The new agent is alive on the recorded endpoint, and the durable record names the harness that is actually running. |
+| `park` | Record the running agent's proven native session and the reason the work waits, exit the agent, and close only its endpoint. | The session and reason are in the task record, the Atlas ticket (when there is one) reads parked, the agent is stopped, and the endpoint is proven gone. The worktree, branch, record, backlog item, status log, and inbox stay. |
+| `resume` | Reopen a parked task's recorded session with the harness's native resume, in the same worktree. | The Atlas ticket reads started, the resumed agent is alive, and the park record is cleared. |
 
 An exit that delivers lifecycle input but cannot prove the agent stopped fails with `exit=unconfirmed`, reports the observed agent state and any interrupt cancellation claim, and never claims that nothing changed.
 Interrupt never rewrites busy state as proof of its own success.
@@ -47,9 +49,47 @@ The clear is refused before anything is sent when the recorded backend cannot de
 `exit` stops an agent and preserves everything else.
 Removing a worktree, closing an endpoint, or discarding work stays with [`bin/fm-teardown.sh`](../bin/fm-teardown.sh), which owns the landed-work test.
 
-**`resume` is not a verb.**
-It is not deterministic across the verified adapters: codex, grok, and gemini resume only from a session id printed at exit, opencode continues the most recent session for the cwd, and claude, pi, pi-signed, omp, and kimi have no verified pane-resume contract.
-`relaunch` covers the same need on every adapter, because the brief on disk - not a harness-private session - is the durable instruction.
+**`park` and `resume` keep a conversation; `relaunch` replaces it.**
+A relaunch gives a new agent the brief plus a progress note, which works on every adapter because the brief on disk is the durable instruction.
+A park keeps the conversation itself, so it exists only where a native session can be proven and reopened: claude, codex, pi, and pi-signed.
+Every other adapter refuses `park` and `resume` by name and keeps `relaunch`.
+
+## Park and resume
+
+`park` is the one act for "worker gone, work preserved": a worker whose work waits on a decision, a merge word, a stop order, or a planned reboot.
+The captain can then close that worker's pane and pick the same conversation up later with no information loss.
+`bin/fm-control.sh`'s header owns the exact verbs, the six task-record keys, and every refusal.
+[`bin/fm-native-session-lib.sh`](../bin/fm-native-session-lib.sh) owns which adapters have a native session, how each session is proven from the running worker, how it is found again, and the launch that reopens it.
+
+A park proves the session before it changes anything, because a wrong id is worse than none: it resumes another conversation, or silently a fresh one.
+Each proof comes from evidence the harness itself keeps for the exact running process, never from a guess such as the newest session file in the directory.
+A session that cannot be proven refuses the park, and the worker keeps running.
+
+The park then runs in this order:
+
+1. Record the session and the reason in the task record.
+2. Record the park on the task's Atlas ticket, when it has one, and require the Atlas to read it back as parked; a refusal withdraws the record.
+3. Stop the agent through `exit`; a refusal re-opens the ticket and withdraws the record.
+4. Close only the endpoint, with proof that it is gone.
+   On Herdr this uses the same primitives as teardown: the session presentation lock, the focus-preserving close for a projected task pane, otherwise the agent-axi slot release and the serialized close.
+   A close that cannot be proven leaves the task parked and names the pane; parking again retries the close.
+
+A resume first confirms that the recorded session file still exists, where the resume will look for it.
+A missing file refuses with the task still parked, and a resume never falls back to a fresh session.
+It then returns the ticket to started (`ticket unpark`) and requires the Atlas to confirm that before it launches anything.
+The launch goes through `bin/fm-spawn.sh --relaunch --resume-session`, so the fleet's launch environment and flags are the same as for any other launch.
+Only the brief argument is replaced by the native resume of the recorded session.
+The endpoint the park closed is authoritatively missing, so the resume opens a new one directly in the recorded worktree and records it.
+The resumed agent submits no prompt, so its busy state starts idle.
+The park record is cleared only after the resumed agent is confirmed running.
+A launch that fails after the unpark records the park on the ticket again.
+A `--note` reaches the resumed agent as a durable inbox steer.
+
+A parked task is visible as parked everywhere firstmate reads the fleet.
+`bin/fm-crew-state.sh` reports `parked` from `park` with the reason and the resume command.
+The session-start digest and the fleet view print the endpoint as parked, not dead or absent.
+The watcher raises no stale wake for it, and a steer sent to it waits in the inbox for the resume.
+Recovery never restarts a parked task fresh: `relaunch` of a parked task runs the resume, and refuses a harness, model, or effort change for it.
 
 ## Transactional relaunch
 
@@ -132,7 +172,7 @@ The close uses the adapter's ordinary unserialized primitive, the same one every
   Muse is a crewmate and scout adapter only, so relaunching a secondmate onto it refuses while its agent is still up rather than leaving that secondmate with no agent when the launch owner refuses.
 - A backend that cannot deliver the harness's interrupt key, or the composer clear that key needs, is refused rather than sent a different key.
   Orca's terminal API exposes only an interrupt and an Enter, so it can deliver neither Escape nor Ctrl+U.
-- `exit` and `relaunch` require a backend with a recovery-grade agent-state classifier - tmux and herdr - because without one the "the agent stopped" postcondition cannot be proven.
+- `exit`, `relaunch`, `park`, and `resume` require a backend with a recovery-grade agent-state classifier - tmux and herdr - because without one the "the agent stopped" postcondition cannot be proven.
   zellij, orca, and cmux are refused rather than reported as successful blind.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts.
@@ -158,4 +198,7 @@ The empirical basis for each adapter's value is the `harness-adapters` skill's v
 - `tests/fm-control.test.sh` - the adapter contract for every verified harness, the backend capability matrix, exact-id scoping, the closed verb list, the busy, idle, dead, and idempotent lifecycle cases, and marker non-regression, all against a stubbed session provider.
 - `tests/fm-control-relaunch.test.sh` - the relaunch transaction: identity preservation, harness switching, the progress note, checkpoint refusals, and rollback after a failed launch.
 - `tests/fm-control-herdr-smoke.test.sh` - the second state-verified backend against the real herdr binary, on an isolated throwaway lab session.
+- `tests/fm-native-session.test.sh` - the native session proof per harness against real stand-in processes, the refusal of every session it cannot prove, the resume-time file check, the resume launch form, and the Pi worker extension's session record.
+- `tests/fm-control-park.test.sh` - park and resume: the recorded session and reason, the Atlas park and unpark and their order, the endpoint close, every refusal with nothing changed, the new endpoint in the same worktree, the rollback after a launch that does not come up, and relaunch of a parked task.
+- `tests/fm-park-resume-live-e2e.test.sh` - opt-in live proof in an isolated Herdr lab: real claude and codex workers each learn a fact, are parked with their panes closed, are resumed, and recall the fact.
 - `tests/fm-endpoint-retire.test.sh` - endpoint retirement on both state-verified backends: the proven close, the live-agent refusal, the unproven close, the replacement spawn's ordering and leftover report, and a relaunch that opens and closes nothing.

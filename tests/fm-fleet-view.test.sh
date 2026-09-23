@@ -75,5 +75,34 @@ BACKLOG
   pass "FM_SESSION_START_VERBOSE=1 restores full untruncated titles in fleet-view"
 }
 
+# --- a parked task reads as parked, never as an absent endpoint ---------------
+
+test_parked_task_reads_as_parked() {
+  local home wt out
+  home=$(make_home parked)
+  wt="$TMP_ROOT/parked-wt"
+  mkdir -p "$wt"
+  printf '## In flight\n- [ ] t1 - Parked work (repo: myapp)\n\n## Queued\n\n## Done\n' > "$home/data/backlog.md"
+  {
+    echo "window=fmparkedtest:fm-t1"
+    echo "endpoint_task_id=t1"
+    echo "worktree=$wt"
+    echo "harness=claude"
+    echo "kind=ship"
+    echo "parked=2026-09-22T08:00:00Z"
+    echo "parked_reason=waits on the merge word"
+    echo "native_session=0f3c2a9e-3333-4a2b-9c3d-000000000003"
+    echo "native_session_harness=claude"
+  } > "$home/state/t1.meta"
+
+  out=$(FM_HOME="$home" "$VIEW")
+  assert_contains "$out" "| t1 | parked / park |" "fleet-view should show the parked state and its source"
+  assert_contains "$out" "parked (closed on purpose)" "fleet-view should not show a parked endpoint as absent"
+  assert_contains "$out" "waits on: waits on the merge word - resume with bin/fm-control.sh t1 resume" \
+    "fleet-view should show what the parked work waits on and how to resume it"
+  pass "fleet-view: a parked task reads as parked with its reason and resume command"
+}
+
 test_backlog_title_truncation
 test_verbose_flag_restores_full_titles
+test_parked_task_reads_as_parked

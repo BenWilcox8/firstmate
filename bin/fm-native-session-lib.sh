@@ -308,3 +308,36 @@ fm_native_session_locate() {  # <harness> <session-id> <file> <worktree> [<claud
   FM_NATIVE_SESSION_ID=$sid
   FM_NATIVE_SESSION_FILE=$file
 }
+
+fm_native_session_shell_quote() {  # <value>
+  printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+# fm_native_session_resume_launch: turn a harness's verified fresh-launch
+# TEMPLATE (bin/fm-spawn.sh's launch_template, before placeholder substitution)
+# into the launch that reopens exactly <session-id>, keeping every fleet flag.
+# Every verified template ends with the launch-brief argument; the resume
+# replaces exactly that argument, and codex also gains its `resume` subcommand.
+# A template of any other shape refuses rather than being guessed at.
+fm_native_session_resume_launch() {  # <harness> <template> <session-id> <file>
+  local harness=$1 launch=$2 sid=$3 file=$4 brief args
+  # shellcheck disable=SC2016 # The launch-brief argument is literal template text.
+  brief='"$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
+  case "$launch" in
+    *"$brief") launch=${launch%"$brief"} ;;
+    *) echo "error: the $harness launch does not end with its launch-brief argument, so its resume form cannot be built" >&2; return 1 ;;
+  esac
+  case "$harness" in
+    claude) args="--resume $(fm_native_session_shell_quote "$sid")" ;;
+    codex)
+      case "$launch" in
+        'codex '*) launch="codex resume ${launch#codex }" ;;
+        *) echo "error: the codex launch does not start with the codex command, so its resume form cannot be built" >&2; return 1 ;;
+      esac
+      args=$(fm_native_session_shell_quote "$sid")
+      ;;
+    pi|pi-signed) args="--session $(fm_native_session_shell_quote "$file")" ;;
+    *) echo "error: harness '$harness' has no verified native session resume" >&2; return 1 ;;
+  esac
+  printf '%s%s' "$launch" "$args"
+}

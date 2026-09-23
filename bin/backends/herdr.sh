@@ -2185,6 +2185,17 @@ fm_backend_herdr_agent_state() {  # <target>
   esac
 }
 
+# fm_backend_herdr_foreground_pids: the pids in <target>'s foreground process
+# group, as the same exact process-info read the recovery classifier trusts
+# reports them (bin/fm-backend.sh's fm_backend_foreground_pids owns the use).
+fm_backend_herdr_foreground_pids() {  # <target>
+  local snapshot
+  fm_backend_herdr_parse_target "$1" || return 1
+  snapshot=$(fm_backend_herdr_recovery_process_snapshot "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE") \
+    || return 1
+  printf '%s' "$snapshot" | jq -r '.foreground_processes[].pid' 2>/dev/null
+}
+
 # Backward-compatible three-state view for callers that only need a yes/no
 # agent verdict. The detailed state contract is owned by fm_backend_agent_state.
 fm_backend_herdr_agent_alive() {  # <target>
@@ -3367,6 +3378,76 @@ fm_backend_herdr_kill() {  # <target> [<zellij_tab_id-ignored> <fm-label>]
   fi
   fm_backend_herdr_target_ready "$target" || return 0
   fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane close "$FM_BACKEND_HERDR_PANE" >/dev/null 2>&1 || true
+}
+
+# fm_backend_herdr_task_pane_close: close ONE task's agent-free pane and prove
+# it gone, for a caller that keeps the task itself (bin/fm-control.sh park).
+# It composes the primitives teardown's own close uses, in the same order:
+# hold the named session's presentation lock, close a projected task pane
+# through the focus-preserving projection close, otherwise free the task's
+# agent-axi slot and close the exact pane through the serialized close, then
+# require a structured read that the pane is gone, retrying the close up to
+# three times. A projected task's presentation journal is retired only after
+# that proof, exactly as teardown retires it. Returns 1 with
+# FM_BACKEND_HERDR_PANE_CLOSE_REASON set when the lock cannot be held or the
+# close cannot be proven; the caller reports the pane by id.
+fm_backend_herdr_task_pane_close() {  # <state-dir> <task-id> <target> <meta>
+  local state=$1 id=$2 target=$3 meta=$4 session pane journal lock_path attempt=0
+  local projected=0 workspace gone=0
+  FM_BACKEND_HERDR_PANE_CLOSE_REASON=
+  fm_backend_herdr_parse_target "$target" || {
+    FM_BACKEND_HERDR_PANE_CLOSE_REASON="the endpoint $target cannot be parsed exactly"
+    return 1
+  }
+  session=$FM_BACKEND_HERDR_SESSION
+  pane=$FM_BACKEND_HERDR_PANE
+  case "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" in
+    dead) return 0 ;;
+  esac
+  lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session") || {
+    FM_BACKEND_HERDR_PANE_CLOSE_REASON="the session presentation lock cannot be resolved"
+    return 1
+  }
+  while ! fm_lock_try_acquire "$lock_path"; do
+    attempt=$((attempt + 1))
+    [ "$attempt" -lt 50 ] || {
+      FM_BACKEND_HERDR_PANE_CLOSE_REASON="the session presentation lock is contended"
+      return 1
+    }
+    sleep 0.1
+  done
+  journal="$state/$id.herdr-presentation"
+  workspace=$(fm_meta_get "$meta" herdr_workspace_id)
+  if { [ -e "$journal" ] || [ -L "$journal" ]; } && [ -n "$workspace" ] \
+     && [ "$(fm_meta_get "$meta" herdr_pane_id)" = "$pane" ] \
+     && fm_backend_herdr_projection_endpoint_matches_journal "$session" "$workspace" "$journal" "$id"; then
+    projected=1
+  fi
+  attempt=0
+  while [ "$attempt" -lt 3 ]; do
+    if [ "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" = dead ]; then
+      gone=1
+      break
+    fi
+    if [ "$projected" = 1 ]; then
+      fm_backend_herdr_projection_close_pane_focus_preserving "$session" "$pane" >/dev/null 2>&1 || true
+    else
+      if fm_backend_herdr_axi_available; then
+        "$FM_BACKEND_HERDR_AXI_BIN" teardown "$id" --session "$session" >/dev/null 2>&1 || true
+      fi
+      fm_backend_herdr_kill_serialized "$session" "$pane" >/dev/null 2>&1 || true
+    fi
+    attempt=$((attempt + 1))
+    sleep 0.3
+  done
+  [ "$gone" = 1 ] || [ "$(fm_backend_herdr_pane_agent_state "$session" "$pane")" != dead ] || gone=1
+  fm_lock_release "$lock_path" || true
+  if [ "$gone" != 1 ]; then
+    FM_BACKEND_HERDR_PANE_CLOSE_REASON="the pane could not be confirmed closed after 3 attempts (a focused task tab, a contended lock, or an unreachable server blocks the close)"
+    return 1
+  fi
+  [ "$projected" = 0 ] || rm -f "$journal"
+  return 0
 }
 
 # fm_backend_herdr_endpoint_confirmed_gone: gate durable-record removal on
