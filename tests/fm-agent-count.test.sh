@@ -162,7 +162,9 @@ test_limit_is_inherited_by_secondmate_homes() {
   printf '12\n' > "$d/primary/agent-limit"
   (
     unset FM_INHERITABLE_CONFIG
-    # shellcheck source=bin/fm-config-inherit-lib.sh
+    # The library is a separate canonical ShellCheck root; do not re-follow it
+    # from this test's source graph.
+    # shellcheck source=/dev/null
     . "$ROOT/bin/fm-config-inherit-lib.sh"
     propagate_inheritable_config "$d/primary" "$d/secondmate" >/dev/null 2>&1
   ) || fail "propagating the primary config failed"
