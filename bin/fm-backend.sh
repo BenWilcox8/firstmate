@@ -905,6 +905,56 @@ fm_backend_endpoint_retire() {  # <backend> <target> [<zellij-tab-id>]
   return 1
 }
 
+# fm_backend_task_endpoint_close: close a task's own AGENT-FREE endpoint and
+# prove it gone while the task keeps its record, worktree, and work
+# (bin/fm-control.sh park). It shares endpoint retirement's license rule - only
+# a positively agent-free `dead` endpoint is closed and `missing` is already
+# closed - but it differs in one deliberate way: no replacement exists, so the
+# close is scoped to the task and frees its Herdr slot (agent-axi teardown by
+# task id), which retirement must never do. Returns 1 with
+# FM_BACKEND_TASK_CLOSE_REASON set when the close is refused or unproven.
+fm_backend_task_endpoint_close() {  # <backend> <state-dir> <task-id> <target> <meta>
+  local backend=$1 state=$2 id=$3 target=$4 meta=$5 endpoint_state
+  FM_BACKEND_TASK_CLOSE_REASON=
+  fm_backend_source "$backend" || {
+    FM_BACKEND_TASK_CLOSE_REASON="backend '$backend' has no adapter here"
+    return 1
+  }
+  endpoint_state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || endpoint_state=unreadable
+  case "$endpoint_state" in
+    missing) return 0 ;;
+    dead) ;;
+    alive)
+      FM_BACKEND_TASK_CLOSE_REASON="an agent is still running on it"
+      return 1
+      ;;
+    *)
+      FM_BACKEND_TASK_CLOSE_REASON="its state reads '$endpoint_state', which never licenses a close"
+      return 1
+      ;;
+  esac
+  case "$backend" in
+    herdr)
+      fm_backend_herdr_task_pane_close "$state" "$id" "$target" "$meta" || {
+        FM_BACKEND_TASK_CLOSE_REASON=$FM_BACKEND_HERDR_PANE_CLOSE_REASON
+        return 1
+      }
+      ;;
+    tmux)
+      fm_backend_kill tmux "$target" "" "fm-$id" >/dev/null 2>&1 || true
+      fm_backend_endpoint_confirmed_gone tmux "$target" || {
+        FM_BACKEND_TASK_CLOSE_REASON="tmux could not confirm the close"
+        return 1
+      }
+      ;;
+    *)
+      # shellcheck disable=SC2034 # Output globals are consumed by sourcing callers.
+      FM_BACKEND_TASK_CLOSE_REASON="backend '$backend' cannot prove a close"
+      return 1
+      ;;
+  esac
+}
+
 fm_backend_remove_worktree() {  # <backend> <worktree-id>
   local backend=$1
   shift
@@ -1048,6 +1098,39 @@ fm_backend_agent_state() {  # <backend> <target>
     tmux) fm_backend_tmux_agent_state "$target" ;;
     herdr) fm_backend_herdr_agent_state "$target" ;;
     *) printf 'unverified' ;;
+  esac
+}
+
+# fm_backend_foreground_pids: the pids of <target>'s foreground processes, one
+# per line - the agent and any launcher in its process group. It exists so the
+# control plane can read a RUNNING agent's native session from the kernel
+# (bin/fm-native-session-lib.sh). Only the two backends with a recovery-grade
+# agent-state classifier name them; every other backend, and any read failure,
+# returns 1. The tmux read is raw (tmux answers an absent target from the
+# active window), so callers first prove the exact endpoint alive through
+# fm_backend_agent_state.
+fm_backend_foreground_pids() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_foreground_pids "$target" ;;
+    herdr) fm_backend_herdr_foreground_pids "$target" ;;
+    *) return 1 ;;
+  esac
+}
+
+# fm_backend_current_path: the working directory of <target>'s pane, or
+# nothing, on the two backends with a recovery-grade classifier. A parked
+# task's recorded endpoint id can name another pane after a server restart
+# (Herdr pane ids restart low), so a resume asks where that pane sits before it
+# treats the pane as the task's own.
+fm_backend_current_path() {  # <backend> <target>
+  local backend=$1 target=$2
+  fm_backend_source "$backend" || return 1
+  case "$backend" in
+    tmux) fm_backend_tmux_current_path "$target" ;;
+    herdr) fm_backend_herdr_current_path "$target" ;;
+    *) return 1 ;;
   esac
 }
 

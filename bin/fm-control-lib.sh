@@ -37,13 +37,11 @@
 #      stopped. A verb whose postcondition cannot be proven on the recorded
 #      backend is refused rather than performed blind.
 #
-# `resume` is deliberately NOT a verb. It is not deterministic across the
-# verified adapters: codex and grok resume only from a session id printed at
-# exit, opencode resumes the most recent session for the cwd with --continue,
-# and claude, pi, pi-signed, omp, and kimi have no verified pane-resume contract
-# at all. `relaunch` covers the same need deterministically for every adapter,
-# because the brief on disk - not a harness-private session - is the durable
-# instruction.
+# `park` and `resume` exist only for adapters with a PROVEN native session:
+# bin/fm-native-session-lib.sh owns which adapters those are and how each
+# session is proven and reopened. Every other adapter is refused by name, and
+# `relaunch` stays the deterministic restart for all of them, because the brief
+# on disk - not a harness-private session - is their durable instruction.
 
 # The complete control-plane verb allowlist, one per line.
 fm_control_verbs() {
@@ -51,12 +49,14 @@ fm_control_verbs() {
 interrupt
 exit
 relaunch
+park
+resume
 EOF
 }
 
 fm_control_verb_allowed() {  # <verb>
   case "${1-}" in
-    interrupt|exit|relaunch) return 0 ;;
+    interrupt|exit|relaunch|park|resume) return 0 ;;
   esac
   return 1
 }
@@ -296,7 +296,12 @@ fm_control_harness_wiring_paths() {  # <harness> <worktree> <state-dir> <id>
   case "$harness" in
     claude) printf '%s\n' "$wt/.claude/settings.local.json" ;;
     opencode) printf '%s\n' "$wt/.opencode/plugins/fm-busy-state.js" ;;
-    pi|pi-signed) printf '%s\n' "$state/$id.pi-ext.ts" ;;
+    # The Pi worker extension also records its live native session beside
+    # itself (bin/fm-native-session-lib.sh), so a relaunch retires both.
+    pi|pi-signed)
+      printf '%s\n' "$state/$id.pi-ext.ts"
+      printf '%s\n' "$state/$id.pi-session"
+      ;;
     omp) printf '%s\n' "$state/$id.omp-ext.ts" ;;
     grok)
       printf '%s\n' "$wt/.fm-grok-turnend"

@@ -741,10 +741,14 @@ signal_turnend_panes_churned() {  # <file> ...
   return 0
 }
 
+# Every recorded endpoint the pane loops watch. A parked task
+# (bin/fm-control.sh park) closed its endpoint on purpose, so it has no pane to
+# go stale; its status log and PR checks still wake through their own paths.
 recorded_windows() {
   local meta w seen=
   for meta in "$STATE"/*.meta; do
     [ -e "$meta" ] || continue
+    [ -z "$(fm_meta_get "$meta" parked)" ] || continue
     w=$(fm_backend_target_of_meta "$meta")
     [ -n "$w" ] || continue
     case "$seen" in

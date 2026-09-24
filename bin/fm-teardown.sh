@@ -3849,7 +3849,7 @@ if [ -n "$ATLAS_GATE_LINE" ]; then
     || echo "warning: the refused Atlas close-out could not be recorded: $ATLAS_GATE_LINE" >&2
 fi
 rm -f "$STATE/$ID.turn-ended" "$STATE/$ID.progress" \
-  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
+  "$STATE/$ID.pi-ext.ts" "$STATE/$ID.pi-session" "$STATE/$ID.omp-ext.ts" "$STATE/$ID.grok-turnend-token" \
   "$STATE/$ID.kimi-turnend-token" "$STATE/$ID.muse-session" \
   "$STATE/$ID.muse-session-current" "$STATE/$ID.cursor-session" \
   "$STATE/$ID.control-relaunch" "$STATE/$ID.control-relaunch.meta-prior" \

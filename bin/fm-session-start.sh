@@ -47,9 +47,10 @@
 #   6. fleet digest   - a compact data/backlog.md identity/metadata listing,
 #                       every state/*.meta, a bounded state/*.status tail,
 #                       the away posture (state/.afk-contract and the legacy
-#                       state/.afk flag), cheap endpoint liveness, and the
-#                       agent-axi layout snapshot for Herdr homes:
-#                       read-only, always runs.
+#                       state/.afk flag), a cheap per-task endpoint-liveness
+#                       read (a parked task prints `parked`, never dead), and
+#                       (herdr-backed homes with agent-axi) the agent-axi slot
+#                       snapshot: read-only, always runs.
 #   7. network checks - the result of the deferred network stage started back at
 #                       step 1, harvested WITHOUT waiting for it.
 #   8. context digest - data/projects.md, data/secondmates.md, data/captain.md,
@@ -876,7 +877,14 @@ for meta in "$STATE"/*.meta; do
 
   window=$(fm_meta_get "$meta" window)
   target=$(fm_backend_target_of_meta "$meta")
-  if [ -n "$window" ]; then
+  parked=$(fm_meta_get "$meta" parked)
+  if [ -n "$parked" ]; then
+    # A parked task's endpoint is closed on purpose (bin/fm-control.sh park):
+    # it is neither dead nor stale, and recovery resumes it rather than
+    # starting a fresh worker.
+    printf 'endpoint: parked since %s (worker closed on purpose, %s session recorded; resume with bin/fm-control.sh %s resume)\n' \
+      "$parked" "$(fm_meta_get "$meta" native_session_harness)" "$id"
+  elif [ -n "$window" ]; then
     backend=$(fm_backend_of_meta "$meta")
     if fm_backend_target_exists "$backend" "${target:-$window}" "fm-$id"; then
       printf 'endpoint: alive (backend=%s window=%s)\n' "$backend" "$window"

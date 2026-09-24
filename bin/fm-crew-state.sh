@@ -22,7 +22,12 @@
 # Output is one stable, parseable, token-tight line firstmate can read every
 # heartbeat:
 #
-#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|none> · <detail>
+#   state: <working|parked|done|blocked|paused|failed|unknown> · source: <run-step|pane|status-log|remote-endpoint|park|none> · <detail>
+#
+# `parked` has two sources. From run-step it is a validation run waiting at a
+# gate. From park it is a task whose worker was deliberately parked by
+# bin/fm-control.sh park: no agent runs, the work and its native session are
+# kept, and the detail carries the reason and the resume command.
 #
 # Logic, in order:
 #   1. Resolve worktree + backend target + kind from state/<id>.meta. A meta
@@ -32,7 +37,8 @@
 #      (fm-on.sh + fm-remote-secondmate-control.sh state). alive falls through
 #      to the routed status log; dead/missing report the remote verdict; an
 #      unreachable or unreadable remote reports unknown-remote, never a false
-#      gone/dead.
+#      gone/dead. A local meta recording parked= reports `parked` from `park`
+#      and stops here.
 #   2. Matching no-mistakes run for this crew's branch AND current code identity,
 #      active or terminal (from `axi status`, or the coarse `no-mistakes runs`
 #      fallback)? Branch name alone is not enough: a historical run on a reused
@@ -212,6 +218,15 @@ REMOTE_HOST=$(meta_value remote_host)
 # probe proves nothing for it - the remote arm below reads the true source.
 if [ -z "$REMOTE_HOST" ] && { [ -z "$WT" ] || [ ! -d "$WT" ]; }; then
   emit unknown none "worktree gone (torn down?)"
+fi
+
+# A parked task (bin/fm-control.sh <id> park) has no agent by design: its work
+# waits on the recorded reason and its native session is recorded for resume,
+# so no run, pane, or log reading describes it better than the park itself.
+PARKED=$(meta_value parked)
+if [ -n "$PARKED" ]; then
+  PARKED_ON=$(meta_value parked_on)
+  emit parked park "worker parked since $PARKED: $(meta_value parked_reason)${PARKED_ON:+ (on $PARKED_ON)}; resume with bin/fm-control.sh $ID resume"
 fi
 
 # --- status log ------------------------------------------------------------

@@ -11,7 +11,8 @@
 #      classifier, both refuse instead of acting blind.
 #   3. Exact-id scoping: a window label, an explicit endpoint, an unknown id,
 #      and a record bound to another task are all refused.
-#   4. Verb allowlist: no arbitrary text, no raw keys, no resume.
+#   4. Verb allowlist: no arbitrary text, no raw keys, and resume only for a
+#      parked task.
 #   5. Lifecycle states: busy interrupts first, idle does not, already-stopped
 #      is idempotent success, and an agent that does not stop fails closed.
 #   6. Marker non-regression: a control command to a kind=secondmate task
@@ -597,16 +598,18 @@ test_verb_allowlist_is_closed() {
   pass "fm-control: the verb list is closed - no raw keys, arbitrary text, or clear verb"
 }
 
-test_resume_is_refused_with_its_reason() {
+test_resume_of_an_unparked_task_is_refused() {
   local dir out rc
   dir=$(new_case resume)
   add_task "$dir" t1 claude
+  alive_as "$dir" claude
   out=$(run_control "$dir" t1 resume); rc=$?
-  expect_code 2 "$rc" "resume should be refused"
-  assert_contains "$out" "not deterministic across the verified adapters" \
-    "the refusal should explain why resume is excluded"
-  assert_contains "$out" "relaunch" "the refusal should point at the deterministic alternative"
-  pass "fm-control: resume is refused with the determinism reason and the alternative"
+  expect_code 1 "$rc" "resume of a task that is not parked should be refused"
+  assert_contains "$out" "is not parked" "the refusal should say the task is not parked"
+  assert_contains "$out" "relaunch" "the refusal should point at relaunch for a running task"
+  [ -z "$(literals "$dir")" ] || fail "a refused resume must type nothing, got: $(literals "$dir")"
+  [ -z "$(keys_sent "$dir")" ] || fail "a refused resume must send no keys"
+  pass "fm-control: resume of an unparked task is refused and points at relaunch"
 }
 
 test_relaunch_only_flags_are_rejected_on_other_verbs() {
@@ -905,7 +908,7 @@ test_record_bound_to_another_task_is_refused
 test_remote_secondmate_is_refused_by_placement
 test_interrupt_and_exit_lock_before_task_state_resolution
 test_verb_allowlist_is_closed
-test_resume_is_refused_with_its_reason
+test_resume_of_an_unparked_task_is_refused
 test_relaunch_only_flags_are_rejected_on_other_verbs
 test_already_stopped_exit_is_idempotent
 test_missing_tmux_endpoint_refuses_rather_than_claiming_a_stop
