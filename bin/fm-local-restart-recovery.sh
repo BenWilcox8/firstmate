@@ -75,10 +75,12 @@
 #                     session when its transcript is still on disk and starts
 #                     a fresh one otherwise, with the recorded launch flags and
 #                     the session-start operational input as its first prompt.
-#                     A live session lock or an agent already in the pane means
-#                     the primary is already running (a manual relaunch), and
-#                     nothing is launched. Only Claude primaries are
-#                     relaunched;
+#                     A live session lock, an agent already in the pane, or a
+#                     live Claude process whose working directory is this home
+#                     means the primary is already running (a manual
+#                     relaunch), and nothing is launched. The pass checks this
+#                     again right before it types the launch. Only Claude
+#                     primaries are relaunched;
 #                  7. writes a pass record under state/restart-recovery/ and
 #                     appends one `check` wake for firstmate.
 #                The second mates go first so that the relaunched primary's
@@ -657,9 +659,9 @@ rr_new_primary_pane() {
   else
     out=$(rr_herdr "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   fi
-  IFS=$'\t' read -r ws tab pane < <(printf '%s' "$out" \
-    | jq -er '.result.root_pane | [.workspace_id, .tab_id, .pane_id] | @tsv' 2>/dev/null) || return 1
-  [ -n "$pane" ] || return 1
+  pane=$(printf '%s' "$out" | jq -er '.result.root_pane.pane_id // empty' 2>/dev/null) || return 1
+  tab=$(printf '%s' "$out" | jq -r '.result.root_pane.tab_id // "unknown"' 2>/dev/null)
+  ws=$(printf '%s' "$out" | jq -r '.result.root_pane.workspace_id // "unknown"' 2>/dev/null)
   RR_NEW_TARGET="$session:$pane"
   if [ "$found" = true ]; then
     RR_NEW_DESC="a new tab $tab in the recorded workspace $ws, pane $RR_NEW_TARGET"
@@ -668,8 +670,34 @@ rr_new_primary_pane() {
   fi
 }
 
+# rr_primary_running <cleared-pid>: prints what shows that a primary already
+# runs outside the pane recovery would use: a live session holding the fleet
+# lock (other than <cleared-pid>, the lock of an earlier boot that recovery
+# cleared), or a live Claude harness whose working directory is this home.
+rr_primary_running() {
+  local cleared=$1 lock_pid home dir pid comm args
+  lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
+  if [ -n "$lock_pid" ] && [ "$lock_pid" != "$cleared" ] && fm_harness_pid_alive "$lock_pid"; then
+    printf 'a live session holds the fleet lock, pid %s' "$lock_pid"
+    return 0
+  fi
+  [ -d /proc/self ] || return 1
+  home=$(fm_native_session_realpath "$FM_HOME") || return 1
+  for dir in /proc/[0-9]*; do
+    [ "$(readlink "$dir/cwd" 2>/dev/null)" = "$home" ] || continue
+    pid=${dir#/proc/}
+    comm=$(ps -o comm= -p "$pid" 2>/dev/null) || continue
+    args=$(ps -o args= -p "$pid" 2>/dev/null)
+    if fm_harness_process_matches "$comm" "$args" && [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ]; then
+      printf 'a Claude process runs in this home, pid %s' "$pid"
+      return 0
+    fi
+  done
+  return 1
+}
+
 rr_primary() {
-  local record=$RR_ENDPOINT harness lock_pid target where state seen cwd prompt line
+  local record=$RR_ENDPOINT harness lock_pid cleared='' running target where state seen cwd prompt line
   if [ ! -f "$record" ]; then
     rr_note "primary firstmate: not relaunched: no primary endpoint is recorded (a locked session start inside a Herdr pane records it)"
     return 0
@@ -684,17 +712,18 @@ rr_primary() {
     return 0
   fi
   lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
-  if [ -n "$lock_pid" ] && fm_harness_pid_alive "$lock_pid"; then
-    if [ "$lock_pid" = "$(fm_meta_get "$record" harness_pid)" ] \
-      && [ -n "$CUR_BOOT" ] && [ "$(fm_meta_get "$record" boot_id)" != "$CUR_BOOT" ]; then
-      # The lock names the primary of an earlier boot, and a new process now
-      # has its pid. Clear it so the relaunched primary can take the helm.
-      rm -f "$STATE/.lock"
-      rr_say "cleared a session lock whose pid belonged to the primary of an earlier boot"
-    else
-      rr_note "primary firstmate: already running (a live session holds the fleet lock, pid $lock_pid)"
-      return 0
-    fi
+  if [ -n "$lock_pid" ] && fm_harness_pid_alive "$lock_pid" \
+    && [ "$lock_pid" = "$(fm_meta_get "$record" harness_pid)" ] \
+    && [ -n "$CUR_BOOT" ] && [ "$(fm_meta_get "$record" boot_id)" != "$CUR_BOOT" ]; then
+    # The lock names the primary of an earlier boot, and a new process now
+    # has its pid. Clear it so the relaunched primary can take the helm.
+    rm -f "$STATE/.lock"
+    cleared=$lock_pid
+    rr_say "cleared a session lock whose pid belonged to the primary of an earlier boot"
+  fi
+  if running=$(rr_primary_running "$cleared"); then
+    rr_note "primary firstmate: already running ($running)"
+    return 0
   fi
   cwd=$(fm_meta_get "$record" cwd)
   target="$(fm_meta_get "$record" herdr_session):$(fm_meta_get "$record" pane)"
@@ -740,6 +769,10 @@ rr_primary() {
   # mates came back owns the pane now.
   if [ "$(rr_agent_state "$target")" = alive ]; then
     rr_note "primary firstmate: already running in $where"
+    return 0
+  fi
+  if running=$(rr_primary_running "$cleared"); then
+    rr_note "primary firstmate: already running ($running); nothing was typed into $where"
     return 0
   fi
   if ! fm_backend_source herdr || ! fm_backend_herdr_send_text_line "$target" "$line"; then

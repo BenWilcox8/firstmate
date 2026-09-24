@@ -333,6 +333,42 @@ test_run_rate_limits_a_restart_loop_with_one_alert() {
   pass "run: a restart loop stops after the rate limit with one alert"
 }
 
+test_run_leaves_a_primary_that_already_runs_elsewhere() {
+  local w claude_bin holder out
+  if [ ! -d /proc/self ]; then
+    printf 'skip: the running-primary guard needs /proc\n'
+    return 0
+  fi
+  w=$(new_world primary-running)
+  claude_bin=$(fm_fakebin "$w/harness")
+  ln -s "$(fm_test_tool bash)" "$claude_bin/claude"
+  rr "$w" record >/dev/null
+  fm_write_meta "$w/home/state/.primary-endpoint" backend=herdr herdr_session=default \
+    pane=w9:p3 workspace=w9 "cwd=$w/home" harness=claude harness_pid=1 boot_id=boot-1
+
+  # The captain started firstmate by hand in a pane of their own: a live Claude
+  # process runs in the home, and no session lock is taken yet.
+  (cd "$w/home" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  holder=$!
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(rr "$w" run 2>&1)
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_contains "$out" "primary firstmate: already running (a Claude process runs in this home, pid $holder)" \
+    "a primary started by hand outside its recorded pane was not detected: $out"
+
+  # The captain's session holds the fleet lock and runs outside the home.
+  (cd "$w" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  holder=$!
+  printf '%s\n' "$holder" > "$w/home/state/.lock"
+  printf 'boot-3\n' > "$w/boot_id"
+  out=$(rr "$w" run 2>&1)
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_contains "$out" "primary firstmate: already running (a live session holds the fleet lock, pid $holder)" \
+    "a primary that holds the fleet lock was not detected: $out"
+  [ ! -s "$w/herdr/unexpected" ] || fail "a pass with the primary already running touched Herdr panes: $(cat "$w/herdr/unexpected")"
+  pass "run: a primary the captain started by hand, by its home or by the fleet lock, is not launched twice"
+}
+
 test_dormant_marker_cli() {
   local w out rc
   w=$(new_world dormant)
@@ -559,6 +595,7 @@ for t in \
   test_run_waits_for_herdr_with_a_bound \
   test_run_is_single_flight_per_restart \
   test_run_rate_limits_a_restart_loop_with_one_alert \
+  test_run_leaves_a_primary_that_already_runs_elsewhere \
   test_dormant_marker_cli \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \
