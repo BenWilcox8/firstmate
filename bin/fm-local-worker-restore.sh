@@ -1,0 +1,408 @@
+#!/usr/bin/env bash
+# fm-local-worker-restore.sh - bring back the workers that a restart stopped
+# while they were working.
+#
+# A machine reboot or a Herdr restart stops every agent. Restart recovery
+# (bin/fm-local-restart-recovery.sh) relaunches the primary firstmate and the
+# authorized second mates. This script is the one owner of the next step: each
+# home, at its first locked session start after the restart, classifies its own
+# worker records and relaunches only the workers that were working.
+#
+# Usage:
+#   fm-local-worker-restore.sh classify
+#   fm-local-worker-restore.sh run [--key <restart-key>] [--restart <label>]
+#   fm-local-worker-restore.sh lease-check <task-id>
+#
+#   classify     Print one line per local ship or scout record in this home:
+#                "<id><TAB><class><TAB><reason>". Read-only. The first class
+#                that matches wins:
+#                  running          its endpoint has a live agent
+#                  unreadable       its endpoint state cannot be classified
+#                  parked           its record carries a park
+#                                   (bin/fm-control.sh park); it stays down,
+#                                   and `bin/fm-control.sh <id> resume` reopens
+#                                   its native session when its wait clears
+#                  gone             its recorded worktree is missing
+#                  finished         its validation run (attributed by
+#                                   bin/fm-crew-state.sh) passed or failed, or,
+#                                   with no run, its newest state line is done
+#                                   or failed
+#                  captain-waiting  it has an open decision or blocker, or its
+#                                   newest state line is captain-held
+#                  slot-reused      lease-check finds its worktree leased to
+#                                   other work
+#                  working          anything else: it was working when it
+#                                   stopped, including a validation run that
+#                                   is running or waits at a gate with no open
+#                                   decision
+#                A remote record, a second mate, and any other kind are not
+#                listed: their own host or home recovers them.
+#   run          Classify, then relaunch each working worker, one at a time,
+#                through `bin/fm-control.sh <id> relaunch --note`, in its own
+#                recorded worktree. The control plane owns the mechanics: on
+#                Herdr a gone pane is recreated in the worker's recorded slot
+#                (bin/fm-local-pane-lib.sh), and a task that carries a park
+#                record is resumed in its native session instead of started
+#                fresh. Right before each relaunch the worker is classified
+#                again, so a worker the supervisor relaunched by hand, or whose
+#                slot was just taken, is left alone. The note tells the new
+#                worker that a restart stopped the previous one and where to
+#                pick up.
+#                It prints one summary line - restored, skipped by class, and
+#                failed, with reasons - and queues it as one `check` wake.
+#                With --key, a restart is restored once: a second run for the
+#                same key does nothing. One run at a time per home.
+#   lease-check  Exit 0 when <task-id>'s recorded worktree can take its worker
+#                again, and exit 1 with the reason on stderr when it is leased
+#                to other work: a record in this fleet (the root home or one of
+#                its local second mate homes) that was spawned after this task
+#                names the same worktree, or the Treehouse pool records a live
+#                owner process for the slot that is not this task's own
+#                endpoint. The worktree-lease hook in bin/fm-spawn.sh runs it
+#                before every relaunch and resume launches anything, so
+#                bin/fm-control.sh relaunch and resume re-check the lease too.
+#
+# The restart-record hook starts `run` detached, keyed to the restart, when
+# bin/fm-local-restart-recovery.sh record detects a restart.
+#
+# Files, in this home's state/:
+#   .worker-restore.lock   single-flight lock of one run
+#   .worker-restore.log    ledger: epoch, event, restart key, detail (bounded)
+#
+# Environment:
+#   FM_HOME                        the home to restore (default: this code root)
+#   FM_WORKER_RESTORE_CONTROL      control plane (bin/fm-control.sh); tests only
+#   FM_WORKER_RESTORE_CREW_STATE   current-state reader (bin/fm-crew-state.sh);
+#                                  tests only
+set -u
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
+STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+export FM_HOME
+
+# shellcheck source=bin/fm-backend.sh
+. "$SCRIPT_DIR/fm-backend.sh"
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-classify-lib.sh
+. "$SCRIPT_DIR/fm-classify-lib.sh"
+
+WR_CONTROL=${FM_WORKER_RESTORE_CONTROL:-$SCRIPT_DIR/fm-control.sh}
+WR_CREW_STATE=${FM_WORKER_RESTORE_CREW_STATE:-$SCRIPT_DIR/fm-crew-state.sh}
+WR_LOCK="$STATE/.worker-restore.lock"
+WR_LEDGER="$STATE/.worker-restore.log"
+WR_NOTE="A restart of the machine or of Herdr stopped your previous session while you were working. Your local copy, branch, and commits are as that session left them. Check git status and git log, re-read your instructions, and continue from where the work stands. If a no-mistakes run was active, reattach to it with no-mistakes axi status; do not start a second run."
+WR_CLASS=
+WR_REASON=
+WR_LEASE_REASON=
+
+wr_canonical() {  # <dir>
+  (CDPATH='' cd -- "$1" 2>/dev/null && pwd -P)
+}
+
+wr_first_line() {
+  printf '%s\n' "$1" | awk 'NF { print; exit }'
+}
+
+# wr_gen <meta>: the spawn epoch from spawn_gen=s<epoch>.<pid>.<n>, or nothing.
+wr_gen() {
+  local gen
+  gen=$(fm_meta_get "$1" spawn_gen)
+  gen=${gen#s}
+  gen=${gen%%.*}
+  case "$gen" in ''|*[!0-9]*) return 0 ;; esac
+  printf '%s' "$gen"
+}
+
+# wr_fleet_homes: this home, the root home, and the root's local second mate
+# homes, one canonical path per line.
+wr_fleet_homes() {
+  local root meta home
+  {
+    wr_canonical "$FM_HOME"
+    root=$(fm_firstmate_root_home "$FM_HOME" 2>/dev/null) || root=
+    if [ -n "$root" ]; then
+      printf '%s\n' "$root"
+      for meta in "$root"/state/*.meta; do
+        [ -f "$meta" ] || continue
+        [ "$(fm_meta_get "$meta" kind)" = secondmate ] || continue
+        [ -z "$(fm_meta_get "$meta" remote_host)" ] || continue
+        home=$(fm_meta_get "$meta" home)
+        [ -n "$home" ] || home=$(fm_meta_get "$meta" worktree)
+        [ -n "$home" ] && wr_canonical "$home"
+      done
+    fi
+  } | awk 'NF && !seen[$0]++'
+}
+
+wr_proc_field() {  # <pid> <index after the command name>
+  local stat fields
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  read -r -a fields <<< "${stat##*)}"
+  [ -n "${fields[$2]:-}" ] || return 1
+  printf '%s\n' "${fields[$2]}"
+}
+
+# wr_owner_live <pid> <started-ms>: the Treehouse owner still runs with the
+# start time Treehouse recorded, so a reused pid never reads as the owner.
+wr_owner_live() {
+  local ticks btime hz
+  ticks=$(wr_proc_field "$1" 19) || return 1
+  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 1
+  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
+  [ -n "$btime" ] && [ -n "$hz" ] || return 1
+  [ "$((btime * 1000 + ticks * 1000 / hz))" = "$2" ]
+}
+
+wr_descends_from() {  # <pid> <ancestor>
+  local pid=$1 depth
+  for ((depth=0; depth<64; depth++)); do
+    [ "$pid" != "$2" ] || return 0
+    [ "$pid" -gt 1 ] 2>/dev/null || return 1
+    pid=$(wr_proc_field "$pid" 1) || return 1
+  done
+  return 1
+}
+
+# wr_lease_other <id> <meta>: 0 with WR_LEASE_REASON set when the recorded
+# worktree is leased to other work, 1 when nothing shows that it is.
+wr_lease_other() {
+  local id=$1 meta=$2 wt mine home own other gen pool lease owner started backend target pid
+  WR_LEASE_REASON=
+  wt=$(wr_canonical "$(fm_meta_get "$meta" worktree)") || return 1
+  mine=$(wr_gen "$meta")
+  own=$(wr_canonical "$FM_HOME")
+  while IFS= read -r home; do
+    for other in "$home"/state/*.meta; do
+      [ -f "$other" ] || continue
+      [ "$home" != "$own" ] || [ "$(basename "$other" .meta)" != "$id" ] || continue
+      [ "$(fm_meta_get "$other" kind)" != secondmate ] || continue
+      [ -z "$(fm_meta_get "$other" remote_host)" ] || continue
+      [ "$(wr_canonical "$(fm_meta_get "$other" worktree)")" = "$wt" ] || continue
+      gen=$(wr_gen "$other")
+      [ -n "$mine" ] && { [ -z "$gen" ] || [ "$gen" -le "$mine" ]; } && continue
+      WR_LEASE_REASON="its worktree is now recorded for $(basename "$other" .meta) in $home"
+      return 0
+    done
+  done < <(wr_fleet_homes)
+  pool="$(dirname "$(dirname "$wt")")/treehouse-state.json"
+  [ -f "$pool" ] && [ ! -L "$pool" ] || return 1
+  lease=$(jq -cr --arg wt "$wt" '[.worktrees[]? | select(.path == $wt)] | .[0] // {}
+    | select((.owner_pid | type) == "number" and (.owner_started_at | type) == "number")
+    | "\(.owner_pid) \(.owner_started_at)"' "$pool" 2>/dev/null) || {
+    WR_LEASE_REASON="its Treehouse pool record $pool cannot be read"
+    return 0
+  }
+  [ -n "$lease" ] || return 1
+  owner=${lease%% *}
+  started=${lease#* }
+  wr_owner_live "$owner" "$started" || return 1
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  for pid in $(fm_backend_foreground_pids "$backend" "$target" 2>/dev/null); do
+    wr_descends_from "$pid" "$owner" && return 1
+  done
+  WR_LEASE_REASON="Treehouse leases it to live process $owner, which is not this worker's endpoint"
+  return 0
+}
+
+# wr_last_state_line <status-file>: the newest line whose verb states the
+# worker's state (not a resolution, note, or other annotation).
+wr_last_state_line() {
+  local line verb found=
+  [ -f "$1" ] || return 0
+  while IFS= read -r line || [ -n "$line" ]; do
+    verb=$(status_line_verb "$line")
+    case "$verb" in
+      working|done|failed|paused|blocked|needs-decision|captain-held) found=$line ;;
+    esac
+  done < "$1"
+  printf '%s' "$found"
+}
+
+# wr_classify <id> <meta>: set WR_CLASS and WR_REASON (contract in the header).
+wr_classify() {
+  local id=$1 meta=$2 backend target state wt crew source run open line verb
+  WR_CLASS=
+  WR_REASON=
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
+  case "$state" in
+    alive) WR_CLASS=running; WR_REASON="its agent is running"; return 0 ;;
+    dead|missing) ;;
+    *) WR_CLASS=unreadable; WR_REASON="its endpoint reads $state"; return 0 ;;
+  esac
+  if [ -n "$(fm_meta_get "$meta" parked)" ]; then
+    WR_CLASS=parked
+    WR_REASON="parked: $(fm_meta_get "$meta" parked_reason)"
+    return 0
+  fi
+  wt=$(fm_meta_get "$meta" worktree)
+  if [ -z "$wt" ] || [ ! -d "$wt" ]; then
+    WR_CLASS=gone
+    WR_REASON="its worktree ${wt:-(none)} is missing"
+    return 0
+  fi
+  open=$(status_open_decisions "$STATE/$id.status")
+  crew=$(FM_HOME="$FM_HOME" "$WR_CREW_STATE" "$id" 2>/dev/null | head -n 1)
+  source=$(printf '%s' "$crew" | sed -n 's/.*· source: \([a-z-]*\).*/\1/p')
+  run=$(printf '%s' "$crew" | sed -n 's/^state: \([a-z]*\).*/\1/p')
+  if [ "$source" = run-step ]; then
+    case "$run" in
+      done) WR_CLASS=finished; WR_REASON="its validation run passed" ;;
+      failed) WR_CLASS=finished; WR_REASON="its validation run failed" ;;
+      parked) [ -z "$open" ] || { WR_CLASS=captain-waiting; WR_REASON="its validation run waits on an open decision"; } ;;
+    esac
+    [ -z "$WR_CLASS" ] || return 0
+  else
+    if [ -n "$open" ]; then
+      WR_CLASS=captain-waiting
+      WR_REASON="open decision: $(printf '%s\n' "$open" | cut -f1 | paste -sd, -)"
+      return 0
+    fi
+    line=$(wr_last_state_line "$STATE/$id.status")
+    verb=$(status_line_verb "$line")
+    case "$verb" in
+      captain-held) WR_CLASS=captain-waiting; WR_REASON="captain-held"; return 0 ;;
+      done|failed) WR_CLASS=finished; WR_REASON="it reported $verb"; return 0 ;;
+    esac
+  fi
+  if wr_lease_other "$id" "$meta"; then
+    WR_CLASS=slot-reused
+    WR_REASON=$WR_LEASE_REASON
+    return 0
+  fi
+  WR_CLASS=working
+  WR_REASON="it was working when it stopped"
+}
+
+# wr_workers: the ids of this home's local ship and scout records.
+wr_workers() {
+  local meta kind
+  for meta in "$STATE"/*.meta; do
+    [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+    [ -z "$(fm_meta_get "$meta" remote_host)" ] || continue
+    kind=$(fm_meta_get "$meta" kind)
+    case "$kind" in ship|scout|'') ;; *) continue ;; esac
+    basename "$meta" .meta
+  done
+}
+
+cmd_classify() {
+  local id
+  while IFS= read -r id; do
+    wr_classify "$id" "$STATE/$id.meta"
+    printf '%s\t%s\t%s\n' "$id" "$WR_CLASS" "$WR_REASON"
+  done < <(wr_workers)
+}
+
+wr_ledger() {  # <event> <key> [detail]
+  local tmp
+  printf '%s\t%s\t%s\t%s\n' "$(date +%s)" "$1" "$2" "$(printf '%s' "${3:-}" | tr '\t\n' '  ')" >> "$WR_LEDGER"
+  if [ "$(wc -l < "$WR_LEDGER")" -gt 200 ]; then
+    tmp=$(mktemp "$STATE/.worker-restore.log.XXXXXX") || return 0
+    tail -n 100 "$WR_LEDGER" > "$tmp" && mv -f "$tmp" "$WR_LEDGER"
+  fi
+}
+
+wr_ledger_done() {  # <key>
+  [ -f "$WR_LEDGER" ] && awk -F '\t' -v k="$1" '$2 == "done" && $3 == k { f=1 } END { exit !f }' "$WR_LEDGER"
+}
+
+# wr_list <label> <ids...>: "<label> <n>" plus " (<ids>)" when there are any.
+wr_list() {
+  local label=$1
+  shift
+  if [ "$#" -eq 0 ]; then
+    printf '%s 0' "$label"
+  else
+    printf '%s %s (%s)' "$label" "$#" "$(printf '%s\n' "$@" | paste -sd, - | sed 's/,/, /g')"
+  fi
+}
+
+cmd_run() {
+  local key= label='a restart' id out summary class skipped= c
+  local -a working=() restored=() failed=() order=(running unreadable parked gone finished captain-waiting slot-reused)
+  local -A by_class=()
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --key) key=${2:-}; shift 2 ;;
+      --restart) label=${2:-}; shift 2 ;;
+      *) echo "error: unknown argument: $1" >&2; return 1 ;;
+    esac
+  done
+  mkdir -p "$STATE" || return 1
+  if ! fm_lock_try_acquire "$WR_LOCK"; then
+    echo "worker restore: another run is in progress (pid ${FM_LOCK_HELD_PID:-unknown}); leaving it to that run"
+    return 0
+  fi
+  trap 'fm_lock_release "$WR_LOCK" || true' EXIT
+  if [ -n "$key" ] && wr_ledger_done "$key"; then
+    echo "worker restore: this restart was already restored"
+    return 0
+  fi
+  wr_ledger start "${key:--}" "$label"
+  while IFS= read -r id; do
+    wr_classify "$id" "$STATE/$id.meta"
+    if [ "$WR_CLASS" = working ]; then
+      working+=("$id")
+    else
+      by_class[$WR_CLASS]+="$id${WR_REASON:+: $WR_REASON}"$'\n'
+    fi
+  done < <(wr_workers)
+  for id in ${working[@]+"${working[@]}"}; do
+    # Read again right before acting: a supervisor may have relaunched it by
+    # hand, or another task may have taken its slot, since the first read.
+    wr_classify "$id" "$STATE/$id.meta"
+    if [ "$WR_CLASS" != working ]; then
+      by_class[$WR_CLASS]+="$id${WR_REASON:+: $WR_REASON}"$'\n'
+      continue
+    fi
+    if out=$(FM_HOME="$FM_HOME" FM_SPAWN_NO_GUARD=1 "$WR_CONTROL" "$id" relaunch --note "$WR_NOTE" 2>&1 </dev/null); then
+      restored+=("$id")
+    else
+      failed+=("$id: $(wr_first_line "$out")")
+    fi
+  done
+  for class in "${order[@]}"; do
+    [ -n "${by_class[$class]:-}" ] || continue
+    c=$(printf '%s' "${by_class[$class]}" | grep -c .)
+    case "$class" in
+      running|finished|parked) skipped="$skipped${skipped:+; }$class $c" ;;
+      *) skipped="$skipped${skipped:+; }$class $c ($(printf '%s' "${by_class[$class]}" | paste -sd'|' - | sed 's/|/; /g'))" ;;
+    esac
+  done
+  summary="worker restore after $label: $(wr_list restored ${restored[@]+"${restored[@]}"}); skipped: ${skipped:-none}; $(wr_list failed ${failed[@]+"${failed[@]}"})"
+  printf '%s\n' "$summary"
+  fm_wake_append check "worker-restore:$(date +%s)" "check: $summary" \
+    || echo "worker restore: could not queue the summary wake" >&2
+  wr_ledger 'done' "${key:--}" "$summary"
+}
+
+cmd_lease_check() {
+  local id=${1:-} meta
+  case "$id" in ''|.|..|*[!A-Za-z0-9._-]*) echo "error: invalid task id '$id'" >&2; return 1 ;; esac
+  meta="$STATE/$id.meta"
+  [ -f "$meta" ] || { echo "error: no record for task $id in this home" >&2; return 1; }
+  if wr_lease_other "$id" "$meta"; then
+    printf 'task %s: %s\n' "$id" "$WR_LEASE_REASON" >&2
+    return 1
+  fi
+  return 0
+}
+
+usage() {
+  sed -n '2,/^set -u$/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'
+}
+
+case "${1:-}" in
+  classify) cmd_classify ;;
+  run) shift; cmd_run "$@" ;;
+  lease-check) shift; cmd_lease_check "$@" ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac
