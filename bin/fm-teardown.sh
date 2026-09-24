@@ -949,6 +949,7 @@ fi
 fm_backend_validate_task_endpoint "$META" "$ID" || exit 1
 BACKEND=$FM_BACKEND_VALIDATED_BACKEND
 T=$FM_BACKEND_VALIDATED_TARGET
+fm_local_hook pane-teardown-target || exit 1
 WT=$(fm_meta_get "$META" worktree)
 PROJ=$(fm_meta_get "$META" project)
 T_ORCA=
@@ -3456,6 +3457,7 @@ teardown_herdr_pane_gone() {
 # TEARDOWN_HERDR_PANE, HERDR_PRESENTATION_RETIRE_CANDIDATE,
 # HERDR_PRESENTATION_SESSION, and HERDR_PRESENTATION_PANE.
 teardown_herdr_close_confirmed() {
+  fm_local_hook pane-teardown-gone && return 0
   local attempt=0 max_attempts wait_secs
   max_attempts=$(teardown_herdr_close_attempts)
   wait_secs=${FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS:-0.3}
@@ -3492,6 +3494,7 @@ teardown_herdr_close_confirmed() {
 # lock, or the ordinary backend kill that delegates to agent-axi and then
 # closes the pane natively. Both remain best-effort here; the caller confirms.
 teardown_herdr_close_once() {
+  fm_local_hook pane-teardown-guard || return 1
   # The named-session presentation lock was already acquired by the teardown
   # preflight, before the worktree return, and is held for the whole
   # destructive sequence; a contended lock refused this teardown while
@@ -3529,6 +3532,7 @@ teardown_herdr_close_once() {
 # are gone - it has to carry everything the supervising turn needs to close it.
 # Reads the task globals T and ID.
 teardown_herdr_report_unclosed_pane() {
+  fm_local_hook pane-teardown-report && return 0
   echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
   echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
   echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
@@ -3588,6 +3592,7 @@ fi
 if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
   teardown_herdr_report_unclosed_pane
 fi
+fm_local_hook pane-teardown-confirm || exit 1
 teardown_report_parent late
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT

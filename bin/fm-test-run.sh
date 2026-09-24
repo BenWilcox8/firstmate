@@ -140,6 +140,7 @@ RUN_STARTED_ISO=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 RUN_STARTED_MS=$(now_ms)
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+[ ! -f "$ROOT/bin/fm-local-hooks.sh" ] || . "$ROOT/bin/fm-local-hooks.sh" # fm_local_hook loader
 cd "$ROOT" || exit 1
 
 MODE=
@@ -254,6 +255,7 @@ cpu_count() {
 # is what lets `standalone` carry a concurrent proof while a brand-new test
 # lands in `unclassified` and stays serial until someone proves it.
 family_for_basename() {
+  declare -F fm_local_hook >/dev/null && fm_local_hook test-family "$1" && return 0
   case "$1" in
     fm-action-pins-check.test.sh|\
     fm-agentsmd-ceiling.test.sh|fm-arm-pretool-check.test.sh|fm-ask-user-authority.test.sh|\

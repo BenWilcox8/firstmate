@@ -185,7 +185,41 @@ On Linux, the recovery classifier accepts Codex's `MainThread` Node wrapper only
 Path basenames are normalized, but leading-hyphen `node` and `codex` names are refused.
 The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_herdr_resolve_bare_selector` also stay because they provide recovery scoping, not placement, and match every other backend's contract.
 
+### Ended worker panes
+
+`bin/fm-local-pane-cleanup.sh` owns automatic cleanup of ended ship and scout panes in the home's workspace.
+It resolves the home and task through structured inventory, takes the task control lock, and uses `fm_backend_agent_state` to prove the agent process tree is gone before it closes a pane.
+Terminal text, task status, and an empty agent registry do not prove that an agent has stopped.
+MAIN, secondmate supervisors, unmanaged panes, and panes in another home's workspace are excluded.
+An unavailable inventory or an ambiguous process state leaves the pane untouched.
+
+`fm-control exit` closes the stopped worker pane through the existing agent-axi teardown operation, or the native fallback when delegation is unavailable.
+The task record, worktree, and uncommitted changes remain.
+`relaunch` creates a fresh pane in the previous agent-axi slot and recorded worktree after normal launch preflight succeeds.
+It refuses an occupied slot.
+The native fallback creates a fresh task tab because it has no slot ledger.
+A failed launch closes its replacement shell only when the same classifier proves the agent gone.
+
+The watcher runs cleanup at the start of each poll, and bootstrap runs it before layout repair.
+This includes spontaneous exits, killed agents, and restored bare shells whose home and task labels still identify them unambiguously.
+A held task control lock excludes a relaunch transaction from cleanup.
+Bootstrap defers mutating layout repair while crew panes remain, so repair cannot bypass a skipped lock or process classifier.
+Read-only drift reporting continues.
+
+Teardown retains its landed-work checks and bounded close retries.
+When pane closure cannot be confirmed, it prints the exact task and pane, returns exit 1, and retains the task records for retry.
+An explicit `--force` allows record retirement despite unconfirmed closure; the unclosed pane remains named in the diagnostic.
+An unconfirmed presentation journal remains intact even under `--force`.
+Placement receipts retire only when task records retire.
+
+Automatic presentation-pane journal resolution remains with the existing presentation recovery path.
+Atomic agent-axi mutation preconditions and repair with a close allowlist remain follow-ups.
+The cleanup implementation uses Firstmate's control and task-set locks for its lifecycle transactions.
+The executable regression entry points are `tests/fm-local-pane-cleanup-e2e.test.sh`, `tests/fm-local-pane-recovery.test.sh`, and `tests/fm-control-herdr-smoke.test.sh`.
+
 ### Native fallback contract
+
+The ended-worker cleanup above also applies in native fallback mode; the placement behavior described here does not perform that cleanup itself.
 
 When agent-axi is not resolvable (empty `FM_BACKEND_HERDR_AXI_BIN`, or the binary absent), `fm_backend_herdr_create_task` falls back to a MINIMAL native path: one plain tab per task in the home's own workspace, `--no-focus`, plus the seeded-default-tab prune.
 There is NO split layout and NO proactive husk reaping in the fallback - split layouts and husk convergence REQUIRE agent-axi.

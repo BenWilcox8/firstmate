@@ -190,6 +190,7 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 # the whole layout model is best-effort supervision, not a spawn precondition.
 herdr_layout_repair_sweep() {
   local summary
+  fm_local_hook pane-bootstrap-repair && return
   summary=$(fm_herdr_layout_repair 2>/dev/null) || return 0
   [ -n "$summary" ] || return 0
   echo "BOOTSTRAP_INFO: $summary"
