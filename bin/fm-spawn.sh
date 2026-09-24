@@ -1730,6 +1730,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     }
   fi
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook worktree-lease || exit 1; fi
   # A resume opens a new endpoint instead of adopting the recorded one, so it
   # must not load the recorded pane: HERDR_PANE_ID is also the launcher's own
   # pane identity that the new endpoint's placement reads.

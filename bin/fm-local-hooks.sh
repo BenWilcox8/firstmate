@@ -197,6 +197,12 @@ fm_local_hook() {
     secondmate-liveness-skip)
       FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" liveness-skip "${@:2}"
       ;;
+    # bin/fm-local-worker-restore.sh owns the lease contract.
+    worktree-lease)
+      [ "$KIND" != secondmate ] || return 0
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-worker-restore.sh" lease-check "$ID" \
+        || { echo "error: worktree-lease: refusing to launch task $ID into a worktree leased to other work; nothing was created" >&2; return 1; }
+      ;;
     # The startup liveness sweep relaunches local second mates one at a time, to
     # keep the load on the machine low after a restart.
     secondmate-liveness-serial) return 0 ;;

@@ -6,8 +6,9 @@
 # agent in it. This script is the one owner of noticing such a restart and of
 # bringing the supervisor layer back: the primary firstmate in its recorded
 # Herdr pane, and every authorized second mate in its own pane, one at a time.
-# Working crews are not relaunched here; the relaunched supervisors reconcile
-# them.
+# Working crews are not relaunched here: at its first locked session start
+# after the restart, each home runs bin/fm-local-worker-restore.sh, which
+# relaunches the workers that were working.
 #
 # Usage:
 #   fm-local-restart-recovery.sh record
@@ -23,6 +24,9 @@
 #                RESTART line when the fingerprint changed since the last
 #                locked start. In a second mate home that line points at the
 #                primary home, which runs recovery and keeps its ledger.
+#                After a restart it also starts this home's worker restore
+#                (bin/fm-local-worker-restore.sh run), detached, and says so
+#                in a second RESTART line.
 #                In a primary home (no .fm-secondmate-home
 #                marker) that runs in a Herdr pane, it also writes the primary
 #                endpoint record state/.primary-endpoint: the pane, its
@@ -511,10 +515,23 @@ cmd_record() {
     reboot|user-manager|herdr)
       printf 'RESTART: %s since the last session start (%s). %s\n' \
         "$(rr_label "$class")" "$(rr_detail "$class")" "$(rr_pass_note "$(rr_key)")"
+      rr_worker_restore "$(rr_key)" "$(rr_label "$class")"
       ;;
   esac
   rr_record_endpoint
   return 0
+}
+
+# rr_worker_restore <key> <label>: start this home's worker restore for the
+# restart, detached so the session start does not wait for relaunches
+# (bin/fm-local-worker-restore.sh owns the contract).
+rr_worker_restore() {
+  if command -v setsid >/dev/null 2>&1; then
+    FM_HOME="$FM_HOME" setsid -f "$SCRIPT_DIR/fm-local-worker-restore.sh" run --key "$1" --restart "$2" </dev/null >/dev/null 2>&1
+  else
+    FM_HOME="$FM_HOME" nohup "$SCRIPT_DIR/fm-local-worker-restore.sh" run --key "$1" --restart "$2" </dev/null >/dev/null 2>&1 &
+  fi
+  printf 'RESTART: Worker restore is relaunching the workers that were working, one at a time; its summary arrives as a check notification. Do not relaunch workers by hand before it.\n'
 }
 
 # --- run: second mates ---------------------------------------------------------
@@ -817,7 +834,7 @@ rr_pass() {  # <class> <key>
   rr_primary
   [ ! -e "$STATE/.afk" ] \
     || rr_note "away mode: state/.afk survived the restart; the relaunched firstmate re-enters it"
-  rr_note "crews: not relaunched by this pass; firstmate reconciles them after its session start"
+  rr_note "crews: not relaunched by this pass; each home's worker restore relaunches the ones that were working at its session start"
   body="restart recovery after $(rr_label "$class") ($(rr_detail "$class")), $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   primary="not relaunched"
   for note in ${RR_NOTES[@]+"${RR_NOTES[@]}"}; do

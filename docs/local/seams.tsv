@@ -12,12 +12,12 @@ bin/fm-backend.sh	205	send-provenance-dispatch	tests/fm-local-send-provenance.te
 bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
 bin/fm-lint.sh	440	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions, heavy roots run alone), upstreamable	retain
 .github/workflows/ci.yml	52	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
-bin/fm-spawn.sh	978	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-spawn.sh	979	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-control.sh	520	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-supervise-daemon.sh	402	typing-provenance-digest	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-bootstrap.sh	64	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: guarded bootstrap cleanup	retain
 bin/fm-control.sh	520	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: exit and relaunch cleanup	retain
-bin/fm-spawn.sh	978	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: fresh relaunch pane	retain
+bin/fm-spawn.sh	979	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: fresh relaunch pane	retain
 bin/fm-teardown.sh	459	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: proven close and retained records	retain
 bin/fm-test-run.sh	324	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
 bin/fm-watch.sh	440	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
@@ -35,3 +35,4 @@ bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanu
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
 bin/fm-session-start.sh	88	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
 bin/fm-bootstrap.sh	64	secondmate-liveness-skip,secondmate-liveness-serial	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+bin/fm-spawn.sh	979	worktree-lease	tests/fm-local-worker-restore.test.sh	personal: relaunch and resume lease re-check for fork park and fresh-pane relaunch	retain
