@@ -21,7 +21,9 @@
 #                hook in bin/fm-session-start.sh. It stores the restart
 #                fingerprint in state/.restart-fingerprint and prints one
 #                RESTART line when the fingerprint changed since the last
-#                locked start. In a primary home (no .fm-secondmate-home
+#                locked start. In a second mate home that line points at the
+#                primary home, which runs recovery and keeps its ledger.
+#                In a primary home (no .fm-secondmate-home
 #                marker) that runs in a Herdr pane, it also writes the primary
 #                endpoint record state/.primary-endpoint: the pane, its
 #                workspace, the home, the harness, the harness launch flags,
@@ -67,7 +69,9 @@
 #                  6. relaunches the primary firstmate last, in its recorded
 #                     pane when that pane holds only a shell in the recorded
 #                     home, else in a new tab of the recorded workspace, else
-#                     in a new workspace. It resumes the recorded native
+#                     (only when that workspace is gone) in a new workspace;
+#                     the pass record names the tab or workspace and the pane
+#                     it created. It resumes the recorded native
 #                     session when its transcript is still on disk and starts
 #                     a fresh one otherwise, with the recorded launch flags and
 #                     the session-start operational input as its first prompt.
@@ -475,7 +479,9 @@ rr_record_endpoint() {
 }
 
 rr_pass_note() {  # <key>
-  if rr_ledger_has 'done' "$1"; then
+  if fm_root_is_secondmate_home "$FM_HOME"; then
+    printf "The primary firstmate's home runs restart recovery for second mates and keeps its ledger and pass records; this home keeps none."
+  elif rr_ledger_has 'done' "$1"; then
     printf 'Restart recovery already relaunched the authorized supervisors; its record is under state/restart-recovery/.'
   elif rr_ledger_has start "$1"; then
     printf 'A restart recovery pass is relaunching the authorized supervisors; its summary arrives as a check notification.'
@@ -630,27 +636,40 @@ rr_wait_state() {  # <target> <state> <seconds>
   done
 }
 
-# rr_new_primary_pane <record>: a pane in the recorded home, in the recorded
-# workspace when it still exists, else in a new workspace. Prints the target.
+# rr_new_primary_pane <record>: opens a pane in the recorded home, in a new tab
+# of the recorded workspace while that workspace exists, else in a new
+# workspace. Sets RR_NEW_TARGET to the pane target and RR_NEW_DESC to what it
+# created.
 rr_new_primary_pane() {
-  local record=$1 session workspace label cwd out pane
+  local record=$1 session workspace label cwd found out ws tab pane
+  RR_NEW_TARGET=
+  RR_NEW_DESC=
   session=$(fm_meta_get "$record" herdr_session)
   workspace=$(fm_meta_get "$record" workspace)
   label=$(fm_meta_get "$record" workspace_label)
+  label=${label:-firstmate}
   cwd=$(fm_meta_get "$record" cwd)
-  out=
-  if [ -n "$workspace" ]; then
-    out=$(rr_herdr "$session" tab create --workspace "$workspace" --cwd "$cwd" --label firstmate --no-focus 2>/dev/null) || out=
+  found=$(rr_herdr "$session" workspace list 2>/dev/null \
+    | jq -r --arg ws "$workspace" '.result.workspaces | if type == "array" then any(.[]; .workspace_id == $ws) else empty end' 2>/dev/null)
+  case "$found" in true|false) ;; *) return 1 ;; esac
+  if [ "$found" = true ]; then
+    out=$(rr_herdr "$session" tab create --workspace "$workspace" --cwd "$cwd" --label firstmate --no-focus 2>/dev/null) || return 1
+  else
+    out=$(rr_herdr "$session" workspace create --cwd "$cwd" --label "$label" --no-focus 2>/dev/null) || return 1
   fi
-  if [ -z "$out" ]; then
-    out=$(rr_herdr "$session" workspace create --cwd "$cwd" --label "${label:-firstmate}" --no-focus 2>/dev/null) || return 1
+  IFS=$'\t' read -r ws tab pane < <(printf '%s' "$out" \
+    | jq -er '.result.root_pane | [.workspace_id, .tab_id, .pane_id] | @tsv' 2>/dev/null) || return 1
+  [ -n "$pane" ] || return 1
+  RR_NEW_TARGET="$session:$pane"
+  if [ "$found" = true ]; then
+    RR_NEW_DESC="a new tab $tab in the recorded workspace $ws, pane $RR_NEW_TARGET"
+  else
+    RR_NEW_DESC="a new workspace $ws labeled '$label' (the recorded workspace $workspace is gone), pane $RR_NEW_TARGET"
   fi
-  pane=$(printf '%s' "$out" | jq -er '.result.root_pane.pane_id' 2>/dev/null) || return 1
-  printf '%s:%s' "$session" "$pane"
 }
 
 rr_primary() {
-  local record=$RR_ENDPOINT harness lock_pid target state seen cwd prompt line
+  local record=$RR_ENDPOINT harness lock_pid target where state seen cwd prompt line
   if [ ! -f "$record" ]; then
     rr_note "primary firstmate: not relaunched: no primary endpoint is recorded (a locked session start inside a Herdr pane records it)"
     return 0
@@ -679,6 +698,7 @@ rr_primary() {
   fi
   cwd=$(fm_meta_get "$record" cwd)
   target="$(fm_meta_get "$record" herdr_session):$(fm_meta_get "$record" pane)"
+  where="pane $target"
   state=$(rr_agent_state "$target")
   case "$state" in
     alive)
@@ -693,12 +713,14 @@ rr_primary() {
       fi
       ;;
     missing)
-      target=$(rr_new_primary_pane "$record") || {
-        rr_note "primary firstmate: not relaunched: its pane is gone and a new one could not be opened"
+      rr_new_primary_pane "$record" || {
+        rr_note "primary firstmate: not relaunched: its pane $target is gone and a new one could not be opened"
         return 0
       }
+      target=$RR_NEW_TARGET
+      where=$RR_NEW_DESC
       rr_wait_state "$target" dead 15 || {
-        rr_note "primary firstmate: not relaunched: the new pane $target did not settle to a shell"
+        rr_note "primary firstmate: not relaunched: it opened $where, which did not settle to a shell"
         return 0
       }
       ;;
@@ -717,17 +739,17 @@ rr_primary() {
   # One last read: a captain who started firstmate by hand while the second
   # mates came back owns the pane now.
   if [ "$(rr_agent_state "$target")" = alive ]; then
-    rr_note "primary firstmate: already running in its pane $target"
+    rr_note "primary firstmate: already running in $where"
     return 0
   fi
   if ! fm_backend_source herdr || ! fm_backend_herdr_send_text_line "$target" "$line"; then
-    rr_note "primary firstmate: relaunch failed: the launch could not be typed into $target"
+    rr_note "primary firstmate: relaunch failed: the launch could not be typed into $where"
     return 0
   fi
   if rr_wait_state "$target" alive "$RR_LAUNCH_WAIT"; then
-    rr_note "primary firstmate: relaunched in pane $target, $RR_LAUNCH_DESC"
+    rr_note "primary firstmate: relaunched in $where, $RR_LAUNCH_DESC"
   else
-    rr_note "primary firstmate: relaunch unconfirmed: no agent started in $target within ${RR_LAUNCH_WAIT}s ($RR_LAUNCH_DESC)"
+    rr_note "primary firstmate: relaunch unconfirmed: no agent started in $where within ${RR_LAUNCH_WAIT}s ($RR_LAUNCH_DESC)"
   fi
 }
 

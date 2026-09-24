@@ -701,6 +701,7 @@ secondmate_liveness_sweep() {
   if bootstrap_parallel_begin; then
     parallel=1
   fi
+  if [ "$parallel" -eq 1 ] && declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-serial; then bootstrap_parallel_finish; parallel=0; fi
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     grep -q '^kind=secondmate$' "$meta" 2>/dev/null || continue

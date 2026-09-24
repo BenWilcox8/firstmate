@@ -4,13 +4,15 @@
 # bin/fm-local-restart-recovery.sh owns restart detection and the boot unit's
 # recovery pass; bin/fm-local-dormant.sh owns the durable dormant marker. This
 # suite drives both through their CLIs with a fake Herdr that answers only the
-# status and session reads, plus the two upstream seams through the real
-# scripts that carry their hook lines:
+# status and session reads, plus the upstream seams through the real scripts
+# that carry their hook lines:
 #   - restart-record: bin/fm-session-start.sh records the restart fingerprint at
 #     a locked start and prints one RESTART line when it changed.
 #   - secondmate-liveness-skip: bin/fm-bootstrap.sh's startup liveness sweep
 #     leaves a dormant second mate down, and leaves every second mate to a
 #     restart recovery pass that is running.
+#   - secondmate-liveness-serial: the same sweep relaunches second mates one at
+#     a time.
 # The Herdr lifecycle proof (a real lab restart, in-place relaunches, the
 # manual-relaunch guard) lives in tests/fm-local-restart-recovery-herdr-e2e.test.sh.
 set -u
@@ -138,6 +140,21 @@ test_record_names_each_restart_kind_once() {
   assert_not_contains "$out" "user service manager" "a reboot must be named once, as the widest restart"
   [ ! -e "$w/home/state/.primary-endpoint" ] || fail "a session outside a Herdr pane must not leave a primary endpoint record"
   pass "record: each restart kind is named once, reboot first"
+}
+
+test_record_in_a_secondmate_home_points_at_the_primary() {
+  local w out
+  w=$(new_world record-secondmate)
+  printf 'sm\n' > "$w/home/.fm-secondmate-home"
+  rr "$w" record >/dev/null || fail "the first record in a second mate home failed"
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(rr "$w" record)
+  assert_contains "$out" "RESTART: machine reboot" "a second mate home did not report the reboot"
+  assert_not_contains "$out" "No restart recovery pass ran" \
+    "a second mate home has no recovery ledger, so it must not claim that no pass ran"
+  assert_contains "$out" "The primary firstmate's home runs restart recovery" \
+    "a second mate home must point at the primary home's restart recovery"
+  pass "record: a second mate home points at the primary home's restart recovery"
 }
 
 test_record_captures_the_primary_endpoint_in_a_herdr_pane() {
@@ -371,7 +388,9 @@ esac
 exit 0
 SH
   # Every second mate endpoint is an agent-free shell; new-window and
-  # kill-window calls are logged so a relaunch is observable.
+  # kill-window calls are logged so a relaunch is observable. With
+  # FM_TMUX_HOLD_DIR set, each such call holds for a moment and logs an
+  # `overlap:` line when another one is in progress at the same time.
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
@@ -383,7 +402,19 @@ case "${1:-}" in
     exit 0
     ;;
   list-windows) printf '%s\n' fm-sm-awake fm-sm-dormant; exit 0 ;;
-  new-window|kill-window) printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"; exit 0 ;;
+  new-window|kill-window)
+    printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"
+    if [ -n "${FM_TMUX_HOLD_DIR:-}" ]; then
+      mkdir -p "$FM_TMUX_HOLD_DIR"
+      : > "$FM_TMUX_HOLD_DIR/$$"
+      if [ "$(ls "$FM_TMUX_HOLD_DIR" | wc -l)" -gt 1 ]; then
+        printf 'overlap: %s\n' "$*" >> "$FM_TMUX_CALL_LOG"
+      fi
+      sleep 2
+      rm -f "$FM_TMUX_HOLD_DIR/$$"
+    fi
+    exit 0
+    ;;
   has-session) exit 0 ;;
 esac
 exit 0
@@ -457,6 +488,25 @@ test_liveness_sweep_yields_to_a_running_recovery_pass() {
   pass "seam secondmate-liveness-skip: the startup sweep yields to a running recovery pass"
 }
 
+test_liveness_sweep_relaunches_one_at_a_time() {
+  # This is the secondmate-liveness-serial seam.
+  local w fb log out
+  w=$(new_world sweep-serial)
+  touch "$w/home/state/.last-watcher-beat"
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  add_secondmate "$w" sm-one
+  add_secondmate "$w" sm-two
+  add_secondmate "$w" sm-three
+  fb=$(make_toolchain "$w/tools")
+  log="$w/tmux.log"; : > "$log"
+  out=$(FM_TMUX_HOLD_DIR="$w/held" run_sweep "$w" "$fb" "$log")
+  assert_contains "$(cat "$log")" "fm-sm-one" "the startup sweep did not relaunch sm-one (relaunches that run at the same time refuse each other): $out"
+  assert_contains "$(cat "$log")" "fm-sm-two" "the startup sweep did not relaunch sm-two (relaunches that run at the same time refuse each other): $out"
+  assert_contains "$(cat "$log")" "fm-sm-three" "the startup sweep did not relaunch sm-three (relaunches that run at the same time refuse each other): $out"
+  assert_not_contains "$(cat "$log")" "overlap:" "the startup sweep relaunched second mates at the same time"
+  pass "seam secondmate-liveness-serial: the startup sweep relaunches second mates one at a time"
+}
+
 # --- restart-record seam: the real locked session start ---------------------
 
 make_fake_ps_claude() {  # <fakebin>: every queried pid is a live claude harness
@@ -503,6 +553,7 @@ test_session_start_records_the_restart_fingerprint() {
 for t in \
   test_fingerprint_reports_the_three_restart_signals \
   test_record_names_each_restart_kind_once \
+  test_record_in_a_secondmate_home_points_at_the_primary \
   test_record_captures_the_primary_endpoint_in_a_herdr_pane \
   test_run_acts_only_after_a_recorded_restart \
   test_run_waits_for_herdr_with_a_bound \
@@ -511,6 +562,7 @@ for t in \
   test_dormant_marker_cli \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \
+  test_liveness_sweep_relaunches_one_at_a_time \
   test_session_start_records_the_restart_fingerprint; do
   [ -z "${FM_TEST_ONLY:-}" ] || [ "$t" = "$FM_TEST_ONLY" ] || continue
   "$t"

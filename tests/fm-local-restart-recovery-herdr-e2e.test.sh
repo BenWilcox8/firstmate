@@ -10,8 +10,10 @@
 # that the authorized second mates and the primary come back in their own
 # panes, the primary resuming its recorded session, while the dormant one stays
 # down; that a second mate the captain relaunched by hand during a restart is
-# not launched twice; that a finished restart is never recovered again; and
-# that a restart loop stops at the rate limit with one alert.
+# not launched twice; that a primary whose pane is gone comes back in a new tab
+# of its recorded workspace, or in a new workspace once that is gone, and the
+# pass names what it created; that a finished restart is never recovered again;
+# and that a restart loop stops at the rate limit with one alert.
 # Every agent is a stand-in that records its launch and sleeps as a process
 # named claude, so the guard spends no model tokens and runs by default wherever
 # Herdr and jq exist.
@@ -207,7 +209,7 @@ printf 'recorded\n' >> '$TMP_ROOT/record.out'
 exec -a claude '$STUB/sleep/claude' -e 'sleep 86400'
 SH
 row=$(new_workspace "$H" fleet) || fail "the primary lab workspace could not be created"
-IFS=$'\t' read -r _ _ PRIMARY_PANE <<EOF
+IFS=$'\t' read -r PRIMARY_WS _ PRIMARY_PANE <<EOF
 $row
 EOF
 wait_shell "$PRIMARY_PANE" || fail "the primary pane never showed a shell"
@@ -278,17 +280,38 @@ assert_contains "$(cat "$H/state/osg.status")" "working: relaunched after a mach
   "the relaunched second mate got no status boundary"
 pass "live: the pass leaves one wake and a status boundary for each relaunched second mate"
 
+# created_pane <what>: the pane the pass names after "relaunched in <what>", a
+# sed pattern for the tab or workspace it says it created.
+created_pane() {
+  printf '%s\n' "$OUT" \
+    | sed -n "s/^fm-restart-recovery: primary firstmate: relaunched in $1, pane $SESSION:\([^,]*\), .*\$/\1/p" \
+    | head -n 1
+}
+
 # --- restart 2: a relaunch by hand during recovery is not duplicated -------------
 
 restart_lab boot-3
 lab pane run "$RES_PANE" "claude --by-hand" >/dev/null || fail "the manual relaunch could not be typed"
 wait_launches "$RES_HOME" 3 || fail "the manual relaunch never started"
+# The primary's recorded pane is gone after this restart, while its workspace
+# stays, so the primary comes back in a new tab of that workspace.
+lab tab create --workspace "$PRIMARY_WS" --cwd "$H" --label spare --no-focus >/dev/null \
+  || fail "the spare tab that keeps the primary workspace open could not be created"
+lab pane close "$PRIMARY_PANE" >/dev/null || fail "the primary pane could not be closed"
 recover; [ "$RC" -eq 0 ] || fail "the second recovery pass failed ($RC): $OUT"
 assert_contains "$OUT" "second mate research: already running" "the pass did not notice the manual relaunch"
 [ "$(launches_in "$RES_HOME")" -eq 3 ] || fail "a second mate relaunched by hand was launched again: $OUT"
 [ "$(launches_in "$OSG_HOME")" -eq 3 ] || fail "osg was not relaunched after the second restart: $OUT"
 [ "$(launches_in "$H")" -eq 2 ] || fail "the primary was not relaunched after the second restart: $OUT"
 pass "live: a second mate relaunched by hand during a restart is detected and not launched twice"
+
+TAB_PANE=$(created_pane "a new tab [^ ]* in the recorded workspace $PRIMARY_WS")
+[ -n "$TAB_PANE" ] || fail "the pass did not name the new tab in the recorded workspace and its pane: $OUT"
+pane_runs_claude "$TAB_PANE" || fail "the primary is not running in the new tab pane $TAB_PANE"
+assert_contains "$(cat "$H/state/restart-recovery/"*.txt)" \
+  "- primary firstmate: relaunched in a new tab " "the pass record did not name the new tab"
+PRIMARY_PANE=$TAB_PANE
+pass "live: a primary whose pane is gone comes back in a new tab of its recorded workspace, named in the pass record"
 
 recover; [ "$RC" -eq 0 ] || fail "a repeat run failed ($RC): $OUT"
 assert_contains "$OUT" "already recovered" "a repeat run for the same restart was not recognized"
@@ -306,3 +329,15 @@ assert_contains "$OUT" "rate limit" "the rate limit was not reported"
 [ "$(grep -c 'restart-recovery-alert:rate-limit' "$H/state/.wake-queue")" -eq 1 ] \
   || fail "the rate limit did not raise exactly one alert"
 pass "live: a restart loop stops at the rate limit with one alert and no launches"
+
+# --- a retry after the loop: the recorded workspace is gone ----------------------
+
+# The captain closes the primary's workspace and retries the refused restart
+# with a higher limit, so the primary comes back in a new workspace.
+lab workspace close "$PRIMARY_WS" >/dev/null || fail "the primary workspace could not be closed"
+FM_RESTART_MAX_PASSES=3 recover; [ "$RC" -eq 0 ] || fail "the retried recovery pass failed ($RC): $OUT"
+WS_PANE=$(created_pane "a new workspace [^ ]* labeled 'fleet' (the recorded workspace $PRIMARY_WS is gone)")
+[ -n "$WS_PANE" ] || fail "the pass did not name the new workspace, its label, and its pane: $OUT"
+pane_runs_claude "$WS_PANE" || fail "the primary is not running in the new workspace pane $WS_PANE"
+[ "$(launches_in "$H")" -eq 3 ] || fail "the primary was not relaunched exactly once more: $OUT"
+pass "live: a primary whose workspace is gone comes back in a new workspace with its label, named in the pass output"
