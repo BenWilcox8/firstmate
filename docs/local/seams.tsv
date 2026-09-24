@@ -27,3 +27,7 @@ docs/herdr-backend.md	42	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.te
 docs/verification/runtime-backends.md	18	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
 tests/fm-control-herdr-smoke.test.sh	90	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
 tests/fm-teardown.test.sh	175	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
+tests/fm-endpoint-retire.test.sh	14	pane-cleanup-on-exit	tests/fm-endpoint-retire.test.sh	personal: unverified Herdr relaunch refusal replaces obsolete stopped-pane adoption	retain
+tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	6	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-presentation-e2e.test.sh	6	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	6	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain

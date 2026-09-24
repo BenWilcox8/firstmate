@@ -23,6 +23,7 @@ fm_local_hook() {
   # This library is a canonical lint root; do not expand it through every caller.
   # shellcheck source=/dev/null
   . "$FM_BACKEND_LIB_DIR/fm-local-pane-lib.sh"
+  # shellcheck disable=SC2034,SC2153 # Lifecycle scripts own META, STATE, and ID and read state.
   case "$1" in
     pane-exit-state)
       fm_local_pane_worker "$META" "$ID" || return 0
@@ -159,6 +160,8 @@ fm_local_hook() {
       local plan planned task pane closes=
       FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" sweep >/dev/null || true
       fm_herdr_layout_applicable || return 0
+      # With no task record here, no planned close can be a recorded task's.
+      compgen -G "$STATE/*.meta" >/dev/null || return 1
       plan=$("$(fm_herdr_layout_bin)" layout --repair --dry-run --json 2>/dev/null) || return 0
       planned=$(printf '%s' "$plan" | jq -r '.repair.actions
         | if type == "array" then . else error("missing repair plan") end

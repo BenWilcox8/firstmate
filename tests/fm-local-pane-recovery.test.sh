@@ -78,6 +78,16 @@ echo 'ok - recovery skips a pane whose fresh spawn holds the task meta lock'
 [ -f "$META" ] && [ -f "$tmp/closed" ]
 echo 'ok - recovery closes an ended worker pane while preserving its task record'
 
+# A duplicated home label resolves only to the task's recorded workspace.
+rm "$tmp/closed"
+FM_LOCAL_RECOVERY_WORKSPACES='[{"workspace_id":"w9","label":"firstmate"},{"workspace_id":"w8","label":"firstmate"}]' \
+  "$ROOT/bin/fm-local-pane-cleanup.sh" sweep 2>/dev/null
+[ ! -e "$tmp/closed" ]
+FM_LOCAL_RECOVERY_WORKSPACES='[{"workspace_id":"w9","label":"firstmate"},{"workspace_id":"w1","label":"firstmate"}]' \
+  "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
+[ -f "$META" ] && [ -f "$tmp/closed" ]
+echo 'ok - a duplicated home label resolves to the recorded workspace, never to a guess'
+
 # Unknown process evidence cannot authorize a close.
 rm "$tmp/closed"
 cp "$tmp/original.meta" "$META"

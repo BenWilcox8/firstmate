@@ -29,14 +29,16 @@ fm_local_pane_flat() {
 }
 
 # Print this home's workspace id in <session>, or "absent" when no workspace
-# carries its label. A failed or ambiguous listing is an error.
-fm_local_pane_workspace() { # <session>
+# carries its label. Several labeled workspaces resolve only to the task's
+# recorded one. A failed or otherwise ambiguous listing is an error.
+fm_local_pane_workspace() { # <session> <recorded-workspace-id>
   local inventory
   inventory=$(fm_backend_herdr_cli "$1" workspace list) || return 1
-  printf '%s' "$inventory" | jq -er --arg want "$(fm_backend_herdr_workspace_label)" '
+  printf '%s' "$inventory" | jq -er --arg want "$(fm_backend_herdr_workspace_label)" --arg recorded "$2" '
     if (.result.workspaces | type) != "array" then error("missing workspace inventory") else . end
     | [.result.workspaces[] | select(.label == $want)]
     | if length == 0 then "absent" elif length == 1 then .[0].workspace_id
+      elif any(.[]; .workspace_id == $recorded) then $recorded
       else error("ambiguous home workspace") end'
 }
 
@@ -99,7 +101,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
   if fm_backend_herdr_axi_available; then
     inventory=${FM_LOCAL_PANE_INVENTORY:-}
     if [ -z "$inventory" ]; then
-      workspace=$(fm_local_pane_workspace "$session") || return 1
+      workspace=$(fm_local_pane_workspace "$session" "$(fm_meta_get "$meta" herdr_workspace_id)") || return 1
       [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$meta" "$id" "$recorded"; return; }
       inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
     fi
@@ -112,7 +114,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
         else $rows[0] end') || return 1
     FM_LOCAL_PANE_WORKSPACE=$(printf '%s' "$inventory" | jq -er '.workspace.id') || return 1
   else
-    workspace=$(fm_local_pane_workspace "$session") || return 1
+    workspace=$(fm_local_pane_workspace "$session" "$(fm_meta_get "$meta" herdr_workspace_id)") || return 1
     [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$meta" "$id" "$recorded"; return; }
     FM_LOCAL_PANE_WORKSPACE=$workspace
     panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$workspace") || return 1
@@ -185,6 +187,7 @@ fm_local_pane_receipt() { # <meta> <task-id>
       | select((.slot | type) == "string" and (.workspace | type) == "string")' "$receipt"
 }
 
+# shellcheck disable=SC2034 # Output globals are read by fm-spawn.
 fm_local_pane_relaunch_state() {
   local observed
   fm_local_pane_resolve "$RELAUNCH_META" "$ID" || return 1
@@ -203,6 +206,7 @@ fm_local_pane_relaunch_state() {
   RELAUNCH_STATE=dead
 }
 
+# shellcheck disable=SC2034,SC2153 # fm-spawn owns STATE and reads the output globals.
 fm_local_pane_relaunch_create() {
   local receipt slot session workspace out ids occupancy slot_tab slot_n
   local -a launch args

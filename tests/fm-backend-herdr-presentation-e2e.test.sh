@@ -34,8 +34,12 @@ cp "$FIXTURE_NODE" "$FIXTURE_AGENT" || {
   printf 'not ok - could not create the executable agent fixture\n' >&2
   exit 1
 }
+# Like a real agent, the stand-in ends on the harness exit command that
+# teardown submits before it closes the pane.
 cat > "$FIXTURE_SCRIPT" <<'JS'
-setTimeout(() => {}, Number(process.argv[2]) * 1000)
+setTimeout(() => process.exit(0), Number(process.argv[2]) * 1000)
+require('readline').createInterface({ input: process.stdin })
+  .on('line', (line) => { if (line.trim() === '/exit') process.exit(0) })
 JS
 FAKEBIN="$TMP_ROOT/fakebin"
 HERDR_CALL_LOG="$TMP_ROOT/herdr-calls.log"

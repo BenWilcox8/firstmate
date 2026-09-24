@@ -1016,7 +1016,7 @@ parse_orca_worktree_result() {
 
 spawn_abort_cleanup() {
   local status=$?
-  fm_local_hook pane-spawn-abort "$status" || true
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-spawn-abort "$status" || true; fi
   if [ "$RELAUNCH_REPLACEMENT_PENDING" = 1 ] \
      && [ "$SPAWN_META_PUBLISH_STARTED" = 1 ] \
      && [ -n "$SPAWN_META_TMP" ] \
@@ -1403,7 +1403,7 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  fm_local_hook pane-spawn-state || exit 1
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-spawn-state || exit 1; fi
   if [ "$RESUME_SESSION" -eq 1 ]; then
     # A resume always opens a new endpoint in the worktree; the endpoint check
     # for it runs below, once the recorded worktree is known.
@@ -2899,7 +2899,7 @@ W="fm-$ID"
 # A fresh spawn opens its endpoint in the project, where `treehouse get` then
 # allocates the worktree; a resume that must open a new endpoint opens it in
 # the recorded worktree directly.
-fm_local_hook pane-spawn-create || exit 1
+if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-spawn-create || exit 1; fi
 ENDPOINT_DIR=$PROJ_ABS
 [ "$RESUME_NEW_ENDPOINT" -eq 0 ] || ENDPOINT_DIR=$RELAUNCH_WT
 if [ "$RELAUNCH" -eq 1 ] && [ "$RESUME_NEW_ENDPOINT" -eq 0 ]; then
