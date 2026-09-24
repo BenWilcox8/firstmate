@@ -72,7 +72,7 @@ config/crew-harness  crewmate harness override; LOCAL, gitignored; absent or "de
 config/crew-dispatch.json  optional crewmate dispatch profiles; LOCAL, gitignored; firstmate-maintained but human-editable natural-language rules that choose a per-task harness/model/effort profile (section 4). Inherited by secondmate homes
 config/secondmate-harness  harness the PRIMARY uses to launch SECONDMATE agents, optionally followed by a model and effort token on the same line ("<harness> [<model>] [<effort>]"; section 4); LOCAL, gitignored; absent or "default" harness falls back to config/crew-harness then firstmate's own. The primary's own setting; NOT inherited into secondmate homes (secondmates do not spawn secondmates)
 config/backlog-backend  backlog backend override; LOCAL, gitignored; absent or "tasks-axi" = default tasks-axi backend, "manual" = force routine backlog updates to hand-editing; inherited by secondmate homes (section 10)
-config/specs  Atlas repo pointer whose content is the absolute path to the local Atlas repo; LOCAL, gitignored; installer-provisioned, per-home; absent = no Atlas hook call at all; not inherited into secondmate homes; see docs/configuration.md "Atlas pointer (config/specs)"
+config/specs  optional Atlas module switch whose content is the absolute path to the local Atlas repo; LOCAL, gitignored; installer-provisioned, per-home; not inherited into secondmate homes; present = session start emits the module's instructions, absent = no Atlas text and no Atlas call at all; see docs/atlas-module/README.md
 config/backend  runtime session-provider backend override for new tasks; LOCAL, gitignored; absent = falls through to runtime auto-detection (the runtime firstmate itself is executing inside), then tmux; tmux is the verified reference backend (docs/tmux-backend.md), herdr has its own required CI lane (docs/herdr-backend.md), while zellij and cmux remain experimental with no dedicated real-backend CI lane (docs/zellij-backend.md, docs/cmux-backend.md); Orca is unsupported for new tasks, with existing-record handling retained (docs/orca-backend.md) - herdr and cmux can also be selected by runtime auto-detection, zellij never is (always explicit), and codex-app is not accepted; see docs/codex-app-backend.md; inherited by secondmate homes under the primary-authoritative contract in secondmate-provisioning
 config/calm     Pi Calm presentation preference; LOCAL, gitignored, and not inherited; see docs/configuration.md "Pi Calm preference"
 config/supervision-branch-model config/supervision-branch-effort  Pi supervision-branch model and reasoning-effort pins written by /supervision-model; LOCAL, gitignored, independently settable, and not inherited; see docs/configuration.md "Pi supervision branch model and effort"
@@ -185,7 +185,7 @@ When that section reports its checks still in progress it names exactly what is 
    The same drain prints every still-unread `note:` line and pending-reply resolution since the last presentation in an unbounded `UNREAD STATUS` section, so an answer buried under a later routine line is not dropped; those lines are not re-printed after that presentation.
    It also prints a bounded `RECORD DIVERGENCE` section naming every captain call the status log reads as resolved while its backlog task is still held; nothing is closed for you, and `captain-hold-lifecycle` owns the reconciliation.
    When the lock could not be acquired and verified, the queue is left untouched because no session mutation is authorized, and the guard's tangle/watcher-liveness alarms still print in read-only advisory mode without drain, supervision repair, or checkout repair commands.
-4. **Supervision operating instructions** - after the wake queue and before both digests, the digest emits exactly one operating block for the detected primary harness, followed by the read-once contract that governs them.
+4. **Supervision operating instructions** - after the wake queue and before both digests, the digest emits exactly one operating block for the detected primary harness, plus any block that an optional module this home enables adds, followed by the read-once contract that governs them.
    The script itself never starts supervision; the emitted harness protocol owns the exact wait or wake mechanism.
 5. **Fleet-state digest** - after that read-once contract and ahead of the context digest, the compact backlog listing owned by `bin/fm-session-start.sh`; every `state/<id>.meta`; a bounded tail of each task's `state/<id>.status` (labeled as wake-EVENT history, not current state, with the full log path printed for a deeper read); the `state/.afk` flag; and one cheap alive/dead read of each task's recorded backend endpoint.
    That liveness line is a fast presence check only, not a full state read - when you need a crew's actual current state, read it with `bin/fm-crew-state.sh <id>` as before.
@@ -399,22 +399,6 @@ When a scout's deliverable is a visual artifact the captain will iterate on, pre
 When implementation is separately authorized, promote the existing scout through `bin/fm-promote.sh` rather than creating a duplicate task.
 The promoted worker must inventory scratch state, return to a clean default-branch base, carry over only intended fix changes, create the ship branch, and follow the project's selected delivery path while leaving scratch commits and debug edits behind and turning a reproduced bug into the regression test.
 
-## Atlas doctrine
-
-The Atlas - the dashboard's map of every project's nodes and regions - is the primary shared surface of truth for all fleet work.
-Keep it current: every node and region represents a currently existing feature or aspect of its project.
-
-As a strong default, every message a secondmate sends should include some Atlas action: a ticket queued, started, recorded, or completed; a node created, described, or reconciled; or a signal.
-Pure question-answering, configuration relays, and bare acknowledgments are named exceptions to this default.
-
-Crewmates are almost exclusively ticket-focused: a crewmate is spawned to work on one ticket, and when that ticket closes the crewmate is removed.
-
-Every project defines at least one captain testing and review surface in its `AGENTS.md`.
-Declare that surface at ticket creation; a secondmate unsure of the right surface must not create the ticket and instead asks the captain with a recommendation.
-
-`atlas-supervising` (supervisors) and `atlas-working` (crewmates) own the ticket procedure, `firstmate-signalling` owns the signal protocol, and `atlas-firstmate-bridge` owns how they compose with this file.
-Load `atlas-supervising` and `atlas-firstmate-bridge` at every intake and lifecycle moment; both apply only in a home with an Atlas pointer (`config/specs`).
-
 ## 8. Supervision protocol
 
 Fleet supervision is an always-loaded operational contract; `docs/architecture.md`, `docs/turnend-guard.md`, the emitted session-start block, and script help own mechanisms and harness-specific recipes.
@@ -440,7 +424,6 @@ Handle actionable wakes as follows:
 2. For `stale:`, inspect the recorded endpoint and load `stuck-crewmate-recovery` for a stopped, looping, confused, or unresponsive worker; a deep-inspection reason also requires current-state and validation-log inspection.
 3. For `check:`, act on the named poll result, including merges, Relay events, process-to-event source results, and captain inbox notes; a handled inbox note is also acknowledged with `bin/fm-inbox.sh drain --ack <id>`, or it stays counted as still waiting for firstmate.
 4. For `heartbeat:`, review the whole fleet from the structured fleet view, reconcile suspicious tasks and PR state, update the backlog, and never report an unchanged fleet as progress.
-In an Atlas-wired home, run `atlas-axi dispositions` at every heartbeat and dispatch each ready node.
 
 When any wake reports a merged PR for a project cloned in this home, refresh that clone through the guarded fleet-sync path.
 When Relay-linked work reaches a milestone or terminal state, load `fmx-respond`; before terminal teardown, use its promised-final reconciliation when a typed public commitment exists, otherwise post the final completion follow-up so the link clears even if earlier follow-ups were spent.
@@ -576,7 +559,6 @@ These skills are not captain-invocable; load them only at their precise triggers
 - `quota-array-dispatch` - load before choosing among a matched crew-dispatch profile array from current quota-axi default TOON.
 - `harness-adapters` - load before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter.
 - `firstmate-orca` - load before inspecting, supervising, or reconciling existing Orca-backed task records; new Orca tasks are unsupported.
-- `atlas-firstmate-bridge` - load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and this file appear to disagree.
 - `firstmate-signalling` - load at session start in every firstmate and secondmate session, and again whenever an instruction-update nudge arrives.
 - `herdr-pane-management` - load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 - `project-management` - load before adding, creating, removing, or initializing a project.

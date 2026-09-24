@@ -305,6 +305,18 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/atlas-module/README.md",
+      "audience": "maintainer-architecture"
+    },
+    {
+      "path": "docs/atlas-module/crewmate-brief.md",
+      "audience": "agent-runtime"
+    },
+    {
+      "path": "docs/atlas-module/supervisor-block.md",
+      "audience": "agent-runtime"
+    },
+    {
       "path": "docs/calm-mode-feasibility.md",
       "audience": "maintainer-verification"
     },

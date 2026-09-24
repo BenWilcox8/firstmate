@@ -36,6 +36,12 @@
 #     (l) a wired spawn replaces ambient Atlas values with this home's values
 #     (m) an unwired spawn clears every ambient Atlas value
 #     (n) a relaunch exports wired Atlas values again
+#     (o) a relaunch keeps the recorded ticket in its launch brief, and a
+#         relaunch refuses a new --ticket
+#     (p) a fresh ticket-less spawn over an older ticketed record gets no
+#         ticket: no crewmate fragment, the dispatch warning, no recorded ticket
+#     (q) with the filtered launch environment, a secondmate still receives the
+#         Atlas values its pane shell holds
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -109,6 +115,7 @@ opt() {  # <flag> <args...> -> the flag's value
 upd() {  # <file> <jq args...>
   local f=$1
   shift
+  [ -f "$f" ] || exit 1
   jq "$@" "$f" > "$f.tmp" && mv "$f.tmp" "$f"
 }
 ticket_file() {
@@ -900,6 +907,101 @@ test_relaunch_unwired_clears_atlas_environment() {
   pass "relaunch: an unwired worker clears ambient Atlas values"
 }
 
+# A dead task record that already names a ticket.
+write_ticketed_record() {  # <id> <ticket>
+  printf 'fm-%s\n' "$1" > "$HOME_DIR/tmux/windows"
+  fm_write_meta "$HOME_DIR/state/$1.meta" \
+    "window=firstmate:fm-$1" \
+    "endpoint_task_id=$1" \
+    "worktree=$HOME_DIR/wt" \
+    "project=$HOME_DIR/project" \
+    "harness=claude" \
+    "kind=ship" \
+    "mode=no-mistakes" \
+    "yolo=off" \
+    "tasktmp=/tmp/fm-$1" \
+    "model=default" \
+    "effort=default" \
+    "atlas_ticket=$2"
+}
+
+test_relaunch_keeps_the_recorded_ticket() {
+  local id=gate-ticket-e1 out rc brief
+  make_spawn_home ticket-relaunch yes "$id"
+  write_ticketed_record "$id" c5
+  set +e
+  out=$(run_spawn "$id" --relaunch --ticket c6)
+  rc=$?
+  set -e
+  expect_code 1 "$rc" "relaunch: a new --ticket on a relaunch was not refused"$'\n'"$out"
+  assert_contains "$out" 'error: --ticket applies to a fresh spawn' \
+    "relaunch: the --ticket refusal does not say why"
+  out=$(run_spawn "$id" --relaunch) || fail "relaunch: the relaunch failed: $out"
+  brief="$HOME_DIR/data/$id/launch-brief.md"
+  assert_grep 'This task works Atlas ticket c5.' "$brief" \
+    "relaunch: the launch brief lost the recorded ticket"
+  [ "$(grep -c '^atlas_ticket=' "$HOME_DIR/state/$id.meta")" = 1 ] \
+    || fail "relaunch: the task record does not hold exactly one ticket:"$'\n'"$(cat "$HOME_DIR/state/$id.meta")"
+  pass "relaunch: the launch brief keeps the recorded ticket, and a new --ticket is refused"
+}
+
+test_fresh_spawn_ignores_an_older_ticketed_record() {
+  local id=gate-ticket-f1 out rc brief
+  make_spawn_home ticket-fresh yes "$id"
+  write_ticketed_record "$id" c5
+  # The old window is gone, so the fresh spawn replaces the record.
+  : > "$HOME_DIR/tmux/windows"
+  set +e
+  out=$(run_spawn "$id" "$HOME_DIR/project" --harness claude --mode no-mistakes --yolo off)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "spawn: a fresh spawn over a dead record failed"$'\n'"$out"
+  assert_contains "$out" "warning: $id is being dispatched without --ticket" \
+    "spawn: a ticket-less fresh spawn did not get the dispatch warning"
+  brief="$HOME_DIR/data/$id/launch-brief.md"
+  assert_present "$brief" "spawn: no launch brief was rendered"
+  assert_no_grep 'c5' "$brief" "spawn: a fresh spawn took the ticket of an older record"
+  assert_no_grep 'atlas-working' "$brief" "spawn: a ticket-less fresh spawn got the crewmate fragment"
+  assert_no_grep 'atlas_ticket=' "$HOME_DIR/state/$id.meta" \
+    "spawn: a ticket-less fresh spawn recorded a ticket"
+  pass "spawn: a fresh ticket-less spawn over an older ticketed record gets no ticket"
+}
+
+# The filtered launch environment passes the Atlas names for every pane kind.
+# The secondmate's emitted launch command runs in a synthetic pane shell whose
+# claude stand-in records the two values it received.
+test_secondmate_launch_env_passes_atlas_values() {
+  local id=gate-sm-g1 sm out rc launch probe_out
+  make_spawn_home sm-env no "$id"
+  sm="$TMP_ROOT/secondmate-home-$id"
+  mkdir -p "$sm/bin" "$sm/data"
+  printf '# Firstmate\n' > "$sm/AGENTS.md"
+  printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
+  printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
+  : > "$HOME_DIR/config/launch-env-allowlist"
+  set +e
+  out=$(run_spawn "$id" "$sm" --secondmate --harness claude)
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "spawn: the secondmate launch failed"$'\n'"$out"
+  launch=$(grep -E '^send-keys -t [^ ]+ -l ' "$HOME_DIR/tmux/calls" | tail -n 1)
+  launch=${launch#send-keys -t * -l }
+  [ -n "$launch" ] || fail "spawn: no launch command was sent:"$'\n'"$(cat "$HOME_DIR/tmux/calls")"
+  mkdir -p "$HOME_DIR/pane-bin"
+  probe_out="$HOME_DIR/pane-probe"
+  cat > "$HOME_DIR/pane-bin/claude" <<SH
+#!/bin/sh
+printf '%s|%s\n' "\${ATLAS_REPO-unset}" "\${ATLAS_AXI_BY-unset}" > '$probe_out'
+SH
+  chmod +x "$HOME_DIR/pane-bin/claude"
+  (cd "$sm" && env -i HOME="$HOME_DIR/user-home" PATH="$HOME_DIR/pane-bin:/usr/bin:/bin:$PATH" TERM=xterm \
+    ATLAS_REPO=/pane/specs ATLAS_AXI_BY=fm-pane FM_TEST_UNLISTED=dropped \
+    /bin/sh -c "$launch" >/dev/null 2>&1) || true
+  [ "$(cat "$probe_out" 2>/dev/null)" = "/pane/specs|fm-pane" ] \
+    || fail "spawn: the secondmate launch dropped the pane's Atlas values: $(cat "$probe_out" 2>/dev/null)"$'\n'"$launch"
+  pass "spawn: with the filtered launch environment, a secondmate still gets the pane's Atlas values"
+}
+
 for store in $STORES; do
   test_complete_refused_for_approval "$store"
   test_complete_refused_for_testing_brief "$store"
@@ -921,3 +1023,6 @@ test_spawn_exports_atlas_environment
 test_spawn_unwired_home_exports_no_repo
 test_relaunch_exports_atlas_environment
 test_relaunch_unwired_clears_atlas_environment
+test_relaunch_keeps_the_recorded_ticket
+test_fresh_spawn_ignores_an_older_ticketed_record
+test_secondmate_launch_env_passes_atlas_values

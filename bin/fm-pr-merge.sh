@@ -53,15 +53,12 @@
 # recorded value stale. Reading that state needs glab and jq, and either one
 # absent stops the merge before any state is recorded.
 #
-# After the merge succeeds, on either forge, the task's recorded Atlas ticket
-# (atlas_ticket= in its meta) is discharged with the PR URL as its evidence. That
-# call goes through bin/fm-atlas-hook.sh, which owns the best-effort contract and
-# can never fail a merge that has already happened; a task with no recorded
-# ticket, or a home with no Atlas, makes no call at all. Pass `--captain-word
-# <words>` or `--captain-word=<words>`, before the optional -- separator, with
-# the captain's exact words from chat to record them as the Atlas approval before
-# the ticket is completed; it is never forwarded to the forge CLI, and the hook's
-# header owns a refused close-out.
+# After the merge succeeds, on either forge, the optional module's close-out hook
+# (bin/fm-atlas-hook.sh complete) runs best effort with the PR URL as evidence;
+# that hook's header owns what it records and when it makes no call.
+# `--captain-word <words>` or `--captain-word=<words>`, before the optional --
+# separator, passes the captain's exact words from chat to that hook; it is
+# never forwarded to the forge CLI.
 #
 # Extra args must not include --repo or -R in any form, including a bundled
 # short-option cluster such as -yR, because the repository comes only from the
@@ -124,8 +121,8 @@ shift 2
 # --captain-authorized: explicit current captain merge instruction; passes
 # through the yolo= guard below. Required when yolo=off (the safe default).
 # Never forward this flag to the forge CLI.
-# --captain-word <words>: the captain's exact words, recorded as the Atlas
-# approval before the ticket is completed. Never forwarded to the forge CLI.
+# --captain-word <words>: the captain's exact words, passed to the close-out hook
+# below. Never forwarded to the forge CLI.
 CAPTAIN_AUTHORIZED=false
 CAPTAIN_WORD=
 while [ "$#" -gt 0 ]; do
@@ -771,9 +768,8 @@ case "$outcome_rc" in
 esac
 
 # The forge confirmed the merge and this script is holding the PR URL that
-# proves it, so the task's recorded Atlas ticket is discharged here. Best effort
-# by contract: bin/fm-atlas-hook.sh never fails a merge that has already
-# happened.
+# proves it. Optional module hook: best effort, so it never fails a merge that
+# has already happened.
 FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$SCRIPT_DIR/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-pr-merge \

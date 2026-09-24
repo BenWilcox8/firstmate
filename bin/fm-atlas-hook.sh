@@ -11,13 +11,17 @@
 #                                        [--actor <name>] [--captain-word <words>|--captain-word=<words>]
 #                                        [--defer-status]
 #        fm-atlas-hook.sh abort <task-id> --reason <text> [--actor <name>]
+#        fm-atlas-hook.sh cleanup <task-id> --kind <kind> --produced yes|no
+#                                           [--forced] [--pr-url <url>] [--report <path>]
+#                                           [--actor <name>] [--captain-word <words>|--captain-word=<words>]
+#                                           [--defer-status]
 #        fm-atlas-hook.sh state <task-id>
 #        fm-atlas-hook.sh wired
 #
 #   start     tells the Atlas the task's recorded ticket is now being worked by
 #             this task's crew: `ticket start <c> --to <holder> --task <task-id>`,
-#             where <holder> is fm-<task-id> when the id lacks the prefix, or
-#             <task-id> itself when it already starts with fm-.
+#             where <holder> is the task's crew name (bin/fm-atlas-lib.sh owns
+#             that rule).
 #   complete  discharges the ticket after a merge: it restages the ticket's node
 #             when --restage names a stage and the ticket is still started, then
 #             `ticket complete <c> --evidence ... --summary ...`. A ticket that is
@@ -33,9 +37,23 @@
 #             proved work. The store itself refuses a completed or abandoned
 #             ticket and treats an already queued one as a no-op, so a cleanup
 #             may run this as often as it likes.
+#   cleanup   is the close-out bin/fm-teardown.sh calls once every landed-work
+#             refusal has passed and before any record is erased. Teardown passes
+#             what it proved: the task kind, whether the leg produced work,
+#             whether the cleanup is forced, the PR URL it verified, and the
+#             scout report path. This verb decides what that means on the map:
+#             - a leg that produced NOTHING takes abort, with a reason naming the
+#               kind and a forced cleanup, unless its ticket is already completed
+#               or abandoned: a ticket that a merge or a supervisor closed is
+#               never re-queued as a dead dispatch;
+#             - any other leg takes land, with the report path, the PR URL, or
+#               the default-branch landing as its evidence;
+#             - a forced cleanup never takes land, because it may not claim a
+#               landing it has not proved, so it records nothing there.
+#             A secondmate is never a ticket's work, so it records nothing.
 #   state     prints the recorded ticket's state (queued, started, completed,
 #             abandoned) and nothing else, so a caller can tell a leg nobody
-#             discharged from one a crewmate or a merge already closed. Read-only:
+#             discharged from one a merge or a supervisor already closed. Read-only:
 #             it prints nothing at all on any skip or failure.
 #
 #   wired     is the read-only query the rest of the fleet uses to ask whether
@@ -54,9 +72,9 @@
 #              land first record them as the captain's Atlas approval, `ticket
 #              approve <c> --word <words>`, on a ticket that is not yet closed, so
 #              a captain-authorized merge or acceptance can pass the captain gate.
-#   --defer-status  is for land only and prints a refusal's status line on
-#              stdout instead of writing it (see THE CAPTAIN GATE), for teardown
-#              to write after it retires the task's status log.
+#   --defer-status  is for land and cleanup only, and prints a refusal's status
+#              line on stdout instead of writing it (see THE CAPTAIN GATE), for
+#              teardown to write after it retires the task's status log.
 #
 # THE CAPTAIN GATE. The Atlas refuses `ticket complete` and `land` while a ticket
 # waits on the captain's approval, or promised the captain a look and has no
@@ -78,7 +96,7 @@
 # every path exits 0, including an unusable Atlas, a missing atlas-axi, a missing
 # jq, a hung call, and any internal error. A call that was attempted and failed
 # prints exactly one warning line to stderr. Besides that warning, only state,
-# wired, and a land --defer-status refusal line print anything. Callers
+# wired, and a land or cleanup --defer-status refusal line print anything. Callers
 # still append `|| true` so a caller running under `set -e` is safe even if this
 # script is replaced by an older copy.
 #
@@ -91,9 +109,8 @@
 # Silence there is the design: a home without the Atlas wiring must behave exactly
 # as it did before this hook existed.
 #
-# The Atlas repo is resolved from this home's own pointer:
-# the content of <FM_HOME>/config/specs, an absolute path to the local Atlas repo
-# (docs/configuration.md "Atlas pointer (config/specs)").
+# The Atlas repo is resolved from this home's own config/specs pointer;
+# bin/fm-atlas-lib.sh owns that rule.
 #
 # FM_ATLAS_HOOK_TIMEOUT_SECS (default 20) bounds every single atlas-axi call when
 # `timeout` is available, so a wedged Atlas cannot stall a spawn, a merge, or a
@@ -110,6 +127,8 @@ STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 # shellcheck source=bin/fm-atlas-word-lib.sh
 . "$SCRIPT_DIR/fm-atlas-word-lib.sh"
+# shellcheck source=bin/fm-atlas-lib.sh
+. "$SCRIPT_DIR/fm-atlas-lib.sh"
 
 usage() {
   sed -n '2,${/^#/!q;p;}' "$0" | sed 's/^# \{0,1\}//'
@@ -138,17 +157,10 @@ hook_timeout_secs() {
   printf '%s\n' "$secs"
 }
 
-# The Atlas repo this home is wired to, or nothing at all.
+# The Atlas repo this home is wired to, or nothing at all. bin/fm-atlas-lib.sh
+# owns the pointer rule.
 atlas_repo() {
-  local pointer="$CONFIG/specs" repo
-  [ -f "$pointer" ] && [ ! -L "$pointer" ] || return 1
-  repo=$(head -n 1 "$pointer" 2>/dev/null | tr -d '\r' | sed 's/[[:space:]]*$//') || return 1
-  case "$repo" in
-    /*) ;;
-    *) return 1 ;;
-  esac
-  [ -d "$repo/atlas" ] || return 1
-  printf '%s\n' "$repo"
+  fm_atlas_repo "$CONFIG"
 }
 
 # Run one atlas-axi call under the shared repo, actor, and timeout. Prints the
@@ -212,7 +224,7 @@ captain_approve() {
   return 1
 }
 
-# Complete the ticket unless the crewmate already did. Silent: returns 1 with
+# Complete the ticket unless it is already closed. Silent: returns 1 with
 # ATLAS_ERR set when the Atlas refused, and the caller reports the refusal.
 ticket_complete_once() {
   if [ "$TICKET_STATE" = completed ] || [ "$TICKET_STATE" = abandoned ]; then
@@ -319,6 +331,44 @@ hook_land() {
   gate_refused "land node $TICKET_NODE for ticket $TICKET" yes
 }
 
+# Cleanup's close-out. Teardown supplies the facts it proved; this decides what
+# they mean on the map (see "cleanup" in the header).
+hook_cleanup() {
+  [ "$KIND" != secondmate ] || return 0
+  if [ "$PRODUCED" = no ]; then
+    # Read quietly: a state nobody can read still takes the abort, because
+    # abort claims nothing about work while land would claim a landing. A ticket
+    # a merge or a supervisor already closed is never re-queued; it takes the
+    # landing path below, which only frees and lands its node.
+    ticket_read >/dev/null 2>&1 || TICKET_STATE=
+    case "$TICKET_STATE" in
+      completed|abandoned) ;;
+      *)
+        if [ "$KIND" = scout ]; then
+          REASON="Scout task $ID was cleaned up with no work produced: no report was written."
+        else
+          REASON="Task $ID was cleaned up with no work produced: nothing committed, pushed or reported."
+        fi
+        [ "$FORCED" = 0 ] || REASON="$REASON The cleanup was forced."
+        hook_abort
+        return
+        ;;
+    esac
+  fi
+  [ "$FORCED" = 0 ] || return 0
+  if [ "$KIND" = scout ]; then
+    EVIDENCE="report at $REPORT"
+    SUMMARY="Scout task $ID delivered its report; the errand is carried out."
+  elif [ -n "$PR_URL" ]; then
+    EVIDENCE=$PR_URL
+    SUMMARY="Task $ID landed; cleanup verified the merged PR before removing the isolated copy."
+  else
+    EVIDENCE="task $ID landed on the project's default branch"
+    SUMMARY="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
+  fi
+  hook_land
+}
+
 run_hook() {
   local want_value=
 
@@ -331,7 +381,7 @@ run_hook() {
       atlas_repo || return 0
       return 0
       ;;
-    start|complete|land|abort|state) ;;
+    start|complete|land|abort|state|cleanup) ;;
     '') warn "no hook verb given"; return 0 ;;
     *) warn "unknown hook verb $VERB"; return 0 ;;
   esac
@@ -346,10 +396,7 @@ run_hook() {
   esac
   shift
 
-  case "$ID" in
-    fm-*) HOLDER=$ID ;;
-    *)    HOLDER="fm-$ID" ;;
-  esac
+  HOLDER=$(fm_atlas_holder "$ID")
 
   ACTOR=fm-atlas-hook
   EVIDENCE=
@@ -359,6 +406,11 @@ run_hook() {
   CAPTAIN_APPROVAL_ERR=
   CAPTAIN_WORD_SUPPLIED=0
   DEFER_STATUS=0
+  KIND=
+  PRODUCED=
+  FORCED=0
+  PR_URL=
+  REPORT=
   REASON=
   for a in "$@"; do
     if [ -n "$want_value" ]; then
@@ -376,6 +428,10 @@ run_hook() {
           CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
           CAPTAIN_WORD_SUPPLIED=1
           ;;
+        kind) KIND=$a ;;
+        produced) PRODUCED=$a ;;
+        pr-url) PR_URL=$a ;;
+        report) REPORT=$a ;;
       esac
       want_value=
       continue
@@ -401,9 +457,20 @@ run_hook() {
         CAPTAIN_WORD_SUPPLIED=1
         ;;
       --defer-status)
-        [ "$VERB" = land ] || { warn "$VERB called with --defer-status, which only land supports"; return 0; }
-        DEFER_STATUS=1
+        case "$VERB" in
+          land|cleanup) DEFER_STATUS=1 ;;
+          *) warn "$VERB called with --defer-status, which only land and cleanup support"; return 0 ;;
+        esac
         ;;
+      --kind) want_value=kind ;;
+      --kind=*) KIND=${a#--kind=} ;;
+      --produced) want_value=produced ;;
+      --produced=*) PRODUCED=${a#--produced=} ;;
+      --forced) FORCED=1 ;;
+      --pr-url) want_value=pr-url ;;
+      --pr-url=*) PR_URL=${a#--pr-url=} ;;
+      --report) want_value=report ;;
+      --report=*) REPORT=${a#--report=} ;;
       *) warn "$VERB called with unknown argument $a"; return 0 ;;
     esac
   done
@@ -427,6 +494,13 @@ run_hook() {
         return 0
       fi
       ;;
+    cleanup)
+      case "$PRODUCED" in
+        yes|no) ;;
+        *) warn "cleanup called for $ID without --produced yes or no"; return 0 ;;
+      esac
+      [ -n "$KIND" ] || { warn "cleanup called for $ID with no --kind"; return 0; }
+      ;;
   esac
   [ -n "$SUMMARY" ] || SUMMARY="Task $ID closed out by $ACTOR."
 
@@ -446,6 +520,7 @@ run_hook() {
     land) hook_land ;;
     abort) hook_abort ;;
     state) hook_state ;;
+    cleanup) hook_cleanup ;;
   esac
 }
 

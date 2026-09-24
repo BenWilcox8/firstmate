@@ -5,7 +5,7 @@
 #   A counted agent is a Herdr pane whose foreground process is an agent
 #   harness and that a firstmate home records as a ship or scout task.
 #   Supervisors (MAIN and secondmates) and unmanaged agent panes are listed
-#   apart and never counted. Ghost Atlas legs, closed panes (a parked ticket's
+#   apart and never counted. Ghost legs, closed panes (a parked ticket's
 #   pane is closed), and exited agents never count; a task agent still open in
 #   its pane always counts. bin/fm-agent-limit-lib.sh owns the rules.
 #   Every local firstmate home on this machine is counted, from any home.

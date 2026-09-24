@@ -186,16 +186,13 @@
 #   secondmate receives the primary's read-only shared captain-preference file
 #   (fm-config-inherit-lib.sh). A successful launch clears pending inherited
 #   config reread generations because the new agent reads the converged files.
-#   --ticket <id> names the Atlas ticket this work discharges. It is OPTIONAL and
-#   there is no refuse-to-spawn gate: a spawn without it behaves exactly as before.
-#   The id is recorded as atlas_ticket= in the task's meta, which is what the
-#   merge and teardown hooks read back, so the crew never types a ticket id and a
-#   closed-out task cannot lose which ticket it discharged. After the worker is
-#   launched, the spawn tells the Atlas the ticket is being worked. That call is
-#   best effort through bin/fm-atlas-hook.sh and can never fail the spawn; a home
-#   with no Atlas wiring writes no atlas_ticket= line and makes no call at all.
-#   Refused for --secondmate (a persistent home is not a ticket's work) and for
-#   batch id=repo dispatch (one ticket belongs to one crewmate).
+#   --ticket <id> names the Atlas ticket this work discharges. It is optional,
+#   and it is refused for --secondmate (a persistent home is not a ticket's work),
+#   for --relaunch (a relaunch keeps its recorded ticket), and for batch id=repo
+#   dispatch (one ticket belongs to one crewmate). The id is
+#   recorded as atlas_ticket= in the task's meta, where the lifecycle hooks read
+#   it back. The optional module (docs/atlas-module/README.md) owns every use of
+#   it, and its calls are best effort and can never fail the spawn.
 #   --scout records kind=scout in the task's meta (report deliverable, scratch worktree;
 #   see AGENTS.md task lifecycle); --secondmate records kind=secondmate and launches in a
 #   provisioned firstmate home; the default is kind=ship.
@@ -218,12 +215,9 @@
 #   behavior suite from the repository primary checkout while that marker is
 #   set (its header owns the refusal). A secondmate runs in its own home and is
 #   not marked.
-#   On the same channel, fresh and relaunched ship or scout panes receive the
-#   Atlas environment only when `fm-atlas-hook.sh wired` resolves this home's
-#   config/specs pointer: `export ATLAS_AXI_BY=<holder>`, where <holder> follows
-#   the fm-<task-id> rule of `fm-atlas-hook.sh start`, and `export
-#   ATLAS_REPO=<that repo>`, so a bare atlas-axi reaches the right map. An
-#   unwired home unsets ATLAS_REPO, SPECS_REPO, and ATLAS_AXI_BY before launch.
+#   On the same channel, fresh and relaunched, every ship or scout pane also
+#   receives each `export` or `unset` line that `fm-atlas-module.sh worker-env`
+#   prints; that script's header owns the names and when each is sent.
 #   Only after this isolation check, every fresh ship or scout requires a clean
 #   task worktree. When an origin configuration is detected, spawn fetches it,
 #   resolves the current remote default branch, and resets to its tip. Without
@@ -279,8 +273,8 @@
 #   TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH HERDR_PANE_ID
 #   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID CMUX_SOCKET_PATH
 #   ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION, plus the task
-#   marker FM_TASK_ID and, for wired ship and scout panes, the Atlas names
-#   ATLAS_AXI_BY and ATLAS_REPO described above.
+#   marker FM_TASK_ID and, for every pane kind, each name that
+#   `fm-atlas-module.sh launch-env-names` prints; that header owns the names.
 #   An enabled task trace also retains TRACEPARENT. Explicit Firstmate launch
 #   assignments still apply inside the filtered environment. Raw commands must
 #   be POSIX sh compatible under this opt-in; the absent-file path is unchanged.
@@ -591,6 +585,7 @@ if [ "$TICKET_SET" -eq 1 ]; then
     *[!A-Za-z0-9._-]*) echo "error: --ticket must be an Atlas ticket id such as c201 (letters, digits, dot, underscore, and dash only)" >&2; exit 1 ;;
   esac
   [ "$KIND" != secondmate ] || { echo "error: --ticket applies to crewmate and scout spawns; a secondmate is a persistent home, not a ticket's work" >&2; exit 1; }
+  [ "$RELAUNCH" -eq 0 ] || { echo "error: --ticket applies to a fresh spawn; a relaunch keeps the ticket its task record names" >&2; exit 1; }
 fi
 # A parent-delivered carrier replaces this home's own resolution, so it is
 # refused unless it is a secondmate spawn carrying a strictly valid W3C value.
@@ -1215,9 +1210,9 @@ if [ "${#POS[@]}" -gt 0 ] && [ "${POS[0]}" != "$idpart" ] && case "$idpart" in *
 fi
 ID=${POS[0]}
 fm_task_id_creation_valid "$ID" || { echo "error: invalid task id" >&2; exit 2; }
-if [ "$RELAUNCH" -eq 0 ] && [ -z "$TICKET" ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; } \
-  && [ -n "$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)" ]; then
-  echo "warning: $ID is being dispatched without --ticket; Atlas doctrine carries work on a ticket, so this task will not appear on the map" >&2
+if [ "$RELAUNCH" -eq 0 ] && { [ "$KIND" = ship ] || [ "$KIND" = scout ]; }; then
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-module.sh" dispatch-check "$ID" --ticket "$TICKET" || true
 fi
 if [ -e "$STATE" ] || [ -L "$STATE" ]; then
   fm_backlog_directory_present "$STATE" "state directory" || {
@@ -2397,13 +2392,19 @@ if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   SOURCE_BRIEF=$BRIEF
   BRIEF="$DATA/$ID/launch-brief.md"
   BRIEF_TMP="$DATA/$ID/.launch-brief.md.${BASHPID:-$$}"
+  # A fresh spawn names only its own ticket; a relaunch names none, so the
+  # module reads the ticket back from the task's own record.
+  SPAWN_TICKET_ARGS=(--ticket "$TICKET")
+  [ "$RELAUNCH" -eq 0 ] || SPAWN_TICKET_ARGS=()
   {
     cat "$SOURCE_BRIEF" &&
       printf '\n' &&
       fm_brief_worker_role &&
       if [ "$KIND" = ship ] && [ "$MODE" = no-mistakes ]; then
         fm_brief_intent_overlay "$ACCEPTED_TASK_REQUIREMENTS"
-      fi
+      fi &&
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+        "$FM_ROOT/bin/fm-atlas-module.sh" crewmate-brief "$ID" ${SPAWN_TICKET_ARGS[@]+"${SPAWN_TICKET_ARGS[@]}"}
   } > "$BRIEF_TMP" || { rm -f -- "$BRIEF_TMP"; echo "error: could not render current launch contract for $SOURCE_BRIEF" >&2; exit 1; }
   if ! mv "$BRIEF_TMP" "$BRIEF"; then
     rm -f -- "$BRIEF_TMP"
@@ -4095,18 +4096,14 @@ spawn_send_text_line "$T" "export GOTMPDIR=$TASK_TMP/gotmp"
 # syntax of its own.
 if [ "$KIND" = ship ] || [ "$KIND" = scout ]; then
   spawn_send_text_line "$T" "export FM_TASK_ID=$ID"
-  SPAWN_ATLAS_REPO=$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
-    "$FM_ROOT/bin/fm-atlas-hook.sh" wired 2>/dev/null || true)
-  if [ -n "$SPAWN_ATLAS_REPO" ]; then
-    spawn_send_text_line "$T" "unset SPECS_REPO"
-    case "$ID" in
-      fm-*) spawn_send_text_line "$T" "export ATLAS_AXI_BY=$ID" ;;
-      *) spawn_send_text_line "$T" "export ATLAS_AXI_BY=fm-$ID" ;;
-    esac
-    spawn_send_text_line "$T" "export ATLAS_REPO=$(shell_quote "$SPAWN_ATLAS_REPO")"
-  else
-    spawn_send_text_line "$T" "unset ATLAS_REPO SPECS_REPO ATLAS_AXI_BY"
-  fi
+  # Optional module hook: each line is `export NAME=<value the module quoted>`
+  # or `unset NAME...`. Any other line is dropped, so only a plain variable
+  # name reaches the pane.
+  while IFS= read -r spawn_module_env; do
+    [[ $spawn_module_env =~ ^export\ [A-Z_][A-Z0-9_]*= || $spawn_module_env =~ ^unset(\ [A-Z_][A-Z0-9_]*)+$ ]] || continue
+    spawn_send_text_line "$T" "$spawn_module_env"
+  done < <(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-module.sh" worker-env "$ID" 2>/dev/null || true)
 fi
 # Send through the exact channel that already ships GOTMPDIR, so every backend
 # and harness - ship, scout, and secondmate - gets it before launch. Skipped
@@ -4127,11 +4124,19 @@ if [ -n "$SPAWN_TRACEPARENT" ]; then
 fi
 if [ "$LAUNCH_ENV_ENABLED" = 1 ]; then
   LAUNCH_ENV_PREFIX='/usr/bin/env -i'
+  # Optional module hook: the names it passes through for every pane kind. A
+  # line that is not a plain variable name is dropped.
+  SPAWN_MODULE_ENV_NAMES=
+  while IFS= read -r spawn_module_name; do
+    [[ $spawn_module_name =~ ^[A-Z_][A-Z0-9_]*$ ]] || continue
+    SPAWN_MODULE_ENV_NAMES="$SPAWN_MODULE_ENV_NAMES $spawn_module_name"
+  done < <(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
+    "$FM_ROOT/bin/fm-atlas-module.sh" launch-env-names 2>/dev/null || true)
   for env_name in HOME PATH USER LOGNAME SHELL TERM COLORTERM LANG LC_ALL LC_CTYPE \
     TMPDIR TMP TEMP GOTMPDIR TMUX TMUX_PANE HERDR_ENV HERDR_SESSION HERDR_SOCKET_PATH \
     HERDR_PANE_ID CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_TAB_ID CMUX_PANEL_ID \
     CMUX_SOCKET_PATH ZELLIJ ZELLIJ_SESSION_NAME ZELLIJ_PANE_ID FM_ZELLIJ_SESSION \
-    FM_TASK_ID ATLAS_AXI_BY ATLAS_REPO \
+    FM_TASK_ID $SPAWN_MODULE_ENV_NAMES \
     $LAUNCH_ENV_NAMES; do
     # Only validated names enter shell syntax. Values expand once, quoted, in
     # the pane shell and never become source text or spawn-process snapshots.
@@ -4277,7 +4282,7 @@ fi
 fm_lock_release "$SPAWN_META_LOCK"
 SPAWN_META_LOCK_HELD=0
 
-# Publish the Atlas start only after delivery and the backlog commit succeed.
+# Publish the ticket start only after delivery and the backlog commit succeed.
 # The hook reports failures without failing an otherwise complete spawn.
 FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" start "$ID" --actor fm-spawn || true

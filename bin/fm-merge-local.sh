@@ -12,15 +12,11 @@
 #
 # After the fast-forward succeeds, the landing is recorded in the task's own
 # metadata as merged_local=<before>..<after>, so cleanup can tell landed work
-# from a leg that produced nothing without depending on the Atlas being up.
-# The task's recorded Atlas ticket (atlas_ticket= in its meta) is discharged
-# with the before..after range this script already computed. That call goes
-# through bin/fm-atlas-hook.sh, which owns the best-effort contract and can
-# never fail a merge that has already landed; a task with no recorded ticket, or
-# a home with no Atlas, makes no call at all. Pass `--captain-word <words>` or
-# `--captain-word=<words>` with the captain's exact words from chat to record
-# them as the Atlas approval before the ticket is completed; the hook's header
-# owns a refused close-out.
+# from a leg that produced nothing without depending on any outside service.
+# Then the optional module's close-out hook (bin/fm-atlas-hook.sh complete) runs
+# best effort with the before..after range as evidence; that hook's header owns
+# what it records and when it makes no call. `--captain-word <words>` or
+# `--captain-word=<words>` passes the captain's exact words from chat to it.
 # Merge authority: reads yolo= from the task's state/<id>.meta at entry and
 # refuses when the value is off or the field is absent (safe default). Pass
 # --captain-authorized to override the guard with an
@@ -48,8 +44,8 @@ fm_lease_forbid_branch "local-only landing (fm-merge-local)"
 ID=${1:?usage: fm-merge-local.sh <task-id>}
 # --captain-authorized: explicit current captain merge instruction; passes
 # through the yolo= guard below. Never modifies the git operation itself.
-# --captain-word <words>: the captain's exact words, recorded as the Atlas
-# approval before the ticket is completed.
+# --captain-word <words>: the captain's exact words, passed to the close-out hook
+# below.
 CAPTAIN_AUTHORIZED=false
 CAPTAIN_WORD=
 shift
@@ -130,8 +126,8 @@ echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
 
 # The fast-forward is the proof, and this script is holding it. Record it in the
 # task's own metadata FIRST, as merged_local=<before>..<after>: a landing whose
-# only record is an Atlas call would be invisible to cleanup whenever that
-# best-effort call missed, and cleanup would then read a branch the default
+# only record is the close-out hook's call would be invisible to cleanup whenever
+# that best-effort call missed, and cleanup would then read a branch the default
 # branch already contains as a leg that produced nothing.
 MERGED_LOCAL_LOCK=$(fm_meta_lock_path "$META") || {
   echo "error: could not resolve the task metadata lock for $ID" >&2
@@ -147,9 +143,8 @@ if ! grep -q '^merged_local=' "$META" 2>/dev/null; then
 fi
 fm_lock_release "$MERGED_LOCAL_LOCK"
 
-# Discharge the task's recorded Atlas ticket with the shas it already computed.
-# Best effort by contract: bin/fm-atlas-hook.sh never fails a merge that already
-# landed.
+# Optional module hook, with the shas this script already computed: best effort,
+# so it never fails a merge that already landed.
 FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_CONFIG_OVERRIDE="$CONFIG" \
   "$FM_ROOT/bin/fm-atlas-hook.sh" complete "$ID" \
   --actor fm-merge-local \
