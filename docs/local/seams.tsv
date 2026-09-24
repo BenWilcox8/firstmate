@@ -23,7 +23,7 @@ bin/fm-teardown.sh	7	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: pr
 bin/fm-test-run.sh	2	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
 bin/fm-watch.sh	1	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
 docs/agent-control.md	4	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: Herdr endpoint exception	retain
-docs/herdr-backend.md	40	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
+docs/herdr-backend.md	42	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
 docs/verification/runtime-backends.md	18	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
 tests/fm-control-herdr-smoke.test.sh	90	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
 tests/fm-teardown.test.sh	175	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
