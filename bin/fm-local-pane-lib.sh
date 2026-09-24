@@ -162,7 +162,8 @@ fm_local_pane_remember() { # <meta> <task-id>
   return 1
 }
 
-fm_local_pane_close() { # <meta> <task-id>
+# "held" means the caller already holds the target session's presentation lock.
+fm_local_pane_close() { # <meta> <task-id> [held]
   local meta=$1 id=$2 target
   fm_local_pane_resolve "$meta" "$id" || return 1
   target=$FM_LOCAL_PANE_TARGET
@@ -172,21 +173,48 @@ fm_local_pane_close() { # <meta> <task-id>
   # Remembering the slot changes no endpoint and is safe before that read.
   fm_local_pane_remember "$meta" "$id" || return 1
   [ -n "$target" ] || return 0
+  if [ "${3:-}" = held ]; then
+    fm_local_pane_close_held "$id" "$target"
+    return
+  fi
   fm_backend_task_endpoint_close herdr "${meta%/*}" "$id" "$target" "$meta" \
     || fm_local_pane_error "$id at $target: $FM_BACKEND_TASK_CLOSE_REASON"
 }
 
-# Teardown's Herdr close attempt count; a bad override falls back to the default.
-fm_local_pane_close_attempts() {
-  local attempts=${FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS:-3}
-  case "$attempts" in ''|*[!0-9]*|0) attempts=3 ;; esac
-  printf '%s' "$attempts"
+# The backend's flat close for a caller that already holds the session
+# presentation lock, so the close never takes or releases that hold. Each
+# attempt re-reads the recovery classifier and closes only an agent-free pane;
+# only a structurally gone pane confirms the close.
+FM_LOCAL_PANE_CLOSE_TRIES=3
+fm_local_pane_close_held() { # <task-id> <target>
+  local id=$1 target=$2 session pane observed attempt=0
+  fm_backend_herdr_parse_target "$target" \
+    || { fm_local_pane_error "$id at $target: the endpoint cannot be parsed exactly"; return 1; }
+  session=$FM_BACKEND_HERDR_SESSION
+  pane=$FM_BACKEND_HERDR_PANE
+  while [ "$attempt" -lt "$FM_LOCAL_PANE_CLOSE_TRIES" ]; do
+    observed=$(fm_backend_agent_state herdr "$target")
+    case "$observed" in
+      missing) return 0 ;;
+      dead) ;;
+      alive) fm_local_pane_error "$id at $target: an agent is still running on it"; return 1 ;;
+      *) fm_local_pane_error "$id at $target: its state reads '$observed', which never licenses a close"; return 1 ;;
+    esac
+    if fm_backend_herdr_axi_available; then
+      "$FM_BACKEND_HERDR_AXI_BIN" teardown "$id" --session "$session" >/dev/null 2>&1 || true
+    fi
+    fm_backend_herdr_kill_serialized "$session" "$pane" >/dev/null 2>&1 || true
+    attempt=$((attempt + 1))
+    sleep 0.3
+  done
+  [ "$(fm_backend_agent_state herdr "$target")" = missing ] \
+    || fm_local_pane_error "$id at $target: the pane could not be confirmed closed after $FM_LOCAL_PANE_CLOSE_TRIES attempts"
 }
 
 # The loud report for a task pane teardown could not close. Reads T, ID, FORCE,
 # and FM_LOCAL_PANE_GUARD_STATE from the teardown caller.
-fm_local_pane_leak_report() {
-  echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(fm_local_pane_close_attempts) close attempts" >&2
+fm_local_pane_leak_report() { # <close-attempts>
+  echo "error: LEAKED HERDR PANE - $T for $ID is still open after $1 close attempts" >&2
   if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
     echo "error: its agent is still running, so pane cleanup refused to close it" >&2
   else

@@ -2849,6 +2849,41 @@ test_herdr_teardown_keeps_receipt_when_a_later_step_refuses() {
   pass 'herdr teardown keeps the placement receipt while a later refusal retains the task record'
 }
 
+test_herdr_teardown_holds_session_lock_after_the_early_pane_close() {
+  local case_dir log closed probe lock wt_head rc=0
+  case_dir=$(make_case herdr-early-close-lock)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  wt_commit "$case_dir" "merged work"
+  wt_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$wt_head"
+  printf 'done: PR https://github.com/example/repo/pull/9 checks green\n' > "$case_dir/state/task-x1.status"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"; probe="$case_dir/lock-probe"
+  lock=$(FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" PATH="$case_dir/fakebin:$PATH" \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_presentation_session_lock_path fmtest' "$ROOT") \
+    || fail "herdr-early-close-lock: could not resolve the fixture presentation lock path"
+  # A contender tries the session lock when the pool slot is returned, after the early pane close.
+  cat > "$case_dir/fakebin/treehouse" <<SH
+#!/usr/bin/env bash
+if bash -c '. "\$0/bin/fm-wake-lib.sh"; fm_lock_try_acquire "\$1" && fm_lock_release "\$1"' "$ROOT" "$lock"; then
+  echo free >> "$probe"
+else
+  echo held >> "$probe"
+fi
+SH
+  chmod +x "$case_dir/fakebin/treehouse"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -eq 0 ] || fail "herdr-early-close-lock: teardown failed: $(cat "$case_dir/stderr")"
+  [ -e "$closed" ] || fail "herdr-early-close-lock: the stopped worker pane was not closed"
+  [ -s "$probe" ] || fail "herdr-early-close-lock: the pool slot was never returned"
+  assert_not_contains "$(cat "$probe")" free \
+    "herdr-early-close-lock: a contender took the session presentation lock after the early pane close"
+  pass 'herdr teardown keeps its session presentation lock through the slot return after the early pane close'
+}
+
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting() {
   local case_dir log closed count
   case_dir=$(make_case herdr-close-bad-overrides)
@@ -4024,6 +4059,7 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly
 test_herdr_teardown_preserves_unknown_process_pane_even_when_forced
 test_herdr_teardown_force_retires_records_when_ownership_is_unreadable
 test_herdr_teardown_keeps_receipt_when_a_later_step_refuses
+test_herdr_teardown_holds_session_lock_after_the_early_pane_close
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting
 test_herdr_projection_teardown_retires_journal_after_a_retried_close
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close

@@ -109,13 +109,21 @@ fm_local_hook() {
       # An unforced teardown closes the stopped worker's proven-gone pane before
       # the reap and the slot return, so an unconfirmed close refuses while the
       # slot is still leased. --force never refuses on the close, so the later
-      # upstream close with its retry notices owns that path unchanged.
+      # upstream close with its retry notices owns that path unchanged. The
+      # close runs under teardown's own session presentation lock, which stays
+      # held through the reap, the slot return, and record removal. It makes
+      # a fixed 3 attempts, like the backend close; FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS and
+      # its retry wait tune only the later upstream close.
       [ "$FORCE" != --force ] || return 0
       fm_local_pane_worker "$META" "$ID" || return 0
       fm_local_pane_flat "$META" || return 0
-      fm_local_pane_close "$META" "$ID" 2>/dev/null && return 0
+      if ! teardown_herdr_session_lock_held "$(fm_meta_get "$META" herdr_session)"; then
+        fm_local_pane_error "$ID: teardown does not hold its session presentation lock; nothing was removed - rerun teardown"
+        return 1
+      fi
+      fm_local_pane_close "$META" "$ID" held && return 0
       [ "$(fm_backend_agent_state herdr "$T")" != alive ] || FM_LOCAL_PANE_GUARD_STATE=alive
-      fm_local_pane_leak_report
+      fm_local_pane_leak_report "$FM_LOCAL_PANE_CLOSE_TRIES"
       return 1
       ;;
     pane-teardown-gone)
@@ -140,7 +148,7 @@ fm_local_hook() {
         echo "warning: $ID's recorded pane $T is gone or now belongs to other work, so pane cleanup neither closed nor reports it as this task's pane" >&2
         return 0
       fi
-      fm_local_pane_leak_report
+      fm_local_pane_leak_report "$(teardown_herdr_close_attempts)"
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0
