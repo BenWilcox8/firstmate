@@ -56,6 +56,8 @@ case "$1" in
   kill-*)
     printf 'killed\n' >> "$CASE/runtime.log"
     [ ! -e "$CASE/late-outcome" ] || printf 'failed: late outcome before the endpoint stopped\n' >> "$CASE/home/state/old.status"
+    [ ! -e "$CASE/subshell.pid" ] || kill "$(cat "$CASE/subshell.pid")"
+    [ ! -e "$CASE/break-parent" ] || mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
     ;;
 esac
 exit 0
@@ -110,6 +112,34 @@ test_late_outcome_reaches_parent_before_return() {
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done' 'the first outcome did not reach the parent'
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the late outcome was discarded'
   pass 'an outcome written before the endpoint stopped reaches the parent before the slot returns'
+}
+
+test_undelivered_late_outcome_completes_after_owner_exits() {
+  make_case late-undelivered
+  make_parent
+  : > "$CASE/late-outcome"
+  : > "$CASE/break-parent"
+  # An interactive `treehouse get` owns the slot and exits once its worktree subshell is reaped.
+  bash -c 'sleep 1000 & printf "%s\n" "$!" > "$CASE/subshell.pid.tmp"; mv "$CASE/subshell.pid.tmp" "$CASE/subshell.pid"; wait; exit 0' &
+  local owner=$! i
+  FIXTURE_PIDS+=("$owner")
+  for ((i=0; i<100; i++)); do [ ! -e "$CASE/subshell.pid" ] || break; sleep 0.1; done
+  assert_present "$CASE/subshell.pid" 'slot owner fixture did not start its subshell'
+  set_slot_owner "$owner"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "an undelivered late outcome refused after the endpoint stopped: $(cat "$CASE/err")"
+  wait "$owner" || true
+  ! kill -0 "$owner" 2>/dev/null || fail 'the slot owner outlived its reaped subshell'
+  assert_contains "$(cat "$CASE/err")" 'LATE OUTCOME UNDELIVERED' 'the undelivered late outcome was not reported loudly'
+  assert_absent "$CASE/home/state/old.meta" 'teardown did not complete after the endpoint stopped'
+  [ "$(jq -r '.worktrees[0].owner_pid' "$CASE/pool/treehouse-state.json")" = null ] || fail 'teardown did not return the slot'
+  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done' 'the first outcome did not reach the parent'
+  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the late outcome was not recorded for retry'
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  env FM_HOME="$CASE/home" FM_STATE_OVERRIDE="$CASE/home/state" FM_DATA_OVERRIDE="$CASE/home/data" \
+    "$ROOT/bin/fm-inactive-reconcile.sh" scan > "$CASE/scan.out" 2>&1 || fail "retry scan failed: $(cat "$CASE/scan.out")"
+  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the watcher did not retry the late outcome'
+  if compgen -G "$CASE/home/state/terminal-outcomes/*.pending" > /dev/null; then fail 'the delivered late outcome is still pending'; fi
+  pass 'an undelivered late outcome completes teardown after the slot owner exits and the watcher delivers it'
 }
 
 test_return_refusal_keeps_task_records() {
@@ -408,6 +438,7 @@ test_unsafe_merge_marker_refusal_preserves_slot
 test_retirement_checks_atlas_task_identity
 test_parent_gate_preserves_slot
 test_late_outcome_reaches_parent_before_return
+test_undelivered_late_outcome_completes_after_owner_exits
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot
 test_retire_finished_scout_preserves_live_task

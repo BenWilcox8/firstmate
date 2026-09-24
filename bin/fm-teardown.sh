@@ -3179,12 +3179,19 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
 fi
 
 # Every step that can refuse runs before the pool slot is returned, so a refused
-# cleanup keeps the slot leased to this task. Parent delivery runs again once
-# the endpoint has stopped; its receipts make the second delivery idempotent.
-teardown_report_parent() {
+# cleanup keeps the slot leased to this task. A parent-delivery refusal must also
+# come before the reap: an interactive Treehouse slot owner exits with its reaped
+# subshell. Delivery runs again once the endpoint has stopped, and its receipts
+# make that idempotent. A late outcome it cannot deliver keeps its pending record,
+# which the watcher's ledger pass retries after this record is gone.
+teardown_report_parent() {  # [late]
   [ "$KIND" != secondmate ] || return 0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
     "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID" && return 0
+  if [ "${1:-}" = late ]; then
+    echo "error: LATE OUTCOME UNDELIVERED - $ID's final outcome did not reach the parent channel after its endpoint stopped; the watcher retries its pending record in $STATE/terminal-outcomes: $(last_status_line "$STATE/$ID.status")" >&2
+    return 0
+  fi
   echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
   exit 1
 }
@@ -3526,7 +3533,7 @@ if [ "$BACKEND" = herdr ]; then
 elif [ "$BACKEND" != orca ] || { [ "$KIND" != secondmate ] && [ -n "$T_ORCA" ]; }; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
 fi
-teardown_report_parent
+teardown_report_parent late
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
   if [ -d "$WT" ]; then

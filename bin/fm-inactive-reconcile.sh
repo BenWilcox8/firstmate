@@ -26,6 +26,9 @@
 # does before it removes the child's record; it exits 0 when the line is
 # delivered or nothing is owed, and non-zero when the parent channel could not
 # be written, so teardown refuses instead of discarding an undelivered outcome.
+# A ledger delivery's pending record keeps its rendered line. After the endpoint
+# stops, teardown no longer refuses, so every scan in the secondmate home
+# retries an owed line whose task record teardown has retired.
 # The cadence-gated scan below then evaluates at most once per
 # FM_INACTIVE_RECONCILE_SECS (default 900, valid 60..1800) per home, except
 # that --startup performs the same scan immediately in the locked session
@@ -426,6 +429,7 @@ report_child_ledger_locked() { # <id> <meta>
   if [ -f "$data/$id/report.md" ] && [ ! -L "$data/$id/report.md" ]; then
     line="$line report=data/$id/report.md"
   fi
+  record_field_set "$RECORD_PENDING" line "$line" || return 1
   if fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then
     mark_reported "$RECORD_PENDING" || return 1
     return 0
@@ -433,6 +437,21 @@ report_child_ledger_locked() { # <id> <meta>
   notice_parent_report_failed "$RECORD_PENDING" "$fingerprint" \
     "child outcome needs parent report: child=$id state=$state"
   return 1
+}
+
+# Retry each owed ledger line whose task record teardown has already retired.
+retry_retired_ledger_reports() {
+  local record id line
+  for record in "$OUTCOME_DIR"/*.pending; do
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    [ "$(record_value "$record" phase)" = upstream ] || continue
+    id=$(record_value "$record" task_id)
+    line=$(record_value "$record" line)
+    valid_id "$id" && [ -n "$line" ] || continue
+    [ ! -e "$STATE/$id.meta" ] && [ ! -L "$STATE/$id.meta" ] || continue
+    fm_parent_channel_report "$FM_HOME" "$STATE" "$line" || continue
+    mark_reported "$record" || true
+  done
 }
 
 # Every direct child's ledger, under its meta lock. Cheap file reads only, so
@@ -455,6 +474,7 @@ ledger_pass() {
     report_child_ledger_locked "$id" "$meta" || true
     fm_lock_release "$lock"
   done
+  retry_retired_ledger_reports
 }
 
 # The `report <task-id>` entry point: the caller holds the child's meta lock.
