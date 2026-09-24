@@ -28,8 +28,14 @@ fm_git_identity fmtest fmtest@example.invalid
 
 # make_fake_herdr <dir>: a Herdr that answers `status --json` (running while
 # <dir>/running exists), `session list --json` (one default session whose
-# socket is <dir>/herdr.sock), and `workspace list`. Every other call is logged
-# to <dir>/unexpected and fails, because no pane may be touched here.
+# socket is <dir>/herdr.sock), and `workspace list`. With FM_TEST_HERDR_PANE_SHELL
+# set to the pid of a real idle bash, it also reads every pane as present, with
+# that shell alone in it and no agent, in the directory FM_TEST_HERDR_PANE_CWD.
+# With FM_TEST_HERDR_HOLDER set to a claude-named bash, the first `pane get`
+# also starts it as a detached stand-in in FM_TEST_HERDR_PANE_CWD and writes its
+# pid to
+# <dir>/holder.pid. Every other call is logged to <dir>/unexpected and fails,
+# because nothing may be typed into a pane here.
 make_fake_herdr() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
@@ -57,6 +63,25 @@ case "${args[0]:-} ${args[1]:-}" in
     ;;
   "workspace list")
     printf '{"result":{"workspaces":[{"workspace_id":"w9","label":"fleet"}]}}\n'
+    ;;
+  "pane get")
+    [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
+    if [ -n "${FM_TEST_HERDR_HOLDER:-}" ] && [ ! -e "$dir/holder.pid" ]; then
+      (cd "$FM_TEST_HERDR_PANE_CWD" && exec "$FM_TEST_HERDR_HOLDER" -c 'sleep 60; :') >/dev/null 2>&1 < /dev/null &
+      printf '%s\n' "$!" > "$dir/holder.pid"
+    fi
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "${args[2]}" "$FM_TEST_HERDR_PANE_CWD"
+    ;;
+  "agent get")
+    [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
+    printf '{"error":{"code":"agent_not_found"}}\n'
+    ;;
+  "pane process-info")
+    [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
+    shell=$FM_TEST_HERDR_PANE_SHELL
+    pgid=$(ps -o pgid= -p "$shell" | tr -d ' ')
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"bash","argv0":"bash","argv":["bash"]}]}}}\n' \
+      "${args[3]}" "$shell" "$pgid" "$shell"
     ;;
   *)
     printf '%s\n' "${args[*]}" >> "$dir/unexpected"
@@ -369,6 +394,64 @@ test_run_leaves_a_primary_that_already_runs_elsewhere() {
   pass "run: a primary the captain started by hand, by its home or by the fleet lock, is not launched twice"
 }
 
+test_run_rechecks_for_a_primary_right_before_typing() {
+  local w claude_bin shell holder out
+  if [ ! -d /proc/self ]; then
+    printf 'skip: the running-primary guard needs /proc\n'
+    return 0
+  fi
+  w=$(new_world primary-late)
+  claude_bin=$(fm_fakebin "$w/harness")
+  ln -s "$(fm_test_tool bash)" "$claude_bin/claude"
+  rr "$w" record >/dev/null
+  fm_write_meta "$w/home/state/.primary-endpoint" backend=herdr herdr_session=default \
+    pane=w9:p3 workspace=w9 "cwd=$w/home" harness=claude harness_pid=1 boot_id=boot-1
+  # The recorded pane holds only an idle shell. The captain starts firstmate
+  # by hand in a pane of their own once the pass has begun to read that pane,
+  # after its first check for a running primary.
+  mkfifo "$w/shell.fifo"
+  bash -c 'read -r _ < "$0"' "$w/shell.fifo" &
+  shell=$!
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" \
+    FM_TEST_HERDR_HOLDER="$claude_bin/claude" rr "$w" run 2>&1)
+  holder=$(cat "$w/herdr/holder.pid" 2>/dev/null)
+  [ -z "$holder" ] || { kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null; }
+  kill "$shell" 2>/dev/null; wait "$shell" 2>/dev/null
+  [ -n "$holder" ] || fail "the pass never read the recorded pane: $out"
+  assert_contains "$out" "primary firstmate: already running (a Claude process runs in this home, pid $holder); nothing was typed into pane default:w9:p3" \
+    "a primary started by hand while the pass read its pane was not detected before the launch: $out"
+  assert_not_contains "$(cat "$w/herdr/unexpected" 2>/dev/null)" "pane run" "the pass typed a launch although a primary already ran"
+  pass "run: a primary started by hand while the pass runs is seen right before the launch, and nothing is typed"
+}
+
+test_run_ignores_a_claude_process_older_than_herdr() {
+  local w claude_bin holder out
+  if [ ! -d /proc/self ]; then
+    printf 'skip: the running-primary guard needs /proc\n'
+    return 0
+  fi
+  w=$(new_world primary-orphan)
+  claude_bin=$(fm_fakebin "$w/harness")
+  ln -s "$(fm_test_tool bash)" "$claude_bin/claude"
+  rr "$w" record >/dev/null
+  fm_write_meta "$w/home/state/.primary-endpoint" backend=herdr herdr_session=default \
+    pane=w9:p3 workspace=w9 "cwd=$w/home" harness=claude harness_pid=1 boot_id=boot-1
+  # An orphan Claude process in the home that outlived a Herdr-only restart:
+  # it started before the new Herdr server did.
+  (cd "$w/home" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  holder=$!
+  touch -d "@$(( $(date +%s) + 5 ))" "$w/herdr/herdr.sock"
+  out=$(rr "$w" run 2>&1)
+  kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+  assert_contains "$out" "restart recovery after Herdr server restart" "the Herdr-only restart was not recovered: $out"
+  assert_not_contains "$out" "already running (a Claude process" \
+    "a Claude process older than the Herdr server was read as a primary started by hand: $out"
+  assert_contains "$out" "primary firstmate: not relaunched: its pane default:w9:p3 reads" \
+    "the pass did not go on to read the recorded pane: $out"
+  pass "run: a Claude process older than the Herdr server is not read as a manual relaunch"
+}
+
 test_dormant_marker_cli() {
   local w out rc
   w=$(new_world dormant)
@@ -596,6 +679,8 @@ for t in \
   test_run_is_single_flight_per_restart \
   test_run_rate_limits_a_restart_loop_with_one_alert \
   test_run_leaves_a_primary_that_already_runs_elsewhere \
+  test_run_rechecks_for_a_primary_right_before_typing \
+  test_run_ignores_a_claude_process_older_than_herdr \
   test_dormant_marker_cli \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \

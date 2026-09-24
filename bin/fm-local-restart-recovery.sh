@@ -77,6 +77,7 @@
 #                     the session-start operational input as its first prompt.
 #                     A live session lock, an agent already in the pane, or a
 #                     live Claude process whose working directory is this home
+#                     and that started after the Herdr server did
 #                     means the primary is already running (a manual
 #                     relaunch), and nothing is launched. The pass checks this
 #                     again right before it types the launch. Only Claude
@@ -673,9 +674,11 @@ rr_new_primary_pane() {
 # rr_primary_running <cleared-pid>: prints what shows that a primary already
 # runs outside the pane recovery would use: a live session holding the fleet
 # lock (other than <cleared-pid>, the lock of an earlier boot that recovery
-# cleared), or a live Claude harness whose working directory is this home.
+# cleared), or a live Claude harness whose working directory is this home and
+# that started at or after the current Herdr server start. An older one outlived
+# a Herdr-only restart as an orphan and is not a manual relaunch.
 rr_primary_running() {
-  local cleared=$1 lock_pid home dir pid comm args
+  local cleared=$1 lock_pid home since boot_time tick dir pid start comm args
   lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
   if [ -n "$lock_pid" ] && [ "$lock_pid" != "$cleared" ] && fm_harness_pid_alive "$lock_pid"; then
     printf 'a live session holds the fleet lock, pid %s' "$lock_pid"
@@ -683,9 +686,20 @@ rr_primary_running() {
   fi
   [ -d /proc/self ] || return 1
   home=$(fm_native_session_realpath "$FM_HOME") || return 1
+  since=${CUR_HS%%.*}
+  boot_time=$(awk '$1 == "btime" { print $2 }' /proc/stat 2>/dev/null)
+  tick=$(getconf CLK_TCK 2>/dev/null) || tick=100
+  case "$since" in *[!0-9]*) since= ;; esac
+  case "$boot_time" in ''|*[!0-9]*) since= ;; esac
+  case "$tick" in ''|0|*[!0-9]*) since= ;; esac
   for dir in /proc/[0-9]*; do
     [ "$(readlink "$dir/cwd" 2>/dev/null)" = "$home" ] || continue
     pid=${dir#/proc/}
+    if [ -n "$since" ]; then
+      start=$(fm_native_session_proc_start "$pid") || continue
+      case "$start" in ''|*[!0-9]*) continue ;; esac
+      [ $(( boot_time + start / tick )) -ge "$since" ] || continue
+    fi
     comm=$(ps -o comm= -p "$pid" 2>/dev/null) || continue
     args=$(ps -o args= -p "$pid" 2>/dev/null)
     if fm_harness_process_matches "$comm" "$args" && [ "$FM_HARNESS_IS_CLAUDE" -eq 1 ]; then
