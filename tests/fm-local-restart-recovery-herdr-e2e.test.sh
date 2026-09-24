@@ -16,13 +16,15 @@
 # and that a restart loop stops at the rate limit with one alert.
 # Every agent is a stand-in that records its launch and sleeps as a process
 # named claude, so the guard spends no model tokens and runs by default wherever
-# Herdr and jq exist.
+# Herdr, jq, and node exist. A second mate relaunch pre-registers Claude
+# workspace trust with node (bin/fm-claude-trust.sh), so the pass gets node and
+# an isolated Claude config directory, never the operator's own trust store.
 set -u
 
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-fm_live_gate default-on FM_RESTART_RECOVERY_LIVE_E2E herdr jq
+fm_live_gate default-on FM_RESTART_RECOVERY_LIVE_E2E herdr jq node
 
 LAB_HELPER=${FM_HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 [ -x "$LAB_HELPER" ] || fail "the guarded Herdr lab helper is not executable"
@@ -68,6 +70,7 @@ cat > "$FAKEBIN/claude" <<SH
 { printf '%s' "\$PWD"; printf '\t%s' "\$@"; printf '\n'; } >> '$LAUNCH_LOG'
 exec -a claude '$STUB/sleep/claude' -e 'sleep 86400'
 SH
+ln -s "$(fm_test_tool node)" "$FAKEBIN/node"
 # Every Herdr call goes through the lab helper, which adds the lab session
 # itself; a call that names any other session is refused.
 cat > "$FAKEBIN/herdr" <<SH
@@ -230,7 +233,7 @@ pass "live: a primary in a lab pane records its endpoint through the real restar
 recover() {  # sets OUT to the pass output and RC to its exit status
   OUT=$(env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID \
     -u HERDR_SOCKET_PATH -u HERDR_SESSION -u CLAUDECODE -u CLAUDE_CODE_ENTRYPOINT \
-    PATH="$FAKEBIN:$CORE_PATH" FM_HOME="$H" \
+    PATH="$FAKEBIN:$CORE_PATH" FM_HOME="$H" CLAUDE_CONFIG_DIR="$CFG" \
     FM_RESTART_BOOT_ID_FILE="$TMP_ROOT/boot_id" FM_RESTART_USER_MANAGER_ID=um-1 \
     FM_RESTART_POLL=0.5 FM_RESTART_LAUNCH_WAIT=30 FM_RESTART_HERDR_WAIT=60 \
     "$RR" run 2>&1)
