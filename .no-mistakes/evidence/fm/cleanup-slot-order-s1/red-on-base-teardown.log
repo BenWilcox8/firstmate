@@ -1,0 +1,8 @@
+== test_parent_gate_preserves_slot on base fm-teardown.sh (a21721c)
+not ok - parent refusal returned the leased slot
+exit=1
+== test_busy_generation_refusal_preserves_slot on base fm-teardown.sh (a21721c)
+not ok - must reach the busy retirement gate (missing: 'busy-state gen for old does not match its record')
+--- output ---
+error: stale busy-state gen for old (event rejected)
+exit=1
