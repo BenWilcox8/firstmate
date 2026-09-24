@@ -2048,6 +2048,66 @@ test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server() {
   pass "fm-control exit: a herdr pane that outlived its stopped server is already-stopped, not gone"
 }
 
+# park_herdr_task <case-dir> <id>: record the six park keys over the stopped
+# herdr task, with a real claude transcript under the throwaway HOME the runners
+# use, so a resume passes its session check and reaches the endpoint check.
+park_herdr_task() {  # <case-dir> <id>
+  local dir=$1 id=$2 sid=0f3c2a9e-3333-4a2b-9c3d-0000000000aa file
+  mkdir -p "$dir/user-home/.claude/projects/-wt"
+  file="$dir/user-home/.claude/projects/-wt/$sid.jsonl"
+  printf '{"type":"user"}\n' > "$file"
+  {
+    echo "parked=$(date +%s)"
+    echo "parked_reason=waiting on the captain"
+    echo "parked_on="
+    echo "native_session=$sid"
+    echo "native_session_harness=claude"
+    echo "native_session_file=$file"
+  } >> "$dir/home/state/$id.meta"
+}
+
+test_herdr_resume_launch_rechecks_a_stopped_server_before_opening_a_pane() {
+  local dir out rc=0 log
+  herdr_case_or_skip resume-stopped-herdr rl74 || {
+    echo "skip - herdr resume needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$HERDR_CASE_DIR
+  park_herdr_task "$dir" rl74
+
+  # The stopped server reads `missing`, but the task's own pane is still in
+  # its worktree and comes back with the server. The launch owner must see it.
+  out=$(run_spawn "$dir" rl74 --relaunch --resume-session --harness claude --over-limit) || rc=$?
+  log=$(cat "$dir/fake/herdr-log")
+  [ "$rc" -ne 0 ] || fail "a resume opened a new pane while the task's own pane hid behind a stopped server"$'\n'"$out"
+  assert_contains "$out" "still holds a pane in its worktree" \
+    "the refusal should name the task's own leftover pane"
+  assert_contains "$log" "server --session fmlab" \
+    "the resume must bring the recorded session's server back before trusting 'missing'"
+  assert_not_contains "$log" "tab create" \
+    "a refused resume must not open a pane beside the leftover one"
+  pass "resume launch: a stopped herdr server cannot hide the task's leftover pane"
+}
+
+test_herdr_control_resume_rechecks_a_stopped_server_before_resuming() {
+  local dir out rc=0 log
+  herdr_case_or_skip resume-stopped-herdr-control rl75 || {
+    echo "skip - herdr resume needs jq (the herdr adapter parses JSON with it)"
+    return 0
+  }
+  dir=$HERDR_CASE_DIR
+  park_herdr_task "$dir" rl75
+  # The leftover pane is the task's own and agent-free, so the resume closes it
+  # first. The close must never be skipped because the server was stopped.
+  out=$(run_control "$dir" rl75 resume --over-limit) || rc=$?
+  log=$(cat "$dir/fake/herdr-log")
+  assert_contains "$log" "server --session fmlab" \
+    "fm-control resume must bring the recorded session's server back before trusting 'missing'"
+  assert_contains "$log" "agent get %7 --session fmlab" \
+    "fm-control resume must re-read the recorded pane once its server is running"
+  pass "fm-control resume: a stopped herdr server is re-read before its leftover pane is judged gone"
+}
+
 test_herdr_rebind_stays_in_the_recorded_session() {
   local dir out rc=0 log
   # The record names session `fmlab`; this seat has no ambient HERDR_SESSION, so
@@ -2285,6 +2345,8 @@ test_tmux_refuses_when_the_server_is_gone
 test_reclaim_refuses_an_unreadable_endpoint
 test_herdr_reclaim_adopts_a_pane_that_outlived_its_server
 test_herdr_exit_reports_already_stopped_when_the_pane_outlived_its_server
+test_herdr_resume_launch_rechecks_a_stopped_server_before_opening_a_pane
+test_herdr_control_resume_rechecks_a_stopped_server_before_resuming
 test_herdr_rebind_stays_in_the_recorded_session
 test_herdr_reclaim_refuses_an_agent_that_came_back
 test_herdr_reclaim_keeps_the_task_whole

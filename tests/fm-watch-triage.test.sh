@@ -5943,13 +5943,13 @@ test_afk_one_shot_never_hands_off_captain_held_under_away_record() {
 # A paused: line naming when the wait clears is rechecked at that time when it
 # falls within the flat cadence, but a distant or mistyped time cannot extend
 # the cadence, and a time that has passed is rechecked at once.
-paused_until_fixture() {  # <name> <until-epoch> <status-age-secs>
-  local name=$1 until=$2 age=$3 dir state statusf window key back
+paused_until_fixture() {  # <name> <until-epoch> <status-age-secs> [<kind>]
+  local name=$1 until=$2 age=$3 kind=${4:-secondmate} dir state statusf window key back
   dir=$(make_case "$name"); state="$dir/state"
   window="test:fm-until"
   statusf="$state/until.status"
   printf 'idle, waiting for the reset\n' > "$dir/pane.txt"
-  printf 'window=%s\nkind=secondmate\n' "$window" > "$state/until.meta"
+  printf 'window=%s\nkind=%s\n' "$window" "$kind" > "$state/until.meta"
   printf 'paused: rate limit resets, until %s, then resuming\n' "$(iso_utc_at "$until")" > "$statusf"
   back=$(( $(date +%s) - age ))
   if [ "$(uname)" = Darwin ]; then touch -mt "$(date -r "$back" '+%Y%m%d%H%M.%S')" "$statusf"
@@ -5983,6 +5983,30 @@ test_paused_until_near_future_is_quiet_before_the_cadence() {
     || fail "the absorb did not cite the declared time in the triage log"
   reap "$UNTIL_PID"
   pass "a declared wait naming a near-future until time stays quiet until that time"
+}
+
+test_paused_until_near_future_live_crew_reports_once() {
+  local dir state
+  # A live crewmate can be parked at a prompt its declared wait never named,
+  # so its first sighting owes one report even before the declared time.
+  dir=$(paused_until_fixture until-near-future-crew "$(( $(date +%s) + 120 ))" 60 ship); state="$dir/state"
+  until_watch "$dir" 240
+  wait_for_exit "$UNTIL_PID" 100 \
+    || { reap "$UNTIL_PID"; fail "a live crewmate's declared wait with a near-future until time was never reported once"; }
+  grep -F 'stale: test:fm-until' "$dir/watch.out" >/dev/null \
+    || fail "the owed report for a live crewmate's declared wait did not print a stale wake: $(cat "$dir/watch.out")"
+  grep -F 'possible wedge' "$dir/watch.out" >/dev/null \
+    && fail "a live crewmate's declared wait was mislabeled a possible wedge"
+  # The report is owed once per declaration: a second watcher on the same
+  # unchanged declaration stays quiet until the declared time.
+  ack_stopped_cycle "$state" || fail "could not acknowledge the owed report"
+  : > "$dir/watch.out"
+  until_watch "$dir" 240
+  if ! wait_poll_cycle "$state" "$UNTIL_PID" || ! wait_poll_cycle "$state" "$UNTIL_PID"; then
+    reap "$UNTIL_PID"; fail "the owed report repeated instead of holding to the declared time: $(cat "$dir/watch.out")"
+  fi
+  reap "$UNTIL_PID"
+  pass "a live crewmate's declared wait with a near-future until time is reported once, then held to that time"
 }
 
 test_paused_until_wrong_year_is_bounded_by_the_cadence() {
@@ -6157,5 +6181,6 @@ test_live_captain_held_first_sight_silenced_by_away_record
 test_backlog_hold_never_rechecked_while_away_record_exists
 test_afk_one_shot_never_hands_off_captain_held_under_away_record
 test_paused_until_near_future_is_quiet_before_the_cadence
+test_paused_until_near_future_live_crew_reports_once
 test_paused_until_wrong_year_is_bounded_by_the_cadence
 test_paused_until_that_passed_is_rechecked_before_the_cadence

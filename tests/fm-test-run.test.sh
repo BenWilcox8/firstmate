@@ -716,6 +716,21 @@ PY
   pass "family proofs run concurrently only within separate family phases"
 }
 
+test_root_documentation_selects_nothing() {
+  local tmp repo out
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-root-docs.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  printf 'vision\n' >"$repo/VISION.md"
+  printf 'relay notes\n' >"$repo/GROK_BOT.md"
+  out=$(cd "$repo" && bin/fm-test-run.sh --changed --base HEAD 2>"$tmp/err") \
+    || fail "root documentation changes must select an empty valid set: $(cat "$tmp/err")"
+  printf '%s\n' "$out" | grep -Eq '^FM_TEST_SUMMARY total=0 failed=0 skipped_gate=0 duration_ms=[0-9]+$' \
+    || fail "root documentation changes should select no tests: $out"
+  rm -rf "$tmp"
+  pass "root VISION.md and GROK_BOT.md changes select no tests"
+}
+
 test_empty_selection_emits_summary() {
   local tmp repo out json rc fake_bin real_git
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-empty.XXXXXX")
@@ -1777,6 +1792,7 @@ test_windows_posix_mode_emulation_does_not_fail_parallel_runs
 test_script_list_uses_bounded_automatic_concurrency
 test_family_proofs_run_in_separate_concurrent_phases
 test_empty_selection_emits_summary
+test_root_documentation_selects_nothing
 test_timing_markers_and_json
 test_aggregate_exit_behavior
 test_gate_skip_accounting

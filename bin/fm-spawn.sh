@@ -1767,6 +1767,19 @@ if [ "$RELAUNCH" -eq 1 ]; then
     # pane. A pane still sitting in the worktree is the task's own, and
     # bin/fm-control.sh resume closes it before launching; this launch owner
     # independently refuses rather than open a second endpoint beside it.
+    # On Herdr a stopped session server also reads `missing`, and the pane can
+    # come back with it, so absence is proven with that server running first.
+    if [ "$RELAUNCH_STATE" = missing ] && [ "$BACKEND" = herdr ]; then
+      RESUME_ABSENCE=$(fm_control_endpoint_absence_verdict herdr "$RELAUNCH_TARGET")
+      case "${RESUME_ABSENCE%%$'\t'*}" in
+        gone) ;;
+        dead|alive) RELAUNCH_STATE=${RESUME_ABSENCE%%$'\t'*} ;;
+        *)
+          echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET reads 'missing', but ${RESUME_ABSENCE#*$'\t'}; refusing to resume beside a pane that may still be there" >&2
+          exit 1
+          ;;
+      esac
+    fi
     case "$RELAUNCH_STATE" in
       missing) ;;
       dead|alive)

@@ -1084,11 +1084,12 @@ fm_backend_target_exists() {  # <backend> <target> [expected-label]
 # process level through the shared classifier in bin/fm-agent-process-lib.sh,
 # never from a registration or a rendered title alone. The tmux adapter
 # requires a successful session inventory and returns `missing` only when it
-# omits the exact window; the Herdr adapter reuses its strict husk classifier -
-# which verifies a registered agent against `pane process-info` and the real
-# process table, so a registration Herdr kept over a shell-only pane reads
-# `dead` here (issue #4115) - then maps a positively stopped session server to
-# `missing` only in this recovery-grade view. Zellij remains unverified because
+# omits the exact window; the Herdr adapter uses its exact recovery classifier
+# (fm_backend_herdr_recovery_pane_agent_state) - which needs a stable registry
+# read and an exact process tree from `pane process-info` and the real process
+# table, so a registration Herdr kept over a shell-only pane reads `dead` here
+# (issue #4115) - then maps a positively stopped session server to `missing`
+# only in this recovery-grade view. Zellij remains unverified because
 # its secondmate ghost-tab and agent-process recovery path has not been
 # empirically validated. Orca and cmux do not support secondmate spawns.
 fm_backend_agent_state() {  # <backend> <target>

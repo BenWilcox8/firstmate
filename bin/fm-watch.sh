@@ -1424,9 +1424,16 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
     detail="captain-held, awaiting the captain"
     reason="captain-held ${age}s, awaiting the captain - verified hold transfer, rechecked on a long cadence not a wedge; answer the held decision or release the hold"
   elif until=$(status_paused_until "$last"); then
-    if [ "$now" -lt "$until" ] && [ "$age" -lt "$PAUSE_RESURFACE_SECS" ]; then
+    if [ "$now" -lt "$until" ] && [ "$age" -lt "$PAUSE_RESURFACE_SECS" ] \
+      && [ "$class" != paused-report ]; then
       triage_log "absorbed stale (paused until $(( until - now ))s from now, declared time not reached): $win"
       return 0
+    elif [ "$now" -lt "$until" ] && [ "$age" -lt "$PAUSE_RESURFACE_SECS" ]; then
+      # A live or ambiguously read crew still owes its one report: the declared
+      # time does not prove the pane is quiet on purpose. The report is spent
+      # once per declaration, and the cadence then holds every later sighting.
+      detail="paused, declared time not reached"
+      reason="paused ${age}s, awaiting external until the declared time - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds"
     elif [ "$now" -lt "$until" ]; then
       detail="paused, declared time beyond recheck cadence"
       reason="paused ${age}s, awaiting external - the declared time is beyond the recheck cadence; confirm the wait still holds"

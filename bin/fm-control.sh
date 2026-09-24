@@ -1321,7 +1321,7 @@ resume_rollback() {
 }
 
 do_resume() {
-  local parked file state model effort
+  local parked file state absence model effort
   local -a spawn_args
   park_require_kind resume
   require_state_verified_backend resume
@@ -1353,6 +1353,16 @@ do_resume() {
   # always opens a new endpoint; it first closes the task's own agent-free pane
   # left by a park whose close never finished, and leaves any other pane alone.
   state=$(agent_state_settled)
+  # On Herdr a stopped session server also reads `missing`, and the task's own
+  # pane can come back with it, so absence is proven with that server running.
+  if [ "$state" = missing ] && [ "$BACKEND" = herdr ]; then
+    absence=$(fm_control_endpoint_absence_verdict herdr "$T")
+    case "${absence%%$'\t'*}" in
+      gone) ;;
+      dead|alive) state=${absence%%$'\t'*} ;;
+      *) die "task $ID's recorded endpoint $T reads 'missing', but ${absence#*$'\t'}; refusing to resume beside a pane that may still be there, and it stays parked" ;;
+    esac
+  fi
   case "$state" in
     missing) ;;
     dead|alive)

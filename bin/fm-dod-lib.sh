@@ -168,15 +168,6 @@ fm_brief_task_heading_present() {  # <file> <heading>
   printf '%s\n' "$task" | fm_brief_heading_parse - "$2" present >/dev/null
 }
 
-fm_brief_marked_captain_words() {  # <task-body>
-  printf '%s\n' "$1" | awk '
-    match($0, /^[[:space:]]*(\[captain\]|Captain('\''s (words|ask|intent))?:)[[:space:]]*/) {
-      words = substr($0, RLENGTH + 1)
-      if (words ~ /[^[:space:]]/) print words
-    }
-  '
-}
-
 fm_brief_intent_overlay() {  # <accepted-task-requirements>
   cat <<'EOF'
 

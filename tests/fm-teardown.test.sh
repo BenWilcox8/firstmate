@@ -2706,6 +2706,26 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
   closed="$case_dir/closed"; count="$case_dir/close-count"
   : > "$case_dir/state/task-x1.status"
 
+  # Unforced, a close that never confirms refuses and keeps the record that
+  # names the surviving pane; only --force continues past it.
+  if FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
+    FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" > "$case_dir/unforced.out" 2> "$case_dir/unforced.err"; then
+    fail "herdr-close-never-confirms: an unforced teardown succeeded past a close that never confirmed"
+  fi
+  assert_grep "LEAKED HERDR PANE" "$case_dir/unforced.err" \
+    "herdr-close-never-confirms: the unforced run did not report the leaked pane"
+  assert_grep "could not be closed" "$case_dir/unforced.err" \
+    "herdr-close-never-confirms: the unforced run did not refuse on the failed close"
+  grep -qF -- "--force" "$case_dir/unforced.err" \
+    || fail "herdr-close-never-confirms: the refusal did not name the override"
+  [ -f "$case_dir/state/task-x1.meta" ] \
+    || fail "herdr-close-never-confirms: the unforced refusal removed the record naming the pane"
+  assert_not_contains "$(cat "$case_dir/unforced.out")" "teardown task-x1 complete" \
+    "herdr-close-never-confirms: the unforced refusal announced a completed cleanup"
+  : > "$log"
+
   FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
     FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
@@ -2721,7 +2741,7 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
     "herdr-close-never-confirms: the loud report did not name the task"
   assert_grep "bare terminal" "$case_dir/stderr" \
     "herdr-close-never-confirms: the loud report did not say what the captain would see"
-  pass "herdr teardown reports a pane it could never close loudly, by task and pane, instead of leaking it silently"
+  pass "herdr teardown refuses a pane it could never close unless forced, and reports it loudly by task and pane instead of leaking it silently"
 }
 
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting() {

@@ -169,8 +169,9 @@
 # FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS (default 3) and
 # FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS (default 0.3) tune that retry; an
 # empty, zero, or non-numeric value falls back to the default. A pane still
-# open after the last attempt is reported loudly by task and pane id, so the
-# supervising turn can close it even though cleanup continues.
+# open after the last attempt is reported loudly by task and pane id, and the
+# cleanup then refuses through endpoint_close_refusal with the task's records
+# kept; only --force continues past it and removes them.
 # Secondmates (kind=secondmate in meta) are retired explicitly. Normal
 # teardown refuses while their home has in-flight crewmate meta files; --force
 # is the approved discard path that prevalidates child removal targets, locks each
@@ -3717,14 +3718,15 @@ teardown_herdr_close_once() {
 }
 
 # teardown_herdr_report_unclosed_pane: report a pane this teardown could not
-# close, loudly and by exact task and pane id. Cleanup still continues, so this
-# line is the only thing that will still name the pane once the task's records
-# are gone - it has to carry everything the supervising turn needs to close it.
+# close, loudly and by exact task and pane id. endpoint_close_refusal then
+# stops the cleanup with the task's records kept, unless --force continues and
+# removes them; in that case this line is the only thing that still names the
+# pane, so it carries everything the supervising turn needs to close it.
 # Reads the task globals T and ID.
 teardown_herdr_report_unclosed_pane() {
   echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
   echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
-  echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
+  echo "error: close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
 }
 
 HERDR_PRESENTATION_JOURNAL="$STATE/$ID.herdr-presentation"
@@ -3781,6 +3783,7 @@ elif [ "$BACKEND" = herdr ] \
 fi
 if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
   teardown_herdr_report_unclosed_pane
+  endpoint_close_refusal "$ID" herdr "$T" 1 || exit 1
 fi
 if [ "$KIND" != secondmate ]; then
   if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \

@@ -586,7 +586,7 @@ test_registered_agent_with_a_live_foreground_process_stays_alive() {
   # recovery-state suite proves the exact live Pi shapes read alive.
   [ "$out" = "live unreadable refused" ] \
     || fail "a registered agent whose foreground process is Pi must stay live and refuse recovery, got '$out'"
-  pass "herdr stale registration: a registered agent with a live Pi foreground process still reads alive"
+  pass "herdr stale registration: a registered agent with a live Pi foreground process stays live, and the exact recovery verb refuses it as unreadable"
 }
 
 test_registered_agent_with_a_non_shell_foreground_process_stays_alive() {
@@ -682,7 +682,7 @@ test_registered_agent_with_an_agent_descendant_outside_the_foreground_stays_aliv
   kill "$shell_pid" 2>/dev/null || true
   [ "$shell_verdict" = "stale-agent dead refused" ] \
     || fail "the childless control must read stale-agent so the descendant case is not vacuous, got '$shell_verdict'"
-  pass "herdr stale registration: an agent process outside the foreground group still counts as alive"
+  pass "herdr stale registration: an agent process outside the foreground group keeps the pane live, and the exact recovery verb refuses it as unreadable"
 }
 
 test_agent_descendant_under_a_spaced_install_path_stays_alive() {
@@ -742,7 +742,7 @@ test_registered_agent_with_an_empty_foreground_over_a_real_shell_settles_via_des
   # foreground view to name the process it proves.
   [ "$out" = "stale-agent unreadable refused" ] \
     || fail "an empty foreground list over a real childless shell must settle to stale-agent via the descendant walk and still refuse recovery, got '$out'"
-  pass "herdr stale registration: an empty foreground list over a real shell is not unreadable, it settles via the descendant walk"
+  pass "herdr stale registration: an empty foreground list over a real shell settles to stale-agent through the descendant walk, and the exact recovery verb still refuses it"
 }
 
 test_projection_reclaim_rollback_refuses_a_stale_registration() {

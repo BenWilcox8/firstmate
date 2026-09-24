@@ -79,9 +79,9 @@
 # serializes the captain-hold check through the forge command. A still-held or
 # unreadable row refuses before that command, so a captain approval must be
 # recorded as an `answer --release` before this entrypoint is invoked. While
-# state/.afk-contract exists an authorized green merge may proceed under away authority:
-# the record's presence is the whole mechanical fact, and which merge the
-# captain's away words meant is the supervision session's reading
+# state/.afk-contract exists, a merge still needs explicit captain merge
+# authority or yolo per AGENTS.md section 7, plus green checks at its live
+# head; the away record alone never grants merge authority
 # (bin/fm-branch-prompt.sh "Postures"). An unreadable record refuses rather
 # than being skipped, neither posture releases a captain hold, and away
 # authority lapses when the record is archived.
