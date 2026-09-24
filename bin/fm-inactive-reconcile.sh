@@ -408,6 +408,7 @@ report_child_ledger_locked() { # <id> <meta>
     | tail -2 | awk 'NR == 1 { first = $0 } NR == 2 { print first }' || true)
   predecessor_head=$(sha256_text "$previous")
   outcome_key="child-outcome-$id-$state-${fingerprint:0:8}"
+  supersede_older_ledger_lines "$id" "$fingerprint" || return 1
   ensure_record "$fingerprint" "$id" "$incarnation" "$state" "$outcome_key" direct upstream "$pr" || return 1
   [ -n "$RECORD_PENDING" ] || return 0
   if claim_inactive_report_for_ledger "$id" "$incarnation" "$state" "$fingerprint" "$predecessor_head"; then
@@ -437,6 +438,19 @@ report_child_ledger_locked() { # <id> <meta>
   notice_parent_report_failed "$RECORD_PENDING" "$fingerprint" \
     "child outcome needs parent report: child=$id state=$state"
   return 1
+}
+
+# A newer terminal ledger line replaces every older owed line of the same task,
+# so the retry below can never publish an outcome after its replacement.
+supersede_older_ledger_lines() { # <id> <current-fingerprint>
+  local id=$1 current=$2 record
+  for record in "$OUTCOME_DIR"/*.pending; do
+    [ -f "$record" ] && [ ! -L "$record" ] || continue
+    [ "$(basename "$record" .pending)" != "$current" ] || continue
+    [ "$(record_value "$record" task_id)" = "$id" ] || continue
+    [ -n "$(record_value "$record" line)" ] || continue
+    record_field_set "$record" line '' || return 1
+  done
 }
 
 # Retry each owed ledger line whose task record teardown has already retired.

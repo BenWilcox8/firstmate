@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Regression seam: cleanup-slot-return-gates and explicit stale-record retirement.
+# Regression seams: cleanup-slot-return-gates, cleanup-late-outcome-retry, and explicit
+# stale-record retirement.
 set -eu
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
@@ -74,6 +75,11 @@ run_teardown() {
     FM_TEARDOWN_GUARD_DONE=1 PATH="$CASE/fakebin:$PATH" "$ROOT/bin/fm-teardown.sh" old
 }
 
+run_scan() {
+  env FM_HOME="$CASE/home" FM_STATE_OVERRIDE="$CASE/home/state" FM_DATA_OVERRIDE="$CASE/home/data" \
+    "$ROOT/bin/fm-inactive-reconcile.sh" scan > "$CASE/scan.out" 2>&1 || fail "reconcile scan failed: $(cat "$CASE/scan.out")"
+}
+
 make_parent() {
   mkdir -p "$CASE/parent/state" "$CASE/parent/data"
   printf 'mate\n' > "$CASE/home/.fm-secondmate-home"
@@ -103,7 +109,7 @@ test_parent_gate_preserves_slot() {
   pass 'parent refusal retains the slot and endpoint; a repaired channel permits cleanup'
 }
 
-test_late_outcome_reaches_parent_before_return() {
+test_late_outcome_reaches_parent_before_record_retires() {
   make_case late-outcome
   make_parent
   : > "$CASE/late-outcome"
@@ -111,7 +117,7 @@ test_late_outcome_reaches_parent_before_return() {
   assert_contains "$(cat "$CASE/runtime.log")" 'killed' 'the endpoint was not stopped'
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done' 'the first outcome did not reach the parent'
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the late outcome was discarded'
-  pass 'an outcome written before the endpoint stopped reaches the parent before the slot returns'
+  pass 'an outcome written before the endpoint stopped reaches the parent before the record retires'
 }
 
 test_undelivered_late_outcome_completes_after_owner_exits() {
@@ -135,11 +141,28 @@ test_undelivered_late_outcome_completes_after_owner_exits() {
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done' 'the first outcome did not reach the parent'
   assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the late outcome was not recorded for retry'
   mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
-  env FM_HOME="$CASE/home" FM_STATE_OVERRIDE="$CASE/home/state" FM_DATA_OVERRIDE="$CASE/home/data" \
-    "$ROOT/bin/fm-inactive-reconcile.sh" scan > "$CASE/scan.out" 2>&1 || fail "retry scan failed: $(cat "$CASE/scan.out")"
+  run_scan
   assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the watcher did not retry the late outcome'
   if compgen -G "$CASE/home/state/terminal-outcomes/*.pending" > /dev/null; then fail 'the delivered late outcome is still pending'; fi
-  pass 'an undelivered late outcome completes teardown after the slot owner exits and the watcher delivers it'
+  pass 'cleanup-late-outcome-retry: an undelivered late outcome completes teardown after the slot owner exits and the watcher delivers it'
+}
+
+test_superseded_outcome_never_follows_newer_outcome() {
+  make_case superseded
+  make_parent
+  printf 'failed: older outcome\n' > "$CASE/home/state/old.status"
+  mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
+  run_scan
+  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the older outcome was not left owed'
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  printf 'done: newer outcome\n' >> "$CASE/home/state/old.status"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
+  run_scan
+  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done' 'the newer outcome did not reach the parent'
+  case "$(cat "$CASE/parent/state/mate.status")" in
+    *'child old failed'*) fail 'the superseded older outcome reached the parent after the newer outcome' ;;
+  esac
+  pass 'cleanup-late-outcome-retry: an older failed outcome never follows a newer done outcome of the same task'
 }
 
 test_return_refusal_keeps_task_records() {
@@ -150,6 +173,7 @@ test_return_refusal_keeps_task_records() {
   cp "$CASE/home/state/old.status" "$CASE/status.before"
   if run_teardown > "$CASE/out" 2> "$CASE/err"; then fail 'a refused Treehouse return must refuse cleanup'; fi
   assert_contains "$(cat "$CASE/err")" 'treehouse return failed' 'must reach the Treehouse return'
+  ! grep -qx killed "$CASE/runtime.log" 2>/dev/null || fail 'return refusal stopped the endpoint before the rerun'
   assert_present "$CASE/home/state/old.meta" 'return refusal removed the record'
   cmp -s "$CASE/status.before" "$CASE/home/state/old.status" || fail 'return refusal retired the status log'
   [ "$(cat "$CASE/home/state/old.busy-gen")" = old-busy ] || fail 'return refusal retired the busy state'
@@ -437,8 +461,9 @@ test_retirement_serializes_with_live_task_lifecycle() {
 test_unsafe_merge_marker_refusal_preserves_slot
 test_retirement_checks_atlas_task_identity
 test_parent_gate_preserves_slot
-test_late_outcome_reaches_parent_before_return
+test_late_outcome_reaches_parent_before_record_retires
 test_undelivered_late_outcome_completes_after_owner_exits
+test_superseded_outcome_never_follows_newer_outcome
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot
 test_retire_finished_scout_preserves_live_task
