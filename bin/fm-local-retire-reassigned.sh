@@ -242,7 +242,7 @@ done
 mkdir -p "$ARCHIVE"
 ARTIFACTS=(".$ID.branch-outcome-index")
 for suffix in turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement \
-  pr-poll-merge-notified busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
+  pr-poll-merge-notified merge-authority progress busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
   kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json herdr-presentation \
   control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox; do
   ARTIFACTS+=("$ID.$suffix")

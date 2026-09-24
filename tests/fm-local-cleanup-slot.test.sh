@@ -521,6 +521,9 @@ test_retirement_preserves_landed_ship_ref_and_task_artifacts() {
   printf 'live poll\n' > "$CASE/home/state/live.check.sh"
   printf 'old index\n' > "$CASE/home/state/.old.branch-outcome-index"
   printf 'old journal\n' > "$CASE/home/state/old.herdr-presentation"
+  printf 'old authority\n' > "$CASE/home/state/old.merge-authority"
+  printf 'old progress\n' > "$CASE/home/state/old.progress"
+  printf 'live authority\n' > "$CASE/home/state/live.merge-authority"
   local old_head
   old_head=$(git -C "$CASE/project" rev-parse fm/old)
   run_retire > "$CASE/out" 2> "$CASE/err" || fail "landed ship retirement failed: $(cat "$CASE/err")"
@@ -528,9 +531,14 @@ test_retirement_preserves_landed_ship_ref_and_task_artifacts() {
   assert_absent "$CASE/home/state/old.check.sh" 'retired check remains active'
   assert_absent "$CASE/home/state/.old.branch-outcome-index" 'retired branch-outcome index remains active'
   assert_absent "$CASE/home/state/old.herdr-presentation" 'retired presentation journal remains active'
+  assert_absent "$CASE/home/state/old.merge-authority" 'retired merge-authority record remains active'
+  assert_absent "$CASE/home/state/old.progress" 'retired progress record remains active'
   [ "$(cat "$CASE/home/data/old/retired-reassigned/old.check.sh")" = 'old poll' ] || fail 'retired check was not archived'
   [ "$(cat "$CASE/home/data/old/retired-reassigned/.old.branch-outcome-index")" = 'old index' ] || fail 'branch-outcome index was not archived'
   [ "$(cat "$CASE/home/data/old/retired-reassigned/old.herdr-presentation")" = 'old journal' ] || fail 'presentation journal was not archived'
+  [ "$(cat "$CASE/home/data/old/retired-reassigned/old.merge-authority")" = 'old authority' ] || fail 'merge-authority record was not archived'
+  [ "$(cat "$CASE/home/data/old/retired-reassigned/old.progress")" = 'old progress' ] || fail 'progress record was not archived'
+  [ "$(cat "$CASE/home/state/live.merge-authority")" = 'live authority' ] || fail 'live merge-authority record changed'
   [ "$(cat "$CASE/home/state/live.check.sh")" = 'live poll' ] || fail 'live check changed'
   pass 'landed ship retirement keeps Git refs and archives only its own task artifacts'
 }

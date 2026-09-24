@@ -3388,12 +3388,14 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
-# Every step that can refuse runs before the pool slot is returned, so a refused
-# cleanup keeps the slot leased to this task. A parent-delivery refusal must also
-# come before the reap: an interactive Treehouse slot owner exits with its reaped
-# subshell. Delivery runs again once the endpoint has stopped, and its receipts
-# make that idempotent. A late outcome it cannot deliver keeps its pending record,
-# which the watcher's ledger pass retries after this record is gone.
+# A step that refuses before the pool slot is returned keeps the slot leased to
+# this task. Endpoint-close refusals come after the return; a rerun then goes
+# through the reassigned-slot retire path (bin/fm-local-retire-reassigned.sh).
+# A parent-delivery refusal must also come before the reap: an interactive
+# Treehouse slot owner exits with its reaped subshell. Delivery runs again once
+# the endpoint has stopped, and its receipts make that idempotent. A late outcome
+# it cannot deliver keeps its pending record, which the watcher's ledger pass
+# retries after this record is gone.
 teardown_report_parent() {  # [late]
   [ "$KIND" != secondmate ] || return 0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
