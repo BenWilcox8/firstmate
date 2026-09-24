@@ -267,6 +267,8 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-busy-lib.sh
+. "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
 . "$SCRIPT_DIR/fm-lock-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -1205,26 +1207,30 @@ fi
 # Where a harness's firstmate-owned global turn-end registry entry lives is
 # owned by bin/fm-control-lib.sh, so teardown and the control plane's relaunch
 # retire the same artifact rather than each carrying its own copy of the path.
-remove_grok_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path grok "$state_dir" "$id") || return 1
+turnend_auth_path() {  # <harness> <state-dir> <id>
+  local harness=$1 state_dir=$2 id=$3 token_path token=''
+  token_path=$(fm_control_harness_turnend_token_path "$harness" "$state_dir" "$id") || return 1
   if [ -n "$token_path" ] && [ -f "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
-  path=$(fm_control_harness_turnend_auth_path grok "$token") || return 1
-  [ -n "$path" ] || return 0
-  rm -f -- "$path"
+  fm_control_harness_turnend_auth_path "$harness" "$token"
 }
 
-remove_kimi_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path kimi "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
+remove_turnend_auth() {  # <harness> <state-dir> <id>
+  local path
+  path=$(turnend_auth_path "$@") || return 1
+  [ -z "$path" ] || rm -f -- "$path"
+}
+
+validate_busy_state_retirement() {  # <state-dir> <id> <gen>
+  local gen_file current
+  gen_file=$(fm_busy_gen_path "$1" "$2")
+  [ -e "$gen_file" ] || [ -L "$gen_file" ] || return 0
+  if current=$(fm_busy_current_gen "$1" "$2") && { [ -z "${3:-}" ] || [ "$3" = "$current" ]; }; then
+    return 0
   fi
-  path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1
-  [ -n "$path" ] || return 0
-  rm -f -- "$path"
+  echo "REFUSED: the busy-state gen for $2 does not match its record; preserving the pool slot and task state." >&2
+  return 1
 }
 
 retire_busy_state() {
@@ -1241,6 +1247,7 @@ validate_pr_poll_cleanup() {
   fm_task_id_path_safe "$id" || return 0
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
+    "$state_dir/$id.pr-poll-merge-notified" \
     "$state_dir/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     has_artifact=1
@@ -1250,6 +1257,7 @@ validate_pr_poll_cleanup() {
   state_device=$(fm_pr_file_device "$state_dir") || return 1
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
+    "$state_dir/$id.pr-poll-merge-notified" \
     "$state_dir/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     if [ ! -f "$artifact" ] || [ -L "$artifact" ] \
@@ -3014,8 +3022,8 @@ cleanup_firstmate_home_children() {
         safe_rm_rf_child_worktree "$child_wt" "$child_proj"
       fi
     fi
-    remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
+    remove_turnend_auth grok "$sub_state" "$child_id" || return 1
+    remove_turnend_auth kimi "$sub_state" "$child_id" || return 1
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
@@ -3170,14 +3178,24 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
   fi
 fi
 
-# Parent delivery can refuse. Keep the endpoint and pool lease until it succeeds.
-if [ "$KIND" != secondmate ]; then
-  if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-      "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID"; then
-    echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
-    exit 1
-  fi
+# Every step that can refuse runs before the pool slot is returned, so a refused
+# cleanup keeps the slot leased to this task. Parent delivery runs again once
+# the endpoint has stopped; its receipts make the second delivery idempotent.
+teardown_report_parent() {
+  [ "$KIND" != secondmate ] || return 0
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID" && return 0
+  echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
+  exit 1
+}
+teardown_report_parent
+if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ] && [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
+  require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
+  ORCA_PATH_MATCH_VERIFIED=1
 fi
+validate_busy_state_retirement "$STATE" "$ID" "$BUSY_GEN" || exit 1
+GROK_TURNEND_AUTH=$(turnend_auth_path grok "$STATE" "$ID") || exit 1
+KIMI_TURNEND_AUTH=$(turnend_auth_path kimi "$STATE" "$ID") || exit 1
 
 # Every landed/discard-work refusal above has now passed, so a leg that produced
 # work has PROVED it landed (a ship task's content reached the default branch or
@@ -3505,8 +3523,46 @@ if [ "$BACKEND" = herdr ]; then
   if teardown_herdr_close_confirmed; then
     HERDR_CLOSE_CONFIRMED=1
   fi
-elif [ "$BACKEND" != orca ]; then
+elif [ "$BACKEND" != orca ] || { [ "$KIND" != secondmate ] && [ -n "$T_ORCA" ]; }; then
   fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
+fi
+teardown_report_parent
+# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
+if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
+  if [ -d "$WT" ]; then
+    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+    if [ "$branch" != "HEAD" ]; then
+      if git -C "$WT" checkout --detach -q 2>/dev/null; then
+        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+      fi
+    fi
+    rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
+      "$WT/.opencode/plugins/fm-busy-state.js" \
+      "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
+  fi
+  fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
+elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
+  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
+  if [ "$branch" != "HEAD" ]; then
+    if git -C "$WT" checkout --detach -q 2>/dev/null; then
+      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
+    fi
+  fi
+  # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
+  rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
+    "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
+  # Kills remaining processes in the worktree (including the agent), resets, returns
+  # to pool. treehouse resolves the pool from the working directory, so run it from
+  # the project. teardown_treehouse_return tolerates transient and stale git locks
+  # left by a killed crew process; see the script header for retry and stale-lock proof.
+  post_lock_cleanup_check=
+  if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
+    post_lock_cleanup_check=validate_worktree_teardown_safety
+  fi
+  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
+    echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
+    exit 1
+  }
 fi
 # Journal retirement follows that ONE confirmation instead of taking a second
 # independent pane read: two reads let a transient ambiguity on the first
@@ -3541,8 +3597,9 @@ if [ "$KIND" = secondmate ]; then
     || { echo "error: receiver wake cleanup failed; preserving the secondmate route for retry" >&2; exit 1; }
   remove_secondmate_registry_entry "$ID"
 fi
-remove_grok_turnend_auth "$STATE" "$ID" || exit 1
-remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
+for turnend_auth in "$GROK_TURNEND_AUTH" "$KIMI_TURNEND_AUTH"; do
+  [ -z "$turnend_auth" ] || rm -f -- "$turnend_auth" || exit 1
+done
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.
@@ -3551,50 +3608,6 @@ remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
 if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-prune "$STATE"; fi
-# Return the pool slot only after endpoint and record-retirement gates pass.
-# Best-effort: drop the local task branch so the shared repo does not accumulate refs.
-if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
-  if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
-    require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
-    ORCA_PATH_MATCH_VERIFIED=1
-  fi
-  if [ -d "$WT" ]; then
-    branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-    if [ "$branch" != "HEAD" ]; then
-      if git -C "$WT" checkout --detach -q 2>/dev/null; then
-        git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-      fi
-    fi
-    rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
-      "$WT/.opencode/plugins/fm-busy-state.js" \
-      "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
-  fi
-  [ -z "$T_ORCA" ] || fm_backend_kill "$BACKEND" "$T" "$(meta_value "$META" zellij_tab_id)" "fm-$ID" 2>/dev/null || true
-  fm_backend_remove_worktree "$BACKEND" "$ORCA_WORKTREE_ID"
-elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
-  branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
-  if [ "$branch" != "HEAD" ]; then
-    if git -C "$WT" checkout --detach -q 2>/dev/null; then
-      git -C "$WT" branch -D "$branch" >/dev/null 2>&1 || true
-    fi
-  fi
-  # Remove our hook file so a reused pool worktree cannot fire signals for a dead task.
-  rm -f "$WT/.claude/settings.local.json" "$WT/.opencode/plugins/fm-turn-end.js" \
-    "$WT/.fm-grok-turnend" "$WT/.fm-kimi-turnend"
-  # Kills remaining processes in the worktree (including the agent), resets, returns
-  # to pool. treehouse resolves the pool from the working directory, so run it from
-  # the project. teardown_treehouse_return tolerates transient and stale git locks
-  # left by a killed crew process; see the script header for retry and stale-lock proof.
-  post_lock_cleanup_check=
-  if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
-    post_lock_cleanup_check=validate_worktree_teardown_safety
-  fi
-  teardown_treehouse_return "$WT" "$PROJ" "worktree" "$post_lock_cleanup_check" || {
-    echo "error: treehouse return failed for worktree $WT; teardown aborted" >&2
-    exit 1
-  }
-fi
-
 # The retired log is gone, so a refused Atlas close-out starts a fresh one: the
 # keyed gate line is an open blocker the watcher surfaces, and it stays listed
 # with the orphan status logs until the supervisor resolves it.

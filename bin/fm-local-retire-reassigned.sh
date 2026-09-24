@@ -6,8 +6,12 @@
 # This explicit repair never returns a slot, changes a worktree, deletes a Git
 # ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
 # The old endpoint must be dead or missing, its last outcome must be done, and
-# it must have no open decision. The pool lease, live record, and live endpoint
-# must agree. All reads and retirement hold the project and both task locks.
+# it must have no open decision. The pool slot, live record, and live endpoint
+# must agree: Treehouse records the slot owner as owner_pid and owner_started_at
+# (epoch milliseconds). That process must still run with that start time, and
+# every foreground process of the live endpoint must descend from it. The proof
+# reads /proc, so a host without it refuses.
+# All reads and retirement hold the project and both task locks.
 # A scout needs its report and the existing captain-call completion gate.
 # A ship also needs a clean shared worktree and its retained fm/<id> branch
 # reachable from a remote, or from local main/master in local-only mode.
@@ -16,11 +20,14 @@
 #
 # The command archives the old metadata and status under
 # data/<id>/retired-reassigned before removing either active record. It closes
-# the backlog through the existing recovery marker. It completes only the old
-# Atlas ticket, with matching task identity, before retirement. It never releases
-# or lands a node: another ticket can own that node. An Atlas refusal retains
-# the active record for retry. Each Atlas call has a 20-second bound.
-# No approval is inferred from a done line.
+# the backlog through the existing recovery marker. Before retirement it closes
+# only the old Atlas ticket through bin/fm-atlas-hook.sh land, the teardown
+# discharge: complete the ticket, release its node, and land the node when no
+# other open ticket remains on it. The hook state must then read completed.
+# A refused completion takes the hook's keyed blocker line in the old status log
+# and retains the active record. A refused node landing is written to a fresh
+# status log after retirement, as teardown does. No approval is inferred from a
+# done line.
 # Task check files and other volatile records move into the same archive.
 # Global hook registrations and tasktmp remain untouched for manual inspection.
 # Legacy records without spawn_gen refuse when automatic backlog closure applies.
@@ -54,10 +61,10 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVE
 . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
-# shellcheck source=bin/fm-timeout-lib.sh
-. "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
 . "$SCRIPT_DIR/fm-busy-lib.sh"
+# shellcheck source=bin/fm-timeout-lib.sh
+. "$SCRIPT_DIR/fm-timeout-lib.sh"
 ID=${1:-}; [ "$#" -eq 0 ] || shift
 LIVE_ID=''
 LIVE_HOME=$FM_HOME
@@ -96,6 +103,31 @@ record() {
   awk -F= 'NF && ++seen[$1]>1 {exit 1}' "$1" || refuse "duplicate metadata fields in $1"
 }
 canonical() { (cd "$1" && pwd -P); }
+proc_field() {  # <pid> <index after the command name>
+  local stat fields
+  case "$1" in ''|*[!0-9]*) return 1 ;; esac
+  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+  read -r -a fields <<< "${stat##*)}"
+  [ -n "${fields[$2]:-}" ] || return 1
+  printf '%s\n' "${fields[$2]}"
+}
+lease_owner_live() {
+  local ticks btime hz
+  ticks=$(proc_field "$OWNER_PID" 19) || return 1
+  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 1
+  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
+  [ -n "$btime" ] && [ -n "$hz" ] || return 1
+  [ "$((btime * 1000 + ticks * 1000 / hz))" = "$OWNER_STARTED" ]
+}
+descends_from_owner() {  # <pid>
+  local pid=$1 depth
+  for ((depth=0; depth<64; depth++)); do
+    [ "$pid" != "$OWNER_PID" ] || return 0
+    [ "$pid" -gt 1 ] 2>/dev/null || return 1
+    pid=$(proc_field "$pid" 1) || return 1
+  done
+  return 1
+}
 record "$META" "$STATE"
 PROJ=$(canonical "$(fm_meta_get "$META" project)") || refuse 'cannot resolve the project'
 lock "$(fm_treehouse_project_lock_path "$PROJ")"
@@ -120,10 +152,13 @@ COMMON=$(git -C "$PROJ" rev-parse --path-format=absolute --git-common-dir)
   || refuse 'worktree and project have different Git identities'
 POOL=$(dirname "$(dirname "$WT")")/treehouse-state.json
 [ -f "$POOL" ] && [ ! -L "$POOL" ] || refuse 'no regular Treehouse pool record'
-LEASE=$(jq -cer --arg wt "$WT" --arg id "$LIVE_ID" \
+LEASE=$(jq -cer --arg wt "$WT" \
   '[.worktrees[] | select(.path==$wt)] | select(length==1) | .[0]
-   | select(.leased==true and .lease_holder==$id and (.lease_id|type)=="string" and (.lease_id|length)>0)' "$POOL") \
-  || refuse 'pool lease does not belong to the named live task'
+   | select((.owner_pid|type)=="number" and (.owner_started_at|type)=="number")' "$POOL") \
+  || refuse 'pool slot has no recorded owner process'
+OWNER_PID=$(printf '%s' "$LEASE" | jq -r '.owner_pid')
+OWNER_STARTED=$(printf '%s' "$LEASE" | jq -r '.owner_started_at')
+lease_owner_live || refuse 'pool slot owner is not the live process Treehouse recorded'
 fm_backend_validate_task_endpoint "$META" "$ID" || refuse 'invalid old endpoint'
 OLD_BACKEND=$FM_BACKEND_VALIDATED_BACKEND OLD_TARGET=$FM_BACKEND_VALIDATED_TARGET
 case "$(fm_backend_agent_state "$OLD_BACKEND" "$OLD_TARGET")" in
@@ -134,6 +169,11 @@ fm_backend_validate_task_endpoint "$LIVE_META" "$LIVE_ID" || refuse 'invalid liv
 LIVE_BACKEND=$FM_BACKEND_VALIDATED_BACKEND LIVE_TARGET=$FM_BACKEND_VALIDATED_TARGET
 [ "$OLD_BACKEND:$OLD_TARGET" != "$LIVE_BACKEND:$LIVE_TARGET" ] || refuse 'records share an endpoint'
 [ "$(fm_backend_agent_state "$LIVE_BACKEND" "$LIVE_TARGET")" = alive ] || refuse 'lease owner is not confidently live'
+LIVE_PIDS=$(fm_backend_foreground_pids "$LIVE_BACKEND" "$LIVE_TARGET") || LIVE_PIDS=
+[ -n "$LIVE_PIDS" ] || refuse 'cannot read the live endpoint processes'
+for pid in $LIVE_PIDS; do
+  descends_from_owner "$pid" || refuse 'pool slot owner does not belong to the named live task'
+done
 fm_backlog_record_present "$STATE/$ID.status" 'task status' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
 case "$(last_status_line "$STATE/$ID.status")" in done:*|done\ \[*\]:*) ;; *) refuse 'old record is not finished' ;; esac
 [ -z "$(status_open_decisions "$STATE/$ID.status")" ] || refuse 'old record has open decisions'
@@ -197,53 +237,66 @@ for dir in "$DATA" "$DATA/$ID" "$ARCHIVE"; do
   [ ! -L "$dir" ] || refuse "archive path is a symlink: $dir"
 done
 mkdir -p "$ARCHIVE"
-SUFFIXES=(turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement
-  pr-poll-merge-notified busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token
-  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json
-  control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox)
-for suffix in "${SUFFIXES[@]}"; do
-  source=$STATE/$ID.$suffix
-  target=$ARCHIVE/$ID.$suffix
+ARTIFACTS=(".$ID.branch-outcome-index")
+for suffix in turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement \
+  pr-poll-merge-notified busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
+  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json herdr-presentation \
+  control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox; do
+  ARTIFACTS+=("$ID.$suffix")
+done
+for name in "${ARTIFACTS[@]}"; do
+  source=$STATE/$name
+  target=$ARCHIVE/$name
   [ -e "$source" ] || [ -L "$source" ] || continue
-  [ ! -e "$target" ] && [ ! -L "$target" ] || refuse "archive already contains $ID.$suffix"
-  if [ "$suffix" = inbox ]; then
+  [ ! -e "$target" ] && [ ! -L "$target" ] || refuse "archive already contains $name"
+  if [ "$name" = "$ID.inbox" ]; then
     [ -d "$source" ] && [ ! -L "$source" ] || refuse 'unsafe task inbox'
   else
     fm_backlog_record_present "$source" 'task artifact' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
   fi
 done
-# Copy evidence before an external completion or any record removal. Existing
-# copies must match, so retries cannot overwrite evidence from another dispatch.
-for source in "$META" "$STATE/$ID.status"; do
-  target=$ARCHIVE/$(basename "$source")
-  if [ -e "$target" ] || [ -L "$target" ]; then
-    fm_backlog_record_present "$target" 'archive record' "$DATA" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
-    cmp -s "$source" "$target" || refuse 'archive belongs to a different record; inspect it before retry'
-  else
-    cp -p "$source" "$target"
-  fi
-done
+# Existing evidence copies must match, so retries cannot overwrite evidence from
+# another dispatch. The copies are made after the Atlas close, because a refused
+# completion appends its blocker line to the active status log.
+archive_evidence() {  # [copy]
+  local source target
+  for source in "$META" "$STATE/$ID.status"; do
+    target=$ARCHIVE/$(basename "$source")
+    if [ -e "$target" ] || [ -L "$target" ]; then
+      fm_backlog_record_present "$target" 'archive record' "$DATA" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
+      cmp -s "$source" "$target" || refuse 'archive belongs to a different record; inspect it before retry'
+    elif [ "${1:-}" = copy ]; then
+      cp -p "$source" "$target"
+    fi
+  done
+}
+archive_evidence
+ATLAS_GATE_LINE=
 TICKET=$(fm_meta_get "$META" atlas_ticket)
 if [ -n "$TICKET" ]; then
   [ "$TICKET" != "$(fm_meta_get "$LIVE_META" atlas_ticket)" ] || refuse 'the live record names the same Atlas ticket'
-  [ -f "$CONFIG/specs" ] && [ ! -L "$CONFIG/specs" ] || refuse 'Atlas ticket has no readable home pointer'
-  REPO=$(cat "$CONFIG/specs")
-  [ -d "$REPO/atlas" ] || refuse 'Atlas repository is unavailable'
-  atlas() { fm_run_timed 20 atlas-axi --repo "$REPO" --by fm-local-retire-reassigned "$@"; }
-  TICKET_JSON=$(atlas ticket show "$TICKET" --json) || refuse 'cannot read the Atlas ticket'
-  printf '%s' "$TICKET_JSON" | jq -e --arg id "$ID" '.change.task==$id and (.change.state=="started" or .change.state=="completed")' >/dev/null \
+  # The hook owns repository resolution and all mutations. This repair also
+  # proves the recorded ticket still belongs to the old task before calling it.
+  ATLAS_REPO=$("$SCRIPT_DIR/fm-atlas-hook.sh" wired)
+  [ -n "$ATLAS_REPO" ] || refuse 'Atlas ticket has no readable home pointer'
+  TICKET_JSON=$(fm_run_timed 20 atlas-axi --repo "$ATLAS_REPO" --by fm-local-retire-reassigned ticket show "$TICKET" --json) \
+    || refuse 'cannot read the Atlas ticket identity'
+  printf '%s' "$TICKET_JSON" | jq -e --arg id "$ID" --arg ticket "$TICKET" \
+    '.change.id==$ticket and .change.task==$id and (.change.state=="started" or .change.state=="completed")' >/dev/null \
     || refuse 'Atlas ticket does not name this finished leg'
-  if [ "$(printf '%s' "$TICKET_JSON" | jq -r '.change.state')" != completed ]; then
-    atlas ticket complete "$TICKET" --evidence "$EVIDENCE" \
-      --summary 'Retired the finished task record after its pool slot was reassigned. Preserved the live task and its slot.' \
-      || refuse 'Atlas completion refused; active record retained'
+  ATLAS_GATE_LINE=$("$SCRIPT_DIR/fm-atlas-hook.sh" land "$ID" --actor fm-local-retire-reassigned --defer-status \
+    --evidence "$EVIDENCE" \
+    --summary 'Retired the finished task record after its pool slot was reassigned. Preserved the live task and its slot.')
+  if [ "$("$SCRIPT_DIR/fm-atlas-hook.sh" state "$ID" --actor fm-local-retire-reassigned)" != completed ]; then
+    [ -z "$ATLAS_GATE_LINE" ] || printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status"
+    refuse 'Atlas completion refused or unconfirmed; active record retained'
   fi
-  TICKET_JSON=$(atlas ticket show "$TICKET" --json) || refuse 'cannot confirm Atlas completion'
-  printf '%s' "$TICKET_JSON" | jq -e --arg id "$ID" '.change.task==$id and .change.state=="completed"' >/dev/null \
-    || refuse 'Atlas completion is unconfirmed; active record retained'
 fi
+archive_evidence copy
 # Recheck the external lease immediately before local retirement.
-[ "$LEASE" = "$(jq -c --arg wt "$WT" '.worktrees[] | select(.path==$wt)' "$POOL")" ] || refuse 'pool lease changed during retirement'
+if [ "$LEASE" != "$(jq -c --arg wt "$WT" '.worktrees[] | select(.path==$wt)' "$POOL")" ] || ! lease_owner_live; then
+  refuse 'pool lease changed during retirement'
+fi
 if [ "$BACKLOG" = 1 ]; then
   fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$FM_BACKLOG_META_SPAWN_GEN" ${BACKLOG_ARGS[@]+"${BACKLOG_ARGS[@]}"} \
     || refuse "$FM_BACKLOG_TRANSITION_ERROR"
@@ -253,9 +306,15 @@ else
   fm_backlog_atomic_transition remove "$META" 'task record' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
 fi
 status_retire_presentation_task "$STATE" "$ID" || refuse 'task retired; status archive exists but presentation cleanup needs repair'
-for suffix in "${SUFFIXES[@]}"; do
-  source=$STATE/$ID.$suffix
+for name in "${ARTIFACTS[@]}"; do
+  source=$STATE/$name
   [ -e "$source" ] || [ -L "$source" ] || continue
   mv "$source" "$ARCHIVE/"
 done
+# The retired log is gone, so a refused node landing starts a fresh one that the
+# watcher surfaces until the supervisor resolves its key.
+if [ -n "$ATLAS_GATE_LINE" ]; then
+  printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status" \
+    || echo "warning: the refused Atlas close-out could not be recorded: $ATLAS_GATE_LINE" >&2
+fi
 printf 'retired %s; live task %s and slot %s unchanged; evidence %s\n' "$ID" "$LIVE_ID" "$WT" "$ARCHIVE"
