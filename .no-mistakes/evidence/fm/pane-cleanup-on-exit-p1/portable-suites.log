@@ -1,0 +1,18 @@
+FM_TEST_BEGIN 2026-09-24T15:24:49Z tests/fm-local-pane-recovery.test.sh family=backend-dispatch expected_gate_skip=none
+ok - pane-cleanup-on-exit tests are registered through the fork family hook
+ok - recovery skips a pane whose fresh spawn holds the task meta lock
+closed ended pane=test:w1:p2
+ok - recovery closes an ended worker pane while preserving its task record
+ok - automatic cleanup preserves a pane with unreadable process evidence
+ok - automatic cleanup preserves a secondmate supervisor pane
+ok - watcher poll closes an ended worker pane through its hook
+ok - bootstrap cleans restored shells before layout repair
+ok - bootstrap skips and reports a layout repair whose plan would close a recorded task pane
+ok - bootstrap still heals husks that have no task record in this home
+ok - bootstrap runs the existing layout repair when its plan closes no pane
+ok - exit treats a missing home workspace as proof that no task pane remains
+ok - exit refuses when the home workspace is missing but the recorded pane still exists
+ok - exit refuses when the home workspace exists but its crew inventory is unreadable
+ok - a sweep reads a failed session inventory once and closes nothing
+ok - exit refuses when a split tab hides the recorded worker pane from label resolution
+ok - teardown refuses and keeps the records when a split tab hides the recorded worker pane
