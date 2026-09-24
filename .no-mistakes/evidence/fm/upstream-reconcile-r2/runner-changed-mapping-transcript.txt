@@ -1,0 +1,17 @@
+$ (touch VISION.md) bin/fm-test-run.sh --changed --base HEAD~1 --list
+fm-test-run: no tests selected for changes vs HEAD~1 (map is conservative; use --all for the complete suite)
+rc=0
+$ (touch GROK_BOT.md) bin/fm-test-run.sh --changed --base HEAD~1 --list
+fm-test-run: no tests selected for changes vs HEAD~1 (map is conservative; use --all for the complete suite)
+rc=0
+$ (touch bin/fm-local-retire-reassigned.sh) bin/fm-test-run.sh --changed --base HEAD~1 --list
+tests/fm-check-unregister.test.sh
+tests/fm-pr-check-security.test.sh
+tests/fm-pr-merge.test.sh
+tests/fm-pr-reviewers.test.sh
+tests/fm-pr-state.test.sh
+tests/fm-review-diff.test.sh
+tests/fm-teardown.test.sh
+tests/fm-x-mode.test.sh
+tests/fm-local-cleanup-slot.test.sh
+rc=0

@@ -1,0 +1,18 @@
+$ git log -1 --format="%H %P" 3432404438b8497195d3d70e9ef83ac49d4a7117
+3432404438b8497195d3d70e9ef83ac49d4a7117 parents: af823b7f569479c0a5057e127e904df55c2ec4b4 aec043c718ef186a1d28c607fd5852b041e24435
+ancestor of HEAD: af823b7f569479c0a5057e127e904df55c2ec4b4
+ancestor of HEAD: aec043c718ef186a1d28c607fd5852b041e24435
+ancestor of HEAD: 7e3ad1d7
+ancestor of HEAD: 7e4bdf98
+ancestor of HEAD: a21721c9
+ancestor of HEAD: 5607ed74
+ancestor of HEAD: b2ef7600
+ancestor of HEAD: e1b269ed
+712aed80 parents: 1f626b901441a9045750966827731fbaf999410f 7e3ad1d7976005e88c8162a18d5379fdb0e8766e
+534a987a parents: 0934f4ee8d55ce022dbaaf2289e6f4083f467712 7e4bdf984a8ead682284a19fe7b4648a0b578c04
+c91b03a5 parents: 30f425ea8d950286f5959d2f0db65d38dec0ccb7 a21721c99bc0a8f1f5887df36dbb8fe86203abe6
+d5fbb6c2 parents: 64e704b075a4e750be094ed56f4e5dea6c983581 5607ed748fbb38f957d49c58e666b82e3184dfe8
+0089320a parents: c909e24756d5931b06e763691c49ad2f84f03e1c b2ef7600494a09d694fba54885231b091d1f5399
+eeb841b9 parents: 1c5dbbc8e338cef2515af21b4257116c4cf3d108 e1b269edc09a678fa2ca17a3323eab34b0e2fa58
+merge commits on branch not in fork main: 7
+upstream commits after aec043c7 in HEAD: none expected

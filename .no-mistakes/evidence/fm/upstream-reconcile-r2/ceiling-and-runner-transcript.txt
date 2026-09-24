@@ -1,0 +1,24 @@
+$ bin/fm-agentsmd-ceiling.sh check
+AGENTS.md is 29219 estimated tokens, within ceiling 29220 (1 to spare).
+rc=0
+$ bin/fm-agentsmd-ceiling.sh report
+estimator=ceil(UTF-8 bytes / 3) conservative-local-estimate
+ceiling_tokens=29220
+file=AGENTS.md bytes=87656 estimated_tokens=29219
+ceiling_status=within-ceiling
+headroom_tokens=1
+rc=0
+$ grep -n ceiling VISION.md
+39:This personal fork retains its complete accepted instruction policy instead of the upstream 9,000-word ceiling.
+40:The tracked `.agentsmd-ceiling` limits its estimated tokens, enforced by `bin/fm-agentsmd-ceiling.sh check`.
+41:Compatible upstream instructions can justify a measured, reviewed ceiling change without removing accepted local instructions.
+
+$ bin/fm-test-run.sh --changed --list VISION.md GROK_BOT.md
+fm-test-run: script paths cannot be combined with --changed
+rc=2
+$ bin/fm-test-run.sh --changed --list bin/fm-local-retire-reassigned.sh
+fm-test-run: script paths cannot be combined with --changed
+rc=2
+$ bin/fm-test-run.sh --changed --list tests/assets/x (upstream gap kept)
+fm-test-run: script paths cannot be combined with --changed
+rc=2

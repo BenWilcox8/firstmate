@@ -1,0 +1,3 @@
+ok - real idle Codex frames read empty, with or without prompt-row animation
+ok - typed text below an idle Codex prompt still blocks the doorbell
+ok - typed drafts in other harness composers still block the doorbell

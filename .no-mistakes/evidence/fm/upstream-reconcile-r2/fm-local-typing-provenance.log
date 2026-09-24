@@ -1,0 +1,4 @@
+ok - typing-provenance-launch: the launch prompt writes one record matching the prompt the agent receives
+ok - typing-provenance-launch: a brief pointer typed after launch writes one record and the bare launch line none
+ok - typing-provenance-exit: the exit command keeps its bytes and writes one record
+ok - typing-provenance-digest: the supervisor digest keeps its bytes and writes one record

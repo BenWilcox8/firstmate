@@ -1,0 +1,14 @@
+canonical roots (CI=true --list-files): 468
+partition 1of4: 117 roots
+partition 2of4: 117 roots
+partition 3of4: 117 roots
+partition 4of4: 117 roots
+union of 1of4..4of4 == canonical roots, no loss or duplicates
+partition 1of2: 234 roots
+partition 2of2: 234 roots
+union of 1of2,2of2 == canonical roots (two-way split unchanged)
+partition 0of4 rc=2 fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 0of4.
+partition 5of4 rc=2 fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 5of4.
+partition 1of8 rc=2 fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 1of8.
+partition 1of3 rc=2 fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 1of3.
+1of4 --fast rc=2 fm-lint.sh: --partition requires full canonical lint; omit --fast and explicit paths.

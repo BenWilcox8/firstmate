@@ -1,0 +1,32 @@
+=== Scenario A: landed ship retire archives merge-authority and progress
+--- before
+state/live.merge-authority: live authority
+state/old.merge-authority: old authority
+--- before
+state/live.progress: live progress
+state/old.progress: old progress
+$ fm-local-retire-reassigned.sh old --live-task live
+rc=0
+stdout: retired old; live task live and slot /tmp/fm-local-cleanup-slot.Sc1kfT/landed-ship/pool/1/project unchanged; evidence /tmp/fm-local-cleanup-slot.Sc1kfT/landed-ship/home/data/old/retired-reassigned
+--- after
+data/old/retired-reassigned/old.merge-authority: old authority
+state/live.merge-authority: live authority
+--- after
+data/old/retired-reassigned/old.progress: old progress
+state/live.progress: live progress
+
+=== Scenario B (adversarial): symlinked old.merge-authority must refuse and keep records
+$ fm-local-retire-reassigned.sh old --live-task live
+rc=1
+stderr: REFUSED: task artifact resolves outside its authorized directory at /tmp/fm-local-cleanup-slot.Sc1kfT/symlink-authority/home/state/old.merge-authority
+--- after
+state/old.merge-authority -> symlink
+--- after
+state/old.progress: old progress
+old.meta retained: yes
+outside target content: elsewhere
+
+=== Scenario C (adversarial): directory at old.progress must refuse
+rc=1
+stderr: REFUSED: task artifact is not a regular file at /tmp/fm-local-cleanup-slot.Sc1kfT/dir-progress/home/state/old.progress
+old.meta retained: yes

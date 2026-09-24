@@ -1,0 +1,4 @@
+fm-local-typing-provenance rc=0 secs=9
+fm-local-send-provenance rc=0 secs=33
+fm-local-codex-idle-frames rc=0 secs=9
+fm-teardown rc=0 secs=351
