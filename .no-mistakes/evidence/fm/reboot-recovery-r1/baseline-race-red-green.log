@@ -1,0 +1,11 @@
+$ # fix reverted: cmd_run classifies against a re-read of state/.restart-fingerprint after the Herdr wait
+$ FM_TEST_ONLY=test_run_keeps_a_restart_that_a_session_start_records_during_the_herdr_wait bash tests/fm-local-restart-recovery.test.sh
+not ok - a session start during the Herdr wait hid the restart from the pass (unexpected: 'no restart since the last session start')
+--- output ---
+fm-restart-recovery: no restart since the last session start; nothing to relaunch
+exit=1
+
+$ # fix restored (target commit 7364718)
+$ FM_TEST_ONLY=test_run_keeps_a_restart_that_a_session_start_records_during_the_herdr_wait bash tests/fm-local-restart-recovery.test.sh
+ok - run: a session start during the Herdr wait does not hide the restart from the pass
+exit=0

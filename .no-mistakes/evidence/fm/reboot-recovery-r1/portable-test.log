@@ -7,6 +7,7 @@ ok - launch-line: a primary that recovery relaunched is relaunched again without
 ok - record: a second mate home keeps no primary endpoint record
 ok - run: nothing happens without a recorded baseline and a detected restart
 ok - run: an unreachable Herdr ends the pass within its bound, with one wake
+ok - run: a session start during the Herdr wait does not hide the restart from the pass
 ok - run: one recovery pass per restart, and a concurrent run never starts a second
 ok - run: a restart loop stops after the rate limit with one alert
 ok - run: a primary the captain started by hand, by its home or by the fleet lock, is not launched twice

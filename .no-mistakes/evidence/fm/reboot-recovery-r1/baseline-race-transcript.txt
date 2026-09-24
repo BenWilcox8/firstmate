@@ -1,0 +1,19 @@
+$ record   # locked session start before the restart (baseline boot-1)
+
+# machine reboots (boot id -> boot-2); the boot unit starts while Herdr does not answer yet
+$ run &    # FM_RESTART_HERDR_WAIT=20
+
+$ record   # the captain starts firstmate by hand during the Herdr wait
+RESTART: machine reboot since the last session start (the boot id changed). A restart recovery pass is relaunching the authorized supervisors; its summary arrives as a check notification.
+
+# Herdr comes up
+--- boot unit output (exit 0) ---
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: primary firstmate: not relaunched: no primary endpoint is recorded (a locked session start inside a Herdr pane records it)
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate not relaunched; second mates relaunched 0, left down 0, failed 0
+
+$ status
+ledger (state/.restart-recovery.log):
+  1790273924  start  reboot
+  1790273924  done  firstmate not relaunched; second mates relaunched 0, left down 0, failed 0
