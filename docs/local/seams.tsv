@@ -1,20 +1,37 @@
 # path	line_budget	seam_id	owning_test	upstream	disposition
 # Budgets include the inherited fork delta against the upstream merge base aec043c718ef186a1d28c607fd5852b041e24435.
 bin/fm-send.sh	99	send-provenance-context	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-watch.sh	439	send-provenance-re-ring	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-watch.sh	440	send-provenance-re-ring	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-tmux-lib.sh	1	send-provenance-tmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/herdr.sh	837	send-provenance-herdr	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-teardown.sh	449	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	459	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	205	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
 bin/fm-lint.sh	408	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory, upstreamable	retain
 .github/workflows/ci.yml	52	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
-bin/fm-spawn.sh	975	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-control.sh	513	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-spawn.sh	978	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-control.sh	520	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-supervise-daemon.sh	402	typing-provenance-digest	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-teardown.sh	449	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream; endpoint-close refusals after the slot return are an accepted divergence	retain
+bin/fm-bootstrap.sh	64	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: guarded bootstrap cleanup	retain
+bin/fm-control.sh	520	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: exit and relaunch cleanup	retain
+bin/fm-spawn.sh	978	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: fresh relaunch pane	retain
+bin/fm-teardown.sh	459	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: proven close and retained records	retain
+bin/fm-test-run.sh	324	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
+bin/fm-watch.sh	440	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
+docs/agent-control.md	118	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: Herdr endpoint exception	retain
+docs/herdr-backend.md	296	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
+docs/verification/runtime-backends.md	229	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
+tests/fm-control-herdr-smoke.test.sh	306	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
+tests/fm-teardown.test.sh	492	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
+tests/fm-endpoint-retire.test.sh	869	pane-cleanup-on-exit	tests/fm-endpoint-retire.test.sh	personal: unverified Herdr relaunch refusal replaces obsolete stopped-pane adoption	retain
+tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	44	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-presentation-e2e.test.sh	68	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	53	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+bin/fm-teardown.sh	459	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream; endpoint-close refusals after the slot return are an accepted divergence	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
+bin/fm-session-start.sh	88	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+bin/fm-bootstrap.sh	64	secondmate-liveness-skip,secondmate-liveness-serial	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain

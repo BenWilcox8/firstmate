@@ -229,6 +229,7 @@ RELAUNCH_PHASE=start
 
 control_cleanup() {
   local status=$?
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-control-abort || true; fi
   if [ "$RELAUNCH_ACTIVE" = 1 ] \
      && declare -F relaunch_rollback >/dev/null 2>&1; then
     relaunch_rollback || true
@@ -590,8 +591,10 @@ do_exit() {
   local state cmd verdict composer_state cancel absence interrupt_result=not-needed
   require_state_verified_backend exit
   state=$(agent_state)
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-exit-state || return 1; fi
   case "$state" in
     dead)
+      if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-exit-close || return 1; fi
       printf 'already-stopped'
       return 0
       ;;
@@ -640,6 +643,7 @@ do_exit() {
       case "$state" in
         dead)
           retire_busy_incarnation
+          if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-exit-close || return 1; fi
           printf 'stopped'
           return 0
           ;;
@@ -678,6 +682,7 @@ do_exit() {
   # The incarnation is over: retire its busy wiring so no stale record or
   # orphaned generation survives the agent that produced it.
   retire_busy_incarnation
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-exit-close || return 1; fi
   printf 'stopped'
 }
 
@@ -1009,6 +1014,7 @@ do_relaunch() {
   else
     note_line="note=none"
   fi
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-control-reserve || exit 1; fi
   safe_checkpoint
   cp -p "$META" "$META_PRIOR" || die "could not preserve task $ID's durable record before relaunching"
   RELAUNCH_ACTIVE=1
@@ -1054,6 +1060,7 @@ do_relaunch() {
     die "the replacement agent for $ID could not be launched on $TARGET_HARNESS"
   fi
 
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-control-refresh || return 1; fi
   state=$(wait_agent_state "$LAUNCH_WAIT" alive) || {
     die "the replacement agent for $ID did not come up within ${LAUNCH_WAIT}s (endpoint reads '$state')"
   }

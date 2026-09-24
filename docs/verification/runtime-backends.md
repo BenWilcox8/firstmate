@@ -1165,6 +1165,24 @@ HERDR_LAB_HELPER=bin/fm-herdr-lab.sh \
 
 Observed guarantee: a restored no-agent tab was replaced create-before-close, while a registered live agent caused refusal.
 
+### Ended worker pane cleanup
+
+Verified on 2026-09-24 with Herdr 0.8.2 protocol 20 on Linux, using a guarded named session and a Pi process stand-in that makes no model requests:
+
+```sh
+nice -n 10 bin/fm-test-run.sh tests/fm-local-pane-cleanup-e2e.test.sh --jobs 1
+```
+
+The suite passed exit and repeated exit, replacement in the same agent-axi slot and recorded worktree, killed-agent and spontaneous-exit cleanup, failed-start cleanup, occupied-slot refusal, relaunch refusal while another operation holds the task set, landed-work teardown, teardown of a live agent that it stops first, refusal when it cannot stop that agent, dirty-work refusal, and restored-shell cleanup after a named-session restart.
+It observed pane presence through structured inventory and checked that the supervisor, secondmate, unmanaged, and foreign-home panes survived.
+A held task control lock prevented automatic cleanup.
+Uncommitted work survived every exit and relaunch case.
+The lab helper completed teardown and its default-session fleet tripwire passed.
+
+The [ended-worker contract](../herdr-backend.md#ended-worker-panes) owns the current scope and follow-ups.
+The real teardown case uses the normal Git safety checks and a private allocator stand-in that permits removal of only the known clean fixture worktree.
+The pane restart, placement, process classification, and close operations use real Herdr and agent-axi.
+
 ### Launcher workspace placement
 
 Herdr exports its pane identity into every process it manages, checked on 2026-07-30 against Herdr 0.7.5 protocol 17 inside a guarded lab pane:

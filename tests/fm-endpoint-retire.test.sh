@@ -762,8 +762,8 @@ test_herdr_relaunch_keeps_exactly_one_pane() {
   touch "$home/state/.last-watcher-beat"
   fm_git_worktree "$proj" "$wt" "wt-herdr-relaunch"
   fakebin=$(make_spawn_herdr "$dir" "firstmate")
-  # The recorded pane exists and holds no agent: the agent-free endpoint a
-  # relaunch adopts. p-new is what a create would produce, and must never appear.
+  # The recorded pane exists and holds no agent, but no fm-<id> label proves it
+  # is this task's. Relaunch refuses before any change. p-new must never appear.
   printf '%s\n' p-old > "$dir/herdr/panes"
   {
     printf 'window=default:p-old\n'
@@ -789,17 +789,19 @@ test_herdr_relaunch_keeps_exactly_one_pane() {
   out=$(env PATH="$fakebin:$PATH" FM_HOME="$home" FM_SPAWN_NO_GUARD=1 \
     FM_BACKEND=herdr FM_BACKEND_HERDR_AXI_BIN= FM_FAKE_HERDR_DIR="$dir/herdr" \
     FM_FAKE_HERDR_CWD="$wt" HERDR_SESSION=default GROK_HOME="$home/grok-home" \
-    "$SPAWN" "$id" --relaunch 2>&1) || fail "the Herdr relaunch failed: $out"
+    "$SPAWN" "$id" --relaunch 2>&1) && fail "a Herdr relaunch replaced an unverified recorded pane: $out"
+  assert_contains "$out" "ownership is unverified" \
+    "a Herdr relaunch did not name the unverified recorded pane"
 
   after=$(grep '^window=' "$home/state/$id.meta")
   [ "$before" = "$after" ] || fail "the Herdr relaunch moved the task's endpoint: $before -> $after"
   assert_not_contains "$(calls_of "$dir/herdr")" "tab create" \
-    "a Herdr relaunch opened a second pane instead of adopting the recorded one"
+    "a refused Herdr relaunch opened a second pane"
   assert_not_contains "$(calls_of "$dir/herdr")" "pane close" \
-    "a Herdr relaunch closed the endpoint it is supposed to adopt"
+    "a refused Herdr relaunch closed the recorded pane"
   [ "$(wc -l < "$dir/herdr/panes")" -eq 1 ] \
     || fail "the task holds more than one Herdr pane after a relaunch: $(cat "$dir/herdr/panes")"
-  pass "relaunch: a Herdr task still holds exactly one pane, the one its record already named"
+  pass "relaunch: an unverified Herdr pane refuses and the task still holds exactly the pane its record named"
 }
 
 test_relaunch_keeps_exactly_one_endpoint() {
