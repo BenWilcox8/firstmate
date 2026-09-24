@@ -1,0 +1,13 @@
+ok - atomic sequence claims remain unique and reap only after expiry
+ok - lanes run homes concurrently while each home stays FIFO
+ok - same-home jobs staged in the same second execute in staging-sequence order
+ok - same-home sequence order follows completed staging publication
+ok - a caller killed mid-wait cancels its queued job before execution
+ok - a caller killed mid-wait stops its running job's process group
+ok - a signal-less caller disconnect cancels the abandoned job through the parent probe
+ok - bounded reads after a cancellation meet their own budget with no convoy
+ok - an open caller stdin no longer wedges a non-payload remote command
+ok - a live explicit-stdin stage survives the staging-litter age bound
+ok - --stdin still delivers a payload caller's bytes
+ok - abandoned stage litter is reaped by age while live staging survives
+ALL TESTS PASSED

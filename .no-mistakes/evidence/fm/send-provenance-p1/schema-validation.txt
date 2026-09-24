@@ -1,0 +1,4 @@
+valid: native-skill {'backend': 'tmux', 'pane_id': '%7', 'target': 'sess:win', 'task_id': 'worker'}
+valid: explicit-endpoint {'backend': 'orca', 'pane_id': 'term-1', 'target': 'term-1', 'task_id': None}
+valid: doorbell {'backend': 'herdr', 'pane_id': 'p1', 'remote_host': 'fixture-host', 'target': 'fm-remote:p1', 'task_id': 'remote'}
+extra 'text' field rejected: True

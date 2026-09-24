@@ -1,0 +1,10 @@
+== fm-gotmp rc=0 (5s) ok=3 notok=0
+== fm-remote-transport-lanes rc=0 (70s) ok=12 notok=0
+== fm-on rc=0 (33s) ok=18 notok=1
+== fm-send-remote-delivery rc=0 (56s) ok=16 notok=4
+== fm-send-inbox rc=0 (13s) ok=12 notok=3
+== fm-send-busy-doorbell rc=0 (11s) ok=9 notok=1
+== fm-send-strict rc=0 (8s) ok=11 notok=1
+== fm-send-secondmate-marker rc=0 (8s) ok=8 notok=0
+== fm-send-settle rc=0 (4s) ok=5 notok=0
+== fm-task-inbox rc=0 (67s) ok=21 notok=1

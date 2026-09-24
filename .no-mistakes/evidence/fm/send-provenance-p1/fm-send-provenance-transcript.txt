@@ -1,0 +1,42 @@
+# Transcript: fm-send typed-delivery provenance (fake tmux transport, disposable FM_HOME)
+# branch fm/send-provenance-p1 @ bdb582e
+
+$ fm-send.sh worker '$no-mistakes'
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  typed bytes  : $no-mistakes
+  sha256(typed): acafcb558e3db3f086b0185bab0a936b3a7dfb6d22716409cb0adc40e63c2fee
+  record       : {"delivery_kind":"native-skill","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"<tmp>/home","sha256":"acafcb558e3db3f086b0185bab0a936b3a7dfb6d22716409cb0adc40e63c2fee","time":"2026-09-24T12:24:25Z","version":1}
+
+$ fm-send.sh worker '/no-mistakes'
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  typed bytes  : /no-mistakes
+  sha256(typed): 81fb80bc5ff8fb1a247e7292481890f1348be987e5cce8b1aedc1a12aca340b2
+  record       : {"delivery_kind":"native-skill","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"<tmp>/home","sha256":"81fb80bc5ff8fb1a247e7292481890f1348be987e5cce8b1aedc1a12aca340b2","time":"2026-09-24T12:24:25Z","version":1}
+
+$ fm-send.sh sess:win 'explicit endpoint text'
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  typed bytes  : explicit endpoint text
+  sha256(typed): 7dd2695402eb940d02ed0f833818d00140729cb997237acd5cde3f814c74d845
+  record       : {"delivery_kind":"explicit-endpoint","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"<tmp>/home","sha256":"7dd2695402eb940d02ed0f833818d00140729cb997237acd5cde3f814c74d845","time":"2026-09-24T12:24:26Z","version":1}
+
+$ fm-send.sh worker 'please continue with the review'
+  WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+  typed bytes  : : Firstmate instruction waiting: list '<tmp>/home/state/worker.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '<tmp>/home/state/worker.inbox'/handled/. %%dash-ping: agent%%
+  sha256(typed): 1786181f4e42a69472e8bdfce30e7516a2c6dffccbc265401fe25d7e1298e525
+  record       : {"delivery_kind":"doorbell","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"<tmp>/home","sha256":"1786181f4e42a69472e8bdfce30e7516a2c6dffccbc265401fe25d7e1298e525","time":"2026-09-24T12:24:27Z","version":1}
+
+$ ls -la $FM_HOME/state/local-send-provenance
+  total 12
+  drwx------ 2 ben users 4096 Sep 24 07:24 .
+  drwxr-xr-x 4 ben users 4096 Sep 24 07:24 ..
+  -rw------- 1 ben users 1105 Sep 24 07:24 2026-09-24.jsonl
+  -rw------- 1 ben users    0 Sep 24 07:24 .lock
+
+$ wc -l <shard>   # 4 sends -> 4 records
+4 <tmp>/home/state/local-send-provenance/2026-09-24.jsonl

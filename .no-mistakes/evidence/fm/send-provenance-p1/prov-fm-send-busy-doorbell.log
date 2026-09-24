@@ -1,0 +1,9 @@
+ok - fm-send (herdr): a steer into a mid-turn pane whose queued text is still rendered reports success
+ok - fm-send (herdr): a failed pre-Enter native read does not disable the busy evidence a mid-turn pane still shows
+ok - fm-send (herdr): text provably left in an IDLE composer after the retry budget still reports the swallow
+ok - fm-send (herdr): the busy footer alone separates a delivered steer from a swallow on identical composer text
+ok - fm-send (herdr): a steer to a mid-turn worker records durably before the doorbell and keeps the record
+ok - fm-send (herdr): no doorbell verdict removes the durable steering record
+ok - fm-send (tmux): busy-queued Enter and provable swallow keep their existing verdicts
+ok - fm-send (tmux): a cleared composer still confirms delivery
+ok - fm_composer_queued_enter_verdict: converts only on a positive busy signal, and only for proven pending text
