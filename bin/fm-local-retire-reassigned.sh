@@ -6,11 +6,12 @@
 # This explicit repair never returns a slot, changes a worktree, deletes a Git
 # ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
 # The old endpoint must be dead or missing, its last outcome must be done, and
-# it must have no open decision. The pool slot, live record, and live endpoint
-# must agree: Treehouse records the slot owner as owner_pid and owner_started_at
-# (epoch milliseconds). That process must still run with that start time, and
-# every foreground process of the live endpoint must descend from it. The proof
-# reads /proc, so a host without it refuses.
+# it must have no open decision. Its final outcome must reach the parent channel
+# first; an undelivered outcome refuses. The pool slot, live record, and live
+# endpoint must agree: Treehouse records the slot owner as owner_pid and
+# owner_started_at (epoch milliseconds). That process must still run with that
+# start time, and every foreground process of the live endpoint must descend
+# from it. The proof reads /proc, so a host without it refuses.
 # All reads and retirement hold the project and both task locks.
 # A scout needs its report and the existing captain-call completion gate.
 # A ship also needs a clean shared worktree and its retained fm/<id> branch
