@@ -1,0 +1,20 @@
+== suite=fm-local-cleanup-slot head=7b5f6c2c82f9bdf7a9f366a82219b0a49cea2c83 start=2026-09-24T09:50:45-05:00
+ok - unsafe PR merge markers refuse before endpoint or pool changes
+ok - retirement proves the Atlas task identity before any ticket or node mutation
+ok - parent refusal retains the slot and endpoint; a repaired channel permits cleanup
+ok - an outcome written before the endpoint stopped reaches the parent before the record retires
+ok - cleanup-late-outcome-retry: an undelivered late outcome completes teardown after the slot owner exits and the watcher delivers it
+ok - cleanup-late-outcome-retry: an older failed outcome never follows a newer done outcome of the same task
+ok - cleanup-late-outcome-retry: a reused task id delivers the older incarnation outcome once, before the replacement outcome
+ok - cleanup-late-outcome-retry: a teardown rerun delivers the owed older outcome before the replacement outcome, once each
+ok - cleanup-late-outcome-retry: a late report that overlaps another retry delivers its outcome once, without a false warning
+ok - cleanup-late-outcome-retry: a relaunch with the same ledger delivers its owed outcome once
+ok - a refused Treehouse return keeps the status log, busy state, and record for a rerun
+ok - busy generation refusal retains the leased slot and endpoint
+ok - finished scout retirement preserves the live slot, record, branch, dirty work, and process
+ok - unfinished, unowned, ambiguous, decision-held, and unlanded records refuse retirement
+ok - Atlas refusal keeps a keyed blocker and the record; retry closes only the old ticket and backlog
+ok - retirement releases and lands a node that no other open ticket holds
+ok - landed ship retirement keeps Git refs and archives only its own task artifacts
+ok - retirement refuses while another lifecycle action owns the live task
+== exit=0 elapsed=107s end=2026-09-24T09:52:32-05:00
