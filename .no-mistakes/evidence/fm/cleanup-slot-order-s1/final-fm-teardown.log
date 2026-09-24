@@ -1,4 +1,4 @@
-== suite=fm-teardown head=7b5f6c2c82f9bdf7a9f366a82219b0a49cea2c83 start=2026-09-24T09:54:50-05:00
+== suite=fm-teardown head=c6d181abca02bc0dbfe7ffc7abf1ba5db4e7ef01 start=2026-09-24T10:44:19-05:00
 ok - local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed
 ok - teardown closes its own backlog item before reporting success
 ok - teardown honors config/backlog-backend=manual and still finishes cleanly
@@ -88,4 +88,4 @@ ok - a process spawned during grace is reaped on a later pass
 ok - persistent leaked processes refuse teardown after bounded retries
 ok - a process exiting during identity lookup does not block teardown
 ok - the run abort and the leaked-process reap both complete before the destructive worktree return
-== exit=0 elapsed=342s end=2026-09-24T10:00:32-05:00
+== exit=0 elapsed=837s end=2026-09-24T10:58:16-05:00

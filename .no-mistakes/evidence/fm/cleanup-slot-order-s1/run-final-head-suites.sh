@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Test phase: runs the focused and affected suites serially under nice -n 10 against the final HEAD.
 set -u
-E=/home/ben/.no-mistakes/evidence/01M39P2Q4RY2230DGVBRDQWTXV
-W=/home/ben/.no-mistakes/worktrees/3665d600861c/01M39P2Q4RY2230DGVBRDQWTXV
+E=/home/ben/.no-mistakes/evidence/01M3A0P1RK8AK2Y2FD1HMYE2K1
+W=/home/ben/.no-mistakes/worktrees/3665d600861c/01M3A0P1RK8AK2Y2FD1HMYE2K1
 export PATH=/nix/store/bkbh352n0nf0jfvp9nac5mb7n5qzfcws-lsof-4.99.7/bin:/nix/store/zm1bfv9agv7v007kn3cylf8hjd2wbkrb-python3-3.12.13/bin:$PATH
 cd "$W"
 HEAD=$(git rev-parse HEAD)

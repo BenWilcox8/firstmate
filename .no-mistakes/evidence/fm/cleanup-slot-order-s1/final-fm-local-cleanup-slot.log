@@ -1,4 +1,4 @@
-== suite=fm-local-cleanup-slot head=7b5f6c2c82f9bdf7a9f366a82219b0a49cea2c83 start=2026-09-24T09:50:45-05:00
+== suite=fm-local-cleanup-slot head=c6d181abca02bc0dbfe7ffc7abf1ba5db4e7ef01 start=2026-09-24T10:35:49-05:00
 ok - unsafe PR merge markers refuse before endpoint or pool changes
 ok - retirement proves the Atlas task identity before any ticket or node mutation
 ok - parent refusal retains the slot and endpoint; a repaired channel permits cleanup
@@ -17,4 +17,4 @@ ok - Atlas refusal keeps a keyed blocker and the record; retry closes only the o
 ok - retirement releases and lands a node that no other open ticket holds
 ok - landed ship retirement keeps Git refs and archives only its own task artifacts
 ok - retirement refuses while another lifecycle action owns the live task
-== exit=0 elapsed=107s end=2026-09-24T09:52:32-05:00
+== exit=0 elapsed=218s end=2026-09-24T10:39:27-05:00

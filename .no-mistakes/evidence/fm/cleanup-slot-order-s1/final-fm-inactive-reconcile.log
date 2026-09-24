@@ -1,4 +1,4 @@
-== suite=fm-inactive-reconcile head=7b5f6c2c82f9bdf7a9f366a82219b0a49cea2c83 start=2026-09-24T09:52:32-05:00
+== suite=fm-inactive-reconcile head=c6d181abca02bc0dbfe7ffc7abf1ba5db4e7ef01 start=2026-09-24T10:39:27-05:00
 actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
 ok - main direct terminal presentation has a durable receipt
 ok - secondmate delivers a child's terminal ledger line once, on the next poll, from the ledger alone
@@ -35,4 +35,4 @@ ok - a secondmate home with no parent binding names the missing binding instead 
 actionable: inactive terminal outcome awaiting captain presentation: child=child state=done pr=https://example.test/owner/repo/pull/1
 ok - reconciliation makes zero forge or PR API calls
 all inactive reconciliation tests passed
-== exit=0 elapsed=65s end=2026-09-24T09:53:37-05:00
+== exit=0 elapsed=135s end=2026-09-24T10:41:42-05:00

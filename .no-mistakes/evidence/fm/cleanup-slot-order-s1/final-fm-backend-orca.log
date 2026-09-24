@@ -1,4 +1,4 @@
-== suite=fm-backend-orca head=7b5f6c2c82f9bdf7a9f366a82219b0a49cea2c83 start=2026-09-24T09:54:10-05:00
+== suite=fm-backend-orca head=c6d181abca02bc0dbfe7ffc7abf1ba5db4e7ef01 start=2026-09-24T10:42:35-05:00
 ok - fm-spawn: rejects explicit, environment, and configured Orca before side effects
 ok - fm_backend_orca_capture: parses result.terminal.tail and calls terminal read
 ok - fm_backend_orca_capture: falls back to result text fields
@@ -43,4 +43,4 @@ ok - fm-teardown.sh backend=orca: refuses incomplete worktree-only endpoint meta
 ok - fm-teardown.sh --force: removes Orca secondmate children through Orca
 ok - fm-teardown.sh --force: refuses Orca child id/path mismatches
 ok - fm-teardown.sh --force: refuses partial Orca secondmate children before runtime dispatch
-== exit=0 elapsed=40s end=2026-09-24T09:54:50-05:00
+== exit=0 elapsed=104s end=2026-09-24T10:44:19-05:00
