@@ -4257,6 +4257,7 @@ if [ "${HERDR_PROJECTED:-0}" -eq 1 ]; then
   spawn_herdr_presentation_order_lock_release
 fi
 spawn_send_key "$T" Enter
+if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-launch "$BACKEND" "$T" "$ID" "$LAUNCH" "$BRIEF"; fi
 if [ "$HARNESS" = kimi ]; then
   if ! kimi_wait_for_ready; then
     kimi_spawn_fail "kimi did not show a verified ready signal before brief delivery"
