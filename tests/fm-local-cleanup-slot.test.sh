@@ -59,6 +59,7 @@ case "$1" in
     [ ! -e "$CASE/late-outcome" ] || printf 'failed: late outcome before the endpoint stopped\n' >> "$CASE/home/state/old.status"
     [ ! -e "$CASE/subshell.pid" ] || kill "$(cat "$CASE/subshell.pid")"
     [ ! -e "$CASE/break-parent" ] || mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
+    [ ! -x "$CASE/watcher-race" ] || "$CASE/watcher-race" > /dev/null 2>&1 &
     ;;
 esac
 exit 0
@@ -212,6 +213,41 @@ test_rerun_teardown_delivers_owed_outcome_first() {
   [ "$(grep -c 'child old failed' "$parent")" = 1 ] || fail 'the owed older outcome was delivered more than once'
   [ "$(grep -c 'child old done: replacement finished' "$parent")" = 1 ] || fail 'the replacement outcome was delivered more than once'
   pass 'cleanup-late-outcome-retry: a teardown rerun delivers the owed older outcome before the replacement outcome, once each'
+}
+
+test_late_report_serializes_with_watcher_retry() {
+  make_case late-race
+  make_parent
+  : > "$CASE/late-outcome"
+  # Another retry caller holds the retry lock when the endpoint stops, then
+  # delivers the late record as soon as it is retry-eligible.
+  cat > "$CASE/watcher-race" <<SH
+#!/usr/bin/env bash
+. "$ROOT/bin/fm-wake-lib.sh"
+lock="$CASE/home/state/.inactive-outcome-retry.lock"
+fm_lock_acquire_wait "\$lock"
+for ((i=0; i<100; i++)); do
+  for record in "$CASE/home/state/terminal-outcomes/"*.pending; do
+    line=\$(grep '^line=' "\$record" 2>/dev/null | tail -1 | cut -d= -f2-)
+    [ -z "\$line" ] || break 2
+  done
+  sleep 0.1
+done
+if [ -n "\$line" ]; then
+  printf '%s\n' "\$line" >> "$CASE/parent/state/mate.status"
+  mv "\$record" "\${record%.pending}.reported"
+  : > "$CASE/race-done"
+fi
+fm_lock_release "\$lock"
+SH
+  chmod +x "$CASE/watcher-race"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
+  for ((i=0; i<100; i++)); do [ ! -e "$CASE/home/state/.inactive-outcome-retry.lock" ] && break; sleep 0.1; done
+  assert_present "$CASE/race-done" 'the late record was not retry-eligible while another caller held the retry lock'
+  case "$(cat "$CASE/err")" in *'LATE OUTCOME UNDELIVERED'*) fail 'a delivered late outcome was reported as undelivered' ;; esac
+  [ "$(grep -c 'child old failed' "$CASE/parent/state/mate.status")" = 1 ] || fail 'the late outcome did not reach the parent exactly once'
+  if compgen -G "$CASE/home/state/terminal-outcomes/*.pending" > /dev/null; then fail 'a delivered late outcome is still pending'; fi
+  pass 'cleanup-late-outcome-retry: a late report that overlaps another retry delivers its outcome once, without a false warning'
 }
 
 test_relaunch_does_not_duplicate_owed_outcome() {
@@ -531,6 +567,7 @@ test_undelivered_late_outcome_completes_after_owner_exits
 test_superseded_outcome_never_follows_newer_outcome
 test_reused_task_id_keeps_older_incarnation_outcome
 test_rerun_teardown_delivers_owed_outcome_first
+test_late_report_serializes_with_watcher_retry
 test_relaunch_does_not_duplicate_owed_outcome
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot

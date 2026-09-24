@@ -432,9 +432,8 @@ report_child_ledger_locked() { # <id> <meta> [late]
   fi
   if [ -n "$late" ]; then
     record_field_set "$RECORD_PENDING" line "$line" || return 1
-  fi
-  [ "$late" != held ] || return 1
-  if fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then
+    retry_retired_ledger_reports && return 0
+  elif fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then
     mark_reported "$RECORD_PENDING" || return 1
     return 0
   fi
@@ -500,10 +499,7 @@ report_child() { # <id> [late]
   meta="$STATE/$id.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   [ "$(meta_field "$meta" kind)" != secondmate ] || return 0
-  if ! retry_retired_ledger_reports; then
-    [ -n "$late" ] || return 1
-    late=held
-  fi
+  [ -n "$late" ] || retry_retired_ledger_reports || return 1
   report_child_ledger_locked "$id" "$meta" "$late"
 }
 
