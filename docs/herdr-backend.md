@@ -192,7 +192,7 @@ It resolves the home and task through structured inventory, takes the task contr
 Terminal text, task status, and an empty agent registry do not prove that an agent has stopped.
 MAIN, secondmate supervisors, unmanaged panes, and panes in another home's workspace are excluded.
 An unavailable inventory or an ambiguous process state leaves the pane untouched.
-A missing task label is not proof of absence while the recorded pane still exists, so exit and teardown refuse and recovery skips that worker.
+A missing task label is not proof of absence while the recorded pane still exists, so exit, relaunch, and teardown refuse and recovery skips that worker.
 The recorded pane counts as gone when it is absent or when it carries another `fm-` pane or tab label or runs outside the task worktree, because a restart can reuse its id.
 
 `fm-control exit` closes the stopped worker pane through the existing agent-axi teardown operation, or the native fallback when delegation is unavailable.
