@@ -215,7 +215,7 @@ Teardown retains its landed-work checks and bounded close retries.
 After those checks pass, teardown stops a live agent with the `fm-control exit` steps while it holds the task control lock.
 If the agent does not stop, teardown refuses before it removes anything, also under `--force`.
 When pane closure cannot be confirmed, it prints the exact task and pane, the close-attempt count, and the known causes.
-It then returns exit 1 and retains the task records for retry.
+It then returns exit 1 before the worktree reap and the pool slot return, so the task records, worktree, and slot remain for retry.
 An explicit `--force` allows record retirement despite unconfirmed closure or unreadable ownership; the unclosed pane remains named in the diagnostic.
 An unconfirmed presentation journal remains intact even under `--force`.
 Placement receipts retire only when task records retire.
