@@ -40,7 +40,8 @@ case "$1 $2" in
     if [ -e "$FM_LOCAL_RECOVERY_FIXTURE/closed" ] || [ -n "${FM_LOCAL_RECOVERY_GONE:-}" ]; then
       echo '{"error":{"code":"pane_not_found"}}'; exit 1
     fi
-    echo '{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t2","label":"fm-ended","terminal_id":"terminal-1"}}}' ;;
+    pane='{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t2","label":"fm-ended","terminal_id":"terminal-1"}'
+    jq -n --argjson pane "$pane" --argjson with "${FM_LOCAL_RECOVERY_PANE_GET:-null}" '{result:{pane:($pane + ($with // {}))}}' ;;
   'agent get') echo '{"error":{"code":"agent_not_found"}}' ;;
   'pane process-info') exec "$FM_LOCAL_TEST_PROCESS_HELPER" "$@" ;;
   'pane close')
@@ -202,6 +203,7 @@ split_home="$tmp/split-home"
 mkdir -p "$split_home/state" "$split_home/data" "$split_home/config"
 { cat "$tmp/original.meta"; echo harness=pi; } > "$split_home/state/ended.meta"
 split_panes='[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t2"}]'
+export FM_LOCAL_RECOVERY_PANE_GET='{"label":null,"foreground_cwd":"/"}'
 rm -f "$tmp/closed"
 if FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" \
     "$ROOT/bin/fm-control.sh" ended exit > "$tmp/split-exit.out" 2>&1; then
@@ -222,6 +224,50 @@ echo 'ok - teardown refuses and keeps the records when a split tab hides the rec
 FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
 [ ! -e "$tmp/closed" ]
 echo 'ok - recovery leaves a split-tab worker pane untouched'
+unset FM_LOCAL_RECOVERY_PANE_GET
+
+# After a restart the recorded pane id can name another pane. Evidence that the
+# pane belongs to other work proves this task's own pane is gone.
+recycled_exit() { # <pane-get-overrides>
+  FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANE_GET="$1" \
+    FM_LOCAL_RECOVERY_PANES="[$(jq -c '{pane_id:"w1:p2",tab_id,label}' <<< "$1")]" \
+    "$ROOT/bin/fm-control.sh" ended exit
+}
+for overrides in '{"tab_id":"w1:t9","label":"fm-other"}' '{"tab_id":"w1:t9","label":null,"foreground_cwd":"/"}'; do
+  rm -f "$tmp/closed"
+  out=$(recycled_exit "$overrides") || { echo "not ok - a recycled pane id blocked exit ($overrides): $out" >&2; exit 1; }
+  case "$out" in already-stopped*) ;; *) echo "not ok - recycled exit output: $out" >&2; exit 1 ;; esac
+  [ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+done
+echo 'ok - exit treats a recorded pane id that now names other work as gone and closes nothing'
+if recycled_exit '{"tab_id":"w1:t9","label":null,"foreground_cwd":"'"$tmp"'/worktree"}' > "$tmp/recycled.out" 2>&1; then
+  echo "not ok - an unlabeled pane inside this worktree was treated as gone: $(cat "$tmp/recycled.out")" >&2
+  exit 1
+fi
+grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/recycled.out" >/dev/null
+echo 'ok - exit still refuses an unlabeled recorded pane that runs inside this worktree'
+
+# Forced retirement with unreadable ownership never names other work's pane
+# as this task's leaked pane.
+mv "$tmp/bin/herdr" "$tmp/bin/herdr.inventory"
+cat > "$tmp/bin/herdr" <<SH
+#!/usr/bin/env bash
+[ "\$1 \$2" != 'workspace list' ] || exit 1
+exec "$tmp/bin/herdr.inventory" "\$@"
+SH
+chmod +x "$tmp/bin/herdr"
+rm -f "$tmp/closed"
+FM_HOME="$split_home" FM_STATE_OVERRIDE="$split_home/state" FM_LOCAL_RECOVERY_PANE_GET='{"tab_id":"w1:t9","label":"fm-other"}' \
+  FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 "$ROOT/bin/fm-teardown.sh" ended --force > "$tmp/recycled-force.out" 2>&1 \
+  || { echo "not ok - forced teardown failed: $(cat "$tmp/recycled-force.out")" >&2; exit 1; }
+if grep -F 'LEAKED HERDR PANE' "$tmp/recycled-force.out" >/dev/null; then
+  echo "not ok - other work's pane was reported as leaked: $(cat "$tmp/recycled-force.out")" >&2
+  exit 1
+fi
+grep -F 'is gone or now belongs to other work' "$tmp/recycled-force.out" >/dev/null
+[ ! -e "$tmp/closed" ] && [ ! -e "$split_home/state/ended.meta" ]
+mv "$tmp/bin/herdr.inventory" "$tmp/bin/herdr"
+echo 'ok - forced teardown does not report a recycled recorded pane as this task leaked pane'
 
 # Teardown's stop follows fm-control exit: an interrupt that ends the agent
 # needs no exit command, which would otherwise be typed into the bare shell.

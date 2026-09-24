@@ -40,12 +40,46 @@ fm_local_pane_workspace() { # <session>
       else error("ambiguous home workspace") end'
 }
 
+fm_local_pane_path_within() { # <path> <dir>
+  local path dir
+  path=$(cd "$1" 2>/dev/null && pwd -P) || path=$1
+  dir=$(cd "$2" 2>/dev/null && pwd -P) || dir=$2
+  case "$path/" in "$dir"/*) return 0 ;; esac
+  return 1
+}
+
 # A missing label proves nothing while the recorded pane still exists: a split
 # tab or a renamed workspace can hide a running worker from label resolution.
-fm_local_pane_recorded_gone() { # <task-id> <recorded-target>
-  fm_backend_herdr_parse_target "$2" \
-    && [ "$(fm_backend_herdr_pane_presence_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" = dead ] \
-    || fm_local_pane_error "$1 has no labeled pane here but its recorded pane $2 is not proven gone; ownership is unverified"
+# A restart can give the recorded id to another pane, so the pane counts as
+# gone only when it is absent or evidence proves it belongs to other work:
+# another fm- pane or tab label, or a foreground cwd outside this worktree.
+fm_local_pane_recorded_gone() { # <meta> <task-id> <recorded-target>
+  local meta=$1 id=$2 recorded=$3 out pane owner tabs seen
+  if fm_backend_herdr_parse_target "$recorded"; then
+    pane=$(fm_backend_herdr_bare_id "$FM_BACKEND_HERDR_PANE")
+    out=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane get "$pane" 2>&1) || true
+    owner=$(printf '%s' "$out" | jq -r --arg pane "$pane" --arg own "fm-$id" '
+      if .error.code == "pane_not_found" then "gone"
+      elif .result.pane.pane_id != $pane then "unknown"
+      elif .result.pane.label == $own then "own"
+      elif ((.result.pane.label // "") | startswith("fm-")) then "gone"
+      else "present" end' 2>/dev/null) || owner=unknown
+    if [ "$owner" = present ]; then
+      tabs=$(fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" tab list \
+        --workspace "$(printf '%s' "$out" | jq -r '.result.pane.workspace_id // empty')" 2>/dev/null) || tabs=
+      case "$(printf '%s' "$tabs" | jq -r --arg tab "$(printf '%s' "$out" | jq -r '.result.pane.tab_id // empty')" '
+          [.result.tabs[]? | select(.tab_id == $tab) | .label // ""] | if length == 1 then .[0] else "" end' 2>/dev/null)" in
+        "fm-$id") owner=own ;;
+        fm-?*) owner=gone ;;
+      esac
+    fi
+    if [ "$owner" = present ]; then
+      seen=$(printf '%s' "$out" | jq -r '.result.pane.foreground_cwd // empty' 2>/dev/null)
+      [ -z "$seen" ] || fm_local_pane_path_within "$seen" "$(fm_meta_get "$meta" worktree)" || owner=gone
+    fi
+    [ "$owner" != gone ] || return 0
+  fi
+  fm_local_pane_error "$id has no labeled pane here but its recorded pane $recorded is not proven gone; ownership is unverified"
 }
 
 # Resolve by this home's labels, never by a pane ID that a restart can recycle.
@@ -66,7 +100,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
     inventory=${FM_LOCAL_PANE_INVENTORY:-}
     if [ -z "$inventory" ]; then
       workspace=$(fm_local_pane_workspace "$session") || return 1
-      [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$id" "$recorded"; return; }
+      [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$meta" "$id" "$recorded"; return; }
       inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
     fi
     row=$(printf '%s' "$inventory" | jq -ce --arg task "$id" '
@@ -79,7 +113,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
     FM_LOCAL_PANE_WORKSPACE=$(printf '%s' "$inventory" | jq -er '.workspace.id') || return 1
   else
     workspace=$(fm_local_pane_workspace "$session") || return 1
-    [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$id" "$recorded"; return; }
+    [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$meta" "$id" "$recorded"; return; }
     FM_LOCAL_PANE_WORKSPACE=$workspace
     panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$workspace") || return 1
     tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$workspace") || return 1
@@ -99,7 +133,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
     FM_LOCAL_PANE_TARGET="$session:$count"
     return 0
   fi
-  fm_local_pane_recorded_gone "$id" "$recorded"
+  fm_local_pane_recorded_gone "$meta" "$id" "$recorded"
 }
 
 # Keep a placement hint after freeing a slot. It is bound to the exact record.

@@ -122,6 +122,10 @@ fm_local_hook() {
       ;;
     pane-teardown-report)
       fm_local_pane_worker "$META" "$ID" || return 1
+      if fm_local_pane_flat "$META" && fm_local_pane_recorded_gone "$META" "$ID" "$T" 2>/dev/null; then
+        echo "warning: $ID's recorded pane $T is gone or now belongs to other work, so pane cleanup neither closed nor reports it as this task's pane" >&2
+        return 0
+      fi
       echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
       if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
         echo "error: its agent is still running, so pane cleanup refused to close it" >&2
