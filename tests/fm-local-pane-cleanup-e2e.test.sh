@@ -292,7 +292,11 @@ wt=$saved_wt
 sed 's/mode=no-mistakes/mode=local-only/; s/harness=pi/harness=unverified-agent/' "$FM_HOME/state/live.meta" > "$FM_HOME/state/live.meta.tmp"
 mv "$FM_HOME/state/live.meta.tmp" "$FM_HOME/state/live.meta"
 fm_backend_herdr_send_text_line "$live_target" "$FM_LOCAL_LAB_ROOT/tools/pi-live"
-for ((i=0; i<50; i++)); do
+# Herdr's agent registry changes status for some seconds after a known agent
+# starts, so the classifier reads unreadable until it is stable. Use a time
+# limit, not a poll count, because each poll is slow on a loaded host.
+live_deadline=$((SECONDS + 30))
+while [ "$SECONDS" -lt "$live_deadline" ]; do
   [ "$(fm_backend_agent_state herdr "$live_target")" != alive ] || break
   sleep 0.1
 done
