@@ -59,8 +59,9 @@
 # Lint defaults to two bounded workers over two stable logical shards.
 # Diagnostics replay in stable shard/root order. FM_LINT_JOBS=1 changes
 # concurrency, not diagnostics or exit selection.
-# --partition 1of2/2of2 splits the entire canonical inventory across
-# two CI runners, each with those same bounded workers. Partitions are complete,
+# --partition KofN (N is 2 or 4) splits the entire canonical inventory across
+# N CI runners, each with those same bounded workers. Four partitions keep each
+# ShellCheck process small enough for a standard runner. Partitions are complete,
 # disjoint, and byte-weight balanced; --list-files exposes their actual roots.
 # Partition mode is always full source-aware analysis, never changed-only or
 # --fast, and does not accept explicit paths. Each partition also runs workflow
@@ -74,7 +75,7 @@
 #   fm-lint.sh --fast [path]...       local lint with extended analysis disabled
 #   fm-lint.sh <path>...               lint explicit roots with the same config
 #   fm-lint.sh --jobs <1|2> [path]...  override bounded worker count
-#   fm-lint.sh --partition <1of2|2of2> lint one full-rigor canonical CI partition
+#   fm-lint.sh --partition <KofN>      lint one full-rigor canonical CI partition (1of2, 2of2, 1of4..4of4)
 #   fm-lint.sh --telemetry <path> ...  write a quiet metrics snapshot
 #   fm-lint.sh --required-version      print the ShellCheck pin
 #   fm-lint.sh --list-files            print the file set that would be linted
@@ -745,7 +746,7 @@ while [ "$#" -gt 0 ]; do
       shift
       ;;
     --partition)
-      [ "$#" -ge 2 ] || { printf 'fm-lint.sh: --partition requires 1of2 or 2of2.\n' >&2; exit 2; }
+      [ "$#" -ge 2 ] || { printf 'fm-lint.sh: --partition requires 1of2, 2of2, or 1of4 through 4of4.\n' >&2; exit 2; }
       PARTITION=$2
       PARTITION_REQUESTED=1
       shift 2
@@ -784,17 +785,17 @@ esac
 case "$PARTITION" in
   '')
     if [ "$PARTITION_REQUESTED" -eq 1 ]; then
-      printf 'fm-lint.sh: --partition requires 1of2 or 2of2.\n' >&2
+      printf 'fm-lint.sh: --partition requires 1of2, 2of2, or 1of4 through 4of4.\n' >&2
       exit 2
     fi
     ;;
-  1of2|2of2)
+  1of2|2of2|1of4|2of4|3of4|4of4)
     if [ "$FAST" -eq 1 ] || [ "$#" -gt 0 ]; then
       printf 'fm-lint.sh: --partition requires full canonical lint; omit --fast and explicit paths.\n' >&2
       exit 2
     fi
     ;;
-  *) printf 'fm-lint.sh: --partition must be 1of2 or 2of2, got %s.\n' "$PARTITION" >&2; exit 2 ;;
+  *) printf 'fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got %s.\n' "$PARTITION" >&2; exit 2 ;;
 esac
 
 if [ "$FAST" -eq 1 ] && { [ "${GITHUB_ACTIONS:-}" = true ] || [ "${CI:-}" = true ]; }; then
@@ -931,11 +932,13 @@ fm_lint_root_weights() {
 
 if [ -n "$PARTITION" ]; then
   PARTITION_ROOTS=()
+  # Each root goes to the least-loaded partition; the lowest number wins ties.
   partition_weights=$(fm_lint_root_weights "${ROOTS[@]}") || exit $?
   while IFS="$TAB" read -r index path; do
     PARTITION_ROOTS+=("$path")
-  done < <(printf '%s\n' "$partition_weights" | LC_ALL=C sort -t "$TAB" -k1,1nr -k2,2n | awk -F '\t' -v want="${PARTITION%%of*}" '
-    { shard=(load[2] < load[1]) ? 2 : 1; load[shard]+=$1; if (shard == want) print $2 "\t" $3 }
+  done < <(printf '%s\n' "$partition_weights" | LC_ALL=C sort -t "$TAB" -k1,1nr -k2,2n | awk -F '\t' -v want="${PARTITION%%of*}" -v count="${PARTITION##*of}" '
+    { shard=1; for (k=2; k<=count; k++) if (load[k] < load[shard]) shard=k
+      load[shard]+=$1; if (shard == want) print $2 "\t" $3 }
   ' | LC_ALL=C sort -t "$TAB" -k1,1n)
   ROOTS=("${PARTITION_ROOTS[@]}")
 fi
