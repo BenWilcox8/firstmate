@@ -159,6 +159,8 @@ populate() {
   printf 'state: parked · source: run-step · awaiting_approval (review)\n' > "$w/crew-state/w-gate"
   add_worker "$w" w-passed 'working: validating'
   printf 'state: done · source: run-step · passed\n' > "$w/crew-state/w-passed"
+  add_worker "$w" w-old-done 'done: PR https://example.invalid/pull/0 checks green' \
+    "worktree=$w/pool/w-working/proj" spawn_gen=s1789990000.1.1
   add_worker "$w" w-reused 'working: building'
   add_worker "$w" w-newer 'working: took the slot after the restart' \
     "worktree=$w/pool/w-reused/proj" spawn_gen=s1790000500.1.1
@@ -171,7 +173,8 @@ test_classify_names_each_worker_class() {
   w=$(new_world classify)
   populate "$w"
   out=$(wr "$w" classify 2>&1)
-  [ "$(class_of "$out" w-working)" = working ] || fail "a worker that reported working must classify working: $out"
+  [ "$(class_of "$out" w-working)" = working ] || fail "a worker that reported working must classify working, even beside an older finished record for its slot: $out"
+  [ "$(class_of "$out" w-old-done)" = finished ] || fail "an older finished record for the same slot must classify finished: $out"
   [ "$(class_of "$out" w-fresh)" = working ] || fail "a worker with no status line yet must classify working: $out"
   [ "$(class_of "$out" w-parked)" = parked ] || fail "a parked worker must classify parked: $out"
   [ "$(class_of "$out" w-finished)" = finished ] || fail "a done worker must classify finished: $out"

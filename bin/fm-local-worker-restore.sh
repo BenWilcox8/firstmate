@@ -54,11 +54,14 @@
 #                same key does nothing. One run at a time per home.
 #   lease-check  Exit 0 when <task-id>'s recorded worktree can take its worker
 #                again, and exit 1 with the reason on stderr when it is leased
-#                to other work: a record in this fleet (the root home or one of
-#                its local second mate homes) that was spawned after this task
-#                names the same worktree, or the Treehouse pool records a live
-#                owner process for the slot that is not this task's own
-#                endpoint. The worktree-lease hook in bin/fm-spawn.sh runs it
+#                to other work. Only positive evidence counts: another record
+#                in this fleet (the root home or one of its local second mate
+#                homes) names the same worktree and either was spawned after
+#                this task (by spawn_gen) or has a live agent, or the Treehouse
+#                pool records a live owner process for the slot that is not
+#                this task's own endpoint. An older record for the slot, such
+#                as a finished task not yet cleaned up, does not count.
+#                The worktree-lease hook in bin/fm-spawn.sh runs it
 #                before every relaunch and resume launches anything, so
 #                bin/fm-control.sh relaunch and resume re-check the lease too.
 #
@@ -183,9 +186,14 @@ wr_lease_other() {
       [ -z "$(fm_meta_get "$other" remote_host)" ] || continue
       [ "$(wr_canonical "$(fm_meta_get "$other" worktree)")" = "$wt" ] || continue
       gen=$(wr_gen "$other")
-      [ -n "$mine" ] && { [ -z "$gen" ] || [ "$gen" -le "$mine" ]; } && continue
-      WR_LEASE_REASON="its worktree is now recorded for $(basename "$other" .meta) in $home"
-      return 0
+      if [ -n "$mine" ] && [ -n "$gen" ] && [ "$gen" -gt "$mine" ]; then
+        WR_LEASE_REASON="its worktree is now recorded for $(basename "$other" .meta) in $home"
+        return 0
+      fi
+      if [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$other")" "$(fm_backend_target_of_meta "$other")" 2>/dev/null)" = alive ]; then
+        WR_LEASE_REASON="$(basename "$other" .meta) in $home runs an agent in its worktree"
+        return 0
+      fi
     done
   done < <(wr_fleet_homes)
   pool="$(dirname "$(dirname "$wt")")/treehouse-state.json"
@@ -325,7 +333,7 @@ wr_list() {
 }
 
 cmd_run() {
-  local key= label='a restart' id out summary class skipped= c
+  local key='' label='a restart' id out summary class skipped='' c
   local -a working=() restored=() failed=() order=(running unreadable parked gone finished captain-waiting slot-reused)
   local -A by_class=()
   while [ "$#" -gt 0 ]; do

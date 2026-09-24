@@ -41,6 +41,7 @@ SH
 chmod +x "$L/tools/claude"
 # Every lab pane, including a fresh relaunch pane, starts this shell, so a typed
 # `claude` always resolves to the stand-in and never to a real Claude.
+# shellcheck disable=SC2016 # the lab shell expands its own $PATH
 printf '#!%s\nexec env PATH=%s:"$PATH" %s --noprofile --norc -i\n' "$(command -v bash)" "$L/tools" "$(command -v bash)" > "$L/lab-shell"
 chmod +x "$L/lab-shell"
 export FM_BACKEND_HERDR_AXI_LAUNCH="$L/lab-shell"
@@ -126,7 +127,7 @@ record() {  # <boot-id>
     "$ROOT/bin/fm-local-restart-recovery.sh" record
 }
 record boot-1 > "$L/record-1.out"
-! grep -q 'Worker restore' "$L/record-1.out"
+if grep -q 'Worker restore' "$L/record-1.out"; then echo 'not ok - a first record started worker restore' >&2; exit 1; fi
 
 # The restart: every agent dies with the lab session.
 PATH=$FM_LOCAL_LAB_REAL_PATH "$FM_LOCAL_LAB_HELPER" stop "$FM_LOCAL_LAB_SESSION"
