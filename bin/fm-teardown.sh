@@ -3364,6 +3364,7 @@ else
   fi
 fi
 
+if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-teardown-close || exit 1; fi
 # Every landed/discard-work refusal above has now passed (or --force skipped
 # them). Fix 1 and Fix 2 (see script header) run here, unconditionally on
 # --force, and before ANY destructive step below - a still-parked run or a

@@ -2728,12 +2728,14 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
   closed="$case_dir/closed"; count="$case_dir/close-count"
   : > "$case_dir/state/task-x1.status"
   printf '{}\n' > "$case_dir/state/task-x1.local-pane.json"
+  printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\n' "$case_dir/treehouse.log" > "$case_dir/fakebin/treehouse"
 
   FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
     FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
   [ "$rc" -eq 1 ] || fail "herdr-close-never-confirms: an unconfirmed close must refuse teardown, got $rc"
+  [ ! -s "$case_dir/treehouse.log" ] || fail "herdr-close-never-confirms: the refusal came after the pool slot was returned"
   [ "$(grep -c '^pane close' "$log")" -ge 3 ] \
     || fail "herdr-close-never-confirms: the close was not retried before giving up: $(cat "$log")"
   assert_grep "LEAKED HERDR PANE" "$case_dir/stderr" \
@@ -2825,9 +2827,8 @@ SH
 test_herdr_teardown_keeps_receipt_when_a_later_step_refuses() {
   local case_dir log closed rc=0 wt_head
   case_dir=$(make_case herdr-later-refusal)
-  configure_secondmate_home "$case_dir" local "$case_dir/parent"
-  # The channel path is occupied by a directory, so final delivery refuses.
-  mkdir -p "$case_dir/parent/state/mate-x.status"
+  # The pane closes before the slot return, so a failed return refuses after it.
+  printf '#!/usr/bin/env bash\necho "treehouse: return failed" >&2\nexit 1\n' > "$case_dir/fakebin/treehouse"
   write_meta "$case_dir" local-only ship
   configure_flat_herdr_teardown_case "$case_dir"
   wt_commit "$case_dir" "merged work"
@@ -2838,10 +2839,10 @@ test_herdr_teardown_keeps_receipt_when_a_later_step_refuses() {
   closed="$case_dir/closed"
   printf '{}\n' > "$case_dir/state/task-x1.local-pane.json"
 
-  FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
-  [ "$rc" -ne 0 ] || fail 'teardown proceeded with an undelivered final line'
-  assert_grep 'has not reached the parent channel' "$case_dir/stderr" 'the later refusal was not explained'
+  [ "$rc" -ne 0 ] || fail 'teardown proceeded after a failed slot return'
+  assert_grep 'treehouse return failed' "$case_dir/stderr" 'the later refusal was not explained'
   [ -e "$closed" ] || fail "the pane close was not confirmed before the later refusal: $(cat "$case_dir/stderr")"
   [ -e "$case_dir/state/task-x1.meta" ] && [ -e "$case_dir/state/task-x1.local-pane.json" ] \
     || fail 'a refusal after pane closure retired the placement receipt with the task record retained'

@@ -105,6 +105,19 @@ fm_local_hook() {
       fm_local_pane_stop "$META" "$ID" "$target" && return 0
       fm_local_pane_error "$ID's agent at $target is still running and teardown could not stop it; nothing was removed - stop it with bin/fm-control.sh $ID exit, then rerun teardown"
       ;;
+    pane-teardown-close)
+      # An unforced teardown closes the stopped worker's proven-gone pane before
+      # the reap and the slot return, so an unconfirmed close refuses while the
+      # slot is still leased. --force never refuses on the close, so the later
+      # upstream close with its retry notices owns that path unchanged.
+      [ "$FORCE" != --force ] || return 0
+      fm_local_pane_worker "$META" "$ID" || return 0
+      fm_local_pane_flat "$META" || return 0
+      fm_local_pane_close "$META" "$ID" 2>/dev/null && return 0
+      [ "$(fm_backend_agent_state herdr "$T")" != alive ] || FM_LOCAL_PANE_GUARD_STATE=alive
+      fm_local_pane_leak_report
+      return 1
+      ;;
     pane-teardown-gone)
       fm_local_pane_worker "$META" "$ID" || return 1
       fm_local_pane_flat "$META" || return 1
@@ -127,17 +140,7 @@ fm_local_hook() {
         echo "warning: $ID's recorded pane $T is gone or now belongs to other work, so pane cleanup neither closed nor reports it as this task's pane" >&2
         return 0
       fi
-      echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
-      if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
-        echo "error: its agent is still running, so pane cleanup refused to close it" >&2
-      else
-        echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
-      fi
-      if [ "$FORCE" = --force ]; then
-        echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
-      else
-        echo "error: teardown refused and this task's records are retained for a rerun, so close it by that exact pane id or rerun teardown (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
-      fi
+      fm_local_pane_leak_report
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0

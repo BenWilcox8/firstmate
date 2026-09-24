@@ -176,6 +176,29 @@ fm_local_pane_close() { # <meta> <task-id>
     || fm_local_pane_error "$id at $target: $FM_BACKEND_TASK_CLOSE_REASON"
 }
 
+# Teardown's Herdr close attempt count; a bad override falls back to the default.
+fm_local_pane_close_attempts() {
+  local attempts=${FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS:-3}
+  case "$attempts" in ''|*[!0-9]*|0) attempts=3 ;; esac
+  printf '%s' "$attempts"
+}
+
+# The loud report for a task pane teardown could not close. Reads T, ID, FORCE,
+# and FM_LOCAL_PANE_GUARD_STATE from the teardown caller.
+fm_local_pane_leak_report() {
+  echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(fm_local_pane_close_attempts) close attempts" >&2
+  if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
+    echo "error: its agent is still running, so pane cleanup refused to close it" >&2
+  else
+    echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
+  fi
+  if [ "$FORCE" = --force ]; then
+    echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
+  else
+    echo "error: teardown refused and this task's records are retained for a rerun, so close it by that exact pane id or rerun teardown (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
+  fi
+}
+
 fm_local_pane_receipt() { # <meta> <task-id>
   local meta=$1 id=$2 receipt="${1%.meta}.local-pane.json"
   [ -f "$receipt" ] && [ ! -L "$receipt" ] || return 1
