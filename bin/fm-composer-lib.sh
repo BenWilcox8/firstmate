@@ -1006,7 +1006,10 @@ _fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content
   if [ -n "$animation" ]; then
     _fm_composer_codex_animation_only "$animation" || return 1
   fi
-  _fm_composer_codex_animation_only "$dim_content" || return 1
+  # A frame can place every animation cell outside the prompt row.
+  if [ -n "$dim_content" ]; then
+    _fm_composer_codex_animation_only "$dim_content" || return 1
+  fi
   _fm_composer_codex_animation_strip_var plain
   fm_composer_normalize_trim_var plain
   [ "$plain" = 'Ask Codex to do anything' ]
