@@ -692,6 +692,27 @@ The guard also notes whether the starfield and the placeholder were actually dra
 On 2026-09-22 the guard first failed on tmux 3.7b with codex-cli 0.155.1, because codex drew inline at the top of the 45-row pane and the cursorless read took a tail of blank viewport rows.
 The isolated Herdr capture above showed that Herdr's recent read ends at the last drawn row, so the guard now drops trailing blank rows before its tail and passed with `starfield furniture observed=no placeholder observed=yes`.
 
+### Codex animation and clipped status rows
+
+Verified on 2026-09-24 with Codex CLI 0.155.1 through Herdr ANSI captures on Linux.
+The two captured composer frames in `tests/fm-composer-lib.test.sh` include a clipped `Context 6…` status cell and different animation brightness.
+Both frames classify as `empty` through the styled tmux, Herdr, and Zellij capability profiles, and as `unknown` without styling.
+Typed drafts, bright footer-like text, unrecognized footer text, and pasted braille retain their refusal verdicts.
+
+```sh
+nice -n 10 bin/fm-test-run.sh tests/fm-composer-lib.test.sh --jobs 1
+```
+
+The capture regression reports:
+
+```text
+ok - matrix: real Codex animation frames remain empty across animation brightness
+```
+
+A separate isolated Herdr probe delivered the first steering-inbox doorbell to Codex 0.155.1, which executed and acknowledged its instruction.
+That lab rendered a nonanimated composer, so the captured-frame regression supplies the animation evidence.
+The [steering-inbox live guard](../../tests/fm-send-inbox-doorbell-live-e2e.test.sh) remains the refresh entry point for worker acknowledgement.
+
 ## Steering-inbox doorbell
 
 The steering channel's one behavioral assumption - a real worker agent follows the constant self-describing doorbell line (list the inbox, read and act on its records in numeric order, then `mv` each into `handled/`) - was verified on 2026-08-23 against every installed verified harness, on tmux 3.6a, macOS arm64, on an isolated private socket, driving the REAL `bin/fm-send.sh` end to end (durable record plus doorbell, with one mid-wait re-ring playing the watcher's role).

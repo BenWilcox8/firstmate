@@ -1225,7 +1225,7 @@ _fm_composer_bare_codex_idle_animation() {  # <raw-row> <content> <plain-content
 
 _fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
   local raw=$1 styled=$2 content dim_content plain model_effort usage context horizon
-  local model effort amount percent rest
+  local model effort amount percent rest clipped_re
   [ "$styled" = 1 ] || return 1
   content=$(_fm_composer_row_content "$raw" "$styled")
   fm_composer_normalize_trim_var content
@@ -1236,6 +1236,12 @@ _fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
 
   plain=$(_fm_composer_row_content "$raw" 0)
   fm_composer_normalize_trim_var plain
+  # Narrow panes clip the dim status row in or after its usage or context cell.
+  # Require the complete model and effort, then a known cell prefix and ellipsis.
+  clipped_re='^gpt-[[:alnum:].-]+ (low|medium|high|xhigh|max|ultra) · [0-9]+(\.[0-9]+)?[KMGT]?'
+  clipped_re+='( (u|us|use|used( ·( (C|Co|Con|Cont|Conte|Contex|Context'
+  clipped_re+='( [0-9]+(%( (u|us|use|used( ·)?))?)?)?))?)?))? ?…$'
+  fm_composer_idle_matches "$plain" "$clipped_re" sensitive && return 0
   model_effort=${plain%%' · '*}
   rest=${plain#*' · '}
   [ "$rest" != "$plain" ] || return 1
@@ -1324,7 +1330,9 @@ _fm_composer_bare_codex_idle_animation_region() {  # <screen> <styled> <first> <
   row=$((first + 1))
   while [ "$row" -le "$last" ]; do
     raw=$(_fm_composer_screen_row "$row" "$screen")
-    content=$(_fm_composer_row_content "$raw" "$styled")
+    # Animation cells can all fall below the ghost-color threshold in one frame.
+    # Inspect their shape before ghost stripping, after the placeholder proof.
+    content=$(_fm_composer_row_content "$raw" 0)
     if _fm_composer_codex_animation_only "$content"; then
       animation_row_seen=1
     elif [ "$row" -eq "$last" ] \
