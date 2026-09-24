@@ -749,7 +749,7 @@ Verified on 2026-09-24 with Herdr 0.8.2 protocol 20 on Linux, using a guarded na
 nice -n 10 bin/fm-test-run.sh tests/fm-local-pane-cleanup-e2e.test.sh --jobs 1
 ```
 
-The suite passed exit and repeated exit, replacement in the same agent-axi slot and recorded worktree, killed-agent and spontaneous-exit cleanup, failed-start cleanup, occupied-slot refusal, landed-work teardown, dirty-work refusal, and restored-shell cleanup after a named-session restart.
+The suite passed exit and repeated exit, replacement in the same agent-axi slot and recorded worktree, killed-agent and spontaneous-exit cleanup, failed-start cleanup, occupied-slot refusal, relaunch refusal while another operation holds the task set, landed-work teardown, teardown of a live agent that it stops first, refusal when it cannot stop that agent, dirty-work refusal, and restored-shell cleanup after a named-session restart.
 It observed pane presence through structured inventory and checked that the supervisor, secondmate, unmanaged, and foreign-home panes survived.
 A held task control lock prevented automatic cleanup.
 Uncommitted work survived every exit and relaunch case.

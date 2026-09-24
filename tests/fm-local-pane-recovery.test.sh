@@ -28,7 +28,9 @@ set -eu
 case "$1 $2" in
   'status --json') echo '{"server":{"running":true}}' ;;
   'session list') jq -n --arg path "$FM_LOCAL_RECOVERY_FIXTURE/socket" '{sessions:[{name:"test",running:true,socket_path:$path}]}' ;;
-  'workspace list') echo '{"result":{"workspaces":[{"workspace_id":"w1","label":"firstmate"}]}}' ;;
+  'workspace list')
+    ws='[{"workspace_id":"w1","label":"firstmate"}]'
+    jq -n --argjson ws "${FM_LOCAL_RECOVERY_WORKSPACES:-$ws}" '{result:{workspaces:$ws}}' ;;
   'tab list') echo '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-ended"}]}}' ;;
   'pane list')
     if [ -e "$FM_LOCAL_RECOVERY_FIXTURE/closed" ]; then echo '{"result":{"panes":[]}}'
@@ -147,3 +149,38 @@ bootstrap_repair
 [ -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }
 grep -F 'BOOTSTRAP_INFO: healed herdr layout drift: 0 husk(s), 0 rebind, 1 freed' "$tmp/bootstrap.log" >/dev/null
 echo 'ok - bootstrap runs the existing layout repair when its plan closes no pane'
+
+# agent-axi cannot list a home whose workspace is gone. The native workspace
+# listing proves that absence, while other inventory failures still refuse.
+cat > "$tmp/bin/agent-axi-unreadable" <<'SH'
+#!/usr/bin/env bash
+echo "$*" >> "$FM_LOCAL_RECOVERY_FIXTURE/axi.log"
+echo 'error: agent-axi inventory unavailable' >&2
+exit 1
+SH
+chmod +x "$tmp/bin/agent-axi-unreadable"
+absent_home="$tmp/absent-home"
+mkdir -p "$absent_home/state"
+{ cat "$tmp/original.meta"; echo harness=pi; } > "$absent_home/state/ended.meta"
+rm -f "$tmp/closed"
+out=$(FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
+  "$ROOT/bin/fm-control.sh" ended exit)
+case "$out" in already-stopped*) ;; *) echo "not ok - exit output: $out" >&2; exit 1 ;; esac
+[ ! -e "$tmp/closed" ] && [ -f "$absent_home/state/ended.meta" ]
+echo 'ok - exit treats a missing home workspace as proof that no task pane remains'
+if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" \
+    "$ROOT/bin/fm-control.sh" ended exit > "$tmp/unreadable.out" 2>&1; then
+  echo 'not ok - an unreadable crew inventory was accepted as an absence proof' >&2
+  exit 1
+fi
+[ ! -e "$tmp/closed" ]
+echo 'ok - exit refuses when the home workspace exists but its crew inventory is unreadable'
+
+# One failed inventory read covers every task in that session for the sweep.
+sed 's/^endpoint_task_id=.*/endpoint_task_id=other/' "$absent_home/state/ended.meta" > "$absent_home/state/other.meta"
+: > "$tmp/axi.log"
+FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" \
+  "$ROOT/bin/fm-local-pane-cleanup.sh" sweep 2>/dev/null
+[ "$(grep -c '^list ' "$tmp/axi.log")" = 1 ] || { cat "$tmp/axi.log"; exit 1; }
+[ ! -e "$tmp/closed" ]
+echo 'ok - a sweep reads a failed session inventory once and closes nothing'

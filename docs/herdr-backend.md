@@ -197,6 +197,8 @@ An unavailable inventory or an ambiguous process state leaves the pane untouched
 The task record, worktree, and uncommitted changes remain.
 `relaunch` creates a fresh pane in the previous agent-axi slot and recorded worktree after normal launch preflight succeeds.
 It refuses an occupied slot.
+Before `relaunch` stops the old agent, it reserves the home's task set and waits up to two minutes for another spawn or teardown.
+If the reservation is not available, `relaunch` refuses and the old agent continues to run.
 The native fallback creates a fresh task tab because it has no slot ledger.
 A failed launch closes its replacement shell only when the same classifier proves the agent gone.
 
@@ -208,7 +210,10 @@ When that plan would close the pane of a task recorded in this home, bootstrap s
 Otherwise the existing repair runs unchanged, so repair cannot bypass a skipped lock or process classifier.
 
 Teardown retains its landed-work checks and bounded close retries.
-When pane closure cannot be confirmed, it prints the exact task and pane, returns exit 1, and retains the task records for retry.
+After those checks pass, teardown stops a live agent with the `fm-control exit` steps while it holds the task control lock.
+If the agent does not stop, teardown refuses before it removes anything, also under `--force`.
+When pane closure cannot be confirmed, it prints the exact task and pane, the close-attempt count, and the known causes.
+It then returns exit 1 and retains the task records for retry.
 An explicit `--force` allows record retirement despite unconfirmed closure or unreadable ownership; the unclosed pane remains named in the diagnostic.
 An unconfirmed presentation journal remains intact even under `--force`.
 Placement receipts retire only when task records retire.

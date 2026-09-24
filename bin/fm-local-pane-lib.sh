@@ -28,6 +28,18 @@ fm_local_pane_flat() {
   [ ! -e "${1%.meta}.herdr-presentation" ] && [ ! -L "${1%.meta}.herdr-presentation" ]
 }
 
+# Print this home's workspace id in <session>, or "absent" when no workspace
+# carries its label. A failed or ambiguous listing is an error.
+fm_local_pane_workspace() { # <session>
+  local inventory
+  inventory=$(fm_backend_herdr_cli "$1" workspace list) || return 1
+  printf '%s' "$inventory" | jq -er --arg want "$(fm_backend_herdr_workspace_label)" '
+    if (.result.workspaces | type) != "array" then error("missing workspace inventory") else . end
+    | [.result.workspaces[] | select(.label == $want)]
+    | if length == 0 then "absent" elif length == 1 then .[0].workspace_id
+      else error("ambiguous home workspace") end'
+}
+
 # Resolve by this home's labels, never by a pane ID that a restart can recycle.
 # An empty target means a successful inventory found no owned pane.
 # A failed inventory remains an error, never an absence proof.
@@ -42,7 +54,11 @@ fm_local_pane_resolve() { # <meta> <task-id>
   [ -n "$session" ] || return 1
   if fm_backend_herdr_axi_available; then
     inventory=${FM_LOCAL_PANE_INVENTORY:-}
-    [ -n "$inventory" ] || inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
+    if [ -z "$inventory" ]; then
+      workspace=$(fm_local_pane_workspace "$session") || return 1
+      [ "$workspace" != absent ] || return 0
+      inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
+    fi
     row=$(printf '%s' "$inventory" | jq -ce --arg task "$id" '
       if (.crew | type) != "array" then error("missing crew inventory") else . end
       | [.crew[] | select(.task == $task)] as $rows
@@ -52,12 +68,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
         else $rows[0] end') || return 1
     FM_LOCAL_PANE_WORKSPACE=$(printf '%s' "$inventory" | jq -er '.workspace.id') || return 1
   else
-    inventory=$(fm_backend_herdr_cli "$session" workspace list) || return 1
-    workspace=$(printf '%s' "$inventory" | jq -er --arg want "$(fm_backend_herdr_workspace_label)" '
-      if (.result.workspaces | type) != "array" then error("missing workspace inventory") else . end
-      | [.result.workspaces[] | select(.label == $want)]
-      | if length == 0 then "absent" elif length == 1 then .[0].workspace_id
-        else error("ambiguous home workspace") end') || return 1
+    workspace=$(fm_local_pane_workspace "$session") || return 1
     [ "$workspace" != absent ] || return 0
     FM_LOCAL_PANE_WORKSPACE=$workspace
     panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$workspace") || return 1
@@ -107,6 +118,8 @@ fm_local_pane_close() { # <meta> <task-id>
   local meta=$1 id=$2 target
   fm_local_pane_resolve "$meta" "$id" || return 1
   target=$FM_LOCAL_PANE_TARGET
+  # No home workspace means no owned pane and no slot to remember.
+  [ -n "$FM_LOCAL_PANE_WORKSPACE" ] || return 0
   # The backend re-reads its recovery classifier immediately before the close.
   # Remembering the slot changes no endpoint and is safe before that read.
   fm_local_pane_remember "$meta" "$id" || return 1
@@ -148,11 +161,15 @@ fm_local_pane_relaunch_create() {
   local receipt slot session workspace out ids occupancy slot_tab slot_n
   local -a launch args
   # Fresh spawns and other relaunches must not take the requested slot between
-  # this check and agent-axi's spawn. Never wait while holding a task lock.
+  # this check and agent-axi's spawn. fm-control relaunch reserved the task set
+  # before it stopped the old agent; a direct relaunch takes it here.
   SPAWN_TASK_SET_LOCK=$(fm_task_set_lock_path "$STATE") || return 1
-  fm_lock_try_acquire "$SPAWN_TASK_SET_LOCK" \
-    || { fm_local_pane_error 'this home has another spawn or teardown in progress'; return 1; }
-  SPAWN_TASK_SET_LOCK_HELD=1
+  if [ "${FM_LOCAL_PANE_TASK_SET_OWNER:-}" != "$PPID" ] \
+     || [ "$(cat "$SPAWN_TASK_SET_LOCK/pid" 2>/dev/null)" != "$PPID" ]; then
+    fm_lock_try_acquire "$SPAWN_TASK_SET_LOCK" \
+      || { fm_local_pane_error 'this home has another spawn or teardown in progress'; return 1; }
+    SPAWN_TASK_SET_LOCK_HELD=1
+  fi
   fm_local_pane_close "$RELAUNCH_META" "$ID" || return 1
   session=$(fm_meta_get "$RELAUNCH_META" herdr_session)
   workspace=$FM_LOCAL_PANE_WORKSPACE
@@ -189,6 +206,61 @@ fm_local_pane_relaunch_create() {
   HERDR_SES=$session
   HERDR_WORKSPACE_ID=$workspace
   RELAUNCH_TARGET="$session:$HERDR_PANE_ID"
+}
+
+# fm-control relaunch reserves the home's task set before it stops the old
+# agent, so a concurrent spawn cannot leave the task with no agent and no pane.
+# Its fm-spawn child uses the reservation through FM_LOCAL_PANE_TASK_SET_OWNER.
+fm_local_pane_reserve() { # <task-id>
+  FM_LOCAL_PANE_TASK_SET_LOCK=$(fm_task_set_lock_path "$STATE") || return 1
+  if ! fm_lock_acquire_wait_bounded "$FM_LOCAL_PANE_TASK_SET_LOCK" "${FM_LOCAL_PANE_RESERVE_WAIT:-120}"; then
+    FM_LOCAL_PANE_TASK_SET_LOCK=
+    fm_local_pane_error "$1 relaunch refused before its agent was stopped: this home has another spawn or teardown in progress"
+    return 1
+  fi
+  FM_LOCAL_PANE_TASK_SET_OWNER=$$
+  export FM_LOCAL_PANE_TASK_SET_OWNER
+}
+
+fm_local_pane_release() {
+  [ -n "${FM_LOCAL_PANE_TASK_SET_LOCK:-}" ] || return 0
+  fm_lock_release "$FM_LOCAL_PANE_TASK_SET_LOCK" || true
+  FM_LOCAL_PANE_TASK_SET_LOCK=
+  unset FM_LOCAL_PANE_TASK_SET_OWNER
+}
+
+# Teardown ends a live worker with fm-control exit's steps while it holds the
+# task control lock: interrupt a busy turn, submit the harness exit command,
+# then wait for the proven-gone state. It never closes the pane itself.
+fm_local_pane_stop() { # <meta> <task-id> <target>
+  local meta=$1 id=$2 target=$3 harness key clear i=0 verdict
+  local poll=${FM_CONTROL_POLL:-0.5} wait=${FM_CONTROL_EXIT_WAIT:-30} waited=0
+  harness=$(fm_control_harness_family "$(fm_meta_get "$meta" harness)") || return 1
+  fm_control_harness_supported "$harness" || return 1
+  # shellcheck source=bin/fm-busy-lib.sh
+  declare -F fm_busy_classify_meta >/dev/null || . "$FM_BACKEND_LIB_DIR/fm-busy-lib.sh"
+  case "$(fm_busy_classify_meta "$meta" "$id" "${meta%/*}")" in
+    busy*)
+      key=$(fm_control_interrupt_key "$harness")
+      clear=$(fm_control_interrupt_clear_key "$harness")
+      fm_control_backend_supports_key herdr "$key" || return 1
+      [ -z "$clear" ] || fm_control_backend_supports_key herdr "$clear" || return 1
+      while [ "$i" -lt "$(fm_control_interrupt_repeat "$harness")" ]; do
+        fm_backend_send_key herdr "$target" "$key" "fm-$id" || return 1
+        i=$((i + 1))
+        sleep 0.2
+      done
+      [ -z "$clear" ] || fm_backend_send_key herdr "$target" "$clear" "fm-$id" || return 1
+      ;;
+  esac
+  verdict=$(fm_backend_send_text_submit herdr "$target" "$(fm_control_exit_command "$harness")" 3 "$poll" 1.2 "fm-$id") \
+    || return 1
+  [ "$verdict" != send-failed ] || return 1
+  until [ "$(fm_backend_agent_state herdr "$target")" = dead ]; do
+    awk -v e="$waited" -v t="$wait" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$poll"
+    waited=$(awk -v e="$waited" -v p="$poll" 'BEGIN{printf "%.3f", e + p}')
+  done
 }
 
 # Failed launches can leave a new shell. Preserve live or uncertain agents.

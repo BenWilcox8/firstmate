@@ -127,6 +127,19 @@ echo 'ok - relaunch replaces the pane in the same slot and worktree'
 [ "$(fm_backend_agent_state herdr "$new_target")" = alive ]
 echo 'ok - recovery retains a live foreground agent'
 
+# A relaunch takes the home's task-set reservation before it stops the old agent.
+fm_lock_try_acquire "$FM_HOME/state/.task-set.lock"
+if FM_LOCAL_PANE_RESERVE_WAIT=1 FM_CONTROL_POLL=0.2 FM_CONTROL_LAUNCH_WAIT=10 \
+    "$ROOT/bin/fm-control.sh" "$restart" relaunch --note 'Check the reservation refusal.' 2> "$FM_LOCAL_LAB_ROOT/reserve.err"; then
+  echo 'not ok - relaunch ran while another operation held the task set' >&2
+  exit 1
+fi
+fm_lock_release "$FM_HOME/state/.task-set.lock"
+grep -F 'relaunch refused before its agent was stopped' "$FM_LOCAL_LAB_ROOT/reserve.err" >/dev/null
+[ "$(fm_backend_agent_state herdr "$new_target")" = alive ]
+[ "$(fm_meta_get "$FM_HOME/state/$restart.meta" window)" = "$new_target" ]
+echo 'ok - relaunch refuses a held task-set reservation before it stops the old agent'
+
 # Kill only the process whose executable is our private fixture binary.
 agent_pid=
 for candidate in $(fm_backend_foreground_pids herdr "$new_target"); do
@@ -264,6 +277,42 @@ assert_missing "$retired_pane"
 assert_present "$supervisor"
 [ "$(cat "$wt/keep.txt")" = 'unlanded work' ]
 echo 'ok - teardown removes a landed worker pane and refuses to discard unlanded work'
+
+# A landed worker whose agent still runs: teardown stops it before the close.
+cat > "$FM_LOCAL_LAB_ROOT/tools/pi-live" <<'PI'
+#!/usr/bin/env bash
+exec "$(dirname "$0")/../agent/pi" -c 'while IFS= read -r line; do case "$line" in /exit|/quit) exit 0;; esac; done'
+PI
+chmod +x "$FM_LOCAL_LAB_ROOT/tools/pi-live"
+git -C "$project" worktree add --quiet -b "live-$$" "$FM_LOCAL_LAB_RETURN_WT"
+wt=$FM_LOCAL_LAB_RETURN_WT
+task_create live
+live_target="$HERDR_SESSION:$pane"
+wt=$saved_wt
+sed 's/mode=no-mistakes/mode=local-only/; s/harness=pi/harness=unverified-agent/' "$FM_HOME/state/live.meta" > "$FM_HOME/state/live.meta.tmp"
+mv "$FM_HOME/state/live.meta.tmp" "$FM_HOME/state/live.meta"
+fm_backend_herdr_send_text_line "$live_target" "$FM_LOCAL_LAB_ROOT/tools/pi-live"
+for ((i=0; i<50; i++)); do
+  [ "$(fm_backend_agent_state herdr "$live_target")" != alive ] || break
+  sleep 0.1
+done
+[ "$(fm_backend_agent_state herdr "$live_target")" = alive ]
+if "$ROOT/bin/fm-teardown.sh" live > "$FM_LOCAL_LAB_ROOT/live.out" 2>&1; then
+  echo 'not ok - teardown retired a live agent it could not stop' >&2
+  exit 1
+fi
+grep -F 'is still running and teardown could not stop it' "$FM_LOCAL_LAB_ROOT/live.out" >/dev/null
+[ "$(fm_backend_agent_state herdr "$live_target")" = alive ]
+[ -f "$FM_HOME/state/live.meta" ] && [ -d "$FM_LOCAL_LAB_RETURN_WT" ]
+echo 'ok - teardown refuses before removing anything when it cannot stop a live agent'
+sed 's/harness=unverified-agent/harness=pi/' "$FM_HOME/state/live.meta" > "$FM_HOME/state/live.meta.tmp"
+mv "$FM_HOME/state/live.meta.tmp" "$FM_HOME/state/live.meta"
+FM_CONTROL_POLL=0.2 FM_CONTROL_EXIT_WAIT=5 "$ROOT/bin/fm-teardown.sh" live
+assert_missing "${live_target#*:}"
+[ ! -e "$FM_HOME/state/live.meta" ] && [ ! -d "$FM_LOCAL_LAB_RETURN_WT" ]
+assert_present "$supervisor"
+[ "$(cat "$wt/keep.txt")" = 'unlanded work' ]
+echo 'ok - teardown stops a live agent, then closes its proven-gone pane'
 
 # A real named-session stop restores this task as a shell on re-provision.
 task_create restored

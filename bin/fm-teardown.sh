@@ -3177,6 +3177,7 @@ if [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
     fi
   fi
 fi
+fm_local_hook pane-teardown-stop || exit 1
 
 # Every step that can refuse runs before the pool slot is returned, so a refused
 # cleanup keeps the slot leased to this task. A parent-delivery refusal must also

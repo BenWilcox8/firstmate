@@ -54,17 +54,26 @@ fm_local_hook() {
       [ "${2:-0}" != 0 ] && [ "${FM_LOCAL_PANE_LAUNCH_ATTEMPTED:-0}" = 1 ] || return 0
       fm_local_pane_abort "$RELAUNCH_META" "$ID"
       ;;
+    pane-control-reserve)
+      fm_local_pane_worker "$META" "$ID" || return 0
+      fm_local_pane_flat "$META" || return 0
+      fm_local_pane_reserve "$ID"
+      ;;
     pane-control-refresh)
+      fm_local_pane_release
       fm_local_pane_worker "$META" "$ID" || return 0
       fm_backend_validate_task_endpoint "$META" "$ID" || return 1
       T=$FM_BACKEND_VALIDATED_TARGET
       ;;
     pane-control-abort)
-      [ "${RELAUNCH_ACTIVE:-0}" = 1 ] || return 0
-      case "${RELAUNCH_PHASE:-}" in stopping|exited|launching) ;; *) return 0 ;; esac
-      fm_local_pane_worker "$META" "$ID" || return 0
-      fm_local_pane_flat "$META" || return 0
-      fm_local_pane_abort "$META" "$ID"
+      local status=0
+      if [ "${RELAUNCH_ACTIVE:-0}" = 1 ] && fm_local_pane_worker "$META" "$ID" && fm_local_pane_flat "$META"; then
+        case "${RELAUNCH_PHASE:-}" in
+          stopping|exited|launching) fm_local_pane_abort "$META" "$ID" || status=1 ;;
+        esac
+      fi
+      fm_local_pane_release
+      return "$status"
       ;;
     pane-teardown-target)
       fm_local_pane_worker "$META" "$ID" || return 0
@@ -79,6 +88,17 @@ fm_local_hook() {
       fi
       [ -z "$FM_LOCAL_PANE_TARGET" ] || T=$FM_LOCAL_PANE_TARGET
       ;;
+    pane-teardown-stop)
+      local target=$T
+      fm_local_pane_worker "$META" "$ID" || return 0
+      if fm_local_pane_flat "$META"; then
+        fm_local_pane_resolve "$META" "$ID" && [ -n "$FM_LOCAL_PANE_TARGET" ] || return 0
+        target=$FM_LOCAL_PANE_TARGET
+      fi
+      [ "$(fm_backend_agent_state herdr "$target")" = alive ] || return 0
+      fm_local_pane_stop "$META" "$ID" "$target" && return 0
+      fm_local_pane_error "$ID's agent at $target is still running and teardown could not stop it; nothing was removed - stop it with bin/fm-control.sh $ID exit, then rerun teardown"
+      ;;
     pane-teardown-gone)
       fm_local_pane_worker "$META" "$ID" || return 1
       fm_local_pane_flat "$META" || return 1
@@ -86,20 +106,27 @@ fm_local_hook() {
       [ -z "$FM_LOCAL_PANE_TARGET" ]
       ;;
     pane-teardown-guard)
+      FM_LOCAL_PANE_GUARD_STATE=
       fm_local_pane_worker "$META" "$ID" || return 0
       if fm_local_pane_flat "$META"; then
         fm_local_pane_resolve "$META" "$ID" || return 1
         [ "$FM_LOCAL_PANE_TARGET" = "$T" ] || return 1
       fi
-      [ "$(fm_backend_agent_state herdr "$T")" = dead ]
+      FM_LOCAL_PANE_GUARD_STATE=$(fm_backend_agent_state herdr "$T")
+      [ "$FM_LOCAL_PANE_GUARD_STATE" = dead ]
       ;;
     pane-teardown-report)
       fm_local_pane_worker "$META" "$ID" || return 1
-      printf 'error: LEAKED HERDR PANE - %s for %s; close could not be confirmed; a bare terminal may remain.\n' "$T" "$ID" >&2
-      if [ "$FORCE" = --force ]; then
-        echo 'warning: --force permits task record retirement despite the unclosed pane' >&2
+      echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
+      if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
+        echo "error: its agent is still running, so pane cleanup refused to close it" >&2
       else
-        echo 'error: teardown refused; task records retained for retry' >&2
+        echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
+      fi
+      if [ "$FORCE" = --force ]; then
+        echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
+      else
+        echo "error: teardown refused and this task's records are retained for a rerun, so close it by that exact pane id or rerun teardown (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
       fi
       ;;
     pane-teardown-confirm)

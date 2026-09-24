@@ -29,8 +29,10 @@ husk_candidate() { # <meta> <task-id>
   session=$(fm_meta_get "$meta" herdr_session)
   [ -n "$session" ] || return 1
   if fm_backend_herdr_axi_available && [ -z "${INVENTORY[$session]:-}" ]; then
-    INVENTORY[$session]=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
+    INVENTORY[$session]=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) \
+      || INVENTORY[$session]=unavailable
   fi
+  [ "${INVENTORY[$session]:-}" != unavailable ] || return 1
   FM_LOCAL_PANE_INVENTORY=${INVENTORY[$session]:-} fm_local_pane_resolve "$meta" "$id" || return 1
   [ -n "$FM_LOCAL_PANE_TARGET" ] || return 1
   case "$(fm_backend_agent_state herdr "$FM_LOCAL_PANE_TARGET")" in

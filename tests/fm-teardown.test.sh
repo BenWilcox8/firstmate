@@ -2742,6 +2742,10 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
     "herdr-close-never-confirms: the loud report did not name the exact leaked pane"
   assert_grep "task-x1" "$case_dir/stderr" \
     "herdr-close-never-confirms: the loud report did not name the task"
+  assert_grep "is still open after 3 close attempts" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the loud report dropped the close-attempt count"
+  assert_grep "a contended session lock" "$case_dir/stderr" \
+    "herdr-close-never-confirms: the loud report dropped the causes that block a close"
   assert_grep "bare terminal" "$case_dir/stderr" \
     "herdr-close-never-confirms: the loud report did not say what the captain would see"
   assert_unclosed_task_retained "$case_dir"
@@ -3991,7 +3995,7 @@ assert_unclosed_task_retained() {
   local case_dir=$1
   [ -e "$case_dir/state/task-x1.meta" ] || fail 'unconfirmed pane close removed the task record'
   [ -e "$case_dir/state/task-x1.local-pane.json" ] || fail 'unconfirmed pane close removed the placement receipt'
-  assert_grep 'records retained' "$case_dir/stderr" 'unconfirmed pane close did not explain the retained records'
+  assert_grep 'records are retained' "$case_dir/stderr" 'unconfirmed pane close did not explain the retained records'
 }
 
 test_local_only_fork_remote_allows

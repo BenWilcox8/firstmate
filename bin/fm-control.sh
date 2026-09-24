@@ -933,6 +933,7 @@ do_relaunch() {
   else
     note_line="note=none"
   fi
+  fm_local_hook pane-control-reserve || exit 1
   safe_checkpoint
   cp -p "$META" "$META_PRIOR" || die "could not preserve task $ID's durable record before relaunching"
   RELAUNCH_ACTIVE=1
