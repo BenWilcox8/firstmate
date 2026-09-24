@@ -101,8 +101,8 @@ fm_lint_worker_stop() {
 }
 
 fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
-  local manifest=$1 output_dir=$2 shard_index=$3 tab index path output invocation_rc rc=0
-  local -a roots shellcheck_args
+  local manifest=$1 output_dir=$2 shard_index=$3 tab index path output invocation_rc rc=0 heavy
+  local -a roots shellcheck_args batch alone
   roots=()
   tab=$(printf '\t')
   while IFS="$tab" read -r index path || [ -n "${index:-}${path:-}" ]; do
@@ -126,10 +126,30 @@ fm_lint_worker() {  # <manifest> <output-dir> <shard-index>
     fi
     : > "$output.out"
     if [ "${FM_LINT_INTERNAL_FOLLOW_SOURCES:-1}" -eq 1 ]; then
-      "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${roots[@]}" >> "$output.out" 2>&1 &
-      FM_LINT_WORKER_SHELLCHECK_PID=$!
-      wait "$FM_LINT_WORKER_SHELLCHECK_PID" || rc=$?
-      FM_LINT_WORKER_SHELLCHECK_PID=
+      # Each listed heavy root runs alone after the shared batch, so one
+      # ShellCheck process never holds two of them.
+      heavy=$(grep -v '^#' "$ROOT/bin/fm-lint-heavy-roots.list" 2>/dev/null || true)
+      batch=()
+      alone=()
+      for path in "${roots[@]}"; do
+        if printf '%s\n' "$heavy" | grep -qxF -- "$path"; then alone+=("$path"); else batch+=("$path"); fi
+      done
+      if [ "${#batch[@]}" -gt 0 ]; then
+        "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "${batch[@]}" >> "$output.out" 2>&1 &
+        FM_LINT_WORKER_SHELLCHECK_PID=$!
+        wait "$FM_LINT_WORKER_SHELLCHECK_PID" || rc=$?
+        FM_LINT_WORKER_SHELLCHECK_PID=
+      fi
+      for path in "${alone[@]+"${alone[@]}"}"; do
+        invocation_rc=0
+        "$FM_LINT_SHELLCHECK" "${shellcheck_args[@]}" -- "$path" >> "$output.out" 2>&1 &
+        FM_LINT_WORKER_SHELLCHECK_PID=$!
+        wait "$FM_LINT_WORKER_SHELLCHECK_PID" || invocation_rc=$?
+        FM_LINT_WORKER_SHELLCHECK_PID=
+        if [ "$rc" -eq 0 ] && [ "$invocation_rc" -ne 0 ]; then
+          rc=$invocation_rc
+        fi
+      done
     else
       for path in "${roots[@]}"; do
         invocation_rc=0

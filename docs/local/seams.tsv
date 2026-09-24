@@ -10,7 +10,7 @@ bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.
 bin/fm-teardown.sh	459	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	205	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
-bin/fm-lint.sh	408	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory, upstreamable	retain
+bin/fm-lint.sh	440	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions, heavy roots run alone), upstreamable	retain
 .github/workflows/ci.yml	52	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
 bin/fm-spawn.sh	978	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-control.sh	520	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain

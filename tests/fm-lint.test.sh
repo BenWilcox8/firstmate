@@ -259,6 +259,46 @@ test_four_canonical_partitions_preserve_full_lint() {
   pass "four canonical lint partitions preserve complete source-aware coverage and reject weakened modes"
 }
 
+test_heavy_roots_run_alone() {
+  local tmp fakebin calls all heavy root line count
+  tmp=$(fm_test_tmproot fm-lint-heavy-roots)
+  fakebin="$tmp/bin"
+  calls="$tmp/calls"
+  mkdir -p "$fakebin"
+  cat > "$fakebin/shellcheck" <<'SH'
+#!/usr/bin/env bash
+if [ "${1:-}" = --version ]; then
+  printf 'ShellCheck - shell script analysis tool\nversion: 0.11.0\n'
+  exit 0
+fi
+while [ "$#" -gt 0 ] && [ "$1" != -- ]; do shift; done
+[ "$#" -eq 0 ] || shift
+printf '%s\n' "$*" >> "$FM_TEST_CALL_LOG"
+SH
+  chmod +x "$fakebin/shellcheck"
+  : > "$calls"
+  all=$(CI=true "$LINT" --list-files | LC_ALL=C sort)
+  heavy=$(grep -v '^#' "$ROOT/bin/fm-lint-heavy-roots.list" | grep .) || fail "the heavy-root list is empty"
+  while IFS= read -r root; do
+    printf '%s\n' "$all" | grep -qxF "$root" || fail "heavy root $root is not a canonical lint root"
+  done <<< "$heavy"
+  PATH="$fakebin:$PATH" FM_TEST_CALL_LOG="$calls" CI=true FM_LINT_JOBS=1 "$LINT" > "$tmp/out" 2>&1 \
+    || fail "canonical lint failed with a stub ShellCheck: $(cat "$tmp/out")"
+  while IFS= read -r root; do
+    count=$(grep -cxF "$root" "$calls" || true)
+    [ "$count" = 1 ] || fail "heavy root $root did not run alone in exactly one ShellCheck invocation"
+  done <<< "$heavy"
+  while IFS= read -r line; do
+    for root in $line; do
+      printf '%s\n' "$heavy" | grep -qxF "$root" || continue
+      [ "$line" = "$root" ] || fail "heavy root $root shared an invocation: $line"
+    done
+  done < "$calls"
+  [ "$(tr ' ' '\n' < "$calls" | grep . | LC_ALL=C sort)" = "$all" ] \
+    || fail "heavy-root isolation lost or duplicated canonical roots"
+  pass "listed heavy lint roots run alone, one invocation each, and every root still runs once"
+}
+
 # fm_lint_stub_git <fakebin-dir>: install a git stub for the changed-file mode
 # tests below. Its answers are driven by env vars the caller sets before
 # invoking fm-lint.sh, so those tests can steer git state without depending on
@@ -1703,6 +1743,7 @@ test_help_reports_the_complete_interface
 test_list_files_reports_the_shell_inventory
 test_canonical_partitions_preserve_full_lint
 test_four_canonical_partitions_preserve_full_lint
+test_heavy_roots_run_alone
 test_fast_mode_disables_extended_analysis
 test_ci_defaults_to_full_analysis
 test_ci_rejects_explicit_fast_mode
