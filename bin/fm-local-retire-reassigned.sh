@@ -66,6 +66,8 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVE
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
+# shellcheck source=bin/fm-local-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-local-treehouse-lib.sh"
 ID=${1:-}; [ "$#" -eq 0 ] || shift
 LIVE_ID=''
 LIVE_HOME=$FM_HOME
@@ -104,31 +106,7 @@ record() {
   awk -F= 'NF && ++seen[$1]>1 {exit 1}' "$1" || refuse "duplicate metadata fields in $1"
 }
 canonical() { (cd "$1" && pwd -P); }
-proc_field() {  # <pid> <index after the command name>
-  local stat fields
-  case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
-  read -r -a fields <<< "${stat##*)}"
-  [ -n "${fields[$2]:-}" ] || return 1
-  printf '%s\n' "${fields[$2]}"
-}
-lease_owner_live() {
-  local ticks btime hz
-  ticks=$(proc_field "$OWNER_PID" 19) || return 1
-  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 1
-  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
-  [ -n "$btime" ] && [ -n "$hz" ] || return 1
-  [ "$((btime * 1000 + ticks * 1000 / hz))" = "$OWNER_STARTED" ]
-}
-descends_from_owner() {  # <pid>
-  local pid=$1 depth
-  for ((depth=0; depth<64; depth++)); do
-    [ "$pid" != "$OWNER_PID" ] || return 0
-    [ "$pid" -gt 1 ] 2>/dev/null || return 1
-    pid=$(proc_field "$pid" 1) || return 1
-  done
-  return 1
-}
+lease_owner_live() { fm_local_treehouse_owner_live "$OWNER_PID" "$OWNER_STARTED"; }
 record "$META" "$STATE"
 PROJ=$(canonical "$(fm_meta_get "$META" project)") || refuse 'cannot resolve the project'
 lock "$(fm_treehouse_project_lock_path "$PROJ")"
@@ -173,7 +151,7 @@ LIVE_BACKEND=$FM_BACKEND_VALIDATED_BACKEND LIVE_TARGET=$FM_BACKEND_VALIDATED_TAR
 LIVE_PIDS=$(fm_backend_foreground_pids "$LIVE_BACKEND" "$LIVE_TARGET") || LIVE_PIDS=
 [ -n "$LIVE_PIDS" ] || refuse 'cannot read the live endpoint processes'
 for pid in $LIVE_PIDS; do
-  descends_from_owner "$pid" || refuse 'pool slot owner does not belong to the named live task'
+  fm_local_descends_from "$pid" "$OWNER_PID" || refuse 'pool slot owner does not belong to the named live task'
 done
 fm_backlog_record_present "$STATE/$ID.status" 'task status' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
 case "$(last_status_line "$STATE/$ID.status")" in done:*|done\ \[*\]:*) ;; *) refuse 'old record is not finished' ;; esac

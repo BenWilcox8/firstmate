@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Guard every Herdr call, including calls from Firstmate and agent-axi.
-# Call fm_local_lab_start after sourcing tests/lib.sh. Call fm_local_lab_finish on EXIT.
+# Call fm_local_lab_start [lab-name] after sourcing tests/lib.sh. Call fm_local_lab_finish on EXIT.
 fm_local_lab_start() {
   command -v herdr >/dev/null 2>&1 || return 77
   FM_LOCAL_LAB_REAL_PATH=$PATH
   FM_LOCAL_LAB_HELPER=${FM_HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
-  FM_LOCAL_LAB_SESSION=$("$FM_LOCAL_LAB_HELPER" name pane-cleanup-on-exit-p1) || return 1
+  FM_LOCAL_LAB_SESSION=$("$FM_LOCAL_LAB_HELPER" name "${1:-pane-cleanup-on-exit-p1}") || return 1
   export FM_LOCAL_LAB_REAL_PATH FM_LOCAL_LAB_HELPER FM_LOCAL_LAB_SESSION
   trap fm_local_lab_finish EXIT
   "$FM_LOCAL_LAB_HELPER" provision "$FM_LOCAL_LAB_SESSION" || return 1
