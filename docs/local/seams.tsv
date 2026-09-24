@@ -7,5 +7,6 @@ bin/backends/herdr.sh	837	send-provenance-herdr	tests/fm-local-send-provenance.t
 bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-teardown.sh	351	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	361	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	205	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
