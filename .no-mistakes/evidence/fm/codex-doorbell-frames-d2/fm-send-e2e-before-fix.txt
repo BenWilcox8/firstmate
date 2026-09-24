@@ -1,0 +1,57 @@
+== tree: 5607ed7
+### live idle Codex frame, no prompt-row animation cell
+fm-send exit: 0
+stderr:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/tmp.31PPrdRsCu/403720245/home/state/t1.inbox/001.msg and the watcher will re-ring
+keystrokes sent to the pane:
+  (none - doorbell skipped)
+
+### live idle Codex frame, cells above and below only
+fm-send exit: 0
+stderr:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/tmp.31PPrdRsCu/2513624927/home/state/t1.inbox/001.msg and the watcher will re-ring
+keystrokes sent to the pane:
+  (none - doorbell skipped)
+
+### saved after-fix frame (295K used · Context 1…)
+fm-send exit: 0
+stderr:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+keystrokes sent to the pane:
+  send-text: : Firstmate instruction waiting: list '/tmp/tmp.31PPrdRsCu/2764230811/home/state/t1.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/tmp.31PPrdRsCu/2764230811/home/state/t1.inbox'/handled/. %%dash-ping: agent%%
+  send-keys: enter
+
+### same live frame with a real typed draft
+fm-send exit: 0
+stderr:
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  ●  WATCHER DOWN - SUPERVISION IS OFF
+  ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+  ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+  ●  This is a supervision warning only; the requested message WILL still be sent.
+  ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+  ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  fm-send: doorbell skipped (composer visibly holds pending text); the steer is durably recorded at /tmp/tmp.31PPrdRsCu/3022430909/home/state/t1.inbox/001.msg and the watcher will re-ring
+keystrokes sent to the pane:
+  (none - doorbell skipped)
+
