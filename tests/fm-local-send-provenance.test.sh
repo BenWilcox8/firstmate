@@ -42,6 +42,38 @@ export PATH="$TMP_ROOT/fakebin:$PATH"
 export FM_HOME="$TMP_ROOT/home" FM_ROOT_OVERRIDE="$TMP_ROOT/home" FM_SEND_SETTLE=0
 fm_write_meta "$FM_HOME/state/worker.meta" 'window=sess:win' 'kind=ship' 'harness=codex'
 
+# Model the sibling pane feature's retirement route in the shared dispatcher.
+# Loading the provenance module must preserve that route in the same process.
+(
+  export FM_HOME="$TMP_ROOT/coexist"
+  mkdir -p "$FM_HOME/state"
+  # shellcheck source=bin/fm-backend.sh
+  . "$ROOT/bin/fm-backend.sh"
+  marker="$FM_HOME/state/worker.local-pane.json"
+  touch "$marker"
+  fm_local_hook() {
+    case "$1" in
+      pane-teardown-retired) rm "$marker" ;;
+      provenance-init) fm_local_provenance_init ;;
+      provenance-typed) shift; fm_local_provenance_typed "$@" ;;
+      *) return 1 ;;
+    esac
+  }
+  # shellcheck source=bin/fm-local-send-provenance.sh
+  . "$ROOT/bin/fm-local-send-provenance.sh"
+  fm_local_hook pane-teardown-retired
+  [ ! -e "$marker" ] || fail 'provenance replaced the sibling pane hook'
+  fm_local_hook provenance-init
+  fm_local_hook provenance-typed orca terminal-1 'coexisting hooks'
+  python3 - "$FM_HOME/state" <<'PY'
+import hashlib, json, pathlib, sys
+records = [json.loads(line) for file in pathlib.Path(sys.argv[1]).glob('local-send-provenance/*.jsonl') for line in file.read_text().splitlines()]
+assert len(records) == 1, records
+assert records[0]['sha256'] == hashlib.sha256(b'coexisting hooks').hexdigest(), records
+PY
+)
+pass 'send-provenance-dispatch: pane retirement and provenance both fire in one process'
+
 send() {
   "$ROOT/bin/fm-send.sh" "$@" > "$TMP_ROOT/out" 2> "$TMP_ROOT/err"
 }
@@ -206,9 +238,7 @@ for backend in herdr zellij cmux orca; do
     mkdir -p "$FM_HOME/state"
     # shellcheck source=bin/fm-backend.sh
     . "$ROOT/bin/fm-backend.sh"
-    # shellcheck source=bin/fm-local-send-provenance.sh
-    . "$ROOT/bin/fm-local-send-provenance.sh"
-    fm_local_hook init
+    fm_local_hook provenance-init
     fm_backend_source "$backend"
     typed_mock() { printf '%s' "$2" > "$FM_HOME/typed"; }
     eval "fm_backend_${backend}_send_literal() { typed_mock \"\$@\"; }"
@@ -234,6 +264,32 @@ PY
   )
 done
 pass 'every submit adapter records after literal typing even when submission fails'
+
+# The shared fork dispatcher keeps the fm_local_hook name after provenance hooks run.
+# This is the send-provenance-dispatch seam.
+(
+  export FM_HOME="$TMP_ROOT/dispatch"
+  mkdir -p "$FM_HOME/state"
+  # shellcheck source=bin/fm-backend.sh
+  . "$ROOT/bin/fm-backend.sh"
+  fm_local_hook provenance-init
+  fm_local_hook provenance-typed orca terminal-1 'dispatch bytes'
+  fm_local_hook provenance-prune "$FM_HOME/state"
+  rc=0
+  fm_local_hook no-such-hook 2> "$TMP_ROOT/dispatch.err" || rc=$?
+  [ "$rc" = 1 ] || fail 'the shared dispatcher must refuse an unknown hook after provenance hooks run'
+  grep -qx 'error: unknown local hook: no-such-hook' "$TMP_ROOT/dispatch.err" \
+    || fail 'the shared dispatcher must name the unknown hook'
+  python3 - "$FM_HOME" <<'PY'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+records = [json.loads(line) for file in (root/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
+assert len(records) == 1, records
+assert records[0]['endpoint'] == {'backend': 'orca', 'target': 'terminal-1', 'pane_id': 'terminal-1', 'task_id': None}, records
+assert records[0]['sha256'] == hashlib.sha256(b'dispatch bytes').hexdigest(), records
+PY
+)
+pass 'send-provenance-dispatch: provenance hooks route through the one shared fork dispatcher'
 
 # Run the real watcher against an aged unhandled steer on an idle pane.
 # This is the send-provenance-re-ring seam.

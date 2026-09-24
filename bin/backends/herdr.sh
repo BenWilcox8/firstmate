@@ -3232,7 +3232,7 @@ fm_backend_herdr_send_text_submit() {  # <target> <text> <retries> <enter-sleep>
     fi
     return 0
   }
-  if declare -F fm_local_hook >/dev/null; then fm_local_hook typed herdr "$target" "$text"; fi
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-typed herdr "$target" "$text"; fi
   sleep "$settle"
   raw_status=$(fm_backend_herdr_agent_status_raw "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")
   baseline=$(fm_backend_herdr_classify_submit_agent_status "$raw_status")

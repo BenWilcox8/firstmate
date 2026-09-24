@@ -162,7 +162,7 @@ mkdir -p "$STATE"
 # (inbox_steer_check below).
 # shellcheck source=bin/fm-task-inbox-lib.sh
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
-. "$SCRIPT_DIR/fm-local-send-provenance.sh"; fm_local_hook init re-ring
+fm_local_hook provenance-init re-ring
 # The routine-wake close-out contract, sourced directly rather than through the
 # inbox library above: this watcher stamps the origin marker on the wake it
 # authors for a worker status escalation, and that must not depend on which
