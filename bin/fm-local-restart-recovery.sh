@@ -114,6 +114,7 @@
 # Environment:
 #   FM_HOME                  the home to recover (default: this code root)
 #   FM_RESTART_HERDR_WAIT    seconds to wait for Herdr to answer (120)
+#   FM_RESTART_HERDR_CALL_TIMEOUT  seconds one Herdr call may take (10)
 #   FM_RESTART_POLL          poll interval in seconds (2)
 #   FM_RESTART_LAUNCH_WAIT   seconds to wait for the primary agent (90)
 #   FM_RESTART_MAX_PASSES    passes allowed per window (2)
@@ -780,7 +781,7 @@ rr_primary() {
   rr_launch_line "$record" "$prompt"
   line=$RR_LAUNCH_LINE
   # One last read: a captain who started firstmate by hand while the second
-  # mates came back owns the pane now.
+  # mates came back owns this pane now, or runs the primary in another one.
   if [ "$(rr_agent_state "$target")" = alive ]; then
     rr_note "primary firstmate: already running in $where"
     return 0
