@@ -72,9 +72,11 @@
 #                in this fleet (the root home or one of its local second mate
 #                homes) names the same worktree and either was spawned after
 #                this task (by spawn_gen) or has a live agent at its recorded
-#                endpoint that is not proven to sit outside the worktree, or the Treehouse pool records a live owner process for
-#                the slot that is not this task's own endpoint. An older record for the slot, such
-#                as a finished task not yet cleaned up, does not count.
+#                endpoint that is not proven to sit outside the worktree, or
+#                the Treehouse pool records a live owner process for the slot
+#                that is not this task's own endpoint. An older record for the
+#                slot, such as a finished task not yet cleaned up, does not
+#                count.
 #                The worktree-lease hook in bin/fm-spawn.sh runs it
 #                before every relaunch and resume launches anything, so
 #                bin/fm-control.sh relaunch and resume re-check the lease too.
