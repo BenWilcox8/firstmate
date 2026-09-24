@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Ended worker panes: home ownership, placement receipts, and proven close.
-# Callers hold the task's control lock across inspection and mutation.
+# Callers hold the task's control lock across any inspection that leads to a mutation.
 # fm_backend_agent_state owns the only gone predicate: dead or missing.
 # Never infer process death from a hook status, terminal text, or a task status.
 
@@ -31,17 +31,18 @@ fm_local_pane_flat() {
 # Resolve by this home's labels, never by a pane ID that a restart can recycle.
 # An empty target means a successful inventory found no owned pane.
 # A failed inventory remains an error, never an absence proof.
+# FM_LOCAL_PANE_INVENTORY may carry one agent-axi list read for unlocked checks.
 fm_local_pane_resolve() { # <meta> <task-id>
-  local meta=$1 id=$2 session inventory row count workspace panes tabs record
+  local meta=$1 id=$2 session inventory row count workspace panes tabs
   FM_LOCAL_PANE_TARGET=
-  FM_LOCAL_PANE_SLOT=
   FM_LOCAL_PANE_WORKSPACE=
   fm_backend_validate_task_endpoint "$meta" "$id" || return 1
   fm_backend_source herdr || return 1
   session=$(fm_meta_get "$meta" herdr_session)
   [ -n "$session" ] || return 1
   if fm_backend_herdr_axi_available; then
-    inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
+    inventory=${FM_LOCAL_PANE_INVENTORY:-}
+    [ -n "$inventory" ] || inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
     row=$(printf '%s' "$inventory" | jq -ce --arg task "$id" '
       if (.crew | type) != "array" then error("missing crew inventory") else . end
       | [.crew[] | select(.task == $task)] as $rows
@@ -50,8 +51,6 @@ fm_local_pane_resolve() { # <meta> <task-id>
         elif $rows[0].pane == .supervisor then error("supervisor pane")
         else $rows[0] end') || return 1
     FM_LOCAL_PANE_WORKSPACE=$(printf '%s' "$inventory" | jq -er '.workspace.id') || return 1
-    record=$("$FM_BACKEND_HERDR_AXI_BIN" get "$id" --session "$session" --json) || return 1
-    FM_LOCAL_PANE_SLOT=$(printf '%s' "$record" | jq -r '.record.slot // empty') || return 1
   else
     inventory=$(fm_backend_herdr_cli "$session" workspace list) || return 1
     workspace=$(printf '%s' "$inventory" | jq -er --arg want "$(fm_backend_herdr_workspace_label)" '
@@ -83,13 +82,18 @@ fm_local_pane_resolve() { # <meta> <task-id>
 # Keep a placement hint after freeing a slot. It is bound to the exact record.
 # This file reserves nothing and never authorizes a close or displaces a worker.
 fm_local_pane_remember() { # <meta> <task-id>
-  local meta=$1 id=$2 receipt tmp
+  local meta=$1 id=$2 receipt tmp session record slot=
   receipt="${meta%.meta}.local-pane.json"
-  [ -n "$FM_LOCAL_PANE_TARGET" ] || [ -n "$FM_LOCAL_PANE_SLOT" ] || return 0
+  session=$(fm_meta_get "$meta" herdr_session)
+  if fm_backend_herdr_axi_available; then
+    record=$("$FM_BACKEND_HERDR_AXI_BIN" get "$id" --session "$session" --json) || return 1
+    slot=$(printf '%s' "$record" | jq -r '.record.slot // empty') || return 1
+  fi
+  [ -n "$FM_LOCAL_PANE_TARGET" ] || [ -n "$slot" ] || return 0
   tmp=$(mktemp "${receipt}.XXXXXX") || return 1
   if jq -n --arg home "$(cd "$FM_HOME" && pwd -P)" --arg task "$id" \
       --arg source "$(fm_meta_get "$meta" window)" --arg gen "$(fm_meta_get "$meta" spawn_gen)" \
-      --arg session "$(fm_meta_get "$meta" herdr_session)" --arg slot "$FM_LOCAL_PANE_SLOT" \
+      --arg session "$session" --arg slot "$slot" \
       --arg workspace "$FM_LOCAL_PANE_WORKSPACE" \
       '{version:1,home:$home,task:$task,source:$source,gen:$gen,session:$session,slot:$slot,workspace:$workspace}' > "$tmp" \
       && mv -f "$tmp" "$receipt"; then

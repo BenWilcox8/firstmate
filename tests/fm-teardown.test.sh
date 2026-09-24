@@ -2784,6 +2784,66 @@ test_herdr_teardown_preserves_unknown_process_pane_even_when_forced() {
   pass 'herdr teardown preserves unknown process panes even when forced record retirement is allowed'
 }
 
+test_herdr_teardown_force_retires_records_when_ownership_is_unreadable() {
+  local case_dir log closed rc=0
+  case_dir=$(make_case herdr-ownership-unreadable)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"
+  printf '{}\n' > "$case_dir/state/task-x1.local-pane.json"
+  mv "$case_dir/fakebin/herdr" "$case_dir/fakebin/herdr.inventory"
+  cat > "$case_dir/fakebin/herdr" <<SH
+#!/usr/bin/env bash
+[ "\${1:-} \${2:-}" != 'workspace list' ] || exit 1
+exec "$case_dir/fakebin/herdr.inventory" "\$@"
+SH
+  chmod +x "$case_dir/fakebin/herdr"
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -eq 1 ] || fail "unreadable ownership must refuse an unforced teardown, got $rc"
+  assert_grep 'ownership could not be verified' "$case_dir/stderr" 'the ownership refusal was not explained'
+  [ -e "$case_dir/state/task-x1.meta" ] && [ -e "$case_dir/state/task-x1.local-pane.json" ] \
+    || fail 'the ownership refusal changed task records'
+
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
+    run_teardown "$case_dir" --force > "$case_dir/forced.stdout" 2> "$case_dir/forced.stderr" \
+    || fail "explicit --force did not override unreadable ownership: $(cat "$case_dir/forced.stderr")"
+  assert_grep 'LEAKED HERDR PANE - fmtest:w1:p2 for task-x1' "$case_dir/forced.stderr" \
+    'forced retirement did not name the recorded pane as unclosed'
+  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -e "$case_dir/state/task-x1.local-pane.json" ] \
+    || fail 'forced retirement retained task metadata or its placement receipt'
+  assert_not_contains "$(cat "$log")" 'pane close' 'forced teardown closed a pane whose ownership was unreadable'
+  pass 'herdr teardown refuses unreadable ownership unless forced, and forced retirement closes no pane'
+}
+
+test_herdr_teardown_keeps_receipt_when_a_later_step_refuses() {
+  local case_dir log closed rc=0 wt_head
+  case_dir=$(make_case herdr-later-refusal)
+  configure_secondmate_home "$case_dir" local "$case_dir/parent"
+  # The channel path is occupied by a directory, so final delivery refuses.
+  mkdir -p "$case_dir/parent/state/mate-x.status"
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_teardown_case "$case_dir"
+  wt_commit "$case_dir" "merged work"
+  wt_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  git -C "$case_dir/project" update-ref refs/heads/main "$wt_head"
+  printf 'done: PR https://github.com/example/repo/pull/9 checks green\n' > "$case_dir/state/task-x1.status"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"
+  printf '{}\n' > "$case_dir/state/task-x1.local-pane.json"
+
+  FM_HOME="$case_dir/home" FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
+    run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -ne 0 ] || fail 'teardown proceeded with an undelivered final line'
+  assert_grep 'has not reached the parent channel' "$case_dir/stderr" 'the later refusal was not explained'
+  [ -e "$closed" ] || fail "the pane close was not confirmed before the later refusal: $(cat "$case_dir/stderr")"
+  [ -e "$case_dir/state/task-x1.meta" ] && [ -e "$case_dir/state/task-x1.local-pane.json" ] \
+    || fail 'a refusal after pane closure retired the placement receipt with the task record retained'
+  pass 'herdr teardown keeps the placement receipt while a later refusal retains the task record'
+}
+
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting() {
   local case_dir log closed count
   case_dir=$(make_case herdr-close-bad-overrides)
@@ -3957,6 +4017,8 @@ test_herdr_teardown_treats_already_dead_pane_as_confirmed_without_reclosing
 test_herdr_teardown_retries_an_unapplied_close_then_completes
 test_herdr_teardown_reports_a_pane_it_could_never_close_loudly
 test_herdr_teardown_preserves_unknown_process_pane_even_when_forced
+test_herdr_teardown_force_retires_records_when_ownership_is_unreadable
+test_herdr_teardown_keeps_receipt_when_a_later_step_refuses
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting
 test_herdr_projection_teardown_retires_journal_after_a_retried_close
 test_herdr_projection_teardown_retires_journal_only_after_confirmed_close

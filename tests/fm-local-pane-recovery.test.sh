@@ -60,7 +60,15 @@ herdr_pane_id=w1:p2
 META
 META="$FM_HOME/state/ended.meta"
 cp "$META" "$tmp/original.meta"
-"$ROOT/bin/fm-local-pane-cleanup.sh" close ended
+
+# A fresh spawn holds the task meta lock while its new pane is still a shell.
+. "$ROOT/bin/fm-wake-lib.sh"
+fm_lock_try_acquire "$FM_HOME/state/.meta-ended.lock"
+"$ROOT/bin/fm-local-pane-cleanup.sh" sweep
+[ ! -e "$tmp/closed" ]
+fm_lock_release "$FM_HOME/state/.meta-ended.lock"
+echo 'ok - recovery skips a pane whose fresh spawn holds the task meta lock'
+"$ROOT/bin/fm-local-pane-cleanup.sh" sweep
 [ -f "$META" ] && [ -f "$tmp/closed" ]
 echo 'ok - recovery closes an ended worker pane while preserving its task record'
 
@@ -107,12 +115,28 @@ echo 'ok - bootstrap cleans restored shells before layout repair'
 
 cat > "$tmp/bin/agent-axi-fixture" <<'SH'
 #!/usr/bin/env bash
-case "$1" in
-  list) echo '{"crew":[{"task":"protected","pane":"w1:p3"}]}' ;;
-  *) touch "$FM_LOCAL_RECOVERY_FIXTURE/unsafe-repair" ;;
+case "$*" in
+  'list '*) echo '{"workspace":{"id":"w1"},"crew":[]}' ;;
+  'layout --repair --dry-run --json') cat "$FM_LOCAL_RECOVERY_FIXTURE/plan.json" ;;
+  'layout --repair --json')
+    touch "$FM_LOCAL_RECOVERY_FIXTURE/mutating-repair"
+    echo '{"repair":{"converged":false,"counts":{"freed":1}}}' ;;
+  *) exit 1 ;;
 esac
 SH
 chmod +x "$tmp/bin/agent-axi-fixture"
-FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-fixture" "$ROOT/bin/fm-local-pane-cleanup.sh" repair
-[ ! -e "$tmp/unsafe-repair" ]
-echo 'ok - layout repair cannot bypass cleanup by closing a retained crew pane'
+bootstrap_repair() {
+  FM_HOME="$watch_home" FM_STATE_OVERRIDE="$watch_home/state" FM_BOOTSTRAP_NETWORK=skip \
+    FM_BACKEND=herdr FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-fixture" \
+    "$ROOT/bin/fm-bootstrap.sh" > "$tmp/bootstrap.log" 2>&1
+}
+echo '{"repair":{"converged":false,"actions":[{"kind":"close-husk","taskId":"protected","paneId":"w1:p3"}]}}' > "$tmp/plan.json"
+bootstrap_repair
+[ ! -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }
+grep -F 'skipped herdr layout repair' "$tmp/bootstrap.log" | grep -F 'protected w1:p3' >/dev/null
+echo 'ok - bootstrap skips and reports a layout repair whose plan would close a retained pane'
+echo '{"repair":{"converged":false,"actions":[{"kind":"free-gone","taskId":"gone","paneId":"w1:p4"}]}}' > "$tmp/plan.json"
+bootstrap_repair
+[ -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }
+grep -F 'BOOTSTRAP_INFO: healed herdr layout drift: 0 husk(s), 0 rebind, 1 freed' "$tmp/bootstrap.log" >/dev/null
+echo 'ok - bootstrap runs the existing layout repair when its plan closes no pane'

@@ -69,10 +69,14 @@ fm_local_hook() {
     pane-teardown-target)
       fm_local_pane_worker "$META" "$ID" || return 0
       fm_local_pane_flat "$META" || return 0
-      fm_local_pane_resolve "$META" "$ID" || {
+      if ! fm_local_pane_resolve "$META" "$ID"; then
+        if [ "$FORCE" = --force ]; then
+          echo "warning: pane cleanup: $ID ownership could not be verified; --force keeps recorded pane $T and closes no pane it cannot verify" >&2
+          return 0
+        fi
         fm_local_pane_error "$ID ownership could not be verified; nothing was changed - retry once the home inventory is readable"
         return 1
-      }
+      fi
       [ -z "$FM_LOCAL_PANE_TARGET" ] || T=$FM_LOCAL_PANE_TARGET
       ;;
     pane-teardown-gone)
@@ -100,16 +104,32 @@ fm_local_hook() {
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0
-      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] || [ "$FORCE" = --force ] || return 1
+      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] || [ "$FORCE" = --force ]
+      ;;
+    pane-teardown-retired)
       rm -f "${META%.meta}.local-pane.json"
       ;;
     pane-sweep)
-      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" sweep >/dev/null
+      # Detached and single-flight, like the watcher's other slow sweeps.
+      if [ -n "${FM_LOCAL_PANE_SWEEP_PID:-}" ]; then
+        ! kill -0 "$FM_LOCAL_PANE_SWEEP_PID" 2>/dev/null || return 0
+        wait "$FM_LOCAL_PANE_SWEEP_PID" 2>/dev/null || true
+      fi
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" sweep </dev/null >/dev/null &
+      FM_LOCAL_PANE_SWEEP_PID=$!
       ;;
     pane-bootstrap-repair)
-      fm_local_hook pane-sweep || true
+      # Status 1 lets the caller run its unchanged repair; 0 means it was handled.
+      local plan closes
+      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" sweep >/dev/null || true
       fm_herdr_layout_applicable || return 0
-      FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" repair || true
+      plan=$("$(fm_herdr_layout_bin)" layout --repair --dry-run --json 2>/dev/null) || return 0
+      closes=$(printf '%s' "$plan" | jq -er '.repair.actions
+        | if type == "array" then . else error("missing repair plan") end
+        | [.[] | select(.kind != "free-gone" and .kind != "rebind" and .kind != "adopt")
+            | "\(.taskId // "unknown") \(.paneId // "unknown")"] | join(", ")') || return 0
+      [ -n "$closes" ] || return 1
+      echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close panes that pane cleanup kept: $closes"
       ;;
     *) echo "error: unknown local hook: $1" >&2; return 1 ;;
   esac

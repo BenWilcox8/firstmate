@@ -188,7 +188,7 @@ The recovery and selector helpers `fm_backend_herdr_list_live` and `fm_backend_h
 ### Ended worker panes
 
 `bin/fm-local-pane-cleanup.sh` owns automatic cleanup of ended ship and scout panes in the home's workspace.
-It resolves the home and task through structured inventory, takes the task control lock, and uses `fm_backend_agent_state` to prove the agent process tree is gone before it closes a pane.
+It resolves the home and task through structured inventory, takes the task control and meta locks, and uses `fm_backend_agent_state` to prove the agent process tree is gone before it closes a pane.
 Terminal text, task status, and an empty agent registry do not prove that an agent has stopped.
 MAIN, secondmate supervisors, unmanaged panes, and panes in another home's workspace are excluded.
 An unavailable inventory or an ambiguous process state leaves the pane untouched.
@@ -200,15 +200,16 @@ It refuses an occupied slot.
 The native fallback creates a fresh task tab because it has no slot ledger.
 A failed launch closes its replacement shell only when the same classifier proves the agent gone.
 
-The watcher runs cleanup at the start of each poll, and bootstrap runs it before layout repair.
+The watcher starts one detached cleanup sweep at a time on each poll, and bootstrap runs a sweep before layout repair.
 This includes spontaneous exits, killed agents, and restored bare shells whose home and task labels still identify them unambiguously.
-A held task control lock excludes a relaunch transaction from cleanup.
-Bootstrap defers mutating layout repair while crew panes remain, so repair cannot bypass a skipped lock or process classifier.
-Read-only drift reporting continues.
+A held task control lock excludes a relaunch transaction, and a held task meta lock excludes a fresh spawn that is still starting.
+Bootstrap first reads the layout repair plan with `--dry-run`.
+When that plan would close any pane, bootstrap skips the mutating repair and reports the planned closes.
+Otherwise the existing repair runs unchanged, so repair cannot bypass a skipped lock or process classifier.
 
 Teardown retains its landed-work checks and bounded close retries.
 When pane closure cannot be confirmed, it prints the exact task and pane, returns exit 1, and retains the task records for retry.
-An explicit `--force` allows record retirement despite unconfirmed closure; the unclosed pane remains named in the diagnostic.
+An explicit `--force` allows record retirement despite unconfirmed closure or unreadable ownership; the unclosed pane remains named in the diagnostic.
 An unconfirmed presentation journal remains intact even under `--force`.
 Placement receipts retire only when task records retire.
 

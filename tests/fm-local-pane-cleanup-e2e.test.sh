@@ -87,9 +87,13 @@ fm_lock_try_acquire "$FM_HOME/state/.control-crashed.lock"
 "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
 assert_present "$crashed"
 fm_lock_release "$FM_HOME/state/.control-crashed.lock"
+fm_lock_try_acquire "$FM_HOME/state/.meta-crashed.lock"
+"$ROOT/bin/fm-local-pane-cleanup.sh" sweep
+assert_present "$crashed"
+fm_lock_release "$FM_HOME/state/.meta-crashed.lock"
 "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
 assert_missing "$crashed"
-echo 'ok - recovery skips a held lifecycle lock and cleans the pane after release'
+echo 'ok - recovery skips held relaunch and spawn locks and cleans the pane after release'
 
 # A real process accepts lifecycle commands without making model requests.
 mkdir -p "$FM_LOCAL_LAB_ROOT/agent"
