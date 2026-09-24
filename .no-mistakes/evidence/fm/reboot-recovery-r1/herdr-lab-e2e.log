@@ -1,0 +1,10 @@
+ok - live: a primary in a lab pane records its endpoint through the real restart-record path
+ok - live: with no restart, the boot unit relaunches nothing
+ok - live: after a reboot the authorized second mates run again in their own panes, and the dormant one stays down
+ok - live: the primary comes back last, in its recorded pane, resuming its recorded session
+ok - live: the pass leaves one wake and a status boundary for each relaunched second mate
+ok - live: a second mate relaunched by hand during a restart is detected and not launched twice
+ok - live: a primary whose pane is gone comes back in a new tab of its recorded workspace, named in the pass record
+ok - live: a finished restart is never recovered twice
+ok - live: a restart loop stops at the rate limit with one alert and no launches
+ok - live: a primary whose workspace is gone comes back in a new workspace with its label, named in the pass output

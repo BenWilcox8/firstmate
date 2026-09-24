@@ -1,0 +1,19 @@
+ok - fingerprint: boot id, user manager invocation, and Herdr server start time
+ok - record: each restart kind is named once, reboot first
+ok - record: a second mate home points at the primary home's restart recovery
+ok - record: a primary in a Herdr pane records its pane, harness, launch flags, and native session
+ok - launch-line: recorded flags replayed, session selector dropped, recorded session resumed only when on disk
+ok - launch-line: a primary that recovery relaunched is relaunched again without its earlier prompt
+ok - record: a second mate home keeps no primary endpoint record
+ok - run: nothing happens without a recorded baseline and a detected restart
+ok - run: an unreachable Herdr ends the pass within its bound, with one wake
+ok - run: one recovery pass per restart, and a concurrent run never starts a second
+ok - run: a restart loop stops after the rate limit with one alert
+ok - run: a primary the captain started by hand, by its home or by the fleet lock, is not launched twice
+ok - run: a primary started by hand while the pass runs is seen right before the launch, and nothing is typed
+ok - run: a Claude process older than the Herdr server is not read as a manual relaunch
+ok - dormant: set, list, is, and clear a durable marker for registered second mates only
+ok - seam secondmate-liveness-skip: the startup sweep leaves a dormant second mate down
+ok - seam secondmate-liveness-skip: the startup sweep yields to a running recovery pass
+ok - seam secondmate-liveness-serial: the startup sweep relaunches second mates one at a time
+ok - seam restart-record: a locked session start records the fingerprint and reports a reboot

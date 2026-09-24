@@ -1,0 +1,73 @@
+
+===== recovery pass (exit 0) =====
+fm-restart-recovery: no restart since the last session start; nothing to relaunch
+--- status ---
+ledger (state/.restart-recovery.log):
+  (empty)
+
+===== recovery pass (exit 0) =====
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: second mate research: relaunched in its pane
+fm-restart-recovery: primary firstmate: relaunched in pane fm-lab-restart-recov-2936301-14742:w4:p1, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+--- status ---
+ledger (state/.restart-recovery.log):
+  1790272597  start  reboot
+  1790272636  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+
+===== recovery pass (exit 0) =====
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: second mate research: already running
+fm-restart-recovery: primary firstmate: relaunched in a new tab w4:t3 in the recorded workspace w4, pane fm-lab-restart-recov-2936301-14742:w4:p3, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+--- status ---
+ledger (state/.restart-recovery.log):
+  1790272597  start  reboot
+  1790272636  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+  1790272637  start  reboot
+  1790272657  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+
+===== recovery pass (exit 0) =====
+fm-restart-recovery: this machine reboot was already recovered
+--- status ---
+ledger (state/.restart-recovery.log):
+  1790272597  start  reboot
+  1790272636  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+  1790272637  start  reboot
+  1790272657  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+
+===== recovery pass (exit 3) =====
+fm-restart-recovery: restart recovery hit its rate limit (2 passes in 1800s), so the machine reboot was not recovered; the host may be in a restart loop: inspect it, then relaunch by hand
+--- status ---
+ledger (state/.restart-recovery.log):
+  1790272597  start  reboot
+  1790272636  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+  1790272637  start  reboot
+  1790272657  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+  1790272659  alert-rate-limit  restart recovery hit its rate limit (2 passes in 1800s), so the machine reboot was not recovered; the host may be in a restart loop: inspect it, then relaunch by hand
+  1790272659  rate-limited  reboot
+
+===== recovery pass (exit 0) =====
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: second mate research: relaunched in its pane
+fm-restart-recovery: primary firstmate: relaunched in a new workspace w5 labeled 'fleet' (the recorded workspace w4 is gone), pane fm-lab-restart-recov-2936301-14742:w5:p1, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+--- status ---
+ledger (state/.restart-recovery.log):
+  1790272597  start  reboot
+  1790272636  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
+  1790272637  start  reboot
+  1790272657  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+  1790272659  alert-rate-limit  restart recovery hit its rate limit (2 passes in 1800s), so the machine reboot was not recovered; the host may be in a restart loop: inspect it, then relaunch by hand
+  1790272659  rate-limited  reboot
+  1790272659  start  reboot
+  1790272686  done  firstmate relaunched; second mates relaunched 2, left down 1, failed 0
