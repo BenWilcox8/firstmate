@@ -130,11 +130,18 @@ bootstrap_repair() {
     FM_BACKEND=herdr FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-fixture" \
     "$ROOT/bin/fm-bootstrap.sh" > "$tmp/bootstrap.log" 2>&1
 }
-echo '{"repair":{"converged":false,"actions":[{"kind":"close-husk","taskId":"protected","paneId":"w1:p3"}]}}' > "$tmp/plan.json"
+sed 's/^endpoint_task_id=.*/endpoint_task_id=protected/' "$tmp/original.meta" > "$watch_home/state/protected.meta"
+echo '{"repair":{"converged":false,"actions":[{"kind":"close-husk","taskId":"retired","paneId":"w1:p5"},{"kind":"close-husk","taskId":"protected","paneId":"w1:p3"}]}}' > "$tmp/plan.json"
 bootstrap_repair
 [ ! -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }
-grep -F 'skipped herdr layout repair' "$tmp/bootstrap.log" | grep -F 'protected w1:p3' >/dev/null
-echo 'ok - bootstrap skips and reports a layout repair whose plan would close a retained pane'
+grep -F 'skipped herdr layout repair' "$tmp/bootstrap.log" > "$tmp/skip.log"
+grep -F 'protected w1:p3' "$tmp/skip.log" >/dev/null && ! grep -F 'retired' "$tmp/skip.log" >/dev/null
+echo 'ok - bootstrap skips and reports a layout repair whose plan would close a recorded task pane'
+echo '{"repair":{"converged":false,"actions":[{"kind":"close-husk","taskId":"retired","paneId":"w1:p5"},{"kind":"close-orphan-husk","paneId":"w1:p6"}]}}' > "$tmp/plan.json"
+bootstrap_repair
+[ -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }
+rm "$tmp/mutating-repair"
+echo 'ok - bootstrap still heals husks that have no task record in this home'
 echo '{"repair":{"converged":false,"actions":[{"kind":"free-gone","taskId":"gone","paneId":"w1:p4"}]}}' > "$tmp/plan.json"
 bootstrap_repair
 [ -e "$tmp/mutating-repair" ] || { cat "$tmp/bootstrap.log"; exit 1; }

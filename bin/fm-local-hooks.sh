@@ -120,16 +120,22 @@ fm_local_hook() {
       ;;
     pane-bootstrap-repair)
       # Status 1 lets the caller run its unchanged repair; 0 means it was handled.
-      local plan closes
+      local plan planned task pane closes=
       FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$FM_BACKEND_LIB_DIR/fm-local-pane-cleanup.sh" sweep >/dev/null || true
       fm_herdr_layout_applicable || return 0
       plan=$("$(fm_herdr_layout_bin)" layout --repair --dry-run --json 2>/dev/null) || return 0
-      closes=$(printf '%s' "$plan" | jq -er '.repair.actions
+      planned=$(printf '%s' "$plan" | jq -r '.repair.actions
         | if type == "array" then . else error("missing repair plan") end
-        | [.[] | select(.kind != "free-gone" and .kind != "rebind" and .kind != "adopt")
-            | "\(.taskId // "unknown") \(.paneId // "unknown")"] | join(", ")') || return 0
+        | .[] | select(.kind != "free-gone" and .kind != "rebind" and .kind != "adopt")
+        | select((.taskId | type) == "string" and .taskId != "")
+        | "\(.taskId)\t\(.paneId // "unknown")"') || return 0
+      while IFS=$'\t' read -r task pane; do
+        case "$task" in ''|.|..|*[!A-Za-z0-9._-]*) continue ;; esac
+        [ -e "$STATE/$task.meta" ] || [ -L "$STATE/$task.meta" ] || continue
+        closes="${closes:+$closes, }$task $pane"
+      done <<< "$planned"
       [ -n "$closes" ] || return 1
-      echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close panes that pane cleanup kept: $closes"
+      echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close recorded task panes that pane cleanup kept: $closes"
       ;;
     *) echo "error: unknown local hook: $1" >&2; return 1 ;;
   esac

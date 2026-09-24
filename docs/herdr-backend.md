@@ -204,7 +204,7 @@ The watcher starts one detached cleanup sweep at a time on each poll, and bootst
 This includes spontaneous exits, killed agents, and restored bare shells whose home and task labels still identify them unambiguously.
 A held task control lock excludes a relaunch transaction, and a held task meta lock excludes a fresh spawn that is still starting.
 Bootstrap first reads the layout repair plan with `--dry-run`.
-When that plan would close any pane, bootstrap skips the mutating repair and reports the planned closes.
+When that plan would close the pane of a task recorded in this home, bootstrap skips the mutating repair and reports those closes.
 Otherwise the existing repair runs unchanged, so repair cannot bypass a skipped lock or process classifier.
 
 Teardown retains its landed-work checks and bounded close retries.
