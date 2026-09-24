@@ -177,6 +177,7 @@ fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" "export PATH=$FAKEBIN_Q:\$PA
   || fail "could not put the inert test harness on the pane PATH"
 fm_backend_herdr_send_text_line "$SESSION:$PANE_ID" "cd -- $PROJ_Q" \
   || fail "could not move the agent-free pane out of its recorded worktree"
+PRIOR_HARNESS=$(sed -n 's/^harness=//p' "$HOME_DIR/state/hsmoke.meta" | tail -1)
 for _ in $(seq 1 20); do
   [ "$(fm_backend_herdr_current_path "$SESSION:$PANE_ID" 2>/dev/null || true)" != "$PROJ_REAL" ] || break
   sleep 0.1
@@ -198,7 +199,7 @@ done
   || fail "the Herdr relaunch replaced its endpoint instead of reusing it"
 herdr pane get "$PANE_ID" --session "$SESSION" >/dev/null 2>&1 \
   || fail "the Herdr relaunch removed the endpoint it was required to reuse"
-awk -F= '$1 == "harness" {$0="harness=claude"} {print}' "$HOME_DIR/state/hsmoke.meta" \
+awk -F= -v h="$PRIOR_HARNESS" '$1 == "harness" {$0="harness=" h} {print}' "$HOME_DIR/state/hsmoke.meta" \
   > "$HOME_DIR/state/hsmoke.meta.tmp"
 mv "$HOME_DIR/state/hsmoke.meta.tmp" "$HOME_DIR/state/hsmoke.meta"
 pass "real herdr: a drifted agent-free shell returns to its worktree and reuses the same endpoint"
@@ -226,6 +227,36 @@ case "$OUT" in
   *) fail "the stale hook should not keep the exited agent alive, got: $OUT" ;;
 esac
 pass "real herdr: stale lifecycle-hook status does not keep a shell-only pane alive"
+
+# --- the stale registration (issue #4115) does not block relaunch -----------
+#
+# This is the shape a crew leaves behind when its agent exits but Herdr keeps
+# the registration. Before the fix it read alive forever, so every relaunch
+# was refused. The registry read below makes the case non-vacuous: Herdr still
+# reports the agent, and only the process-level view disagrees.
+REGISTERED=$("$LAB_HELPER" run "$SESSION" agent get "$PANE_ID" 2>/dev/null \
+  | jq -r '.result.agent.agent_status // empty')
+[ -n "$REGISTERED" ] \
+  || version_fail "Herdr released the registration, so this run cannot prove the stale-registration relaunch"
+PRIOR_HARNESS=$(sed -n 's/^harness=//p' "$HOME_DIR/state/hsmoke.meta" | tail -1)
+rm -f "$SCRATCH/codex-launched"
+OUT=$(env FM_HOME="$HOME_DIR" HERDR_SESSION="$SESSION" FM_SPAWN_NO_GUARD=1 \
+  "$ROOT/bin/fm-spawn.sh" hsmoke --relaunch --harness codex) \
+  || fail "a stale-registration Herdr pane should be relaunched: $OUT"
+for _ in $(seq 1 20); do
+  [ ! -e "$SCRATCH/codex-launched" ] || break
+  sleep 0.1
+done
+[ -e "$SCRATCH/codex-launched" ] || fail "the replacement harness was not launched after the stale registration"
+[ "$(sed -n 's/^window=//p' "$HOME_DIR/state/hsmoke.meta" | tail -1)" = "$SESSION:$PANE_ID" ] \
+  || fail "the stale-registration relaunch replaced its endpoint instead of reusing it"
+"$LAB_HELPER" run "$SESSION" pane get "$PANE_ID" >/dev/null 2>&1 \
+  || fail "the stale-registration relaunch removed the endpoint it was required to reuse"
+[ -d "$WT" ] || fail "the stale-registration relaunch must never remove the task's local copy"
+awk -F= -v h="$PRIOR_HARNESS" '$1 == "harness" {$0="harness=" h} {print}' "$HOME_DIR/state/hsmoke.meta" \
+  > "$HOME_DIR/state/hsmoke.meta.tmp"
+mv "$HOME_DIR/state/hsmoke.meta.tmp" "$HOME_DIR/state/hsmoke.meta"
+pass "real herdr: a stale registration does not block relaunch, and the endpoint and local copy survive"
 
 # --- an exact foreground agent process remains protected --------------------
 
