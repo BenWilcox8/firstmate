@@ -7,8 +7,14 @@ bin/backends/herdr.sh	837	send-provenance-herdr	tests/fm-local-send-provenance.t
 bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-teardown.sh	361	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	447	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	205	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
 bin/fm-lint.sh	408	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory, upstreamable	retain
 .github/workflows/ci.yml	52	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
+bin/fm-spawn.sh	975	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-control.sh	513	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-supervise-daemon.sh	402	typing-provenance-digest	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	447	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
+bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
+docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain

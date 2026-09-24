@@ -1276,26 +1276,31 @@ fi
 # Where a harness's firstmate-owned global turn-end registry entry lives is
 # owned by bin/fm-control-lib.sh, so teardown and the control plane's relaunch
 # retire the same artifact rather than each carrying its own copy of the path.
-remove_grok_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path grok "$state_dir" "$id") || return 1
+turnend_auth_path() {  # <harness> <state-dir> <id>
+  local harness=$1 state_dir=$2 id=$3 token_path token=''
+  token_path=$(fm_control_harness_turnend_token_path "$harness" "$state_dir" "$id") || return 1
   if [ -n "$token_path" ] && [ -f "$token_path" ]; then
     IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
   fi
-  path=$(fm_control_harness_turnend_auth_path grok "$token") || return 1
-  [ -n "$path" ] || return 0
-  rm -f -- "$path"
+  fm_control_harness_turnend_auth_path "$harness" "$token"
 }
 
-remove_kimi_turnend_auth() {
-  local state_dir=$1 id=$2 token_path token='' path
-  token_path=$(fm_control_harness_turnend_token_path kimi "$state_dir" "$id") || return 1
-  if [ -n "$token_path" ] && [ -f "$token_path" ]; then
-    IFS= read -r token < "$token_path" || [ -n "$token" ] || return 1
+remove_turnend_auth() {  # <harness> <state-dir> <id>
+  local path
+  path=$(turnend_auth_path "$@") || return 1
+  [ -z "$path" ] || rm -f -- "$path"
+}
+
+validate_busy_state_retirement() {  # <state-dir> <id> <gen>
+  local current
+  [ -e "$1/$2.busy-gen" ] || [ -L "$1/$2.busy-gen" ] || return 0
+  # shellcheck source=bin/fm-busy-lib.sh
+  . "$SCRIPT_DIR/fm-busy-lib.sh"
+  if current=$(fm_busy_current_gen "$1" "$2") && { [ -z "${3:-}" ] || [ "$3" = "$current" ]; }; then
+    return 0
   fi
-  path=$(fm_control_harness_turnend_auth_path kimi "$token") || return 1
-  [ -n "$path" ] || return 0
-  rm -f -- "$path"
+  echo "REFUSED: the busy-state gen for $2 does not match its record; preserving the pool slot and task state." >&2
+  return 1
 }
 
 retire_busy_state() {
@@ -1312,7 +1317,8 @@ validate_pr_poll_cleanup() {
   fm_task_id_path_safe "$id" || return 0
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust"; do
+    "$state_dir/$id.merge-authority" "$state_dir/$id.pr-poll-merge-notified" \
+    "$state_dir/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     has_artifact=1
   done
@@ -1321,7 +1327,8 @@ validate_pr_poll_cleanup() {
   state_device=$(fm_pr_file_device "$state_dir") || return 1
   for artifact in "$state_dir/$id.check.sh" "$state_dir/$id.pr-poll" \
     "$state_dir/$id.pr-poll-registration" "$state_dir/$id.pr-poll-retirement" \
-    "$state_dir/$id.merge-authority" "$state_dir/$id.check-trust"; do
+    "$state_dir/$id.merge-authority" "$state_dir/$id.pr-poll-merge-notified" \
+    "$state_dir/$id.check-trust"; do
     [ -e "$artifact" ] || [ -L "$artifact" ] || continue
     if [ ! -f "$artifact" ] || [ -L "$artifact" ] \
       || [ "$(fm_pr_file_device "$artifact")" != "$state_device" ] \
@@ -3222,8 +3229,8 @@ cleanup_firstmate_home_children() {
         fi
       fi
     fi
-    remove_grok_turnend_auth "$sub_state" "$child_id" || return 1
-    remove_kimi_turnend_auth "$sub_state" "$child_id" || return 1
+    remove_turnend_auth grok "$sub_state" "$child_id" || return 1
+    remove_turnend_auth kimi "$sub_state" "$child_id" || return 1
     remove_pr_poll_artifacts "$sub_state" "$child_id" || return 1
     child_busy_gen=$(meta_value "$child_meta" busy_gen)
     if [ -z "$child_busy_gen" ]; then
@@ -3380,6 +3387,32 @@ if teardown_owns_worktree && [ -d "$WT" ] && [ "$FORCE" != "--force" ]; then
     fi
   fi
 fi
+
+# Every step that can refuse runs before the pool slot is returned, so a refused
+# cleanup keeps the slot leased to this task. A parent-delivery refusal must also
+# come before the reap: an interactive Treehouse slot owner exits with its reaped
+# subshell. Delivery runs again once the endpoint has stopped, and its receipts
+# make that idempotent. A late outcome it cannot deliver keeps its pending record,
+# which the watcher's ledger pass retries after this record is gone.
+teardown_report_parent() {  # [late]
+  [ "$KIND" != secondmate ] || return 0
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID" ${1:+--late} && return 0
+  if [ "${1:-}" = late ]; then
+    echo "error: LATE OUTCOME UNDELIVERED - $ID's final outcome did not reach the parent channel after its endpoint stopped; the watcher retries its pending record in $STATE/terminal-outcomes: $(last_status_line "$STATE/$ID.status")" >&2
+    return 0
+  fi
+  echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
+  exit 1
+}
+teardown_report_parent
+if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ] && [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
+  require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
+  ORCA_PATH_MATCH_VERIFIED=1
+fi
+validate_busy_state_retirement "$STATE" "$ID" "$BUSY_GEN" || exit 1
+GROK_TURNEND_AUTH=$(turnend_auth_path grok "$STATE" "$ID") || exit 1
+KIMI_TURNEND_AUTH=$(turnend_auth_path kimi "$STATE" "$ID") || exit 1
 
 # Every landed/discard-work refusal above has now passed, so a leg that produced
 # work has PROVED it landed (a ship task's content reached the default branch or
@@ -3560,10 +3593,6 @@ fi
 
 # Best-effort: drop the local task branch so the shared repo does not accumulate refs.
 if [ "$BACKEND" = orca ] && [ "$KIND" != secondmate ]; then
-  if [ "$ORCA_PATH_MATCH_VERIFIED" != 1 ]; then
-    require_orca_worktree_path_match_if_present "$ORCA_WORKTREE_ID" "$WT" || exit 1
-    ORCA_PATH_MATCH_VERIFIED=1
-  fi
   if [ -d "$WT" ]; then
     branch=$(git -C "$WT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo HEAD)
     if [ "$branch" != "HEAD" ]; then
@@ -3785,13 +3814,7 @@ if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
   teardown_herdr_report_unclosed_pane
   endpoint_close_refusal "$ID" herdr "$T" 1 || exit 1
 fi
-if [ "$KIND" != secondmate ]; then
-  if ! FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-      "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID"; then
-    echo "error: $ID's final outcome has not reached the parent channel; retaining every durable task record so a rerun can retry the delivery" >&2
-    exit 1
-  fi
-fi
+teardown_report_parent late
 if [ "$KIND" = secondmate ]; then
   [ -n "$HOME_PATH" ] || HOME_PATH=$WT
   handoff_wake_retire_stage \
@@ -3814,8 +3837,9 @@ if [ "$KIND" = secondmate ]; then
   fi
   remove_secondmate_registry_entry "$ID"
 fi
-remove_grok_turnend_auth "$STATE" "$ID" || exit 1
-remove_kimi_turnend_auth "$STATE" "$ID" || exit 1
+for turnend_auth in "$GROK_TURNEND_AUTH" "$KIMI_TURNEND_AUTH"; do
+  [ -z "$turnend_auth" ] || rm -f -- "$turnend_auth" || exit 1
+done
 fm_backend_clear_transition "$BACKEND" "$STATE" "$T" || true
 # Remove the per-task temp root (/tmp/fm-<id>/, incl. its gotmp/) recorded by spawn.
 # Read before the state-file rm below; empty (pre-fix tasks without tasktmp=) is a no-op.

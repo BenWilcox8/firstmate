@@ -22,7 +22,7 @@ Every captain-facing outcome that leaves durable evidence in the mate home is pu
 | Child failed | the child's `failed:` line | `bin/fm-inactive-reconcile.sh` on the next poll |
 | Child decision escalated to the captain | the task held for the captain in the mate backlog | `bin/fm-captain-hold.sh hold`, and its answer by `answer` |
 | PR merged | the merge poll or the mate's own merge | `bin/fm-merge-outcome-lib.sh` |
-| Child leaving the home | its final ledger line | `bin/fm-teardown.sh`, which refuses to remove the child while that line is undelivered |
+| Child leaving the home | its final ledger line | `bin/fm-teardown.sh`, which refuses to stop the child while that line is undelivered; a line it cannot deliver after the endpoint stops stays pending, and `bin/fm-inactive-reconcile.sh` retries it on each poll |
 | Child ended silently | terminal current state with a silent ledger | the existing inactive-outcome scan in `bin/fm-inactive-reconcile.sh` |
 | Answer to a marked request | a correlated line guarded by the pending-reply record | `bin/fm-secondmate-report.sh`, which resolves the parent channel from the mate home; the pending-reply guard repairs a line stranded in the local mate's same-basename status file before recovery or escalation |
 | An outcome that exists only in the mate's reasoning | none | the charter and the `AGENTS.md` carve-outs only |
@@ -40,7 +40,8 @@ A missed-reply escalation includes the complete first sighting path and line num
 - No mirror of the mate's chat: chat can mix outcomes with other conversation, so choosing which sentence is an outcome would itself be model behavior, and every harness exposes turn text differently.
 - No threshold escalation of a child's open decision or blocker: a decision the mate escalates is a captain hold, which is published; a decision the mate neither answers nor escalates is a supervision-quality question, separable from channel delivery.
 - No second watcher or standalone scanner: a lightweight ledger pass runs inside the existing inactive-outcome command on every watcher poll and reuses its receipts and upstream append.
-- No orphan lifecycle: teardown refuses instead of removing an undelivered outcome, the same way it refuses on other unlanded conditions.
+- No orphan lifecycle: teardown refuses to stop a child with an undelivered outcome, the same way it refuses on other unlanded conditions.
+  After the endpoint stops, a refusal would leave the pool slot without an owner, so an undelivered final line keeps its pending record, and each later ledger pass or direct report retries it before it publishes any newer line.
 
 ## Regression coverage
 

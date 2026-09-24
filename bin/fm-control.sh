@@ -661,6 +661,7 @@ do_exit() {
       die "task $ID's composer state is '$composer_state', not proven empty; refusing to type the $cmd exit command because it could concatenate onto existing text. Clear the composer, then retry '$VERB'"
       ;;
   esac
+  if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-init exit-command; fi
   # The submit verdict is NOT the postcondition here: a successful exit command
   # destroys the composer the verdict is read from, so a post-exit read can
   # legitimately report anything. Only a hard transport failure aborts; the

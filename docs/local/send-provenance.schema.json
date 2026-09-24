@@ -25,13 +25,13 @@
         "backend": {"enum": ["tmux", "herdr", "zellij", "cmux", "orca"]},
         "target": {"type": "string", "description": "The fully qualified backend target. For a remote target, this is the remote endpoint that the sending home recorded for the secondmate."},
         "pane_id": {"type": ["string", "null"], "description": "The tmux pane id or the final component of the backend target. Null means the tmux lookup failed."},
-        "task_id": {"type": ["string", "null"], "description": "The task from endpoint metadata in the sending home, including an explicit endpoint with matching metadata. For a remote target, this is the remote secondmate id. Null means no task is known."},
+        "task_id": {"type": ["string", "null"], "description": "The task from endpoint metadata in the sending home, including an explicit endpoint with matching metadata. For a launch prompt, this is the task that fm-spawn starts. For a remote target, this is the remote secondmate id. Null means no task is known, as for the supervisor pane."},
         "remote_host": {"type": "string", "description": "The SSH host of a remote secondmate. This field is present only for a remote target."}
       }
     },
-    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 of the exact literal bytes sent to the transport. It excludes the separate Enter keystroke. A doorbell hash covers the doorbell line, not the inbox body."},
-    "time": {"type": "string", "format": "date-time", "description": "UTC time immediately after successful literal typing, or after the remote leg for a remote target, to the nearest second."},
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 of the exact literal bytes sent to the transport. It excludes the separate Enter keystroke. A doorbell hash covers the doorbell line, not the inbox body. When the brief rides the typed launch line as an argument, a launch-prompt hash covers the prompt that the agent receives, not the shell line. A launch line without the brief produces no record."},
+    "time": {"type": "string", "format": "date-time", "description": "UTC time immediately after successful literal typing, after the launch Enter for a launch prompt on the launch line, or after the remote leg for a remote target, to the nearest second."},
     "sender_home": {"type": "string", "description": "The canonical absolute path of the sending FM_HOME."},
-    "delivery_kind": {"enum": ["doorbell", "native-skill", "explicit-endpoint"], "description": "The delivery path. Explicit endpoint selection takes precedence over native-skill syntax. Watcher re-rings and remote steers are doorbells."}
+    "delivery_kind": {"enum": ["doorbell", "native-skill", "explicit-endpoint", "launch-prompt", "exit-command", "supervision-digest"], "description": "The delivery path. Explicit endpoint selection takes precedence over native-skill syntax. Watcher re-rings and remote steers are doorbells. fm-spawn writes launch-prompt for the brief that starts a worker, fm-control writes exit-command for a harness exit command, and the away-mode daemon writes supervision-digest for a digest into the supervisor pane."}
   }
 }
