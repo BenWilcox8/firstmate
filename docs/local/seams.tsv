@@ -9,4 +9,7 @@ bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-teardown.sh	348	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	194	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-spawn.sh	728	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-control.sh	503	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-supervise-daemon.sh	402	typing-provenance-digest	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-composer-lib.sh	155	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
