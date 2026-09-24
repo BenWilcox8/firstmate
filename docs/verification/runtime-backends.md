@@ -353,6 +353,15 @@ ok - matrix: real Codex animation frames remain empty across animation brightnes
 
 A separate isolated Herdr probe delivered the first steering-inbox doorbell to Codex 0.155.1, which executed and acknowledged its instruction.
 That lab rendered a nonanimated composer, so the captured-frame regression supplies the animation evidence.
+
+A read-only sample of 150 frames from one idle Codex 0.155.1 pane on Herdr 0.8.2, on the same date, found 27 frames with no animation cell on the prompt row and bright cells on the row below it.
+Each of those frames classified as `pending` before the prompt-row proof accepted an empty cell set, and as `empty` after it.
+Two of those frames and the two frames saved after the skipped doorbells are in `tests/fm-local-codex-idle-frames.test.sh`.
+
+```sh
+nice -n 10 bin/fm-test-run.sh tests/fm-local-codex-idle-frames.test.sh --jobs 1
+```
+
 The [steering-inbox live guard](../../tests/fm-send-inbox-doorbell-live-e2e.test.sh) remains the refresh entry point for worker acknowledgement.
 
 ## Steering-inbox doorbell
