@@ -21,7 +21,7 @@ fm_local_hook() {
     secondmate-liveness-skip)
       FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" liveness-skip "${@:2}"
       ;;
-    # The startup liveness sweep relaunches second mates one at a time, to
+    # The startup liveness sweep relaunches local second mates one at a time, to
     # keep the load on the machine low after a restart.
     secondmate-liveness-serial) return 0 ;;
     *) echo "error: unknown local hook: $1" >&2; return 1 ;;

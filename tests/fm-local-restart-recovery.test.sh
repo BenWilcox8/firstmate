@@ -11,7 +11,7 @@
 #   - secondmate-liveness-skip: bin/fm-bootstrap.sh's startup liveness sweep
 #     leaves a dormant second mate down, and leaves every second mate to a
 #     restart recovery pass that is running.
-#   - secondmate-liveness-serial: the same sweep relaunches second mates one at
+#   - secondmate-liveness-serial: the same sweep relaunches local second mates one at
 #     a time.
 # The Herdr lifecycle proof (a real lab restart, in-place relaunches, the
 # manual-relaunch guard) lives in tests/fm-local-restart-recovery-herdr-e2e.test.sh.

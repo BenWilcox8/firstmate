@@ -701,7 +701,6 @@ secondmate_liveness_sweep() {
   if bootstrap_parallel_begin; then
     parallel=1
   fi
-  if [ "$parallel" -eq 1 ] && declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-serial; then bootstrap_parallel_finish; parallel=0; fi
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     grep -q '^kind=secondmate$' "$meta" 2>/dev/null || continue
@@ -711,6 +710,7 @@ secondmate_liveness_sweep() {
     remote_host=$(fm_meta_get "$meta" remote_host)
     label=$id
     [ -z "$remote_host" ] || label="$id@$remote_host"
+    if [ "$parallel" -eq 1 ] && [ -z "$remote_host" ] && declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-serial; then FM_BOOTSTRAP_PARALLEL_DIR='' secondmate_liveness_one_timed "$meta" "$id" "$label"; continue; fi
     if [ "$parallel" -eq 1 ]; then
       bootstrap_parallel_spawn secondmate_liveness_one_timed "$meta" "$id" "$label"
     else
