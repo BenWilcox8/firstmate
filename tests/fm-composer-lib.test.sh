@@ -734,6 +734,49 @@ test_selected_content_is_composer_scoped_and_wrap_normalized() {
   pass "fm_composer_extract_selected_content: scopes user content and excludes furniture"
 }
 
+test_matrix_codex_captured_idle_frames() {
+  # Codex 0.155.1, 2026-09-24: four composer rows captured through Herdr ANSI.
+  # The second frame has a bright prompt animation but an entirely dark lower row.
+  local screen plain changed
+  local screens=(
+    $'\033[0m\033[48;2;61;59;78m                         \033[0m\033[38;2;104;102;121m\033[48;2;61;59;78m⢀\033[0m\033[48;2;61;59;78m  \033[0m\033[38;2;109;107;127m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m               \033[0m\r\n\033[0m\033[1m\033[48;2;61;59;78m›\033[0m\033[48;2;61;59;78m \033[0m\033[2m\033[48;2;61;59;78mAsk Codex to do anything\033[0m\033[48;2;61;59;78m   \033[0m\033[38;2;107;105;125m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m            \033[0m\033[38;2;147;145;166m\033[48;2;61;59;78m⠁\033[0m\033[48;2;61;59;78m \033[0m\r\n\033[0m\033[48;2;61;59;78m                    \033[0m\033[38;2;115;113;133m\033[48;2;61;59;78m⠠\033[0m\033[48;2;61;59;78m               \033[0m\033[38;2;150;148;169m\033[48;2;61;59;78m⠠\033[0m\033[48;2;61;59;78m       \033[0m\r\n  \033[0m\033[2mgpt-6-astra xhigh · 178K used · Context 6…\033[0m'
+    $'\033[0m\033[48;2;61;59;78m    \033[0m\033[38;2;75;73;93m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m                           \033[0m\033[38;2;138;136;157m\033[48;2;61;59;78m⠁\033[0m\033[48;2;61;59;78m           \033[0m\r\n\033[0m\033[1m\033[48;2;61;59;78m›\033[0m\033[38;2;150;148;169m\033[48;2;61;59;78m⠁\033[0m\033[2m\033[48;2;61;59;78mAsk Codex to do anything\033[0m\033[48;2;61;59;78m         \033[0m\033[38;2;70;68;87m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m    \033[0m\033[38;2;134;132;152m\033[48;2;61;59;78m⠁\033[0m\033[48;2;61;59;78m   \033[0m\r\n\033[0m\033[48;2;61;59;78m        \033[0m\033[38;2;85;83;102m\033[48;2;61;59;78m⠐\033[0m\033[48;2;61;59;78m        \033[0m\033[38;2;73;71;90m\033[48;2;61;59;78m⠄\033[0m\033[48;2;61;59;78m                          \033[0m\r\n  \033[0m\033[2mgpt-6-astra xhigh · 178K used · Context 6…\033[0m'
+  )
+  for screen in "${screens[@]}"; do
+    assert_screen "captured Codex animation on Herdr" empty "$CAPS_STYLED" "$screen"
+    assert_screen "captured Codex animation on Zellij" empty "$CAPS_STYLED_NOID" "$screen"
+    assert_screen "captured Codex animation on tmux" empty "$CAPS_TMUX" "$screen" 1
+    plain=$(printf '%s\n' "$screen" | fm_composer_strip_ansi)
+    assert_screen "captured Codex animation without styling" unknown "$CAPS_PLAIN" "$plain"
+    changed=${screen/'Ask Codex to do anything'/"${ESC}[22mtyped draft"}
+    assert_screen "typed draft in the captured Codex composer" pending "$CAPS_STYLED" "$changed"
+    changed=${screen/"${ESC}[2mgpt-"/"${ESC}[0mgpt-"}
+    assert_screen "bright clipped footer-like input" pending "$CAPS_STYLED" "$changed"
+    changed=${screen/'Context 6…'/'Context nope…'}
+    assert_screen "unrecognized dim clipped footer" pending "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used'/'178K u'}
+    assert_screen "incomplete usage word before a context cell" pending "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used · Context 6…'/'707K u…'}
+    assert_screen "Codex footer clipped inside the usage cell" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used · Context 6…'/'178K used ·…'}
+    assert_screen "Codex footer clipped at the usage separator" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'Context 6…'/'Context 38% used · …'}
+    assert_screen "Codex footer clipped after the context separator" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'Context 6…'/'Context …'}
+    assert_screen "Codex footer clipped with a trailing space" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used · Context 6…'/'178K ·…'}
+    assert_screen "separator after an incomplete usage cell" pending "$CAPS_STYLED" "$changed"
+    changed=${screen/›/❯}
+    assert_screen "Codex animation exception does not apply to Claude" pending "$CAPS_STYLED" "$changed"
+  done
+  assert_screen "Claude typed draft still blocks the doorbell" pending "$CAPS_STYLED" \
+    $'❯ a real typed draft\n'
+  assert_screen "Pi typed draft still blocks the doorbell" pending "$CAPS_STYLED" \
+    $'────────────────────\na real typed draft\n────────────────────' '' $'pi\tidle'
+  pass "matrix: real Codex animation frames remain empty across animation brightness"
+}
+
+test_matrix_codex_captured_idle_frames
 test_bare_shell_glyphs_are_unknown
 test_stripped_unbordered_content_uses_plain_content
 test_bare_shell_prompt_with_command_is_not_empty
