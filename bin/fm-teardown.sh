@@ -267,8 +267,6 @@ SUB_HOME_PARENT_MARKER=".fm-secondmate-parent"
 . "$SCRIPT_DIR/fm-backend.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
-# shellcheck source=bin/fm-busy-lib.sh
-. "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-lock-lib.sh
 . "$SCRIPT_DIR/fm-lock-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
@@ -1223,9 +1221,10 @@ remove_turnend_auth() {  # <harness> <state-dir> <id>
 }
 
 validate_busy_state_retirement() {  # <state-dir> <id> <gen>
-  local gen_file current
-  gen_file=$(fm_busy_gen_path "$1" "$2")
-  [ -e "$gen_file" ] || [ -L "$gen_file" ] || return 0
+  local current
+  [ -e "$1/$2.busy-gen" ] || [ -L "$1/$2.busy-gen" ] || return 0
+  # shellcheck source=bin/fm-busy-lib.sh
+  . "$SCRIPT_DIR/fm-busy-lib.sh"
   if current=$(fm_busy_current_gen "$1" "$2") && { [ -z "${3:-}" ] || [ "$3" = "$current" ]; }; then
     return 0
   fi
