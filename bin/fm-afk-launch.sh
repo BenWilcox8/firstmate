@@ -181,10 +181,6 @@ fm_afk_launch_usage() {
   sed -n '/^# Usage:/,/^# Supported backends:/p' "${BASH_SOURCE[0]}" | sed '$d' | sed 's/^# \{0,1\}//'
 }
 
-fm_afk_launch_primary_harness() {
-  "$FM_AFK_LAUNCH_DIR/fm-harness.sh" 2>/dev/null || printf unknown
-}
-
 # The away daemon is no longer launched on Pi: the posture record is the whole
 # entry there and the ordinary supervision session runs in both postures.
 fm_afk_launch_daemon_allowed() {
