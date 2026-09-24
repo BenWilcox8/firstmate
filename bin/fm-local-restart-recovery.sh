@@ -50,9 +50,10 @@
 #                     FM_RESTART_HERDR_WAIT seconds, and otherwise stops with
 #                     exit 4 and no relaunch;
 #                  3. compares the current fingerprint with the one the last
-#                     locked session start stored, and exits 0 when there is no
-#                     baseline, no restart, or this restart was already
-#                     recovered;
+#                     locked session start stored, as read when the pass took
+#                     its lock (a session start during the wait cannot hide the
+#                     restart), and exits 0 when there is no baseline, no
+#                     restart, or this restart was already recovered;
 #                  4. refuses with exit 3 when FM_RESTART_MAX_PASSES passes
 #                     already started within FM_RESTART_WINDOW seconds (a
 #                     restart loop);
@@ -236,15 +237,20 @@ rr_key() {
   printf '%s|%s|%s' "$CUR_BOOT" "$CUR_UM" "$CUR_HS"
 }
 
-# rr_classify <stored-fingerprint>: reboot, user-manager, herdr, none, or
-# no-baseline. A signal counts only when both sides read it.
+# rr_field <text> <key>: the last <key>= value in the key=value lines of <text>.
+rr_field() {
+  printf '%s\n' "$1" | sed -n "s/^$2=//p" | tail -n 1
+}
+
+# rr_classify <stored-fingerprint-text>: reboot, user-manager, herdr, none, or
+# no-baseline (empty text). A signal counts only when both sides read it.
 rr_classify() {
   local stored=$1 boot um session hs
-  [ -f "$stored" ] || { printf 'no-baseline'; return 0; }
-  boot=$(fm_meta_get "$stored" boot_id)
-  um=$(fm_meta_get "$stored" user_manager)
-  session=$(fm_meta_get "$stored" herdr_session)
-  hs=$(fm_meta_get "$stored" herdr_start)
+  [ -n "$stored" ] || { printf 'no-baseline'; return 0; }
+  boot=$(rr_field "$stored" boot_id)
+  um=$(rr_field "$stored" user_manager)
+  session=$(rr_field "$stored" herdr_session)
+  hs=$(rr_field "$stored" herdr_start)
   if [ -n "$boot" ] && [ -n "$CUR_BOOT" ] && [ "$boot" != "$CUR_BOOT" ]; then
     printf 'reboot'
   elif [ -n "$um" ] && [ -n "$CUR_UM" ] && [ "$um" != "$CUR_UM" ]; then
@@ -487,7 +493,7 @@ rr_pass_note() {  # <key>
     printf "The primary firstmate's home runs restart recovery for second mates and keeps its ledger and pass records; this home keeps none."
   elif rr_ledger_has 'done' "$1"; then
     printf 'Restart recovery already relaunched the authorized supervisors; its record is under state/restart-recovery/.'
-  elif rr_ledger_has start "$1"; then
+  elif rr_ledger_has start "$1" || rr_pass_active; then
     printf 'A restart recovery pass is relaunching the authorized supervisors; its summary arrives as a check notification.'
   else
     printf 'No restart recovery pass ran for it: check bin/fm-local-restart-recovery.sh status, and relaunch authorized second mates one at a time.'
@@ -499,7 +505,7 @@ cmd_record() {
   mkdir -p "$STATE" || return 0
   stored_session=${HERDR_SESSION:-default}
   rr_read_current "$stored_session"
-  class=$(rr_classify "$RR_FINGERPRINT")
+  class=$(rr_classify "$(cat "$RR_FINGERPRINT" 2>/dev/null)")
   rr_print_current | { cat; printf 'recorded_at=%s\n' "$(date +%s)"; } | rr_write_atomic "$RR_FINGERPRINT" || true
   case "$class" in
     reboot|user-manager|herdr)
@@ -835,7 +841,7 @@ rr_pass() {  # <class> <key>
 }
 
 cmd_run() {
-  local boot class key session since
+  local boot baseline class key session since
   mkdir -p "$STATE" || { rr_say "cannot create $STATE"; return 1; }
   boot=$(rr_boot_id)
   RR_LOCK="$STATE/.restart-recovery.${boot:-unknown}.lock"
@@ -847,7 +853,8 @@ cmd_run() {
   fi
   trap rr_release EXIT
   trap 'exit 1' HUP INT TERM
-  session=$(fm_meta_get "$RR_FINGERPRINT" herdr_session)
+  baseline=$(cat "$RR_FINGERPRINT" 2>/dev/null)
+  session=$(rr_field "$baseline" herdr_session)
   [ -n "$session" ] || session=$(fm_meta_get "$RR_ENDPOINT" herdr_session)
   [ -n "$session" ] || session=default
   if ! rr_wait_herdr "$session"; then
@@ -856,7 +863,7 @@ cmd_run() {
     return 4
   fi
   rr_read_current "$session"
-  class=$(rr_classify "$RR_FINGERPRINT")
+  class=$(rr_classify "$baseline")
   case "$class" in
     no-baseline)
       rr_say "no restart baseline: no locked session start has recorded one, so nothing is known to relaunch"

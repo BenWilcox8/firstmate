@@ -318,6 +318,34 @@ test_run_waits_for_herdr_with_a_bound() {
   pass "run: an unreachable Herdr ends the pass within its bound, with one wake"
 }
 
+test_run_keeps_a_restart_that_a_session_start_records_during_the_herdr_wait() {
+  local w out bg
+  w=$(new_world baseline-race)
+  rr "$w" record >/dev/null
+  printf 'boot-2\n' > "$w/boot_id"
+  rm -f "$w/herdr/running"
+  FM_RESTART_HERDR_WAIT=20 rr "$w" run > "$w/bg.out" 2>&1 &
+  bg=$!
+  for _ in $(seq 1 50); do
+    ls "$w/home/state/".restart-recovery.*.lock >/dev/null 2>&1 && break
+    sleep 0.1
+  done
+  # The captain starts firstmate by hand while the pass waits for Herdr: that
+  # locked session start records the new fingerprint.
+  out=$(rr "$w" record)
+  assert_contains "$out" "RESTART: machine reboot" "the session start did not report the reboot: $out"
+  assert_contains "$out" "A restart recovery pass is relaunching the authorized supervisors" \
+    "the session start did not say that a recovery pass is running: $out"
+  : > "$w/herdr/running"
+  wait "$bg" || fail "the pass failed: $(cat "$w/bg.out")"
+  assert_not_contains "$(cat "$w/bg.out")" "no restart since the last session start" \
+    "a session start during the Herdr wait hid the restart from the pass"
+  assert_contains "$(cat "$w/bg.out")" "restart recovery after machine reboot finished" \
+    "the pass did not recover the restart: $(cat "$w/bg.out")"
+  [ "$(restart_wakes "$w" restart-recovery:)" = 1 ] || fail "the pass must leave exactly one summary wake"
+  pass "run: a session start during the Herdr wait does not hide the restart from the pass"
+}
+
 test_run_is_single_flight_per_restart() {
   local w out rc bg bg_out
   w=$(new_world single-flight)
@@ -686,6 +714,7 @@ for t in \
   test_record_captures_the_primary_endpoint_in_a_herdr_pane \
   test_run_acts_only_after_a_recorded_restart \
   test_run_waits_for_herdr_with_a_bound \
+  test_run_keeps_a_restart_that_a_session_start_records_during_the_herdr_wait \
   test_run_is_single_flight_per_restart \
   test_run_rate_limits_a_restart_loop_with_one_alert \
   test_run_leaves_a_primary_that_already_runs_elsewhere \
