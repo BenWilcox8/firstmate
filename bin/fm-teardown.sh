@@ -3844,6 +3844,7 @@ fi
 remove_pr_poll_artifacts "$STATE" "$ID" || exit 1
 retire_busy_state "$STATE" "$ID" "$BUSY_GEN" || exit 1
 status_retire_presentation_task "$STATE" "$ID" || exit 1
+if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-prune "$STATE"; fi
 # The retired log is gone, so a refused Atlas close-out starts a fresh one: the
 # keyed gate line is an open blocker the watcher surfaces, and it stays listed
 # with the orphan status logs until the supervisor resolves it.

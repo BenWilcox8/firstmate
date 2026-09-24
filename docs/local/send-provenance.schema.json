@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Firstmate typed-send provenance v1",
+  "description": "The Dashboard secondmate consumes this record to distinguish Firstmate input from captain input in the prompts and agent timeline tabs.",
+  "$comment": "This schema owns the record format. bin/fm-local-send-provenance.pl owns storage mechanics. The hooks do not change the typed bytes, the remote send arguments, or the delivery verdict. A local record proves typing, not submission or agent acknowledgement. Failed or skipped local typing and key-only sends produce no record. Enter retries do not produce records. Each watcher doorbell re-ring produces its own record.",
+  "x-storage": {
+    "path": "<FM_STATE_OVERRIDE or FM_HOME/state of the sending home>/local-send-provenance/YYYY-MM-DD.jsonl",
+    "encoding": "ASCII JSON, one object per LF-terminated line, in UTC daily shards.",
+    "ownership": "Every record lives in the state directory of the sending home, for local and remote targets. The destination home never writes a record for input that another home sent.",
+    "retention": "Keep the current UTC day and the preceding seven days. Append and task teardown remove older shards under the writer lock. Readers exclude older shards even if the home is idle. Recent records survive task teardown, including the retirement of a remote secondmate. The retirement of a complete secondmate home also removes the records that this home wrote as a sender.",
+    "reader": "Read all retained shards of each sending home. Match endpoint identity, exact-byte SHA-256, and nearby transcript time. Consume matches by occurrence. A hash alone cannot distinguish identical human input or repeated sends. Do not normalize whitespace or add a newline before hashing.",
+    "failures": "Recording errors do not change delivery results or cause the text to be typed again. Missing records do not prove that the captain typed a message. Doorbell callers can suppress stderr. The writer uses Perl core modules and creates private directories and files.",
+    "remote_transport": "fm-send sends the remote steer with unchanged arguments. The remote host types the doorbell line. The sending home writes one doorbell record after the remote leg succeeds or ends with unknown completion. The record hashes the doorbell line that the remote host types for this inbox. The remote host can skip the ring, or ring more than one time on a transport retry. A remote record thus proves the send attempt, not the typing."
+  },
+  "type": "object",
+  "required": ["version", "endpoint", "sha256", "time", "sender_home", "delivery_kind"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": 1},
+    "endpoint": {
+      "type": "object",
+      "required": ["backend", "target", "pane_id", "task_id"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {"enum": ["tmux", "herdr", "zellij", "cmux", "orca"]},
+        "target": {"type": "string", "description": "The fully qualified backend target. For a remote target, this is the remote endpoint that the sending home recorded for the secondmate."},
+        "pane_id": {"type": ["string", "null"], "description": "The tmux pane id or the final component of the backend target. Null means the tmux lookup failed."},
+        "task_id": {"type": ["string", "null"], "description": "The task from endpoint metadata in the sending home, including an explicit endpoint with matching metadata. For a remote target, this is the remote secondmate id. Null means no task is known."},
+        "remote_host": {"type": "string", "description": "The SSH host of a remote secondmate. This field is present only for a remote target."}
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 of the exact literal bytes sent to the transport. It excludes the separate Enter keystroke. A doorbell hash covers the doorbell line, not the inbox body."},
+    "time": {"type": "string", "format": "date-time", "description": "UTC time immediately after successful literal typing, or after the remote leg for a remote target, to the nearest second."},
+    "sender_home": {"type": "string", "description": "The canonical absolute path of the sending FM_HOME."},
+    "delivery_kind": {"enum": ["doorbell", "native-skill", "explicit-endpoint"], "description": "The delivery path. Explicit endpoint selection takes precedence over native-skill syntax. Watcher re-rings and remote steers are doorbells."}
+  }
+}
