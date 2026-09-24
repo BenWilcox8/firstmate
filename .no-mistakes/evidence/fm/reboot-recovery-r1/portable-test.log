@@ -18,3 +18,7 @@ ok - seam secondmate-liveness-skip: the startup sweep leaves a dormant second ma
 ok - seam secondmate-liveness-skip: the startup sweep yields to a running recovery pass
 ok - seam secondmate-liveness-serial: the startup sweep relaunches second mates one at a time
 ok - seam restart-record: a locked session start records the fingerprint and reports a reboot
+
+real	0m53.444s
+user	0m10.311s
+sys	0m25.587s

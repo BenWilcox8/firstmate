@@ -8,3 +8,7 @@ ok - live: a primary whose pane is gone comes back in a new tab of its recorded 
 ok - live: a finished restart is never recovered twice
 ok - live: a restart loop stops at the rate limit with one alert and no launches
 ok - live: a primary whose workspace is gone comes back in a new workspace with its label, named in the pass output
+
+real	1m43.184s
+user	0m22.703s
+sys	0m43.232s

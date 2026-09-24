@@ -1,0 +1,97 @@
+== setup: primary pane w3:p1 (workspace w3), captain pane w3:p2, osg w1:p1, learning(dormant) w2:p1
+== stored baseline:
+boot_id=boot-1
+user_manager=um-1
+herdr_session=fm-lab-rr-extra-3314929-27763
+herdr_start=1790275023.234468181
+recorded_at=1790275024
+
+=== S1: user service manager restart (logout with lingering off), state/.afk present
+--- run (rc=0):
+fm-restart-recovery: restart recovery after user service manager restart (the user manager invocation changed, as after a logout while lingering is off)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: primary firstmate: relaunched in pane fm-lab-rr-extra-3314929-27763:w3:p1, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: away mode: state/.afk survived the restart; the relaunched firstmate re-enters it
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after user service manager restart finished: firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+ok - S1 user-manager restart classified; osg + primary back, dormant stays down, .afk reported
+
+=== S2: Herdr-only restart (same boot id, same user manager)
+--- run (rc=0):
+fm-restart-recovery: restart recovery after Herdr server restart (the Herdr server re-created its API socket)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: primary firstmate: relaunched in pane fm-lab-rr-extra-3314929-27763:w3:p1, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after Herdr server restart finished: firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+ok - S2 Herdr-only restart classified and recovered; no away-mode note without .afk
+
+=== S3: Herdr absent at boot: bounded wait, no spawns, one alert
+--- run (rc=4):
+fm-restart-recovery: Herdr did not answer for session 'fm-lab-rr-extra-3314929-27763' within 4s, so nothing was relaunched; start Herdr, then run bin/fm-local-restart-recovery.sh run
+--- run (rc=4):
+fm-restart-recovery: Herdr did not answer for session 'fm-lab-rr-extra-3314929-27763' within 4s, so nothing was relaunched; start Herdr, then run bin/fm-local-restart-recovery.sh run (alert already raised in this window)
+(first run took 5s with FM_RESTART_HERDR_WAIT=4)
+ok - S3 Herdr absent: exit 4 within the bound, one alert across two attempts, nothing launched
+
+=== S4: a session start records a new fingerprint while the pass waits for Herdr (reboot, boot-2); reused-PID lock
+RESTART: machine reboot since the last session start (the boot id changed). A restart recovery pass is relaunching the authorized supervisors; its summary arrives as a check notification.
+baseline after the mid-wait record:
+boot_id=boot-2
+user_manager=um-1
+herdr_session=fm-lab-rr-extra-3314929-27763
+herdr_start=
+recorded_at=1790275089
+--- run (rc=0):
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: cleared a session lock whose pid belonged to the primary of an earlier boot
+fm-restart-recovery: primary firstmate: relaunched in pane fm-lab-rr-extra-3314929-27763:w3:p1, resuming Claude session 5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+ok - S4 a mid-wait session start does not hide the reboot; a reused-PID lock is cleared and the primary is relaunched
+
+=== S5: two concurrent passes (boot-3) + captain relaunches the primary by hand after the early check
+--- run (rc=0):
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate learning: left down: dormant (captain order: Learning stays down)
+fm-restart-recovery: second mate osg: relaunched in its pane
+fm-restart-recovery: primary firstmate: already running (a Claude process runs in this home, pid 3520781); nothing was typed into a new tab w3:t3 in the recorded workspace w3, pane fm-lab-rr-extra-3314929-27763:w3:p3
+fm-restart-recovery: crews: not relaunched by this pass; firstmate reconciles them after its session start
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate already running; second mates relaunched 1, left down 1, failed 0
+--- run (rc=0):
+fm-restart-recovery: another restart recovery pass is running (pid 3485338); leaving this restart to it
+injected captain relaunch in w3:p2
+new tab pane: w3:p3
+record:
+restart recovery after machine reboot (the boot id changed), 2026-09-24T18:38:54Z
+- second mate learning: left down: dormant (captain order: Learning stays down)
+- second mate osg: relaunched in its pane
+- primary firstmate: already running (a Claude process runs in this home, pid 3520781); nothing was typed into a new tab w3:t3 in the recorded workspace w3, pane fm-lab-rr-extra-3314929-27763:w3:p3
+- crews: not relaunched by this pass; firstmate reconciles them after its session start
+ok - S5 one pass per boot under concurrency; a captain relaunch during the pass is seen at the final read and nothing is typed
+
+=== status subcommand
+ledger (state/.restart-recovery.log):
+  1790275026  start  user-manager
+  1790275053  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+  1790275054  start  herdr
+  1790275076  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+  1790275081  alert-herdr-unavailable  Herdr did not answer for session 'fm-lab-rr-extra-3314929-27763' within 4s, so nothing was relaunched; start Herdr, then run bin/fm-local-restart-recovery.sh run
+  1790275085  suppressed-herdr-unavailable  Herdr did not answer for session 'fm-lab-rr-extra-3314929-27763' within 4s, so nothing was relaunched; start Herdr, then run bin/fm-local-restart-recovery.sh run
+  1790275089  start  reboot
+  1790275111  done  firstmate relaunched; second mates relaunched 1, left down 1, failed 0
+  1790275112  start  reboot
+  1790275135  done  firstmate already running; second mates relaunched 1, left down 1, failed 0
+newest record (state/restart-recovery/1790275134.3485338.txt):
+  restart recovery after machine reboot (the boot id changed), 2026-09-24T18:38:54Z
+  - second mate learning: left down: dormant (captain order: Learning stays down)
+  - second mate osg: relaunched in its pane
+  - primary firstmate: already running (a Claude process runs in this home, pid 3520781); nothing was typed into a new tab w3:t3 in the recorded workspace w3, pane fm-lab-rr-extra-3314929-27763:w3:p3
+  - crews: not relaunched by this pass; firstmate reconciles them after its session start
+
+real	1m54.056s
+user	0m19.872s
+sys	0m41.747s
