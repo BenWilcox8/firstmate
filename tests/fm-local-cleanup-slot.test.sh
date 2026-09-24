@@ -165,6 +165,26 @@ test_superseded_outcome_never_follows_newer_outcome() {
   pass 'cleanup-late-outcome-retry: an older failed outcome never follows a newer done outcome of the same task'
 }
 
+test_reused_task_id_keeps_older_incarnation_outcome() {
+  make_case reused-id
+  make_parent
+  : > "$CASE/late-outcome"
+  : > "$CASE/break-parent"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
+  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the late outcome was not left owed'
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
+    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=new-generation"
+  printf 'done: replacement finished\n' > "$CASE/home/state/old.status"
+  run_scan
+  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done: replacement finished' 'the replacement outcome did not reach the parent'
+  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the replacement erased the older incarnation outcome'
+  if compgen -G "$CASE/home/state/terminal-outcomes/*.pending" > /dev/null; then fail 'an owed outcome is still pending'; fi
+  run_scan
+  [ "$(grep -c 'child old failed' "$CASE/parent/state/mate.status")" = 1 ] || fail 'the older incarnation outcome was delivered more than once'
+  pass 'cleanup-late-outcome-retry: a reused task id keeps and delivers the older incarnation outcome once'
+}
+
 test_return_refusal_keeps_task_records() {
   make_case return-refusal
   printf 'busy_gen=old-busy\n' >> "$CASE/home/state/old.meta"
@@ -464,6 +484,7 @@ test_parent_gate_preserves_slot
 test_late_outcome_reaches_parent_before_record_retires
 test_undelivered_late_outcome_completes_after_owner_exits
 test_superseded_outcome_never_follows_newer_outcome
+test_reused_task_id_keeps_older_incarnation_outcome
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot
 test_retire_finished_scout_preserves_live_task
