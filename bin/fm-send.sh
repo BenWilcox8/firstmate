@@ -245,7 +245,7 @@ fi
 . "$SCRIPT_DIR/fm-task-inbox-lib.sh"
 # shellcheck source=bin/fm-timeout-lib.sh
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
-fm_local_hook provenance-init
+if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-init; fi
 
 FM_GUARD_CONTINUE_LINE='This is a supervision warning only; the requested message WILL still be sent.' "$SCRIPT_DIR/fm-guard.sh" || true
 
@@ -892,7 +892,7 @@ else
       fm_run_timed "$FM_SEND_REMOTE_BUDGET" "$SCRIPT_DIR/fm-on.sh" "$TARGET_REMOTE_ID" \
         fm-remote-secondmate-control.sh send "${REMOTE_SEND_ARGS[@]}" < /dev/null || remote_rc=$?
     fi
-    fm_local_hook provenance-remote-sent
+    if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-remote-sent; fi
     fm_lock_release "$REMOTE_META_LOCK"
     if [ "$remote_rc" -ne 0 ] && [ "$remote_completion_unknown" -eq 1 ]; then
       if [ -n "$FIRE_AND_FORGET_ID" ]; then

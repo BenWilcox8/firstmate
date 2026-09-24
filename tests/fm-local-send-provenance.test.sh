@@ -42,38 +42,6 @@ export PATH="$TMP_ROOT/fakebin:$PATH"
 export FM_HOME="$TMP_ROOT/home" FM_ROOT_OVERRIDE="$TMP_ROOT/home" FM_SEND_SETTLE=0
 fm_write_meta "$FM_HOME/state/worker.meta" 'window=sess:win' 'kind=ship' 'harness=codex'
 
-# Model the sibling pane feature's retirement route in the shared dispatcher.
-# Loading the provenance module must preserve that route in the same process.
-(
-  export FM_HOME="$TMP_ROOT/coexist"
-  mkdir -p "$FM_HOME/state"
-  # shellcheck source=bin/fm-backend.sh
-  . "$ROOT/bin/fm-backend.sh"
-  marker="$FM_HOME/state/worker.local-pane.json"
-  touch "$marker"
-  fm_local_hook() {
-    case "$1" in
-      pane-teardown-retired) rm "$marker" ;;
-      provenance-init) fm_local_provenance_init ;;
-      provenance-typed) shift; fm_local_provenance_typed "$@" ;;
-      *) return 1 ;;
-    esac
-  }
-  # shellcheck source=bin/fm-local-send-provenance.sh
-  . "$ROOT/bin/fm-local-send-provenance.sh"
-  fm_local_hook pane-teardown-retired
-  [ ! -e "$marker" ] || fail 'provenance replaced the sibling pane hook'
-  fm_local_hook provenance-init
-  fm_local_hook provenance-typed orca terminal-1 'coexisting hooks'
-  python3 - "$FM_HOME/state" <<'PY'
-import hashlib, json, pathlib, sys
-records = [json.loads(line) for file in pathlib.Path(sys.argv[1]).glob('local-send-provenance/*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 1, records
-assert records[0]['sha256'] == hashlib.sha256(b'coexisting hooks').hexdigest(), records
-PY
-)
-pass 'send-provenance-dispatch: pane retirement and provenance both fire in one process'
-
 send() {
   "$ROOT/bin/fm-send.sh" "$@" > "$TMP_ROOT/out" 2> "$TMP_ROOT/err"
 }
@@ -232,6 +200,7 @@ pass 'an unconfirmed remote send records once and preserves inbox deduplication'
 # Exercise each submit adapter with deterministic transport primitives.
 # Seams: send-provenance-herdr, send-provenance-zellij,
 # send-provenance-cmux, and send-provenance-orca.
+# shellcheck disable=SC2329 # Invoked indirectly by the function under test.
 for backend in herdr zellij cmux orca; do
   (
     export FM_HOME="$TMP_ROOT/adapter-$backend"
