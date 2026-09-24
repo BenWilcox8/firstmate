@@ -30,7 +30,9 @@ jobs:
       # and the pre-push gate on this script so a self-broken ci.yml still
       # fails locally before merge. CI uses one ShellCheck worker because two
       # full-analysis workers can exceed the standard runner memory.
-      - run: bin/fm-lint.sh --jobs 1
+      - run: bin/fm-lint.sh
+        env:
+          FM_LINT_JOBS: "1"
 
   # Deterministic proof that portable parallel shards + portable serial + Herdr
   # equal the complete tests/*.test.sh inventory with no missing or duplicates,
