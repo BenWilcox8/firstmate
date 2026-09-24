@@ -1,6 +1,6 @@
 #!/usr/bin/env perl
 # Fork writer for typed-send provenance.
-# Usage: record <state> <backend> <target> <pane> <task> <sender-home> <kind>
+# Usage: record <state> <backend> <target> <pane> <task> <remote-host> <sender-home> <kind>
 #        prune <state>
 # record hashes exact stdin bytes and appends one JSON object under an exclusive
 # lock. Shards live at <state>/local-send-provenance/YYYY-MM-DD.jsonl.
@@ -16,8 +16,8 @@ use JSON::PP;
 use POSIX qw(strftime);
 
 my ($op, $state, @fields) = @ARGV;
-die "usage: record <state> <backend> <target> <pane> <task> <sender-home> <kind>, or prune <state>\n"
-    unless defined($state) && (($op eq 'record' && @fields == 6) || ($op eq 'prune' && !@fields));
+die "usage: record <state> <backend> <target> <pane> <task> <remote-host> <sender-home> <kind>, or prune <state>\n"
+    unless defined($state) && (($op eq 'record' && @fields == 7) || ($op eq 'prune' && !@fields));
 my $dir = "$state/local-send-provenance";
 exit 0 if $op eq 'prune' && !-e $dir && !-l $dir;
 umask 0077;
@@ -39,10 +39,12 @@ closedir($entries);
 if ($op eq 'record') {
     binmode(STDIN);
     my $bytes = do { local $/; <STDIN> } // '';
-    my ($backend, $target, $pane, $task, $sender, $kind) = map { decode('UTF-8', $_, FB_CROAK) } @fields;
+    my ($backend, $target, $pane, $task, $host, $sender, $kind) = map { decode('UTF-8', $_, FB_CROAK) } @fields;
+    my $endpoint = {backend => $backend, target => $target, pane_id => length($pane) ? $pane : undef, task_id => length($task) ? $task : undef};
+    $endpoint->{remote_host} = $host if length($host);
     my $record = {
         version => 1,
-        endpoint => {backend => $backend, target => $target, pane_id => length($pane) ? $pane : undef, task_id => length($task) ? $task : undef},
+        endpoint => $endpoint,
         sha256 => sha256_hex($bytes),
         time => strftime('%Y-%m-%dT%H:%M:%SZ', gmtime($now)),
         sender_home => $sender,

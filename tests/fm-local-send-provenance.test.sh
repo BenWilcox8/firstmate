@@ -133,7 +133,8 @@ remote_home=$(perl -MMIME::Base64 -e 'print decode_base64($ARGV[0])' "$3")
 args=()
 while IFS= read -r -d '' arg; do args+=("$arg"); done \
   < <(perl -MMIME::Base64 -e 'print decode_base64($ARGV[0])' "$4")
-env -u FM_STATE_OVERRIDE -u FM_LOCAL_PROVENANCE_REMOTE_SENDER \
+printf '%s\0' "${args[@]}" > "$PROVENANCE_TEST_ROOT/remote-args"
+env -u FM_STATE_OVERRIDE \
   FM_HOME="$remote_home" "$PROVENANCE_CODE_ROOT/bin/${args[0]}" "${args[@]:1}"
 if [ "${TEST_SSH_LOST:-0}" = 1 ]; then exit 255; fi
 SH
@@ -149,19 +150,30 @@ fm_write_meta "$remote_home/state/parent-route/remote.meta" \
   'herdr_workspace_id=w1' 'herdr_tab_id=t1' 'herdr_pane_id=p1'
 fm_write_meta "$FM_HOME/state/remote.meta" \
   'window=fm-remote:p1' 'endpoint_task_id=remote' 'harness=claude' \
-  'kind=secondmate' 'mode=secondmate' 'remote_host=fixture' \
+  'kind=secondmate' 'mode=secondmate' 'remote_host=fixture' "home=$remote_home" \
   'remote_root=/remote/root' 'remote_backend=herdr' \
   'remote_herdr_session=fm-remote' 'remote_target=fm-remote:p1'
 printf '%s\n' "- remote - test (host: fixture; root: /remote/root; home: $remote_home; scope: test; projects: alpha; added 2026-09-24)" > "$FM_HOME/data/secondmates.md"
 FM_ROOT_OVERRIDE="$ROOT" send remote '/no-mistakes'
+remote_args() { # <text> [delivery-mode]
+  python3 - "$TMP_ROOT/remote-args" "$@" <<'PY'
+import pathlib, sys
+args = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
+assert args[:3] == [b"fm-remote-secondmate-control.sh", b"send", b"remote"], args
+assert args[3].endswith(sys.argv[2].encode()), args
+assert args[4:] == [m.encode() for m in sys.argv[3:]], args
+PY
+}
+remote_args /no-mistakes || fail 'remote send arguments changed'
 python3 - "$remote_home" "$FM_HOME" "$TMP_ROOT" <<'PY'
 import hashlib, json, pathlib, sys
 remote, sender, temp = map(pathlib.Path, sys.argv[1:])
-records = [json.loads(line) for file in (remote/'state/parent-route/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 1, records
-r = records[0]
+assert not list(remote.glob('**/local-send-provenance')), 'the destination home wrote provenance'
+records = [json.loads(line) for file in sorted((sender/'state/local-send-provenance').glob('*.jsonl')) for line in file.read_text().splitlines()]
+assert len(records) == 7, records
+r = records[-1]
 assert r['sender_home'] == str(sender), r
-assert r['endpoint'] == {'backend': 'herdr', 'target': 'fm-remote:p1', 'pane_id': 'p1', 'task_id': 'remote'}, r
+assert r['endpoint'] == {'backend': 'herdr', 'target': 'fm-remote:p1', 'pane_id': 'p1', 'task_id': 'remote', 'remote_host': 'fixture'}, r
 assert r['delivery_kind'] == 'doorbell', r
 typed = (temp/'remote-typed').read_bytes()
 assert r['sha256'] == hashlib.sha256(typed).hexdigest(), r
@@ -169,19 +181,21 @@ assert typed.startswith(b': Firstmate instruction waiting:')
 assert b'/no-mistakes' not in typed
 assert '/no-mistakes' in (remote/'state/parent-route/remote.inbox/001.msg').read_text()
 PY
-pass 'send-provenance-remote: the transport preserves the sender home and records the actual remote doorbell'
+pass 'send-provenance-context: a remote steer keeps its arguments and records the remote doorbell in the sending home'
 
 rc=0
 FM_ROOT_OVERRIDE="$ROOT" TEST_SSH_LOST=1 send remote --fire-and-forget 0123456789abcdef 'retry the remote transport' || rc=$?
 expect_code 3 "$rc" 'lost remote transport keeps the unconfirmed exit contract'
-python3 - "$remote_home" "$TMP_ROOT/remote-count" <<'PY'
+remote_args 'retry the remote transport' fire-and-forget || fail 'fire-and-forget remote send arguments changed'
+python3 - "$remote_home" "$FM_HOME" "$TMP_ROOT/remote-count" <<'PY'
 import json, pathlib, sys
-root, count = map(pathlib.Path, sys.argv[1:])
-records = [json.loads(line) for file in (root/'state/parent-route/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == len(count.read_text().splitlines()) == 3, records
-assert len(list((root/'state/parent-route/remote.inbox').glob('*.msg'))) == 2
+remote, sender, count = map(pathlib.Path, sys.argv[1:])
+records = [json.loads(line) for file in (sender/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
+assert len(records) == 8, records
+assert len(count.read_text().splitlines()) == 3
+assert len(list((remote/'state/parent-route/remote.inbox').glob('*.msg'))) == 2
 PY
-pass 'transport retries record each actual ring once and preserve inbox deduplication'
+pass 'an unconfirmed remote send records once and preserves inbox deduplication'
 
 # Exercise each submit adapter with deterministic transport primitives.
 # Seams: send-provenance-herdr, send-provenance-zellij,
@@ -221,20 +235,71 @@ PY
 done
 pass 'every submit adapter records after literal typing even when submission fails'
 
+# Run the real watcher against an aged unhandled steer on an idle pane.
+# This is the send-provenance-re-ring seam.
+(
+  export FM_HOME="$TMP_ROOT/watch home"
+  watchbin="$TMP_ROOT/watchbin"
+  mkdir -p "$FM_HOME/state" "$watchbin"
+  cat > "$watchbin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  send-keys) [ "${4:-}" != -l ] || printf '%s' "$5" > "$PROVENANCE_TEST_ROOT/watch-typed" ;;
+  display-message)
+    case "$*" in *cursor_y*) printf '1\n' ;; *pane_id*) printf '%%3\n' ;; *) printf 'fakepane\n' ;; esac ;;
+  capture-pane) printf '╭────╮\n│    │\n╰────╯\n' ;;
+  list-windows) printf 'win\n' ;;
+esac
+SH
+  printf '#!/usr/bin/env bash\nprintf "state: working · source: run-step · validating (running)\\n"\n' > "$watchbin/fm-crew-state.sh"
+  chmod +x "$watchbin/"*
+  fm_write_meta "$FM_HOME/state/steered.meta" 'window=sess:win' 'kind=ship' 'harness=grok'
+  rec=$(bash -c '. "$1"; fm_task_inbox_write "$2" steered "please continue"' _ \
+    "$ROOT/bin/fm-task-inbox-lib.sh" "$FM_HOME/state")
+  touch -t 202001010000 "$rec"
+  PATH="$watchbin:${PATH#"$TMP_ROOT/fakebin:"}" FM_CREW_STATE_BIN="$watchbin/fm-crew-state.sh" \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    FM_TASK_INBOX_GRACE_SECS=1 FM_TASK_INBOX_RING_MAX=99 \
+    "$ROOT/bin/fm-watch.sh" > "$TMP_ROOT/watch.out" 2>&1 &
+  pid=$!
+  for _ in $(seq 1 100); do
+    [ ! -s "$TMP_ROOT/watch-typed" ] || [ -z "$(find "$FM_HOME/state/local-send-provenance" -name '*.jsonl' 2>/dev/null)" ] || break
+    kill -0 "$pid" 2>/dev/null || break
+    perl -e 'select undef, undef, undef, 0.1'
+  done
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
+  [ -s "$TMP_ROOT/watch-typed" ] || { cat "$TMP_ROOT/watch.out" >&2; fail 'the watcher did not re-ring the doorbell'; }
+  python3 - "$FM_HOME" "$TMP_ROOT/watch-typed" <<'PY'
+import hashlib, json, pathlib, sys
+home, typed = map(pathlib.Path, sys.argv[1:])
+records = [json.loads(line) for file in (home/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
+assert records, 'the re-ring wrote no record'
+typed = typed.read_bytes()
+assert typed.startswith(b': Firstmate instruction waiting:')
+for r in records:
+    assert r['endpoint'] == {'backend': 'tmux', 'target': 'sess:win', 'pane_id': '%3', 'task_id': 'steered'}, r
+    assert r['delivery_kind'] == 'doorbell', r
+    assert r['sender_home'] == str(home.resolve()), r
+    assert r['sha256'] == hashlib.sha256(typed).hexdigest(), r
+PY
+)
+pass 'send-provenance-re-ring: a watcher doorbell re-ring records the typed line for its task'
+
 # Concurrent appenders retain complete records and expire only old shards.
 writer="$ROOT/bin/fm-local-send-provenance.pl"
 store="$FM_HOME/state/local-send-provenance"
 printf '{"expired":true}\n' > "$store/2000-01-01.jsonl"
 pids=()
 for n in $(seq 1 12); do
-  printf '%s' "$n" | perl "$writer" record "$FM_HOME/state" tmux sess:win %7 worker "$FM_HOME" native-skill &
+  printf '%s' "$n" | perl "$writer" record "$FM_HOME/state" tmux sess:win %7 worker '' "$FM_HOME" native-skill &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
 mkdir "$TMP_ROOT/concurrent-state"
 pids=()
 for n in $(seq 1 12); do
-  printf '%s' "$n" | perl "$writer" record "$TMP_ROOT/concurrent-state" tmux sess:win %7 worker "$FM_HOME" native-skill &
+  printf '%s' "$n" | perl "$writer" record "$TMP_ROOT/concurrent-state" tmux sess:win %7 worker '' "$FM_HOME" native-skill &
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
@@ -248,7 +313,7 @@ import json, pathlib, sys
 store = pathlib.Path(sys.argv[1])
 assert not (store/'2000-01-01.jsonl').exists()
 records = [json.loads(line) for file in store.glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 18, len(records)
+assert len(records) == 20, len(records)
 assert store.stat().st_mode & 0o777 == 0o700
 assert all(f.stat().st_mode & 0o777 == 0o600 for f in store.glob('*.jsonl'))
 PY
@@ -278,6 +343,6 @@ FM_DATA_OVERRIDE="$FM_HOME/data" FM_CONFIG_OVERRIDE="$FM_HOME/config" \
 python3 - "$store" <<'PY'
 import json, pathlib, sys
 records = [json.loads(line) for file in pathlib.Path(sys.argv[1]).glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 18, len(records)
+assert len(records) == 20, len(records)
 PY
 pass 'teardown retains recent history and removes only expired provenance'
