@@ -153,7 +153,7 @@ test_superseded_outcome_never_follows_newer_outcome() {
   printf 'failed: older outcome\n' > "$CASE/home/state/old.status"
   mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
   run_scan
-  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the older outcome was not left owed'
+  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child-outcome-old-failed' 'the older outcome was not left owed'
   mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
   printf 'done: newer outcome\n' >> "$CASE/home/state/old.status"
   run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
@@ -172,17 +172,38 @@ test_reused_task_id_keeps_older_incarnation_outcome() {
   : > "$CASE/break-parent"
   run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
   assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child old failed' 'the late outcome was not left owed'
-  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
   fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
     "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=new-generation"
   printf 'done: replacement finished\n' > "$CASE/home/state/old.status"
   run_scan
-  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old done: replacement finished' 'the replacement outcome did not reach the parent'
-  assert_contains "$(cat "$CASE/parent/state/mate.status")" 'child old failed' 'the replacement erased the older incarnation outcome'
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  run_scan
+  local parent=$CASE/parent/state/mate.status older newer
+  assert_contains "$(cat "$parent")" 'child old done: replacement finished' 'the replacement outcome did not reach the parent'
+  assert_contains "$(cat "$parent")" 'child old failed' 'the replacement erased the older incarnation outcome'
+  older=$(grep -n 'child old failed' "$parent" | head -1 | cut -d: -f1)
+  newer=$(grep -n 'child old done: replacement finished' "$parent" | head -1 | cut -d: -f1)
+  [ "$older" -lt "$newer" ] || fail 'the older incarnation outcome reached the parent after the replacement outcome'
   if compgen -G "$CASE/home/state/terminal-outcomes/*.pending" > /dev/null; then fail 'an owed outcome is still pending'; fi
   run_scan
-  [ "$(grep -c 'child old failed' "$CASE/parent/state/mate.status")" = 1 ] || fail 'the older incarnation outcome was delivered more than once'
-  pass 'cleanup-late-outcome-retry: a reused task id keeps and delivers the older incarnation outcome once'
+  [ "$(grep -c 'child old failed' "$parent")" = 1 ] || fail 'the older incarnation outcome was delivered more than once'
+  pass 'cleanup-late-outcome-retry: a reused task id delivers the older incarnation outcome once, before the replacement outcome'
+}
+
+test_relaunch_does_not_duplicate_owed_outcome() {
+  make_case relaunch
+  make_parent
+  printf 'failed: relaunch candidate\n' > "$CASE/home/state/old.status"
+  mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
+  run_scan
+  assert_contains "$(cat "$CASE/home/state/terminal-outcomes/"*.pending)" 'child-outcome-old-failed' 'the undelivered outcome was not left pending'
+  fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
+    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=relaunched-generation"
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  run_scan
+  run_scan
+  [ "$(grep -c 'child old failed' "$CASE/parent/state/mate.status")" = 1 ] || fail 'a relaunch delivered the same outcome more than once'
+  pass 'cleanup-late-outcome-retry: a relaunch with the same ledger delivers its owed outcome once'
 }
 
 test_return_refusal_keeps_task_records() {
@@ -485,6 +506,7 @@ test_late_outcome_reaches_parent_before_record_retires
 test_undelivered_late_outcome_completes_after_owner_exits
 test_superseded_outcome_never_follows_newer_outcome
 test_reused_task_id_keeps_older_incarnation_outcome
+test_relaunch_does_not_duplicate_owed_outcome
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot
 test_retire_finished_scout_preserves_live_task

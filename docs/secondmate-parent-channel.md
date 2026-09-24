@@ -41,7 +41,7 @@ A missed-reply escalation includes the complete first sighting path and line num
 - No threshold escalation of a child's open decision or blocker: a decision the mate escalates is a captain hold, which is published; a decision the mate neither answers nor escalates is a supervision-quality question, separable from channel delivery.
 - No second watcher or standalone scanner: a lightweight ledger pass runs inside the existing inactive-outcome command on every watcher poll and reuses its receipts and upstream append.
 - No orphan lifecycle: teardown refuses to stop a child with an undelivered outcome, the same way it refuses on other unlanded conditions.
-  After the endpoint stops, a refusal would leave the pool slot without an owner, so an undelivered final line keeps its pending record and the ledger pass retries it; a newer line replaces an older owed line.
+  After the endpoint stops, a refusal would leave the pool slot without an owner, so an undelivered final line keeps its pending record, and the ledger pass retries it before it publishes any newer line.
 
 ## Regression coverage
 

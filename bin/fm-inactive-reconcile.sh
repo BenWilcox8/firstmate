@@ -3,7 +3,7 @@
 #
 # Usage:
 #   fm-inactive-reconcile.sh scan [--startup]
-#   fm-inactive-reconcile.sh report <task-id>
+#   fm-inactive-reconcile.sh report <task-id> [--late]
 #   fm-inactive-reconcile.sh acknowledge <fingerprint>
 #
 # This is an adjunct to the existing watcher poll loop and session-start path,
@@ -26,9 +26,9 @@
 # does before it removes the child's record; it exits 0 when the line is
 # delivered or nothing is owed, and non-zero when the parent channel could not
 # be written, so teardown refuses instead of discarding an undelivered outcome.
-# A ledger delivery's pending record keeps its rendered line. After the endpoint
-# stops, teardown no longer refuses, so every scan in the secondmate home
-# retries an owed line whose task record teardown has retired.
+# After the endpoint stops, teardown calls `report <task-id> --late`, which never
+# makes teardown refuse. An undelivered line then stays in its pending record,
+# and every scan in the secondmate home retries it before any newer line.
 # The cadence-gated scan below then evaluates at most once per
 # FM_INACTIVE_RECONCILE_SECS (default 900, valid 60..1800) per home, except
 # that --startup performs the same scan immediately in the locked session
@@ -396,8 +396,8 @@ claim_inactive_report_for_ledger() { # <task> <incarnation> <state> <ledger-fing
 # the child's meta lock. Returns 0 when the line is delivered, already
 # delivered, or nothing is owed, and 1 when it is owed but the parent channel
 # could not be written (the notice is queued once per record).
-report_child_ledger_locked() { # <id> <meta>
-  local id=$1 meta=$2 status last previous state note pr mode yolo data incarnation fingerprint predecessor_head outcome_key line
+report_child_ledger_locked() { # <id> <meta> [late]
+  local id=$1 meta=$2 late=${3:-} status last previous state note pr mode yolo data incarnation fingerprint predecessor_head outcome_key line
   status="$STATE/$id.status"
   last=$(child_terminal_ledger_line "$status") || return 0
   state=$(status_line_verb "$last")
@@ -408,7 +408,6 @@ report_child_ledger_locked() { # <id> <meta>
     | tail -2 | awk 'NR == 1 { first = $0 } NR == 2 { print first }' || true)
   predecessor_head=$(sha256_text "$previous")
   outcome_key="child-outcome-$id-$state-${fingerprint:0:8}"
-  supersede_older_ledger_lines "$id" "$incarnation" "$fingerprint" || return 1
   ensure_record "$fingerprint" "$id" "$incarnation" "$state" "$outcome_key" direct upstream "$pr" || return 1
   [ -n "$RECORD_PENDING" ] || return 0
   if claim_inactive_report_for_ledger "$id" "$incarnation" "$state" "$fingerprint" "$predecessor_head"; then
@@ -430,7 +429,9 @@ report_child_ledger_locked() { # <id> <meta>
   if [ -f "$data/$id/report.md" ] && [ ! -L "$data/$id/report.md" ]; then
     line="$line report=data/$id/report.md"
   fi
-  record_field_set "$RECORD_PENDING" line "$line" || return 1
+  if [ "$late" = late ]; then
+    record_field_set "$RECORD_PENDING" line "$line" || return 1
+  fi
   if fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then
     mark_reported "$RECORD_PENDING" || return 1
     return 0
@@ -440,36 +441,16 @@ report_child_ledger_locked() { # <id> <meta>
   return 1
 }
 
-# A newer terminal ledger line replaces every older owed line of the same task
-# incarnation, so the retry below can never publish an outcome after its
-# replacement. A reused task id keeps an earlier incarnation's owed line.
-supersede_older_ledger_lines() { # <id> <incarnation> <current-fingerprint>
-  local id=$1 incarnation=$2 current=$3 record
-  for record in "$OUTCOME_DIR"/*.pending; do
-    [ -f "$record" ] && [ ! -L "$record" ] || continue
-    [ "$(basename "$record" .pending)" != "$current" ] || continue
-    [ "$(record_value "$record" task_id)" = "$id" ] || continue
-    [ "$(record_value "$record" incarnation)" = "$incarnation" ] || continue
-    [ -n "$(record_value "$record" line)" ] || continue
-    record_field_set "$record" line '' || return 1
-  done
-}
-
-# Retry each owed ledger line whose task incarnation teardown has already
-# retired, including one whose task id a newer spawn has reused.
+# Retry each final line that teardown could not deliver after the endpoint
+# stopped. Only `report --late` records that line: it is the last line of an
+# incarnation that can write no newer one.
 retry_retired_ledger_reports() {
-  local record id line meta
+  local record line
   for record in "$OUTCOME_DIR"/*.pending; do
     [ -f "$record" ] && [ ! -L "$record" ] || continue
     [ "$(record_value "$record" phase)" = upstream ] || continue
-    id=$(record_value "$record" task_id)
     line=$(record_value "$record" line)
-    valid_id "$id" && [ -n "$line" ] || continue
-    meta="$STATE/$id.meta"
-    if [ -e "$meta" ] || [ -L "$meta" ]; then
-      [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-      [ "$(meta_incarnation "$meta")" != "$(record_value "$record" incarnation)" ] || continue
-    fi
+    [ -n "$line" ] || continue
     fm_parent_channel_report "$FM_HOME" "$STATE" "$line" || continue
     mark_reported "$record" || true
   done
@@ -480,6 +461,7 @@ retry_retired_ledger_reports() {
 # queued as a notice and never fails the scan.
 ledger_pass() {
   local meta id lock
+  retry_retired_ledger_reports
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     id=$(basename "$meta" .meta)
@@ -495,19 +477,18 @@ ledger_pass() {
     report_child_ledger_locked "$id" "$meta" || true
     fm_lock_release "$lock"
   done
-  retry_retired_ledger_reports
 }
 
 # The `report <task-id>` entry point: the caller holds the child's meta lock.
-report_child() { # <id>
-  local id=$1 meta rc=0
+report_child() { # <id> [late]
+  local id=$1 late=${2:-} meta rc=0
   mkdir -p "$STATE" "$OUTCOME_DIR" || return 1
   [ ! -L "$OUTCOME_DIR" ] || return 1
   home_secondmate_id >/dev/null || { rc=$?; [ "$rc" -eq 1 ] && return 0; return 1; }
   meta="$STATE/$id.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   [ "$(meta_field "$meta" kind)" != secondmate ] || return 0
-  report_child_ledger_locked "$id" "$meta"
+  report_child_ledger_locked "$id" "$meta" "$late"
 }
 
 reconcile_direct_child_locked() { # <id> <meta> <secondmate-id-or-empty> <timeout>
@@ -690,11 +671,11 @@ case "$mode" in
     scan "$2"
     ;;
   report)
-    if [ "$#" -ne 2 ] || ! valid_id "$2"; then
-      printf 'usage: fm-inactive-reconcile.sh report <task-id>\n' >&2
+    if [ "$#" -lt 2 ] || [ "$#" -gt 3 ] || ! valid_id "$2" || { [ "$#" -eq 3 ] && [ "$3" != --late ]; }; then
+      printf 'usage: fm-inactive-reconcile.sh report <task-id> [--late]\n' >&2
       exit 2
     fi
-    report_child "$2"
+    report_child "$2" "${3:+late}"
     ;;
   acknowledge)
     [ "$#" -eq 2 ] || { printf 'usage: fm-inactive-reconcile.sh acknowledge <fingerprint>\n' >&2; exit 2; }

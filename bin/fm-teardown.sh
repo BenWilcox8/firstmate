@@ -3187,7 +3187,7 @@ fi
 teardown_report_parent() {  # [late]
   [ "$KIND" != secondmate ] || return 0
   FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" \
-    "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID" && return 0
+    "$SCRIPT_DIR/fm-inactive-reconcile.sh" report "$ID" ${1:+--late} && return 0
   if [ "${1:-}" = late ]; then
     echo "error: LATE OUTCOME UNDELIVERED - $ID's final outcome did not reach the parent channel after its endpoint stopped; the watcher retries its pending record in $STATE/terminal-outcomes: $(last_status_line "$STATE/$ID.status")" >&2
     return 0
