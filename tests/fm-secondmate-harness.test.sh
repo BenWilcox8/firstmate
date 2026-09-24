@@ -2225,7 +2225,9 @@ SH
       "$ROOT/bin/fm-config-push.sh" > "$first_out" 2>&1
   ) &
   first_pid=$!
-  for _ in $(seq 1 100); do
+  # A readiness ceiling only: the loop ends as soon as the first push holds
+  # its send. A loaded host can need more than 2s to get there.
+  for _ in $(seq 1 500); do
     [ -e "$entered" ] && break
     sleep 0.02
   done
