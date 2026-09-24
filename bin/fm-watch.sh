@@ -1392,7 +1392,10 @@ busy_turn_over_age() {  # <task>
 #
 # <class> is pause_state_class's verdict: `paused-report` means this sighting
 # owes one recheck now (see resurface_absorbed's <owed>), anything else takes the
-# plain bounded cadence. Either way the delivered recheck is recorded against the
+# plain bounded cadence. A declared `until` time that is still in the future and
+# inside PAUSE_RESURFACE_SECS defers that owed recheck to the declared time: the
+# sighting is absorbed before <owed> is set, and the recheck arrives when the
+# declared time is reached. Either way the delivered recheck is recorded against the
 # DECLARATION, so one declared wait earns exactly one recheck per window however
 # often its pane repaints or its worker reaches another turn boundary.
 # A secondmate reaches this bound in away mode too: its own branch in the stale
@@ -1582,6 +1585,9 @@ stale_finished_already_surfaced() {  # <task>
 # interactive gate the log never named). handle_paused_stale spends that one
 # report as a recheck naming the wait, so the supervisor still learns about the
 # pane once, and the PAUSE_RESURFACE_SECS throttle owns every later sighting.
+# A declared `until` time that is still in the future and inside that cadence
+# defers the owed report to the declared time, because the worker's own declared
+# wait controls when it is rechecked.
 # Endpoint liveness is therefore what chooses BETWEEN the two bounded classes,
 # never whether the pane surfaces bare, and a secondmate's endpoint liveness is
 # still never read at all.
