@@ -1,0 +1,14 @@
+# Simulated CI Lint step environment (GITHUB_ACTIONS=true CI=true, step env FM_LINT_JOBS="1"), plain invocation with no arguments
+$ GITHUB_ACTIONS=true CI=true FM_LINT_JOBS=1 bin/fm-lint.sh --list-files | wc -l   # file set selected for CI (not linted here)
+407
+$ GITHUB_ACTIONS=true CI=true FM_LINT_JOBS=1 nice -n 10 bin/fm-lint.sh --telemetry $T/ci.tsv bin/fm-lint-workflows.sh ; grep jobs
+fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
+fm-lint.sh: full ShellCheck extended analysis enabled
+exit=0
+jobs	1
+# Local default (no FM_LINT_JOBS): unchanged two workers
+$ env -u FM_LINT_JOBS nice -n 10 bin/fm-lint.sh --telemetry $T/local.tsv bin/fm-lint-workflows.sh ; grep jobs
+fm-lint.sh: ShellCheck 0.11.0 (pinned 0.11.0)
+fm-lint.sh: full ShellCheck extended analysis enabled
+exit=0
+jobs	2
