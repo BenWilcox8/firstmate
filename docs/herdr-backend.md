@@ -306,7 +306,8 @@ Ordinary non-projected task removal serializes through the same session lock, ap
 Task cleanup acquires that session lock before the task's isolated copy is returned, so a contended lock refuses up front while the copy, every durable record, and the endpoint are all intact for a plain rerun.
 Forced secondmate cleanup recursively preflights every Herdr child endpoint and acquires every affected named-session lock before mutating any child, then retains each child's durable identity unless that exact pane returns structured not-found after its close.
 An ordinary task's close is confirmed against the exact recorded pane's structured presence: only a structured not-found response counts as gone, an already-gone pane is confirmed without another close, and an unconfirmed close is retried a bounded number of times under the same held lock before teardown gives up.
-A pane that still cannot be confirmed gone after those retries is reported loudly by exact task and pane id while cleanup continues, so the supervising turn can close it by that id instead of the pane leaking silently as a bare terminal.
+A pane that still cannot be confirmed gone after those retries is reported loudly by exact task and pane id, and teardown then refuses with the task's records kept, so the pane never leaks silently as a bare terminal.
+Only `--force` continues past that refusal and removes the records, and the report is then the only thing that still names the pane for the supervising turn to close.
 The presentation journal is retired only on that same single confirmation; an unconfirmed close, renamed label, duplicate token, flat fallback, or unreadable state retains the journal and attempts no workspace cleanup.
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.
 

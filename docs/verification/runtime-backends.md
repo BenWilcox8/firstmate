@@ -1517,6 +1517,21 @@ ok - real herdr: a stale registration no longer blocks relaunch, and the endpoin
 ok - real herdr: an agent that does not stop fails closed instead of being reported as stopped
 ```
 
+The reconciled implementation passed the same command on 2026-09-24 on Herdr 0.8.2 in a guarded lab session.
+The pass lines were:
+
+```text
+ok - real herdr: exit on a pane with no registered agent is idempotent success
+ok - real herdr 0.8.2: a gone session reads recoverable while a live pane and a malformed target do not
+ok - real herdr: a drifted agent-free shell returns to its worktree and reuses the same endpoint
+ok - real herdr: interrupt refuses when herdr's own agent registry reports no agent
+ok - real herdr: stale lifecycle-hook status does not keep a shell-only pane alive
+ok - real herdr: a stale registration does not block relaunch, and the endpoint and local copy survive
+ok - real herdr: interrupt protects an exact foreground agent process
+ok - real herdr: no control verb removed the endpoint or the task's local copy
+ok - real herdr: an agent behind an unproven composer fails closed instead of typing an exit command into it
+```
+
 The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, and since 2026-09-10 that registration counts as an agent only while `pane process-info` shows a harness process behind it, so the guard backs the registration with a real process named like a harness (a symlink to `sleep`) and then stops that process, with no real harness launched.
 That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
@@ -1670,8 +1685,7 @@ ok - real herdr 0.9.0 + pi 0.85.1: the registration left behind by a quit pi rea
 ```
 
 `tests/fm-control-herdr-smoke.test.sh` exercises shell-only stale registration, idempotent exit, drifted-shell relaunch, and protection of an exact foreground process.
-The upstream transcript also covers relaunch with a stale registration.
-That combined case requires renewed live evidence for this fork's stricter recovery classifier.
+It also relaunches over a stale registration, and the 2026-09-24 transcript under "Agent lifecycle control" verifies that combined case against this fork's stricter recovery classifier.
 `tests/fm-backend-herdr.test.sh` pins the logic portably with canned `process-info` bodies over real processes, driving the signals apart: the identical shell-only foreground reads `stale-agent` for a childless shell and `live` when an agent-named process is still a descendant of that shell, a `working`, `done`, or `blocked` record over a shell-only pane reads the same as `idle`, an unreadable process view reads `unknown` and refuses husk closing, a transient prompt helper beside the shell settles into `stale-agent` on the next shell-only sample while a foreground that never settles within the bound still reads `live`, and `busy_state` verifies a `working` record before reporting busy.
 `tests/fm-crew-state.test.sh` pins the recovery classifier: a stale registration over a shell-only pane reports agent gone rather than alive or unreachable, and a stale `working` record never reports the pane working.
 A stale-registration pane is never a husk: create, reclaim, presentation recovery, and session cleanup keep refusing it, and only recovery reuses it.

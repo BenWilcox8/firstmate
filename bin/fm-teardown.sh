@@ -3097,11 +3097,11 @@ preflight_firstmate_home_herdr_children() {  # <home>
 # about its own close is bin/fm-backend.sh's fm_backend_kill contract.
 #
 # Returns 0 when the caller must continue anyway and 1 when it must stop.
-# <honors-force> is 1 at exactly one site, the generic non-Herdr/non-Orca
-# close, where --force is the operator's existing authority to discard this
-# task's records deliberately AND continuing is actually reachable: the
-# worktree is already returned by then and nothing after it needs the backend
-# that could not close.
+# <honors-force> is 1 at exactly two sites, the generic non-Herdr/non-Orca
+# close and the main Herdr task close, where --force is the operator's existing
+# authority to discard this task's records deliberately AND continuing is
+# actually reachable: the worktree is already returned by then and nothing
+# after it needs the backend that could not close.
 # It is 0 everywhere else. The Orca site refuses under --force too, because
 # the step immediately after it removes the Orca worktree through the same CLI
 # whose absence is the only thing that arm ever reports, so a forced continue

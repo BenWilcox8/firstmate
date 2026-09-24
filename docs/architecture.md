@@ -91,6 +91,7 @@ A `kind=secondmate` task's status signal is the parent-directed reply stream and
 A crew that declares `paused:` for a known external wait, or carries a verified `captain-held` transfer, is separately absorbed while idle and re-surfaced only on the longer pause cadence, rather than being treated as a possible wedge.
 In normal mode a declared wait never surfaces as a bare stale pane, however many fresh pane hashes its harness footer produces; endpoint liveness only chooses how that cadence opens.
 An endpoint the backend confidently reports dead takes the cadence silently from first sight, while a live or inconclusively read one spends one recheck immediately, because a declaration alone cannot prove a live pane is quiet on purpose.
+A declared `until` time that is still in the future and inside `FM_PAUSE_RESURFACE_SECS` defers that owed recheck to the declared time.
 While an away-posture record exists, captain-held transfers are never rechecked.
 A daemon-backed away posture receives plain wake identities for external waits and owns their triage.
 The pause re-surface throttle is cleared wherever a window's pause bookkeeping resets, so each delivered recheck is also recorded against the declaration that produced it: the wait's own wording plus the status log's observed signature.
