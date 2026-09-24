@@ -257,6 +257,23 @@ fi
 grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/recycled.out" >/dev/null
 echo 'ok - exit still refuses an unlabeled recorded pane that runs inside this worktree'
 
+# With no home workspace, a relaunch never adopts a recorded pane id that now
+# names other work, even when that pane reads as a stopped shell.
+cp "$split_home/state/ended.meta" "$tmp/split-before.meta"
+for overrides in '{"tab_id":"w1:t9","label":"fm-other"}' '{"tab_id":"w1:t9","label":null,"foreground_cwd":"/"}'; do
+  rm -f "$tmp/closed"
+  if FM_HOME="$split_home" FM_STATE_OVERRIDE="$split_home/state" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
+      FM_LOCAL_RECOVERY_PANE_GET="$overrides" "$ROOT/bin/fm-spawn.sh" ended --relaunch > "$tmp/recycled-relaunch.out" 2>&1; then
+    echo "not ok - relaunch adopted a recycled pane id ($overrides): $(cat "$tmp/recycled-relaunch.out")" >&2
+    exit 1
+  fi
+  grep -F 'ended has no home workspace and its recorded pane test:w1:p2 now belongs to other work; relaunch refused' \
+    "$tmp/recycled-relaunch.out" >/dev/null \
+    || { echo "not ok - recycled relaunch output ($overrides): $(cat "$tmp/recycled-relaunch.out")" >&2; exit 1; }
+  [ ! -e "$tmp/closed" ] && cmp -s "$tmp/split-before.meta" "$split_home/state/ended.meta"
+done
+echo 'ok - relaunch with no home workspace refuses a recorded pane id that now names other work'
+
 # Forced retirement with unreadable ownership never names other work's pane
 # as this task's leaked pane.
 mv "$tmp/bin/herdr" "$tmp/bin/herdr.inventory"

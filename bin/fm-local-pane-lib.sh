@@ -250,9 +250,14 @@ fm_local_pane_receipt() { # <meta> <task-id>
 fm_local_pane_relaunch_state() {
   local observed
   fm_local_pane_resolve "$RELAUNCH_META" "$ID" || return 1
-  # No home workspace proves the recorded pane gone. The upstream rebind owns
-  # that case, because it re-creates the labeled workspace.
-  [ -n "$FM_LOCAL_PANE_WORKSPACE" ] || return 0
+  # With no home workspace, a missing recorded pane belongs to the upstream
+  # absence proof and rebind, which re-create the labeled workspace. A recorded
+  # pane that still exists here was proven to belong to other work.
+  if [ -z "$FM_LOCAL_PANE_WORKSPACE" ]; then
+    [ "$RELAUNCH_STATE" != missing ] || return 0
+    fm_local_pane_error "$ID has no home workspace and its recorded pane $RELAUNCH_TARGET now belongs to other work; relaunch refused"
+    return 1
+  fi
   if [ -n "$FM_LOCAL_PANE_TARGET" ]; then
     observed=$(fm_backend_agent_state herdr "$FM_LOCAL_PANE_TARGET")
   else

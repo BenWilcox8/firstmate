@@ -1,7 +1,7 @@
 # Lint roots whose source-following ShellCheck analysis alone needs several GB.
 # bin/fm-lint.sh runs each listed root in its own ShellCheck invocation, one at
 # a time, so no shard holds two of them. Add a root when a single-file,
-# memory-capped measurement shows it near 5 GB or more.
+# memory-capped measurement shows it near 4 GB or more.
 bin/fm-teardown.sh
 bin/fm-procevent-remote-reply.sh
 tests/fm-remote-reply.test.sh
