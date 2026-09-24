@@ -63,7 +63,7 @@ A running Claude process keeps `<config>/sessions/<pid>.json`, which names its `
 Claude does not keep its transcript open, so the per-process record is the proof: `procStart` binds it to the exact running process, and a record left by an earlier process with the same pid never matches.
 The transcript is `<config>/projects/*/<sessionId>.jsonl`.
 `claude --resume <sessionId>`, launched in the same worktree with the fleet flags, reopens the conversation.
-`../../../bin/fm-native-session-lib.sh` owns the proof and the resume form, and `../../../bin/fm-control.sh` park and resume are its only callers.
+`../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
 
 ## Feedback drafts
 

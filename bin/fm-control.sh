@@ -49,8 +49,6 @@
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
 #              standing charter is never rewritten.
-#              A parked task is resumed instead, exactly as `resume` does, and
-#              only then does relaunch take resume's --over-limit.
 #              Records a durable checkpoint and that note, exits the old agent,
 #              then delegates the launch to its single owner,
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
@@ -58,7 +56,8 @@
 #              state; it never leaves a half-transitioned task claiming to be
 #              running. A PARKED task is resumed instead of started fresh:
 #              relaunch reopens its recorded native session (see resume), and
-#              refuses a harness, model, or effort change for it.
+#              refuses a harness, model, or effort change for it. Relaunch
+#              takes resume's --over-limit only for a parked task.
 #   park       Worker gone, work preserved. Proves the running worker's native
 #              session (bin/fm-native-session-lib.sh owns the proof per
 #              harness), records it with the reason in the task record
