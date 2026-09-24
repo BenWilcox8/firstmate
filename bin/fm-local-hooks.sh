@@ -92,7 +92,12 @@ fm_local_hook() {
       local target=$T
       fm_local_pane_worker "$META" "$ID" || return 0
       if fm_local_pane_flat "$META"; then
-        fm_local_pane_resolve "$META" "$ID" && [ -n "$FM_LOCAL_PANE_TARGET" ] || return 0
+        if ! fm_local_pane_resolve "$META" "$ID"; then
+          [ "$FORCE" != --force ] || return 0
+          fm_local_pane_error "$ID ownership could not be verified; nothing was removed - retry once the home inventory is readable"
+          return 1
+        fi
+        [ -n "$FM_LOCAL_PANE_TARGET" ] || return 0
         target=$FM_LOCAL_PANE_TARGET
       fi
       [ "$(fm_backend_agent_state herdr "$target")" = alive ] || return 0

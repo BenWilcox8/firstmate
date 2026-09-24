@@ -33,7 +33,7 @@ husk_candidate() { # <meta> <task-id>
       || INVENTORY[$session]=unavailable
   fi
   [ "${INVENTORY[$session]:-}" != unavailable ] || return 1
-  FM_LOCAL_PANE_INVENTORY=${INVENTORY[$session]:-} fm_local_pane_resolve "$meta" "$id" || return 1
+  FM_LOCAL_PANE_INVENTORY=${INVENTORY[$session]:-} fm_local_pane_resolve "$meta" "$id" 2>/dev/null || return 1
   [ -n "$FM_LOCAL_PANE_TARGET" ] || return 1
   case "$(fm_backend_agent_state herdr "$FM_LOCAL_PANE_TARGET")" in
     dead|missing) return 0 ;;

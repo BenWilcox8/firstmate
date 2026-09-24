@@ -40,15 +40,25 @@ fm_local_pane_workspace() { # <session>
       else error("ambiguous home workspace") end'
 }
 
+# A missing label proves nothing while the recorded pane still exists: a split
+# tab or a renamed workspace can hide a running worker from label resolution.
+fm_local_pane_recorded_gone() { # <task-id> <recorded-target>
+  fm_backend_herdr_parse_target "$2" \
+    && [ "$(fm_backend_herdr_pane_presence_state "$FM_BACKEND_HERDR_SESSION" "$FM_BACKEND_HERDR_PANE")" = dead ] \
+    || fm_local_pane_error "$1 has no labeled pane here but its recorded pane $2 is not proven gone; ownership is unverified"
+}
+
 # Resolve by this home's labels, never by a pane ID that a restart can recycle.
-# An empty target means a successful inventory found no owned pane.
+# An empty target means a successful inventory found no owned pane and the
+# recorded pane is structurally gone.
 # A failed inventory remains an error, never an absence proof.
 # FM_LOCAL_PANE_INVENTORY may carry one agent-axi list read for unlocked checks.
 fm_local_pane_resolve() { # <meta> <task-id>
-  local meta=$1 id=$2 session inventory row count workspace panes tabs
+  local meta=$1 id=$2 session inventory row count workspace panes tabs recorded
   FM_LOCAL_PANE_TARGET=
   FM_LOCAL_PANE_WORKSPACE=
   fm_backend_validate_task_endpoint "$meta" "$id" || return 1
+  recorded=$FM_BACKEND_VALIDATED_TARGET
   fm_backend_source herdr || return 1
   session=$(fm_meta_get "$meta" herdr_session)
   [ -n "$session" ] || return 1
@@ -56,7 +66,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
     inventory=${FM_LOCAL_PANE_INVENTORY:-}
     if [ -z "$inventory" ]; then
       workspace=$(fm_local_pane_workspace "$session") || return 1
-      [ "$workspace" != absent ] || return 0
+      [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$id" "$recorded"; return; }
       inventory=$("$FM_BACKEND_HERDR_AXI_BIN" list --session "$session" --json) || return 1
     fi
     row=$(printf '%s' "$inventory" | jq -ce --arg task "$id" '
@@ -69,7 +79,7 @@ fm_local_pane_resolve() { # <meta> <task-id>
     FM_LOCAL_PANE_WORKSPACE=$(printf '%s' "$inventory" | jq -er '.workspace.id') || return 1
   else
     workspace=$(fm_local_pane_workspace "$session") || return 1
-    [ "$workspace" != absent ] || return 0
+    [ "$workspace" != absent ] || { fm_local_pane_recorded_gone "$id" "$recorded"; return; }
     FM_LOCAL_PANE_WORKSPACE=$workspace
     panes=$(fm_backend_herdr_cli "$session" pane list --workspace "$workspace") || return 1
     tabs=$(fm_backend_herdr_cli "$session" tab list --workspace "$workspace") || return 1
@@ -87,7 +97,9 @@ fm_local_pane_resolve() { # <meta> <task-id>
   count=$(printf '%s' "$row" | jq -r '.pane // empty') || return 1
   if [ -n "$count" ]; then
     FM_LOCAL_PANE_TARGET="$session:$count"
+    return 0
   fi
+  fm_local_pane_recorded_gone "$id" "$recorded"
 }
 
 # Keep a placement hint after freeing a slot. It is bound to the exact record.
@@ -251,6 +263,7 @@ fm_local_pane_stop() { # <meta> <task-id> <target>
         sleep 0.2
       done
       [ -z "$clear" ] || fm_backend_send_key herdr "$target" "$clear" "fm-$id" || return 1
+      [ "$(fm_backend_agent_state herdr "$target")" != dead ] || return 0
       ;;
   esac
   verdict=$(fm_backend_send_text_submit herdr "$target" "$(fm_control_exit_command "$harness")" 3 "$poll" 1.2 "fm-$id") \

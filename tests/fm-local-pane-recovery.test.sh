@@ -34,9 +34,12 @@ case "$1 $2" in
   'tab list') echo '{"result":{"tabs":[{"tab_id":"w1:t2","label":"fm-ended"}]}}' ;;
   'pane list')
     if [ -e "$FM_LOCAL_RECOVERY_FIXTURE/closed" ]; then echo '{"result":{"panes":[]}}'
+    elif [ -n "${FM_LOCAL_RECOVERY_PANES:-}" ]; then jq -n --argjson panes "$FM_LOCAL_RECOVERY_PANES" '{result:{panes:$panes}}'
     else echo '{"result":{"panes":[{"pane_id":"w1:p2","tab_id":"w1:t2","label":"fm-ended"}]}}'; fi ;;
   'pane get')
-    if [ -e "$FM_LOCAL_RECOVERY_FIXTURE/closed" ]; then echo '{"error":{"code":"pane_not_found"}}'; exit 1; fi
+    if [ -e "$FM_LOCAL_RECOVERY_FIXTURE/closed" ] || [ -n "${FM_LOCAL_RECOVERY_GONE:-}" ]; then
+      echo '{"error":{"code":"pane_not_found"}}'; exit 1
+    fi
     echo '{"result":{"pane":{"pane_id":"w1:p2","workspace_id":"w1","tab_id":"w1:t2","label":"fm-ended","terminal_id":"terminal-1"}}}' ;;
   'agent get') echo '{"error":{"code":"agent_not_found"}}' ;;
   'pane process-info') exec "$FM_LOCAL_TEST_PROCESS_HELPER" "$@" ;;
@@ -164,10 +167,18 @@ mkdir -p "$absent_home/state"
 { cat "$tmp/original.meta"; echo harness=pi; } > "$absent_home/state/ended.meta"
 rm -f "$tmp/closed"
 out=$(FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
-  "$ROOT/bin/fm-control.sh" ended exit)
+  FM_LOCAL_RECOVERY_GONE=1 "$ROOT/bin/fm-control.sh" ended exit)
 case "$out" in already-stopped*) ;; *) echo "not ok - exit output: $out" >&2; exit 1 ;; esac
 [ ! -e "$tmp/closed" ] && [ -f "$absent_home/state/ended.meta" ]
 echo 'ok - exit treats a missing home workspace as proof that no task pane remains'
+if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
+    "$ROOT/bin/fm-control.sh" ended exit > "$tmp/renamed.out" 2>&1; then
+  echo "not ok - a renamed home workspace hid a recorded pane that still exists: $(cat "$tmp/renamed.out")" >&2
+  exit 1
+fi
+grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/renamed.out" >/dev/null
+[ ! -e "$tmp/closed" ] && [ -f "$absent_home/state/ended.meta" ]
+echo 'ok - exit refuses when the home workspace is missing but the recorded pane still exists'
 if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" \
     "$ROOT/bin/fm-control.sh" ended exit > "$tmp/unreadable.out" 2>&1; then
   echo 'not ok - an unreadable crew inventory was accepted as an absence proof' >&2
@@ -184,3 +195,48 @@ FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" 
 [ "$(grep -c '^list ' "$tmp/axi.log")" = 1 ] || { cat "$tmp/axi.log"; exit 1; }
 [ ! -e "$tmp/closed" ]
 echo 'ok - a sweep reads a failed session inventory once and closes nothing'
+
+# A captain split leaves the worker pane unlabeled in a two-pane task tab.
+# Label resolution then finds no owned pane, but the recorded pane still exists.
+split_home="$tmp/split-home"
+mkdir -p "$split_home/state" "$split_home/data" "$split_home/config"
+{ cat "$tmp/original.meta"; echo harness=pi; } > "$split_home/state/ended.meta"
+split_panes='[{"pane_id":"w1:p2","tab_id":"w1:t2"},{"pane_id":"w1:p3","tab_id":"w1:t2"}]'
+rm -f "$tmp/closed"
+if FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" \
+    "$ROOT/bin/fm-control.sh" ended exit > "$tmp/split-exit.out" 2>&1; then
+  echo "not ok - exit reported a split-tab worker as stopped: $(cat "$tmp/split-exit.out")" >&2
+  exit 1
+fi
+grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/split-exit.out" >/dev/null
+[ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+echo 'ok - exit refuses when a split tab hides the recorded worker pane from label resolution'
+if FM_HOME="$split_home" FM_STATE_OVERRIDE="$split_home/state" FM_LOCAL_RECOVERY_PANES="$split_panes" \
+    "$ROOT/bin/fm-teardown.sh" ended > "$tmp/split-teardown.out" 2>&1; then
+  echo "not ok - teardown retired a split-tab worker: $(cat "$tmp/split-teardown.out")" >&2
+  exit 1
+fi
+grep -F 'ownership could not be verified' "$tmp/split-teardown.out" >/dev/null
+[ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+echo 'ok - teardown refuses and keeps the records when a split tab hides the recorded worker pane'
+FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
+[ ! -e "$tmp/closed" ]
+echo 'ok - recovery leaves a split-tab worker pane untouched'
+
+# Teardown's stop follows fm-control exit: an interrupt that ends the agent
+# needs no exit command, which would otherwise be typed into the bare shell.
+stop_dir="$tmp/stop"
+mkdir -p "$stop_dir"
+{ cat "$tmp/original.meta"; echo harness=grok; } > "$stop_dir/grok.meta"
+(
+  . "$ROOT/bin/fm-backend.sh"
+  . "$ROOT/bin/fm-control-lib.sh"
+  . "$ROOT/bin/fm-local-pane-lib.sh"
+  fm_busy_classify_meta() { printf 'busy'; }
+  fm_backend_send_key() { touch "$stop_dir/interrupted"; }
+  fm_backend_agent_state() { if [ -e "$stop_dir/interrupted" ]; then printf dead; else printf alive; fi; }
+  fm_backend_send_text_submit() { touch "$stop_dir/exit-submitted"; printf submitted; }
+  fm_local_pane_stop "$stop_dir/grok.meta" ended test:w1:p2
+)
+[ -e "$stop_dir/interrupted" ] && [ ! -e "$stop_dir/exit-submitted" ]
+echo 'ok - teardown stop submits no exit command after an interrupt ends the agent'
