@@ -1,13 +1,10 @@
-head: 13ef5f6a1e2698709108b9b9b6de865a23a6c569
-load:  11:07:43  up 1 day 17:57,  3 users,  load average: 9.08, 12.41, 17.04
-2026-09-24T11:07:43-05:00
-FM_TEST_BEGIN 2026-09-24T16:07:43Z tests/fm-local-pane-cleanup-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
+FM_TEST_BEGIN 2026-09-24T18:48:31Z tests/fm-local-pane-cleanup-e2e.test.sh family=real-herdr-gated expected_gate_skip=herdr
 herdr client=0.8.2 protocol=20
-already-stopped ended harness=pi backend=herdr endpoint=fm-lab-pane-cleanup-on-465909-18249:w1:p2 worktree=/tmp/fm-local-pane.UB4HRn/worktree
+already-stopped ended harness=pi backend=herdr endpoint=fm-lab-pane-cleanup-on-356539-22480:w1:p2 worktree=/tmp/fm-local-pane.I2jxzp/worktree
 ok - exit removes a shell pane and frees its slot while work and supervisor remain
-already-stopped ended harness=pi backend=herdr endpoint=fm-lab-pane-cleanup-on-465909-18249:w1:p2 worktree=/tmp/fm-local-pane.UB4HRn/worktree
+already-stopped ended harness=pi backend=herdr endpoint=fm-lab-pane-cleanup-on-356539-22480:w1:p2 worktree=/tmp/fm-local-pane.I2jxzp/worktree
 ok - repeated exit is idempotent after its pane is gone
-closed crashed pane=fm-lab-pane-cleanup-on-465909-18249:w1:p3
+closed crashed pane=fm-lab-pane-cleanup-on-356539-22480:w1:p3
 ok - recovery skips held relaunch and spawn locks and cleans the pane after release
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
@@ -16,55 +13,50 @@ ok - recovery skips held relaunch and spawn locks and cleans the pane after rele
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-warning: /tmp/fm-local-pane.UB4HRn/home/data/restart-465540/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
-relaunched restart-465540 harness=pi from=pi model=default effort=default backend=herdr endpoint=fm-lab-pane-cleanup-on-465909-18249:w1:p5 worktree=/tmp/fm-local-pane.UB4HRn/worktree
+warning: /tmp/fm-local-pane.I2jxzp/home/data/restart-355245/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched restart-355245 harness=pi from=pi model=default effort=default backend=herdr endpoint=fm-lab-pane-cleanup-on-356539-22480:w1:p5 worktree=/tmp/fm-local-pane.I2jxzp/worktree
 ok - relaunch replaces the pane in the same slot and worktree
 ok - recovery retains a live foreground agent
 ok - relaunch refuses a held task-set reservation before it stops the old agent
-closed restart-465540 pane=fm-lab-pane-cleanup-on-465909-18249:w1:p5
+closed restart-355245 pane=fm-lab-pane-cleanup-on-356539-22480:w1:p5
 ok - recovery closes a killed agent husk without changing its work
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-warning: /tmp/fm-local-pane.UB4HRn/home/data/restart-465540/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
-relaunched restart-465540 harness=pi from=pi model=default effort=default backend=herdr endpoint=fm-lab-pane-cleanup-on-465909-18249:w1:p6 worktree=/tmp/fm-local-pane.UB4HRn/worktree
-closed restart-465540 pane=fm-lab-pane-cleanup-on-465909-18249:w1:p6
+warning: /tmp/fm-local-pane.I2jxzp/home/data/restart-355245/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+relaunched restart-355245 harness=pi from=pi model=default effort=default backend=herdr endpoint=fm-lab-pane-cleanup-on-356539-22480:w1:p6 worktree=/tmp/fm-local-pane.I2jxzp/worktree
+closed restart-355245 pane=fm-lab-pane-cleanup-on-356539-22480:w1:p6
 ok - recovery closes an agent that exits on its own
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-warning: /tmp/fm-local-pane.UB4HRn/home/data/restart-465540/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
-error: the replacement agent for restart-465540 did not come up within 2s (endpoint reads 'dead')
-error: restart-465540 was relaunched on pi but no running agent could be confirmed; its work is preserved at /tmp/fm-local-pane.UB4HRn/worktree
+warning: /tmp/fm-local-pane.I2jxzp/home/data/restart-355245/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: the replacement agent for restart-355245 did not come up within 2s (endpoint reads 'dead')
+error: restart-355245 was relaunched on pi but no running agent could be confirmed; its work is preserved at /tmp/fm-local-pane.I2jxzp/worktree
 ok - a failed replacement leaves no shell pane and preserves the task and work
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-warning: /tmp/fm-local-pane.UB4HRn/home/data/restart-465540/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
-error: pane cleanup: restart-465540 cannot reclaim occupied slot t1/s1
-error: the replacement agent for restart-465540 could not be launched on pi
-error: restart-465540's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at /tmp/fm-local-pane.UB4HRn/worktree
+warning: /tmp/fm-local-pane.I2jxzp/home/data/restart-355245/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: pane cleanup: restart-355245 cannot reclaim occupied slot t1/s1
+error: the replacement agent for restart-355245 could not be launched on pi
+error: restart-355245's agent was stopped but the replacement did not launch; no agent is running, and its work plus the recorded progress note are preserved at /tmp/fm-local-pane.I2jxzp/worktree
 ok - relaunch refuses an occupied slot without closing its occupant
-closed occupant pane=fm-lab-pane-cleanup-on-465909-18249:w1:p8
+closed occupant pane=fm-lab-pane-cleanup-on-356539-22480:w1:p8
 ok - recovery retains supervisor, secondmate, and unmanaged panes
 ok - a local record cannot authorize cleanup in another home workspace
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-teardown: reaping leaked worktree process(es) for retired: 637904 638123
-teardown: force-killing leaked worktree process(es) for retired: 637904 638123
-teardown retired complete (window fm-lab-pane-cleanup-on-465909-18249:w1:pC, worktree /tmp/fm-local-pane.UB4HRn/retired-worktree)
-Backlog: retired just finished (this home keeps no backlog at /tmp/fm-local-pane.UB4HRn/home/data/backlog.md). Update /tmp/fm-local-pane.UB4HRn/home/data/backlog.md - move retired to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+teardown retired complete (window fm-lab-pane-cleanup-on-356539-22480:w1:pC, worktree /tmp/fm-local-pane.I2jxzp/retired-worktree)
+Backlog: retired just finished (this home keeps no backlog at /tmp/fm-local-pane.I2jxzp/home/data/backlog.md). Update /tmp/fm-local-pane.I2jxzp/home/data/backlog.md - move retired to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
 ok - teardown removes a landed worker pane and refuses to discard unlanded work
 ok - teardown refuses before removing anything when it cannot stop a live agent
 WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
-teardown: reaping leaked worktree process(es) for live: 665602 665711
-teardown: force-killing leaked worktree process(es) for live: 665602 665711
-teardown live complete (window fm-lab-pane-cleanup-on-465909-18249:w1:pD, worktree /tmp/fm-local-pane.UB4HRn/retired-worktree)
-Backlog: live just finished (this home keeps no backlog at /tmp/fm-local-pane.UB4HRn/home/data/backlog.md). Update /tmp/fm-local-pane.UB4HRn/home/data/backlog.md - move live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+teardown live complete (window fm-lab-pane-cleanup-on-356539-22480:w1:pD, worktree /tmp/fm-local-pane.I2jxzp/retired-worktree)
+Backlog: live just finished (this home keeps no backlog at /tmp/fm-local-pane.I2jxzp/home/data/backlog.md). Update /tmp/fm-local-pane.I2jxzp/home/data/backlog.md - move live to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
 ok - teardown stops a live agent, then closes its proven-gone pane
-{"session":{"default":false,"name":"fm-lab-pane-cleanup-on-465909-18249","running":false,"session_dir":"/home/ben/.config/herdr/sessions/fm-lab-pane-cleanup-on-465909-18249","socket_path":"/home/ben/.config/herdr/sessions/fm-lab-pane-cleanup-on-465909-18249/herdr.sock"},"stopped":true}
-closed restored pane=fm-lab-pane-cleanup-on-465909-18249:w1:pE
-closed unlanded pane=fm-lab-pane-cleanup-on-465909-18249:w1:pB
+{"session":{"default":false,"name":"fm-lab-pane-cleanup-on-356539-22480","running":false,"session_dir":"/home/ben/.config/herdr/sessions/fm-lab-pane-cleanup-on-356539-22480","socket_path":"/home/ben/.config/herdr/sessions/fm-lab-pane-cleanup-on-356539-22480/herdr.sock"},"stopped":true}
+closed restored pane=fm-lab-pane-cleanup-on-356539-22480:w1:pE
+closed unlanded pane=fm-lab-pane-cleanup-on-356539-22480:w1:pB
 ok - recovery closes restored bare shells by task identity after a session restart
-FM_TEST_END 2026-09-24T16:10:03Z tests/fm-local-pane-cleanup-e2e.test.sh exit=0 duration_ms=139434 gate_skip=false
-FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=139554
-FM_TEST_SUMMARY_FAMILY family=real-herdr-gated count=1 duration_ms=139434 failed=0
-FM_TEST_SLOWEST rank=1 script=tests/fm-local-pane-cleanup-e2e.test.sh duration_ms=139434
+FM_TEST_END 2026-09-24T18:51:10Z tests/fm-local-pane-cleanup-e2e.test.sh exit=0 duration_ms=158952 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=159181
+FM_TEST_SUMMARY_FAMILY family=real-herdr-gated count=1 duration_ms=158952 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-local-pane-cleanup-e2e.test.sh duration_ms=158952
 
-real	2m19.610s
-user	0m37.822s
-sys	0m57.292s
-exit=0
+real	2m39.300s
+user	0m39.615s
+sys	0m58.552s

@@ -1,0 +1,26 @@
+ok - fm-pr-check publishes the PR-ready line on a secondmate's parent channel once
+ok - a secondmate home's teardown delivers the child's final line or refuses until it can
+ok - herdr teardown removes pane-owned escalation dedupe state
+ok - herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly
+ok - herdr flat teardown preflight refuses before every destructive change
+ok - forced secondmate teardown preflights every Herdr child before cleanup mutation
+ok - forced secondmate teardown holds every descendant lifecycle and metadata lock
+ok - forced secondmate teardown retains Herdr child identity until exact pane disappearance
+ok - forced teardown retains a nested secondmate home and its grandchild's Herdr identity when the grandchild close is unconfirmed
+ok - herdr teardown closes a task pane whose agent already exited instead of leaving a bare terminal
+ok - herdr teardown counts an already-dead pane as confirmed closed without issuing a close
+ok - herdr teardown retries a close the server accepted but never applied, then confirms it
+ok - herdr teardown reports a pane it could never close loudly, by task and pane, instead of leaking it silently
+ok - herdr teardown preserves unknown process panes even when forced record retirement is allowed
+ok - herdr teardown refuses unreadable ownership unless forced, and forced retirement closes no pane
+ok - herdr teardown keeps the placement receipt while a later refusal retains the task record
+ok - herdr teardown keeps its session presentation lock through the slot return after the early pane close
+ok - herdr teardown falls back to default close attempts and retry wait when the overrides are empty, zero, or non-numeric
+ok - herdr projection teardown retires its journal on the confirmation the retried close actually reached
+ok - herdr projection teardown retires its journal only after confirming the exact recorded pane is gone
+ok - herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed
+ok - herdr projection teardown surfaces failed focus restoration without turning confirmed cleanup into a hard failure
+
+real	3m0.268s
+user	0m48.823s
+sys	1m32.923s
