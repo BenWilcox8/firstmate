@@ -736,6 +736,7 @@ secondmate_liveness_one() {  # <meta> <id>
   local window harness backend target agent_state out cause remote_host remote_rc readiness_reason route_out remote_backend
   window=$(fm_meta_get "$meta" window)
   [ -n "$window" ] || return 0
+  if declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-skip "$id"; then return 0; fi
   harness=$(fm_meta_get "$meta" harness)
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then

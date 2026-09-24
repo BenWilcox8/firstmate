@@ -16,3 +16,5 @@ bin/fm-composer-lib.sh	155	codex-idle-animation	tests/fm-local-codex-idle-frames
 bin/fm-teardown.sh	431	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
+bin/fm-session-start.sh	87	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+bin/fm-bootstrap.sh	63	secondmate-liveness-skip	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain

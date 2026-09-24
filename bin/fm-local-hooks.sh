@@ -14,6 +14,13 @@ fm_local_hook() {
         *) echo "error: unknown local hook: $1" >&2; return 1 ;;
       esac
       ;;
+    # Restart recovery (bin/fm-local-restart-recovery.sh owns both contracts).
+    restart-record)
+      FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" record
+      ;;
+    secondmate-liveness-skip)
+      FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" liveness-skip "${@:2}"
+      ;;
     *) echo "error: unknown local hook: $1" >&2; return 1 ;;
   esac
 }
