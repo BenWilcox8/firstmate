@@ -1,0 +1,11 @@
+ok - fm-send strict: exact task/lane ids resolve through home metadata
+ok - fm-send --key: exit status follows delivery, and an undelivered key never reports success
+ok - fm-send strict: unset FM_HOME fails before target resolution
+ok - fm-send strict: unresolvable selectors do not fall back to tmux
+ok - fm-send strict: a bare herdr pane id resolves through its recorded task, never through a guessed session
+ok - fm-send strict: a bare herdr pane id with no recorded session refuses instead of guessing one
+ok - fm-send strict: unmatched single-colon explicit targets must verify live before sending
+ok - fm-send strict: fm-prefixed Herdr sessions remain explicit backend targets
+ok - fm-send strict: a session-prefixed herdr meta window rings the bare pane id 0.8.2 accepts
+ok - fm-send strict: a steer to a gone herdr endpoint stays durably recorded for the watcher, never a false unconfirmed-delivery report
+ok - fm-send strict: healthy fm-<id> sends record the steer and ring once

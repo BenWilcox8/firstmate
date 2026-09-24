@@ -1,0 +1,11 @@
+# seams.tsv budgets vs measured fork delta (git diff --numstat aec043c7 HEAD, added+deleted)
+path	budget	measured	status
+bin/fm-send.sh	99	99	match
+bin/fm-watch.sh	439	439	match
+bin/fm-tmux-lib.sh	1	1	match
+bin/backends/herdr.sh	837	837	match
+bin/backends/zellij.sh	1	1	match
+bin/backends/cmux.sh	1	1	match
+bin/backends/orca.sh	1	1	match
+bin/fm-teardown.sh	351	351	match
+bin/fm-backend.sh	205	205	match

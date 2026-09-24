@@ -1,0 +1,5 @@
+fm-send-inbox rc=0
+fm-send-strict rc=0
+fm-task-inbox rc=0
+fm-teardown-endpoint-safety rc=0
+fm-teardown rc=0

@@ -1,0 +1,14 @@
+ok - send-provenance-context and send-provenance-tmux: native skill keeps bytes and writes one record
+ok - explicit endpoint preserves trailing newline and records its matching task
+ok - doorbell records the typed line instead of the inbox body
+ok - skipped doorbell writes no record
+ok - typed text has one record even if Enter fails
+ok - failed typing and key delivery write no records
+ok - unregistered endpoint uses a null task id
+ok - send-provenance-context: a remote steer keeps its arguments and records the remote doorbell in the sending home
+ok - an unconfirmed remote send records once and preserves inbox deduplication
+ok - every submit adapter records after literal typing even when submission fails
+ok - send-provenance-dispatch: provenance hooks route through the one shared fork dispatcher
+ok - send-provenance-re-ring: a watcher doorbell re-ring records the typed line for its task
+ok - concurrent writers preserve complete private records and expire old shards
+ok - teardown retains recent history and removes only expired provenance

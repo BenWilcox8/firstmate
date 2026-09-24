@@ -1,0 +1,22 @@
+$ fm-send.sh worker '$no-mistakes'
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the requested message WILL still be sent.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+rc=0
+typed into pane: $no-mistakes
+$ fm-send.sh worker 'please continue'
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+rc=0
+typed into pane: : Firstmate instruction waiting: list '/tmp/tmp.KDiZVNcXtI/home/state/worker.inbox'/*.msg and, in numeric order, read and act on each, then mv each handled file to '/tmp/tmp.KDiZVNcXtI/home/state/worker.inbox'/handled/. %%dash-ping: agent%%
+
+== inbox ==
+worker.inbox
+
+== state/local-send-provenance/*.jsonl ==
+# state/local-send-provenance/2026-09-24.jsonl
+{"delivery_kind":"native-skill","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"/tmp/tmp.KDiZVNcXtI/home","sha256":"acafcb558e3db3f086b0185bab0a936b3a7dfb6d22716409cb0adc40e63c2fee","time":"2026-09-24T14:12:05Z","version":1}
+{"delivery_kind":"doorbell","endpoint":{"backend":"tmux","pane_id":"%7","target":"sess:win","task_id":"worker"},"sender_home":"/tmp/tmp.KDiZVNcXtI/home","sha256":"b292efa7c348b7ff68b3887ef5280b61aaae335022e7c4567a0b543e9625abcf","time":"2026-09-24T14:12:06Z","version":1}

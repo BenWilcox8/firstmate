@@ -1,0 +1,13 @@
+HEAD c46d1013a521e6092c4ae0a6e96fd7ae3b62896a
+merge 3432404 parents=af823b7 aec043c Merge upstream Firstmate while preserving fork contracts
+merge 712aed8 parents=1f626b9 7e3ad1d Merge fork main with Atlas close-out gates and the agent limit
+merge 534a987 parents=0934f4e 7e4bdf9 Merge fork main with the one-worker lint job and park and resume
+merge c91b03a parents=30f425e a21721c merge: fork main a21721c9 (idle Codex doorbell fix, PR 49)
+merge d5fbb6c parents=64e704b 5607ed7 merge: fork main 5607ed74 (typed delivery provenance, PR 50)
+ancestor-of-HEAD af823b7f569479c0a5057e127e904df55c2ec4b4 yes
+ancestor-of-HEAD aec043c718ef186a1d28c607fd5852b041e24435 yes
+ancestor-of-HEAD 7e3ad1d7 yes
+ancestor-of-HEAD 7e4bdf984a8ead682284a19fe7b4648a0b578c04 yes
+ancestor-of-HEAD a21721c99bc0a8f1f5887df36dbb8fe86203abe6 yes
+ancestor-of-HEAD 5607ed748fbb38f957d49c58e666b82e3184dfe8 yes
+merge commits on branch since af823b7f: 5
