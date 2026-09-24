@@ -64,6 +64,36 @@ assert_missing() {
   fi
 }
 
+# Herdr's agent registry reports an unknown status for some seconds after a
+# known agent starts, so the classifier reads unreadable until it is stable.
+# Wait for three consecutive alive reads, so a later lifecycle verb sees the
+# same state. Use a time limit, not a poll count, because each poll is slow on
+# a loaded host. On timeout, print the last samples so that the failure
+# explains itself.
+wait_live_agent() {
+  local target=$1 limit=120 deadline state stable=0 snapshot tree
+  deadline=$((SECONDS + limit))
+  while [ "$SECONDS" -lt "$deadline" ]; do
+    state=$(fm_backend_agent_state herdr "$target")
+    if [ "$state" = alive ]; then
+      stable=$((stable + 1))
+      [ "$stable" -lt 3 ] || return 0
+    else
+      stable=0
+    fi
+    sleep 0.1
+  done
+  snapshot=$(fm_backend_herdr_recovery_process_snapshot "$HERDR_SESSION" "${target#*:}") || snapshot='(unreadable)'
+  tree=$(fm_backend_herdr_recovery_process_tree_sample "$snapshot") || tree='(unreadable)'
+  {
+    echo "not ok - $target did not read alive three times in a row within ${limit}s"
+    echo "state: $state"
+    echo "registry: $(fm_backend_herdr_recovery_registry_sample "$HERDR_SESSION" "${target#*:}")"
+    echo "process tree: ${tree%%$'\n'*}"
+  } >&2
+  return 1
+}
+
 assert_present() {
   fm_backend_herdr_cli "$HERDR_SESSION" pane get "$1" | jq -e --arg pane "$1" '.result.pane.pane_id == $pane' >/dev/null
 }
@@ -112,7 +142,7 @@ FM_LOCAL_LAB_TASK_TMP="/tmp/fm-$restart"
 task_create "$restart"
 old_pane=$pane
 slot=$(agent-axi get "$restart" --session "$HERDR_SESSION" --json | jq -r '.record.slot')
-FM_CONTROL_POLL=0.2 FM_CONTROL_LAUNCH_WAIT=10 "$ROOT/bin/fm-control.sh" "$restart" relaunch --note 'Continue in the same worktree.'
+FM_CONTROL_POLL=0.2 FM_CONTROL_LAUNCH_WAIT=120 "$ROOT/bin/fm-control.sh" "$restart" relaunch --note 'Continue in the same worktree.'
 new_target=$(fm_meta_get "$FM_HOME/state/$restart.meta" window)
 new_pane=${new_target#*:}
 [ "$old_pane" != "$new_pane" ]
@@ -160,7 +190,7 @@ assert_missing "$new_pane"
 [ "$(cat "$wt/keep.txt")" = 'unlanded work' ]
 echo 'ok - recovery closes a killed agent husk without changing its work'
 
-FM_CONTROL_POLL=0.2 FM_CONTROL_LAUNCH_WAIT=10 "$ROOT/bin/fm-control.sh" "$restart" relaunch --note 'Recover the killed agent.'
+FM_CONTROL_POLL=0.2 FM_CONTROL_LAUNCH_WAIT=120 "$ROOT/bin/fm-control.sh" "$restart" relaunch --note 'Recover the killed agent.'
 new_target=$(fm_meta_get "$FM_HOME/state/$restart.meta" window)
 [ "$(agent-axi get "$restart" --session "$HERDR_SESSION" --json | jq -r '.record.slot')" = "$slot" ]
 fm_backend_herdr_send_text_line "$new_target" /exit
@@ -292,17 +322,10 @@ wt=$saved_wt
 sed 's/mode=no-mistakes/mode=local-only/; s/harness=pi/harness=unverified-agent/' "$FM_HOME/state/live.meta" > "$FM_HOME/state/live.meta.tmp"
 mv "$FM_HOME/state/live.meta.tmp" "$FM_HOME/state/live.meta"
 fm_backend_herdr_send_text_line "$live_target" "$FM_LOCAL_LAB_ROOT/tools/pi-live"
-# Herdr's agent registry changes status for some seconds after a known agent
-# starts, so the classifier reads unreadable until it is stable. Use a time
-# limit, not a poll count, because each poll is slow on a loaded host.
-live_deadline=$((SECONDS + 30))
-while [ "$SECONDS" -lt "$live_deadline" ]; do
-  [ "$(fm_backend_agent_state herdr "$live_target")" != alive ] || break
-  sleep 0.1
-done
-[ "$(fm_backend_agent_state herdr "$live_target")" = alive ]
+wait_live_agent "$live_target"
 if "$ROOT/bin/fm-teardown.sh" live > "$FM_LOCAL_LAB_ROOT/live.out" 2>&1; then
   echo 'not ok - teardown retired a live agent it could not stop' >&2
+  cat "$FM_LOCAL_LAB_ROOT/live.out" >&2
   exit 1
 fi
 grep -F 'is still running and teardown could not stop it' "$FM_LOCAL_LAB_ROOT/live.out" >/dev/null
