@@ -711,6 +711,7 @@ secondmate_liveness_sweep() {
     remote_host=$(fm_meta_get "$meta" remote_host)
     label=$id
     [ -z "$remote_host" ] || label="$id@$remote_host"
+    if [ "$parallel" -eq 1 ] && [ -z "$remote_host" ] && declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-serial; then FM_BOOTSTRAP_PARALLEL_DIR='' secondmate_liveness_one_timed "$meta" "$id" "$label"; continue; fi
     if [ "$parallel" -eq 1 ]; then
       bootstrap_parallel_spawn secondmate_liveness_one_timed "$meta" "$id" "$label"
     else
@@ -737,6 +738,7 @@ secondmate_liveness_one() {  # <meta> <id>
   local window harness backend target agent_state out cause remote_host remote_rc readiness_reason route_out remote_backend
   window=$(fm_meta_get "$meta" window)
   [ -n "$window" ] || return 0
+  if declare -F fm_local_hook >/dev/null && fm_local_hook secondmate-liveness-skip "$id"; then return 0; fi
   harness=$(fm_meta_get "$meta" harness)
   remote_host=$(fm_meta_get "$meta" remote_host)
   if [ -n "$remote_host" ]; then

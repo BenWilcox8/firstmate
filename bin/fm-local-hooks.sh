@@ -187,6 +187,16 @@ fm_local_hook() {
       [ -n "$closes" ] || return 1
       echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close recorded task panes that pane cleanup kept: $closes"
       ;;
+    # Restart recovery (bin/fm-local-restart-recovery.sh owns both contracts).
+    restart-record)
+      FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" record
+      ;;
+    secondmate-liveness-skip)
+      FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" liveness-skip "${@:2}"
+      ;;
+    # The startup liveness sweep relaunches local second mates one at a time, to
+    # keep the load on the machine low after a restart.
+    secondmate-liveness-serial) return 0 ;;
     *) echo "error: unknown local hook: $1" >&2; return 1 ;;
   esac
 }
