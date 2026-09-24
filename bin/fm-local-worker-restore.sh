@@ -30,19 +30,21 @@
 #                                   bin/fm-crew-state.sh) passed or failed, or,
 #                                   with no run, its newest state line is done
 #                                   or failed
-#                  captain-waiting  its validation run waits at a gate with an
-#                                   open decision or blocker, or, with no run,
-#                                   it has an open decision or blocker or its
+#                  captain-waiting  it has an open decision or blocker, or its
 #                                   newest state line is captain-held
 #                  slot-reused      lease-check finds its worktree leased to
 #                                   other work
 #                  working          anything else: it was working when it
 #                                   stopped, including a validation run that
 #                                   waits at a gate with no open decision
-#                An active validation run (running, fixing, or in CI) is
-#                authoritative, as in bin/fm-crew-state.sh: it overrides an
-#                older open decision, blocker, or captain-held line, and the
+#                A newest captain-held line always wins before finished: that
+#                worker is captain-waiting, whatever its run state. An active
+#                validation run (running, fixing, or in CI) overrides an older
+#                open decision or blocker, as in bin/fm-crew-state.sh, and the
 #                worker is working, because it must come back to drive its run.
+#                Any other run state, such as a run parked at a gate or an
+#                unknown one, is not active: an open decision or blocker makes
+#                that worker captain-waiting.
 #                A restart can give a recorded Herdr pane id to another pane,
 #                so an endpoint is the worker's own only when its pane sits in
 #                the worker's recorded worktree. A pane elsewhere reads as
@@ -69,8 +71,8 @@
 #                to other work. Only positive evidence counts: another record
 #                in this fleet (the root home or one of its local second mate
 #                homes) names the same worktree and either was spawned after
-#                this task (by spawn_gen) or has a live agent in its own pane
-#                there, or the Treehouse pool records a live owner process for
+#                this task (by spawn_gen) or has a live agent at its recorded
+#                endpoint that is not proven to sit outside the worktree, or the Treehouse pool records a live owner process for
 #                the slot that is not this task's own endpoint. An older record for the slot, such
 #                as a finished task not yet cleaned up, does not count.
 #                The worktree-lease hook in bin/fm-spawn.sh runs it
@@ -199,10 +201,16 @@ wr_lease_other() {
         return 0
       fi
       wr_endpoint "$other"
-      if [ "$WR_EP_STATE" = alive ]; then
-        WR_LEASE_REASON="$(basename "$other" .meta) in $home runs an agent in its worktree"
-        return 0
-      fi
+      case "$WR_EP_STATE" in
+        alive)
+          WR_LEASE_REASON="$(basename "$other" .meta) in $home runs an agent in its worktree"
+          return 0
+          ;;
+        unlocated)
+          WR_LEASE_REASON="$(basename "$other" .meta) in $home runs an agent whose pane location cannot be read"
+          return 0
+          ;;
+      esac
     done
   done < <(wr_fleet_homes)
   pool="$(dirname "$(dirname "$wt")")/treehouse-state.json"
@@ -264,33 +272,32 @@ wr_classify() {
     WR_REASON="its worktree ${wt:-(none)} is missing"
     return 0
   fi
+  line=$(wr_last_state_line "$STATE/$id.status")
+  verb=$(status_line_verb "$line")
+  if [ "$verb" = captain-held ]; then
+    WR_CLASS=captain-waiting
+    WR_REASON="captain-held"
+    return 0
+  fi
   open=$(status_open_decisions "$STATE/$id.status")
   crew=$(FM_HOME="$FM_HOME" "$WR_CREW_STATE" "$id" 2>/dev/null | head -n 1)
   source=$(printf '%s' "$crew" | sed -n 's/.*· source: \([a-z-]*\).*/\1/p')
   run=$(printf '%s' "$crew" | sed -n 's/^state: \([a-z]*\).*/\1/p')
   if [ "$source" = run-step ]; then
     case "$run" in
-      done) WR_CLASS=finished; WR_REASON="its validation run passed" ;;
-      failed) WR_CLASS=finished; WR_REASON="its validation run failed" ;;
-      parked) [ -z "$open" ] || { WR_CLASS=captain-waiting; WR_REASON="its validation run waits on an open decision"; } ;;
+      done) WR_CLASS=finished; WR_REASON="its validation run passed"; return 0 ;;
+      failed) WR_CLASS=finished; WR_REASON="its validation run failed"; return 0 ;;
+      working) open= ;;
     esac
-    [ -z "$WR_CLASS" ] || return 0
   else
-    line=$(wr_last_state_line "$STATE/$id.status")
-    verb=$(status_line_verb "$line")
     case "$verb" in
       done|failed) WR_CLASS=finished; WR_REASON="it reported $verb"; return 0 ;;
     esac
-    if [ -n "$open" ]; then
-      WR_CLASS=captain-waiting
-      WR_REASON="open decision: $(printf '%s\n' "$open" | cut -f1 | paste -sd, -)"
-      return 0
-    fi
-    if [ "$verb" = captain-held ]; then
-      WR_CLASS=captain-waiting
-      WR_REASON="captain-held"
-      return 0
-    fi
+  fi
+  if [ -n "$open" ]; then
+    WR_CLASS=captain-waiting
+    WR_REASON="open decision: $(printf '%s\n' "$open" | cut -f1 | paste -sd, -)"
+    return 0
   fi
   if wr_lease_other "$id" "$meta"; then
     WR_CLASS='slot-reused'

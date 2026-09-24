@@ -195,10 +195,40 @@ test_classify_orders_finished_first_and_an_active_run_over_a_decision() {
   printf 'done: PR https://example.invalid/pull/2 checks green\n' >> "$w/home/state/w-decided.status"
   add_worker "$w" w-driving 'needs-decision [key=scope]: pick A or B'
   printf 'state: working · source: run-step · running (review)\n' > "$w/crew-state/w-driving"
+  add_worker "$w" w-gate-held 'needs-decision [key=gate]: approve the fix?'
+  printf 'captain-held [key=gate]: the captain holds this gate\n' >> "$w/home/state/w-gate-held.status"
+  printf 'state: parked · source: run-step · awaiting_approval (review)\n' > "$w/crew-state/w-gate-held"
+  add_worker "$w" w-run-held 'captain-held: the captain wants to test first'
+  printf 'state: working · source: run-step · running (review)\n' > "$w/crew-state/w-run-held"
+  add_worker "$w" w-unknown 'needs-decision [key=scope]: pick A or B'
+  printf 'state: unknown · source: run-step · the daemon is down\n' > "$w/crew-state/w-unknown"
   out=$(wr "$w" classify 2>&1)
   [ "$(class_of "$out" w-decided)" = finished ] || fail "with no run, a done line must classify finished before an older open decision: $out"
   [ "$(class_of "$out" w-driving)" = working ] || fail "an active validation run must override an older open decision: $out"
-  pass "classify checks finished before captain-waiting, and an active run overrides an open decision"
+  [ "$(class_of "$out" w-gate-held)" = captain-waiting ] || fail "a run parked at a gate with a newest captain-held line must classify captain-waiting: $out"
+  [ "$(class_of "$out" w-run-held)" = captain-waiting ] || fail "a newest captain-held line must win over an active run: $out"
+  [ "$(class_of "$out" w-unknown)" = captain-waiting ] || fail "a run in an unknown state is not active, so an open decision must classify captain-waiting: $out"
+  out=$(wr "$w" run --key order-1 --restart 'a Herdr restart' 2>&1) || fail "run failed: $out"
+  [ "$(awk '{ print $1 }' "$w/fake/control.log" | sort | tr '\n' ' ')" = "w-driving " ] \
+    || fail "only the worker with an active run may come back: $(cat "$w/fake/control.log")"
+  pass "classify checks captain-held first, finished before captain-waiting, and only an active run overrides an open decision"
+}
+
+# A live agent at another record's endpoint counts as occupying the worktree
+# unless its pane is proven to sit elsewhere.
+test_lease_check_counts_a_live_agent_whose_location_cannot_be_read() {
+  local w out
+  w=$(new_world unlocated)
+  add_worker "$w" w-b 'working: b'
+  add_worker "$w" w-old 'done: PR https://example.invalid/pull/4 checks green' \
+    "worktree=$w/pool/w-b/proj" spawn_gen=s1789990000.1.1
+  printf 'fm-w-old\n' > "$w/fake/windows"
+  printf 'claude' > "$w/fake/command"
+  out=$(wr "$w" lease-check w-b 2>&1) && fail "a live agent whose pane location cannot be read must count as occupying the worktree: $out"
+  assert_contains "$out" "w-old" "the reason must name the other task"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-b)" = slot-reused ] || fail "the worker must stay down as slot-reused: $out"
+  pass "lease-check counts a live agent whose pane location cannot be read"
 }
 
 # After a Herdr restart, pane ids start low again, so a recorded id can name a
@@ -346,6 +376,7 @@ test_record_starts_worker_restore_once_for_a_restart() {
 test_classify_names_each_worker_class
 test_classify_orders_finished_first_and_an_active_run_over_a_decision
 test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own
+test_lease_check_counts_a_live_agent_whose_location_cannot_be_read
 test_run_relaunches_only_working_workers_once_per_restart
 test_run_reports_a_failed_relaunch_with_its_reason
 test_lease_check_reports_a_live_treehouse_owner
