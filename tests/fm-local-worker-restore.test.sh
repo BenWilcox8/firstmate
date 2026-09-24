@@ -188,6 +188,48 @@ test_classify_names_each_worker_class() {
   pass "classify names working, parked, finished, captain-waiting, and slot-reused workers"
 }
 
+test_classify_orders_finished_first_and_an_active_run_over_a_decision() {
+  local w out
+  w=$(new_world order)
+  add_worker "$w" w-decided 'needs-decision [key=scope]: pick A or B'
+  printf 'done: PR https://example.invalid/pull/2 checks green\n' >> "$w/home/state/w-decided.status"
+  add_worker "$w" w-driving 'needs-decision [key=scope]: pick A or B'
+  printf 'state: working · source: run-step · running (review)\n' > "$w/crew-state/w-driving"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-decided)" = finished ] || fail "with no run, a done line must classify finished before an older open decision: $out"
+  [ "$(class_of "$out" w-driving)" = working ] || fail "an active validation run must override an older open decision: $out"
+  pass "classify checks finished before captain-waiting, and an active run overrides an open decision"
+}
+
+# After a Herdr restart, pane ids start low again, so a recorded id can name a
+# pane that now belongs to other work. Only a pane in the record's own worktree
+# is its endpoint.
+test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own() {
+  local w out
+  w=$(new_world recycled)
+  add_worker "$w" w-a 'working: a'
+  add_worker "$w" w-b 'working: b'
+  add_worker "$w" w-old 'done: PR https://example.invalid/pull/3 checks green' \
+    "worktree=$w/pool/w-b/proj" spawn_gen=s1789990000.1.1
+  mkdir -p "$w/elsewhere"
+  printf 'fm-w-a\nfm-w-old\n' > "$w/fake/windows"
+  printf 'claude' > "$w/fake/command"
+  printf '%s' "$w/elsewhere" > "$w/fake/cwd"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-a)" = working ] || fail "a live recorded pane outside the worker's worktree must not read as its running agent: $out"
+  [ "$(class_of "$out" w-b)" = working ] || fail "an older record whose recorded pane now runs other work must not make the slot read as reused: $out"
+  wr "$w" lease-check w-b >/dev/null 2>&1 || fail "lease-check must not count an older record's recycled pane as a live agent in the worktree"
+  out=$(wr "$w" run --key herdr-2 --restart 'a Herdr restart' 2>&1) || fail "run failed: $out"
+  assert_contains "$out" "restored 2 (w-a, w-b)" "workers whose recorded panes now run other work must be relaunched"
+  printf '%s' "$w/pool/w-a/proj" > "$w/fake/cwd"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-a)" = running ] || fail "a live pane in the worker's own worktree must read as running: $out"
+  rm -f "$w/fake/cwd"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-a)" = unreadable ] || fail "a live recorded pane whose location cannot be read must stay down as unreadable: $out"
+  pass "a recorded pane that now runs other work is not the worker's endpoint"
+}
+
 test_run_relaunches_only_working_workers_once_per_restart() {
   local w out log
   w=$(new_world run)
@@ -275,7 +317,7 @@ test_spawn_relaunch_refuses_a_reused_worktree() {
 }
 
 test_record_starts_worker_restore_once_for_a_restart() {
-  local w out i
+  local w out _
   w=$(new_world record)
   add_worker "$w" w-a 'working: a'
   printf 'boot-1\n' > "$w/boot_id"
@@ -292,7 +334,7 @@ test_record_starts_worker_restore_once_for_a_restart() {
   printf 'boot-2\n' > "$w/boot_id"
   out=$(rrec 2>&1)
   assert_contains "$out" "Worker restore is relaunching" "a restart must start worker restore and say so"
-  for i in $(seq 1 100); do
+  for _ in $(seq 1 100); do
     grep -q 'check: worker restore' "$w/home/state/.wake-queue" 2>/dev/null && break
     sleep 0.1
   done
@@ -302,6 +344,8 @@ test_record_starts_worker_restore_once_for_a_restart() {
 }
 
 test_classify_names_each_worker_class
+test_classify_orders_finished_first_and_an_active_run_over_a_decision
+test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own
 test_run_relaunches_only_working_workers_once_per_restart
 test_run_reports_a_failed_relaunch_with_its_reason
 test_lease_check_reports_a_live_treehouse_owner

@@ -16,8 +16,11 @@
 #   classify     Print one line per local ship or scout record in this home:
 #                "<id><TAB><class><TAB><reason>". Read-only. The first class
 #                that matches wins:
-#                  running          its endpoint has a live agent
-#                  unreadable       its endpoint state cannot be classified
+#                  running          its own endpoint has a live agent
+#                  unreadable       its endpoint state cannot be classified,
+#                                   or a live agent runs at its recorded
+#                                   endpoint in a pane whose location cannot
+#                                   be read
 #                  parked           its record carries a park
 #                                   (bin/fm-control.sh park); it stays down,
 #                                   and `bin/fm-control.sh <id> resume` reopens
@@ -27,14 +30,23 @@
 #                                   bin/fm-crew-state.sh) passed or failed, or,
 #                                   with no run, its newest state line is done
 #                                   or failed
-#                  captain-waiting  it has an open decision or blocker, or its
+#                  captain-waiting  its validation run waits at a gate with an
+#                                   open decision or blocker, or, with no run,
+#                                   it has an open decision or blocker or its
 #                                   newest state line is captain-held
 #                  slot-reused      lease-check finds its worktree leased to
 #                                   other work
 #                  working          anything else: it was working when it
 #                                   stopped, including a validation run that
-#                                   is running or waits at a gate with no open
-#                                   decision
+#                                   waits at a gate with no open decision
+#                An active validation run (running, fixing, or in CI) is
+#                authoritative, as in bin/fm-crew-state.sh: it overrides an
+#                older open decision, blocker, or captain-held line, and the
+#                worker is working, because it must come back to drive its run.
+#                A restart can give a recorded Herdr pane id to another pane,
+#                so an endpoint is the worker's own only when its pane sits in
+#                the worker's recorded worktree. A pane elsewhere reads as
+#                gone, and the worker is classified by its records.
 #                A remote record, a second mate, and any other kind are not
 #                listed: their own host or home recovers them.
 #   run          Classify, then relaunch each working worker, one at a time,
@@ -57,9 +69,9 @@
 #                to other work. Only positive evidence counts: another record
 #                in this fleet (the root home or one of its local second mate
 #                homes) names the same worktree and either was spawned after
-#                this task (by spawn_gen) or has a live agent, or the Treehouse
-#                pool records a live owner process for the slot that is not
-#                this task's own endpoint. An older record for the slot, such
+#                this task (by spawn_gen) or has a live agent in its own pane
+#                there, or the Treehouse pool records a live owner process for
+#                the slot that is not this task's own endpoint. An older record for the slot, such
 #                as a finished task not yet cleaned up, does not count.
 #                The worktree-lease hook in bin/fm-spawn.sh runs it
 #                before every relaunch and resume launches anything, so
@@ -91,6 +103,10 @@ export FM_HOME
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-classify-lib.sh
 . "$SCRIPT_DIR/fm-classify-lib.sh"
+# shellcheck source=bin/fm-local-pane-lib.sh
+. "$SCRIPT_DIR/fm-local-pane-lib.sh"
+# shellcheck source=bin/fm-local-treehouse-lib.sh
+. "$SCRIPT_DIR/fm-local-treehouse-lib.sh"
 
 WR_CONTROL=${FM_WORKER_RESTORE_CONTROL:-$SCRIPT_DIR/fm-control.sh}
 WR_CREW_STATE=${FM_WORKER_RESTORE_CREW_STATE:-$SCRIPT_DIR/fm-crew-state.sh}
@@ -140,40 +156,32 @@ wr_fleet_homes() {
   } | awk 'NF && !seen[$0]++'
 }
 
-wr_proc_field() {  # <pid> <index after the command name>
-  local stat fields
-  case "$1" in ''|*[!0-9]*) return 1 ;; esac
-  stat=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
-  read -r -a fields <<< "${stat##*)}"
-  [ -n "${fields[$2]:-}" ] || return 1
-  printf '%s\n' "${fields[$2]}"
-}
-
-# wr_owner_live <pid> <started-ms>: the Treehouse owner still runs with the
-# start time Treehouse recorded, so a reused pid never reads as the owner.
-wr_owner_live() {
-  local ticks btime hz
-  ticks=$(wr_proc_field "$1" 19) || return 1
-  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 1
-  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
-  [ -n "$btime" ] && [ -n "$hz" ] || return 1
-  [ "$((btime * 1000 + ticks * 1000 / hz))" = "$2" ]
-}
-
-wr_descends_from() {  # <pid> <ancestor>
-  local pid=$1 depth
-  for ((depth=0; depth<64; depth++)); do
-    [ "$pid" != "$2" ] || return 0
-    [ "$pid" -gt 1 ] 2>/dev/null || return 1
-    pid=$(wr_proc_field "$pid" 1) || return 1
-  done
-  return 1
+# wr_endpoint <meta>: set WR_EP_STATE to the state of the record's own
+# endpoint, and WR_EP_TARGET to its target when that pane is proven the
+# record's own. A restart can give a recorded Herdr pane id to another pane, so
+# a pane that sits outside the record's worktree is not its own and reads
+# missing, and a live pane whose location cannot be read reads unlocated.
+wr_endpoint() {
+  local meta=$1 backend target seen
+  WR_EP_TARGET=
+  backend=$(fm_backend_of_meta "$meta")
+  target=$(fm_backend_target_of_meta "$meta")
+  WR_EP_STATE=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || WR_EP_STATE=unreadable
+  case "$WR_EP_STATE" in alive|dead) ;; *) return 0 ;; esac
+  seen=$(fm_backend_current_path "$backend" "$target" 2>/dev/null) || seen=
+  if [ -z "$seen" ]; then
+    [ "$WR_EP_STATE" = dead ] || WR_EP_STATE=unlocated
+  elif fm_local_pane_path_within "$seen" "$(fm_meta_get "$meta" worktree)"; then
+    WR_EP_TARGET=$target
+  else
+    WR_EP_STATE=missing
+  fi
 }
 
 # wr_lease_other <id> <meta>: 0 with WR_LEASE_REASON set when the recorded
 # worktree is leased to other work, 1 when nothing shows that it is.
 wr_lease_other() {
-  local id=$1 meta=$2 wt mine home own other gen pool lease owner started backend target pid
+  local id=$1 meta=$2 wt mine home own other gen pool lease owner started pid
   WR_LEASE_REASON=
   wt=$(wr_canonical "$(fm_meta_get "$meta" worktree)") || return 1
   mine=$(wr_gen "$meta")
@@ -190,7 +198,8 @@ wr_lease_other() {
         WR_LEASE_REASON="its worktree is now recorded for $(basename "$other" .meta) in $home"
         return 0
       fi
-      if [ "$(fm_backend_agent_state "$(fm_backend_of_meta "$other")" "$(fm_backend_target_of_meta "$other")" 2>/dev/null)" = alive ]; then
+      wr_endpoint "$other"
+      if [ "$WR_EP_STATE" = alive ]; then
         WR_LEASE_REASON="$(basename "$other" .meta) in $home runs an agent in its worktree"
         return 0
       fi
@@ -207,12 +216,13 @@ wr_lease_other() {
   [ -n "$lease" ] || return 1
   owner=${lease%% *}
   started=${lease#* }
-  wr_owner_live "$owner" "$started" || return 1
-  backend=$(fm_backend_of_meta "$meta")
-  target=$(fm_backend_target_of_meta "$meta")
-  for pid in $(fm_backend_foreground_pids "$backend" "$target" 2>/dev/null); do
-    wr_descends_from "$pid" "$owner" && return 1
-  done
+  fm_local_treehouse_owner_live "$owner" "$started" || return 1
+  wr_endpoint "$meta"
+  if [ -n "$WR_EP_TARGET" ]; then
+    for pid in $(fm_backend_foreground_pids "$(fm_backend_of_meta "$meta")" "$WR_EP_TARGET" 2>/dev/null); do
+      fm_local_descends_from "$pid" "$owner" && return 1
+    done
+  fi
   WR_LEASE_REASON="Treehouse leases it to live process $owner, which is not this worker's endpoint"
   return 0
 }
@@ -233,16 +243,15 @@ wr_last_state_line() {
 
 # wr_classify <id> <meta>: set WR_CLASS and WR_REASON (contract in the header).
 wr_classify() {
-  local id=$1 meta=$2 backend target state wt crew source run open line verb
+  local id=$1 meta=$2 wt crew source run open line verb
   WR_CLASS=
   WR_REASON=
-  backend=$(fm_backend_of_meta "$meta")
-  target=$(fm_backend_target_of_meta "$meta")
-  state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
-  case "$state" in
+  wr_endpoint "$meta"
+  case "$WR_EP_STATE" in
     alive) WR_CLASS=running; WR_REASON="its agent is running"; return 0 ;;
     dead|missing) ;;
-    *) WR_CLASS=unreadable; WR_REASON="its endpoint reads $state"; return 0 ;;
+    unlocated) WR_CLASS=unreadable; WR_REASON="an agent runs at its recorded endpoint, but where that pane sits cannot be read"; return 0 ;;
+    *) WR_CLASS=unreadable; WR_REASON="its endpoint reads $WR_EP_STATE"; return 0 ;;
   esac
   if [ -n "$(fm_meta_get "$meta" parked)" ]; then
     WR_CLASS=parked
@@ -267,20 +276,24 @@ wr_classify() {
     esac
     [ -z "$WR_CLASS" ] || return 0
   else
+    line=$(wr_last_state_line "$STATE/$id.status")
+    verb=$(status_line_verb "$line")
+    case "$verb" in
+      done|failed) WR_CLASS=finished; WR_REASON="it reported $verb"; return 0 ;;
+    esac
     if [ -n "$open" ]; then
       WR_CLASS=captain-waiting
       WR_REASON="open decision: $(printf '%s\n' "$open" | cut -f1 | paste -sd, -)"
       return 0
     fi
-    line=$(wr_last_state_line "$STATE/$id.status")
-    verb=$(status_line_verb "$line")
-    case "$verb" in
-      captain-held) WR_CLASS=captain-waiting; WR_REASON="captain-held"; return 0 ;;
-      done|failed) WR_CLASS=finished; WR_REASON="it reported $verb"; return 0 ;;
-    esac
+    if [ "$verb" = captain-held ]; then
+      WR_CLASS=captain-waiting
+      WR_REASON="captain-held"
+      return 0
+    fi
   fi
   if wr_lease_other "$id" "$meta"; then
-    WR_CLASS=slot-reused
+    WR_CLASS='slot-reused'
     WR_REASON=$WR_LEASE_REASON
     return 0
   fi
