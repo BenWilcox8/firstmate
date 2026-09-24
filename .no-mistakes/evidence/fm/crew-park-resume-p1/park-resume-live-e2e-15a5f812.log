@@ -1,0 +1,13 @@
+head=15a5f8125b0d4b2f49bee6a72013417c919c8ebd start=2026-09-24T01:02:03Z
+ok - claude: a real worker launched through the fleet path and took its first turn
+ok - claude: park recorded session e7c5c896-f314-4c18-b2a2-f8ca2720d00e on the task and the Atlas ticket, and closed the pane
+ok - claude: the lab Herdr server was stopped and started again, as a reboot does
+ok - claude: the resumed agent recalled the word from its parked conversation
+ok - codex: a real worker launched through the fleet path and took its first turn
+ok - codex: park recorded session 01a0d0f1-6db0-7501-b57d-992295b50162 on the task and the Atlas ticket, and closed the pane
+ok - codex: the resumed agent recalled the word from its parked conversation
+ok - pi: a real worker launched through the fleet path and took its first turn
+ok - pi: park recorded session 01a0d0f3-0775-7123-a7fc-09f3e35aa27a on the task and the Atlas ticket, and closed the pane
+ok - pi: the resumed agent recalled the word from its parked conversation
+ok - park and resume kept every installed harness's conversation, and the live default session is unchanged
+rc=0 end=2026-09-24T01:07:33Z

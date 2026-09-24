@@ -1,0 +1,9 @@
+ok - fm-spawn: a spawn under the agent limit goes ahead
+ok - fm-spawn: a spawn at the agent limit is refused before any endpoint exists, naming the count, the limit, and the overrides
+ok - fm-spawn: --over-limit lets one spawn past the agent limit
+ok - fm-spawn: config/agent-limit off disables the limit without reading Herdr
+ok - fm-spawn: an unreadable Herdr count refuses rather than guessing, and names the override
+ok - fm-spawn: a relaunch into the task's own open pane replaces an agent and ignores the limit
+ok - fm-spawn: a resume opens a new pane, so it is held to the agent limit unless --over-limit is passed
+ok - fm-control: resume at the agent limit refuses before the Atlas unpark, and --over-limit carries through to the launch
+ok - fm-control: a relaunch into the task's own pane refuses --over-limit, because the limit never holds it
