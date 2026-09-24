@@ -67,7 +67,8 @@ case "${args[0]:-} ${args[1]:-}" in
   "pane get")
     [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
     if [ -n "${FM_TEST_HERDR_HOLDER:-}" ] && [ ! -e "$dir/holder.pid" ]; then
-      (cd "$FM_TEST_HERDR_PANE_CWD" && exec "$FM_TEST_HERDR_HOLDER" -c 'sleep 60; :') >/dev/null 2>&1 < /dev/null &
+      mkfifo "$dir/holder.fifo"
+      (cd "$FM_TEST_HERDR_PANE_CWD" && exec "$FM_TEST_HERDR_HOLDER" -c 'read -r -t 60 _ <> "$0"' "$dir/holder.fifo") >/dev/null 2>&1 < /dev/null &
       printf '%s\n' "$!" > "$dir/holder.pid"
     fi
     printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "${args[2]}" "$FM_TEST_HERDR_PANE_CWD"
@@ -121,6 +122,15 @@ rr() {
     FM_TEST_HERDR_DIR="$w/herdr" \
     FM_RESTART_HERDR_WAIT="${FM_RESTART_HERDR_WAIT:-5}" FM_RESTART_POLL=0.2 \
     "$RR" "$@"
+}
+
+# start_stand_in <claude> <cwd> <fifo>: start a stand-in Claude process in
+# <cwd> in the background; $! is its pid. It waits on <fifo> with bash builtins
+# only, so killing it leaves no child process behind.
+start_stand_in() {
+  mkfifo "$3"
+  # shellcheck disable=SC2016 # the stand-in's own bash expands $0
+  (cd "$2" && exec "$1" -c 'read -r -t 60 _ <> "$0"' "$3") >/dev/null 2>&1 < /dev/null &
 }
 
 restart_wakes() {  # <world> <key-prefix>
@@ -373,7 +383,7 @@ test_run_leaves_a_primary_that_already_runs_elsewhere() {
 
   # The captain started firstmate by hand in a pane of their own: a live Claude
   # process runs in the home, and no session lock is taken yet.
-  (cd "$w/home" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  start_stand_in "$claude_bin/claude" "$w/home" "$w/holder.fifo"
   holder=$!
   printf 'boot-2\n' > "$w/boot_id"
   out=$(rr "$w" run 2>&1)
@@ -382,7 +392,7 @@ test_run_leaves_a_primary_that_already_runs_elsewhere() {
     "a primary started by hand outside its recorded pane was not detected: $out"
 
   # The captain's session holds the fleet lock and runs outside the home.
-  (cd "$w" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  start_stand_in "$claude_bin/claude" "$w" "$w/lock-holder.fifo"
   holder=$!
   printf '%s\n' "$holder" > "$w/home/state/.lock"
   printf 'boot-3\n' > "$w/boot_id"
@@ -410,7 +420,7 @@ test_run_rechecks_for_a_primary_right_before_typing() {
   # by hand in a pane of their own once the pass has begun to read that pane,
   # after its first check for a running primary.
   mkfifo "$w/shell.fifo"
-  bash -c 'read -r _ < "$0"' "$w/shell.fifo" &
+  bash -c 'read -r _ < "$0"' "$w/shell.fifo" >/dev/null 2>&1 &
   shell=$!
   printf 'boot-2\n' > "$w/boot_id"
   out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" \
@@ -439,7 +449,7 @@ test_run_ignores_a_claude_process_older_than_herdr() {
     pane=w9:p3 workspace=w9 "cwd=$w/home" harness=claude harness_pid=1 boot_id=boot-1
   # An orphan Claude process in the home that outlived a Herdr-only restart:
   # it started before the new Herdr server did.
-  (cd "$w/home" && exec "$claude_bin/claude" -c 'sleep 60; :') &
+  start_stand_in "$claude_bin/claude" "$w/home" "$w/holder.fifo"
   holder=$!
   touch -d "@$(( $(date +%s) + 5 ))" "$w/herdr/herdr.sock"
   out=$(rr "$w" run 2>&1)
