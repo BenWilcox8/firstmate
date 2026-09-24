@@ -190,6 +190,30 @@ test_reused_task_id_keeps_older_incarnation_outcome() {
   pass 'cleanup-late-outcome-retry: a reused task id delivers the older incarnation outcome once, before the replacement outcome'
 }
 
+test_rerun_teardown_delivers_owed_outcome_first() {
+  make_case rerun-order
+  make_parent
+  : > "$CASE/late-outcome"
+  : > "$CASE/break-parent"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
+  rm "$CASE/late-outcome" "$CASE/break-parent"
+  fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
+    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=new-generation"
+  printf 'done: replacement finished\n' > "$CASE/home/state/old.status"
+  if run_teardown > "$CASE/out" 2> "$CASE/err"; then fail 'replacement teardown ignored the unavailable parent channel'; fi
+  mv "$CASE/parent-binding.off" "$CASE/home/.fm-secondmate-parent"
+  run_teardown > "$CASE/out" 2> "$CASE/err" || fail "replacement teardown rerun failed: $(cat "$CASE/err")"
+  local parent=$CASE/parent/state/mate.status older newer
+  older=$(grep -n 'child old failed' "$parent" | head -1 | cut -d: -f1)
+  newer=$(grep -n 'child old done: replacement finished' "$parent" | head -1 | cut -d: -f1)
+  [ -n "$older" ] && [ -n "$newer" ] || fail "both outcomes must reach the parent: $(cat "$parent")"
+  [ "$older" -lt "$newer" ] || fail 'the replacement outcome reached the parent before the owed older outcome'
+  run_scan
+  [ "$(grep -c 'child old failed' "$parent")" = 1 ] || fail 'the owed older outcome was delivered more than once'
+  [ "$(grep -c 'child old done: replacement finished' "$parent")" = 1 ] || fail 'the replacement outcome was delivered more than once'
+  pass 'cleanup-late-outcome-retry: a teardown rerun delivers the owed older outcome before the replacement outcome, once each'
+}
+
 test_relaunch_does_not_duplicate_owed_outcome() {
   make_case relaunch
   make_parent
@@ -506,6 +530,7 @@ test_late_outcome_reaches_parent_before_record_retires
 test_undelivered_late_outcome_completes_after_owner_exits
 test_superseded_outcome_never_follows_newer_outcome
 test_reused_task_id_keeps_older_incarnation_outcome
+test_rerun_teardown_delivers_owed_outcome_first
 test_relaunch_does_not_duplicate_owed_outcome
 test_return_refusal_keeps_task_records
 test_busy_generation_refusal_preserves_slot

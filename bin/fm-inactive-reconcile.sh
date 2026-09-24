@@ -28,7 +28,8 @@
 # be written, so teardown refuses instead of discarding an undelivered outcome.
 # After the endpoint stops, teardown calls `report <task-id> --late`, which never
 # makes teardown refuse. An undelivered line then stays in its pending record,
-# and every scan in the secondmate home retries it before any newer line.
+# and every scan and report in the secondmate home retries it before any newer
+# line; a report that cannot deliver it first publishes nothing newer.
 # The cadence-gated scan below then evaluates at most once per
 # FM_INACTIVE_RECONCILE_SECS (default 900, valid 60..1800) per home, except
 # that --startup performs the same scan immediately in the locked session
@@ -429,9 +430,10 @@ report_child_ledger_locked() { # <id> <meta> [late]
   if [ -f "$data/$id/report.md" ] && [ ! -L "$data/$id/report.md" ]; then
     line="$line report=data/$id/report.md"
   fi
-  if [ "$late" = late ]; then
+  if [ -n "$late" ]; then
     record_field_set "$RECORD_PENDING" line "$line" || return 1
   fi
+  [ "$late" != held ] || return 1
   if fm_parent_channel_report "$FM_HOME" "$STATE" "$line"; then
     mark_reported "$RECORD_PENDING" || return 1
     return 0
@@ -443,17 +445,27 @@ report_child_ledger_locked() { # <id> <meta> [late]
 
 # Retry each final line that teardown could not deliver after the endpoint
 # stopped. Only `report --late` records that line: it is the last line of an
-# incarnation that can write no newer one.
+# incarnation that can write no newer one. Lines go out oldest first and stop at
+# the first failure, so a newer line never overtakes an owed one. The lock is a
+# leaf: its holder waits for no other lock, so scan and report may both take it.
 retry_retired_ledger_reports() {
-  local record line
-  for record in "$OUTCOME_DIR"/*.pending; do
-    [ -f "$record" ] && [ ! -L "$record" ] || continue
-    [ "$(record_value "$record" phase)" = upstream ] || continue
+  local lock="$STATE/.inactive-outcome-retry.lock" record line rc=0
+  fm_lock_acquire_wait "$lock" || return 1
+  while IFS=$'\t' read -r _ record; do
+    [ -n "$record" ] || continue
     line=$(record_value "$record" line)
-    [ -n "$line" ] || continue
-    fm_parent_channel_report "$FM_HOME" "$STATE" "$line" || continue
+    fm_parent_channel_report "$FM_HOME" "$STATE" "$line" || { rc=1; break; }
     mark_reported "$record" || true
-  done
+  done < <(
+    for record in "$OUTCOME_DIR"/*.pending; do
+      [ -f "$record" ] && [ ! -L "$record" ] || continue
+      [ "$(record_value "$record" phase)" = upstream ] || continue
+      [ -n "$(record_value "$record" line)" ] || continue
+      printf '%s\t%s\n' "$(record_value "$record" created_epoch)" "$record"
+    done | sort -n -k1,1
+  )
+  fm_lock_release "$lock"
+  return "$rc"
 }
 
 # Every direct child's ledger, under its meta lock. Cheap file reads only, so
@@ -461,7 +473,7 @@ retry_retired_ledger_reports() {
 # queued as a notice and never fails the scan.
 ledger_pass() {
   local meta id lock
-  retry_retired_ledger_reports
+  retry_retired_ledger_reports || true
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     id=$(basename "$meta" .meta)
@@ -488,6 +500,10 @@ report_child() { # <id> [late]
   meta="$STATE/$id.meta"
   [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
   [ "$(meta_field "$meta" kind)" != secondmate ] || return 0
+  if ! retry_retired_ledger_reports; then
+    [ -n "$late" ] || return 1
+    late=held
+  fi
   report_child_ledger_locked "$id" "$meta" "$late"
 }
 
