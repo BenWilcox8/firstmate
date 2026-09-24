@@ -1,0 +1,33 @@
+ok - typing-provenance-launch: the launch prompt writes one record matching the prompt the agent receives
+
+=== fm-spawn claude launch ===
+--- typed literals (NUL-separated, shown one per line):
+  | env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION=false CLAUDE_CODE_SEND_FEEDBACK=0 claude --dangerou
+--- sha256 of prompt the fake claude agent received: b643fe8ab31466d7c821fb5742e4f9f3508b8a54536abe6aa173fa01ccef53ba
+--- provenance records in /tmp/fm-local-typing-provenance.NYu0iH/spawn-claude/home/state:
+{"delivery_kind":"launch-prompt","endpoint":{"backend":"tmux","pane_id":"%9","target":"firstmate:fm-claude-z1","task_id":"claude-z1"},"sender_home":"/tmp/fm-local-typing-provenance.NYu0iH/spawn-claude/home","sha256":"b643fe8ab31466d7c821fb5742e4f9f3508b8a54536abe6aa173fa01ccef53ba","time":"2026-09-24T17:07:01Z","version":1}
+ok - typing-provenance-launch: a brief pointer typed after launch writes one record and the bare launch line none
+
+=== fm-spawn kimi pointer ===
+--- typed literals (NUL-separated, shown one per line):
+  | env -u CURSOR_AGENT -u CURSOR_INVOKED_AS -u GEMINI_CLI '/tmp/fm-local-typing-provenance.NYu0iH/spawn-kimi/fake/fakebin/kimi' --auto
+  | Read the brief at /tmp/fm-local-typing-provenance.NYu0iH/spawn-kimi/home/data/kimi-z1/launch-brief.md and follow it exactly.
+--- sha256 of last typed literal: 59009d1ddab9002ecebd40fe71564f584b201566ecb6e21b55f5678dc105ca61
+--- provenance records in /tmp/fm-local-typing-provenance.NYu0iH/spawn-kimi/home/state:
+{"delivery_kind":"launch-prompt","endpoint":{"backend":"tmux","pane_id":"%9","target":"firstmate:fm-kimi-z1","task_id":"kimi-z1"},"sender_home":"/tmp/fm-local-typing-provenance.NYu0iH/spawn-kimi/home","sha256":"59009d1ddab9002ecebd40fe71564f584b201566ecb6e21b55f5678dc105ca61","time":"2026-09-24T17:07:05Z","version":1}
+ok - typing-provenance-exit: the exit command keeps its bytes and writes one record
+
+=== fm-control exit ===
+--- typed literals (NUL-separated, shown one per line):
+  | /exit
+--- sha256 of last typed literal: 783ece18206af6a54cc9b3891b1820582db993c6ff58271a79da3ac0e025fd07
+--- provenance records in /tmp/fm-local-typing-provenance.NYu0iH/control/home/state:
+{"delivery_kind":"exit-command","endpoint":{"backend":"tmux","pane_id":"%9","target":"fmses:fm-t1","task_id":"t1"},"sender_home":"/tmp/fm-local-typing-provenance.NYu0iH/control/home","sha256":"783ece18206af6a54cc9b3891b1820582db993c6ff58271a79da3ac0e025fd07","time":"2026-09-24T17:07:06Z","version":1}
+ok - typing-provenance-digest: the supervisor digest keeps its bytes and writes one record
+
+=== away-mode daemon digest ===
+--- typed literals (NUL-separated, shown one per line):
+  | ⁣FIRSTMATE_OP: v1 away-supervisor: captain: the digest ☃
+--- sha256 of last typed literal: e87f8dbdb788c1212f3faf4c5d4eb83db880833b593bfae92acd96d0c3ae8ad8
+--- provenance records in /tmp/fm-local-typing-provenance.NYu0iH/daemon/home/state:
+{"delivery_kind":"supervision-digest","endpoint":{"backend":"tmux","pane_id":"%9","target":"sup:0","task_id":null},"sender_home":"/tmp/fm-local-typing-provenance.NYu0iH/daemon/home","sha256":"e87f8dbdb788c1212f3faf4c5d4eb83db880833b593bfae92acd96d0c3ae8ad8","time":"2026-09-24T17:07:07Z","version":1}
