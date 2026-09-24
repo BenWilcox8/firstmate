@@ -1,0 +1,50 @@
+worker w1 pane=w1:p2
+worker held pane=w1:p3
+worker donelate pane=w1:p4
+worker w2 pane=w1:p5
+worker parkres pane=w1:p6
+--- restart: stop and provision lab session
+filler-1 pane=w1:p7 (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+filler-2 pane=w1:p8 (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+filler-3 pane=w1:p9 (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+filler-4 pane=w1:pA (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+filler-5 pane=w1:pB (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+filler-6 pane=w1:pC (recorded worker ids: w1:p2w1:p3w1:p4w1:p5w1:p6)
+worker taker pane=w1:pD
+--- classify after restart (read-only)
+donelate	finished	it reported done
+held	captain-waiting	captain-held
+parkres	parked	parked: captain call
+taker	running	its agent is running
+w1	working	it was working when it stopped
+w2	working	it was working when it stopped
+--- resume the parked worker whose worktree was taken
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  6 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+task parkres: its worktree is now recorded for taker in /tmp/fm-local-pane.VyLYea/home
+error: worktree-lease: refusing to launch task parkres into a worktree leased to other work; nothing was created
+error: the resumed agent for parkres could not be launched; it stays parked with its session recorded, and its work is preserved at /tmp/fm-local-pane.VyLYea/wt-parkres
+ok - resume into a reused worktree refused, no launch, still parked
+--- record boot-2 (session start after restart)
+RESTART: machine reboot since the last session start (the boot id changed). No restart recovery pass ran for it: check bin/fm-local-restart-recovery.sh status, and relaunch authorized second mates one at a time.
+RESTART: Worker restore is relaunching the workers that were working, one at a time; its summary arrives as a check notification. Do not relaunch workers by hand before it.
+--- summary wake
+check: worker restore after machine reboot: restored 2 (w1, w2); skipped: running 1; parked 1; finished 1; captain-waiting 1 (held: captain-held); failed 0
+w1 now at fm-lab-reboot-adv-2121805-13351:w1:pE cwd=/tmp/fm-local-pane.VyLYea/wt-w1
+w2 now at fm-lab-reboot-adv-2121805-13351:w1:pF cwd=/tmp/fm-local-pane.VyLYea/wt-w2
+--- classify after restore
+donelate	finished	it reported done
+held	captain-waiting	captain-held
+parkres	parked	parked: captain call
+taker	running	its agent is running
+w1	running	its agent is running
+w2	running	its agent is running
+--- ledger
+1790282624	start	boot-2|um-1|1790282552.316792582	machine reboot
+1790282682	done	boot-2|um-1|1790282552.316792582	worker restore after machine reboot: restored 2 (w1, w2); skipped: running 1; parked 1; finished 1; captain-waiting 1 (held: captain-held); failed 0
+ok - both working workers restored in own worktrees; captain-held and done-after-decision stayed down
