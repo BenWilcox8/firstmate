@@ -1025,10 +1025,11 @@ _fm_composer_bare_codex_idle_footer() {  # <raw-row> <styled>
 
   plain=$(_fm_composer_row_content "$raw" 0)
   fm_composer_normalize_trim_var plain
-  # Narrow panes clip the dim status row inside its usage or context cell.
+  # Narrow panes clip the dim status row in or after its usage or context cell.
   # Require the complete model and effort, then a known cell prefix and ellipsis.
-  clipped_re='^gpt-[[:alnum:].-]+ (low|medium|high|xhigh|max|ultra)( fast)? · [0-9]+(\.[0-9]+)?[KMGT]?'
-  clipped_re+='( (u|us|use|used)| used · (C|Co|Con|Cont|Conte|Contex|Context)( [0-9]+(%( (u|us|use|used))?)?)?)?…$'
+  clipped_re='^gpt-[[:alnum:].-]+ (low|medium|high|xhigh|max|ultra) · [0-9]+(\.[0-9]+)?[KMGT]?'
+  clipped_re+='( (u|us|use|used( ·( (C|Co|Con|Cont|Conte|Contex|Context'
+  clipped_re+='( [0-9]+(%( (u|us|use|used( ·)?))?)?)?))?)?))? ?…$'
   fm_composer_idle_matches "$plain" "$clipped_re" sensitive && return 0
   model_effort=${plain%%' · '*}
   rest=${plain#*' · '}

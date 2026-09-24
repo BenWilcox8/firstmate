@@ -758,6 +758,14 @@ test_matrix_codex_captured_idle_frames() {
     assert_screen "incomplete usage word before a context cell" pending "$CAPS_STYLED" "$changed"
     changed=${screen/'178K used · Context 6…'/'707K u…'}
     assert_screen "Codex footer clipped inside the usage cell" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used · Context 6…'/'178K used ·…'}
+    assert_screen "Codex footer clipped at the usage separator" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'Context 6…'/'Context 38% used · …'}
+    assert_screen "Codex footer clipped after the context separator" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'Context 6…'/'Context …'}
+    assert_screen "Codex footer clipped with a trailing space" empty "$CAPS_STYLED" "$changed"
+    changed=${screen/'178K used · Context 6…'/'178K ·…'}
+    assert_screen "separator after an incomplete usage cell" pending "$CAPS_STYLED" "$changed"
     changed=${screen/›/❯}
     assert_screen "Codex animation exception does not apply to Claude" pending "$CAPS_STYLED" "$changed"
   done
