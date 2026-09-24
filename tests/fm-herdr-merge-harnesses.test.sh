@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Recovery through the public backend interface with independent process views.
 set -eu
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 TMP_ROOT=$(fm_test_tmproot fm-herdr-merge-harnesses)
 mkdir -p "$TMP_ROOT/bin" "$TMP_ROOT/home"

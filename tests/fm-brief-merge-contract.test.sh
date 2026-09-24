@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Public scaffold and promotion regressions for the merged worker contract.
 set -u
+# shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 TMP_ROOT=$(fm_test_tmproot fm-brief-merge-contract)
 home="$TMP_ROOT/home"
