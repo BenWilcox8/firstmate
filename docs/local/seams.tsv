@@ -1,0 +1,10 @@
+# path	line_budget	seam_id	owning_test	upstream	disposition
+# Budgets include the inherited fork delta against the upstream merge base.
+bin/fm-send.sh	39	send-provenance-context	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-remote-secondmate-control.sh	1	send-provenance-remote	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-tmux-lib.sh	1	send-provenance-tmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/backends/herdr.sh	814	send-provenance-herdr	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	348	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain

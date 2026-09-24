@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Firstmate typed-send provenance v1",
+  "description": "The Dashboard secondmate consumes this record to distinguish Firstmate input from captain input in the prompts and agent timeline tabs.",
+  "$comment": "This schema owns the record format. bin/fm-local-send-provenance.pl owns storage mechanics. The hooks observe successful literal typing before Enter. They do not change the typed bytes or the delivery verdict. A record proves typing, not submission or agent acknowledgement. Failed or skipped typing and key-only sends produce no record. Each actual remote doorbell retry produces its own record. Enter retries do not produce records.",
+  "x-storage": {
+    "local": "<FM_STATE_OVERRIDE or FM_HOME/state>/local-send-provenance/YYYY-MM-DD.jsonl",
+    "remote": "<remote FM_HOME>/state/parent-route/local-send-provenance/YYYY-MM-DD.jsonl",
+    "encoding": "ASCII JSON, one object per LF-terminated line, in UTC daily shards.",
+    "retention": "Keep the current UTC day and the preceding seven days. Append and teardown remove older shards under the writer lock. Readers exclude older shards even if the home has been idle. Recent records survive task teardown.",
+    "reader": "Read all retained shards in both locations for a home. Match endpoint identity, exact-byte SHA-256, and nearby transcript time. Consume matches by occurrence. A hash alone cannot distinguish identical human input or repeated sends. The state location identifies the destination machine. Do not normalize whitespace or add a newline before hashing.",
+    "failures": "Recording errors do not change delivery results or trigger retyping. Missing records do not prove that the captain typed a message. Doorbell callers can suppress stderr. The writer uses Perl core modules and creates private directories and files.",
+    "remote_transport": "fm-send appends a versioned sender-home argument to its remote send envelope. The remote hook removes this argument before upstream command parsing. The message body is unchanged. Both hosts need these hooks. A remote command without the envelope records its host-local FM_HOME as the sender."
+  },
+  "type": "object",
+  "required": ["version", "endpoint", "sha256", "time", "sender_home", "delivery_kind"],
+  "additionalProperties": false,
+  "properties": {
+    "version": {"const": 1},
+    "endpoint": {
+      "type": "object",
+      "required": ["backend", "target", "pane_id", "task_id"],
+      "additionalProperties": false,
+      "properties": {
+        "backend": {"enum": ["tmux", "herdr", "zellij", "cmux", "orca"]},
+        "target": {"type": "string", "description": "The fully qualified backend target passed to the literal transport."},
+        "pane_id": {"type": ["string", "null"], "description": "The tmux pane id or the final component of the backend target. Null means the tmux lookup failed."},
+        "task_id": {"type": ["string", "null"], "description": "The task from endpoint metadata, including an explicit endpoint with matching metadata. Null means no task is known."}
+      }
+    },
+    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$", "description": "SHA-256 of the exact literal bytes sent to the transport. It excludes the separate Enter keystroke. A doorbell hash covers the doorbell line, not the inbox body."},
+    "time": {"type": "string", "format": "date-time", "description": "UTC time immediately after successful literal typing, to the nearest second."},
+    "sender_home": {"type": "string", "description": "The canonical absolute path of the sending FM_HOME. A remote envelope preserves the origin home path across SSH."},
+    "delivery_kind": {"enum": ["doorbell", "native-skill", "explicit-endpoint"], "description": "The delivery path. Explicit endpoint selection takes precedence over native-skill syntax."}
+  }
+}
