@@ -59,7 +59,10 @@ case "$1" in
     [ ! -e "$CASE/late-outcome" ] || printf 'failed: late outcome before the endpoint stopped\n' >> "$CASE/home/state/old.status"
     [ ! -e "$CASE/subshell.pid" ] || kill "$(cat "$CASE/subshell.pid")"
     [ ! -e "$CASE/break-parent" ] || mv "$CASE/home/.fm-secondmate-parent" "$CASE/parent-binding.off"
-    [ ! -x "$CASE/watcher-race" ] || "$CASE/watcher-race" > /dev/null 2>&1 &
+    if [ -x "$CASE/watcher-race" ]; then
+      "$CASE/watcher-race" > /dev/null 2>&1 &
+      for ((i=0; i<200; i++)); do [ ! -e "$CASE/race-locked" ] || break; sleep 0.05; done
+    fi
     ;;
 esac
 exit 0
@@ -226,6 +229,7 @@ test_late_report_serializes_with_watcher_retry() {
 . "$ROOT/bin/fm-wake-lib.sh"
 lock="$CASE/home/state/.inactive-outcome-retry.lock"
 fm_lock_acquire_wait "\$lock"
+: > "$CASE/race-locked"
 for ((i=0; i<100; i++)); do
   for record in "$CASE/home/state/terminal-outcomes/"*.pending; do
     line=\$(grep '^line=' "\$record" 2>/dev/null | tail -1 | cut -d= -f2-)
@@ -243,6 +247,7 @@ SH
   chmod +x "$CASE/watcher-race"
   run_teardown > "$CASE/out" 2> "$CASE/err" || fail "teardown failed: $(cat "$CASE/err")"
   for ((i=0; i<100; i++)); do [ ! -e "$CASE/home/state/.inactive-outcome-retry.lock" ] && break; sleep 0.1; done
+  assert_present "$CASE/race-locked" 'the overlapping retry caller did not take the retry lock'
   assert_present "$CASE/race-done" 'the late record was not retry-eligible while another caller held the retry lock'
   case "$(cat "$CASE/err")" in *'LATE OUTCOME UNDELIVERED'*) fail 'a delivered late outcome was reported as undelivered' ;; esac
   [ "$(grep -c 'child old failed' "$CASE/parent/state/mate.status")" = 1 ] || fail 'the late outcome did not reach the parent exactly once'
