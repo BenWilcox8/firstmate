@@ -1375,6 +1375,29 @@ EOF
   pass "tmux endpoint liveness is reported per task: alive for a live window, dead for a gone one"
 }
 
+# A parked task closed its endpoint on purpose, so the digest reports the park
+# and how to resume it, never a dead endpoint that recovery would restart fresh.
+test_endpoint_liveness_parked() {
+  local rec root home fakebin out
+  rec=$(new_world liveness-parked)
+  IFS='|' read -r root home fakebin <<EOF
+$rec
+EOF
+  make_fake_toolchain "$fakebin"
+  make_fake_ps_claude "$fakebin"
+  make_fake_tmux "$fakebin" "fm-sess:live-window"
+
+  printf 'window=fm-sess:parked-window\nkind=ship\nparked=2026-09-22T08:00:00Z\nparked_reason=waits on the merge word\nnative_session_harness=claude\n' \
+    > "$home/state/task-parked.meta"
+
+  out=$(run_session_start "$home" "$root" "$fakebin:$BASE_PATH")
+  assert_contains "$out" "endpoint: parked since 2026-09-22T08:00:00Z (worker closed on purpose, claude session recorded; resume with bin/fm-control.sh task-parked resume)" \
+    "a parked task should be reported parked with its resume command"
+  assert_not_contains "$out" "endpoint: dead (backend=tmux window=fm-sess:parked-window)" \
+    "a parked task must not be reported as a dead endpoint"
+  pass "a parked task's endpoint is reported parked with its resume command, not dead"
+}
+
 test_endpoint_liveness_herdr() {
   local rec root home fakebin out
   rec=$(new_world liveness-herdr)
@@ -2740,6 +2763,7 @@ test_status_tail_line_cap
 test_orphan_status_logs_are_printed
 test_endpoint_liveness_tmux
 test_endpoint_liveness_herdr
+test_endpoint_liveness_parked
 test_composition_invokes_real_scripts
 test_branch_outcome_replay_respects_captain_barrier_and_lease_sweep
 test_non_pi_session_start_leaves_branch_state_untouched

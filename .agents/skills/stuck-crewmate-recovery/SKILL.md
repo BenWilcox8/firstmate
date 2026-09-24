@@ -27,6 +27,12 @@ Load `secondmate-provisioning` instead for `kind=secondmate` recovery.
 For a REMOTE secondmate, `fm-crew-state` and `fm-peek` read the actual remote endpoint over `fm-on.sh`, and `fm-send` reports a delivered-with-pending-confirmation steer as delivered (their headers own the contracts); an `unknown-remote` read or unreachable-host failure means the remote state could not be read, never that the mate is dead or the send failed.
 Recover a genuinely stuck remote mate only through `bin/fm-spawn.sh <id> --secondmate`, never raw herdr pane close/kill surgery, which strands the endpoint binding.
 
+A parked task is not a dead one.
+The digest prints `endpoint: parked` and `bin/fm-crew-state.sh <id>` reports `parked` from `park` when `bin/fm-control.sh <id> park` closed the worker on purpose and recorded its native session.
+Never recover or relaunch it fresh.
+When its work continues, resume it with `bin/fm-control.sh <id> resume`, which reopens that exact session in the same worktree.
+`relaunch` of a parked task does the same.
+
 Treat the digest's endpoint result as a presence signal, not proof that the task's work or validation run is gone.
 Read the targeted current state with `bin/fm-crew-state.sh <id>` before deciding to relaunch.
 A no-mistakes run matched to the crew's branch and current code remains authoritative when the endpoint is dead: handle a terminal or parked run through the normal lifecycle, and keep supervising an active run instead of creating a duplicate worker.

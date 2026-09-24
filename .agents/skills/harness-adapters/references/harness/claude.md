@@ -55,6 +55,16 @@ Print mode (`--print`) always writes a transcript and cannot reproduce or verify
 `../../../bin/fm-spawn.sh` adds the prefix once for the resolved Claude harness, so it reaches every runtime backend and the raw-launch escape hatch alike; no other harness receives it.
 `../../../tests/fm-spawn-claude-persistence.test.sh` pins the composed launch and executes it against a fake Claude in a contaminated environment.
 
+## Native session
+
+Verified 2026-09-22 on Claude Code 2.1.280.
+A running Claude process keeps `<config>/sessions/<pid>.json`, which names its `sessionId`, its `cwd`, and `procStart`, the kernel start time of that process.
+`<config>` is the `CLAUDE_CONFIG_DIR` in the process's own environment, else `$HOME/.claude`.
+Claude does not keep its transcript open, so the per-process record is the proof: `procStart` binds it to the exact running process, and a record left by an earlier process with the same pid never matches.
+The transcript is `<config>/projects/*/<sessionId>.jsonl`.
+`claude --resume <sessionId>`, launched in the same worktree with the fleet flags, reopens the conversation.
+`../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
+
 ## Feedback drafts
 
 The spawn disables Claude's `/bug` and `/feedback` model-drafted feedback flow for every Claude worker and secondmate, preventing a fleet-launched agent from queuing or submitting a bug report on the captain's behalf.

@@ -33,6 +33,17 @@ A project trust dialog can appear on the first Pi run in any not-yet-trusted dir
 Accept it with Enter and verify the instructions begin processing.
 The decision persists per path in `~/.pi/agent/trust.json`, so later spawns in the same pooled slot skip it.
 
+## Native session
+
+Verified 2026-09-22 on Pi 0.87.1.
+Pi keeps no session file open, so a running Pi's session is known only from Pi itself.
+The Firstmate worker extension records `ctx.sessionManager`'s session id and session file on every `session_start` (reasons `startup`, `reload`, `new`, `resume`, and `fork`) into `state/<id>.pi-session`, tagged with the incarnation's busy generation.
+The session file's first line is its `session` header, which carries the same id and the launch directory as `cwd`.
+`pi --session <session-file>` reopens that exact conversation.
+`--session-id` creates a missing session, so a resume never uses it.
+`../../../bin/fm-native-session-lib.sh` owns the proof and the resume form.
+A Pi worker launched before this record existed cannot be parked.
+
 ## Worker turn-end extension
 
 `../../../bin/fm-spawn.sh` keeps the worker turn-end extension in `state/`, outside the worktree, because project-local extension files worsen the trust gate and pollute the project.

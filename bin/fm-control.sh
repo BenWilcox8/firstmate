@@ -7,6 +7,9 @@
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
 #                                         [--effort <level>]
 #                                         (--note <text> | --note-file <path>)
+#        fm-control.sh <task-id> park --reason <text> [--on <ticket|node>]
+#        fm-control.sh <task-id> resume [--note <text> | --note-file <path>]
+#                                       [--over-limit]
 #
 # Why this exists, and how it differs from fm-send.sh. bin/fm-send.sh is the
 # DATA plane: conversational text for the agent to read, always routing-marked
@@ -51,17 +54,49 @@
 #              bin/fm-spawn.sh --relaunch. A failure before publication keeps
 #              the prior durable record in place and reports the concrete
 #              state; it never leaves a half-transitioned task claiming to be
-#              running.
+#              running. A PARKED task is resumed instead of started fresh:
+#              relaunch reopens its recorded native session (see resume), and
+#              refuses a harness, model, or effort change for it. Relaunch
+#              takes resume's --over-limit only for a parked task.
+#   park       Worker gone, work preserved. Proves the running worker's native
+#              session (bin/fm-native-session-lib.sh owns the proof per
+#              harness), records it with the reason in the task record
+#              (parked=, parked_reason=, parked_on=, native_session=,
+#              native_session_harness=, native_session_file=), records the park
+#              on the task's Atlas ticket when it has one, exits the agent
+#              through `exit`, then closes ONLY its endpoint with proof it is
+#              gone. The worktree, branch, task record, backlog item, status log,
+#              and inbox all stay. A session that cannot be proven, or that the
+#              resume launch would not find, refuses with nothing changed. A ship
+#              or scout only. Parking a parked task again only updates its reason
+#              and blocker and re-records the Atlas park; it never closes a pane
+#              (resume closes the task's own leftover pane).
+#   resume     Reopens a parked task's recorded session: confirms the session
+#              file still exists, returns the Atlas ticket to started (ticket
+#              unpark) and requires the Atlas to confirm it, then launches the
+#              recorded harness with its native resume of that exact session in
+#              the task's worktree through bin/fm-spawn.sh --relaunch
+#              --resume-session, always in a new endpoint: the recorded id can
+#              name another pane by now, so only a pane sitting in the task's
+#              worktree counts as its own - an agent-free one is closed first,
+#              an agent running there refuses, and any other pane is left
+#              alone. A missing session file refuses, with the task still parked;
+#              a resume never falls back to a fresh session. --note is delivered
+#              as a durable inbox steer once the agent runs. The park record is
+#              cleared only after the resumed agent is confirmed running; a
+#              failure after the unpark re-records the Atlas park. The new
+#              endpoint adds an agent, so on Herdr the resume refuses at the
+#              agent limit (bin/fm-agent-limit-lib.sh) before it changes
+#              anything, and --over-limit lets this one resume through.
 #
 # Teardown and discard are NOT verbs here and never will be. `exit` stops an
 # agent and preserves everything else; removing a worktree, killing an
 # endpoint, or discarding work stays with bin/fm-teardown.sh, which owns the
 # landed-work test.
 #
-# `resume` is not a verb: it is not deterministic across the verified adapters
-# (bin/fm-control-lib.sh's header owns that reasoning). `relaunch` covers the
-# same need for every adapter because the brief on disk, not a harness-private
-# session, is the durable instruction.
+# park and resume exist only for adapters with a proven native session
+# (bin/fm-control-lib.sh's header owns that reasoning); every other adapter uses
+# relaunch, because the brief on disk is its durable instruction.
 #
 # Targeting is EXACT: only a bare task id with a state/<id>.meta record in
 # THIS home is accepted, and the record must pass the shared endpoint-identity
@@ -78,7 +113,7 @@
 #     is refused rather than guessed at.
 #   - A backend that cannot deliver the harness's interrupt key is refused
 #     (Orca's terminal API has no Escape).
-#   - `exit` and `relaunch` require a backend with a recovery-grade agent-state
+#   - `exit`, `relaunch`, `park`, and `resume` require a backend with a recovery-grade agent-state
 #     classifier (tmux, herdr), because without one the "the agent stopped"
 #     postcondition cannot be proven. zellij, orca, and cmux are refused rather
 #     than reported as successful blind.
@@ -91,6 +126,10 @@
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
+#   FM_CONTROL_STATE_SETTLE      park/resume re-sample window for an endpoint
+#                                that reads transiently unclassifiable (10)
+#   FM_CONTROL_READY_WAIT        resume's wait for the resumed agent's empty
+#                                composer before it rings the note (60)
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -121,6 +160,7 @@ fi
 }
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
 DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
+CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 [ -d "$STATE" ] || {
   echo "error: state dir '$STATE' is missing; fm-control cannot resolve tasks for FM_HOME '$FM_HOME'" >&2
   exit 1
@@ -132,16 +172,24 @@ DATA="${FM_DATA_OVERRIDE:-$FM_HOME/data}"
 . "$SCRIPT_DIR/fm-busy-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-native-session-lib.sh
+. "$SCRIPT_DIR/fm-native-session-lib.sh"
+# shellcheck source=bin/fm-parent-channel-lib.sh
+. "$SCRIPT_DIR/fm-parent-channel-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
+# shellcheck source=bin/fm-agent-limit-lib.sh
+. "$SCRIPT_DIR/fm-agent-limit-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
+STATE_SETTLE=${FM_CONTROL_STATE_SETTLE:-10}
+READY_WAIT=${FM_CONTROL_READY_WAIT:-60}
 
 die() {  # <message>
   echo "error: $1" >&2
@@ -178,11 +226,7 @@ shift 2
 
 if ! fm_control_verb_allowed "$VERB"; then
   {
-    if [ "$VERB" = resume ]; then
-      echo "error: 'resume' is not a control verb: resuming an exited agent is not deterministic across the verified adapters (codex and grok need a session id printed at exit, opencode continues the most recent session for the cwd, and claude, pi, pi-signed, and kimi have no verified pane-resume contract). Use 'relaunch', which carries the brief plus a progress note into a fresh agent on any adapter."
-    else
-      echo "error: '$VERB' is not a control verb"
-    fi
+    echo "error: '$VERB' is not a control verb"
     echo "allowed verbs:"
     fm_control_verbs | sed 's/^/  /'
   } >&2
@@ -197,6 +241,11 @@ MODEL_SET=0
 EFFORT_SET=0
 NOTE=
 NOTE_SET=0
+REASON=
+REASON_SET=0
+PARK_ON=
+PARK_ON_SET=0
+OVER_LIMIT=0
 control_want_value=
 for control_arg in "$@"; do
   if [ -n "$control_want_value" ]; then
@@ -208,6 +257,8 @@ for control_arg in "$@"; do
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
+      reason) REASON=$control_arg; REASON_SET=1 ;;
+      on) PARK_ON=$control_arg; PARK_ON_SET=1 ;;
       note_file)
         [ -f "$control_arg" ] || die "--note-file '$control_arg' is not a readable file"
         NOTE=$(cat "$control_arg")
@@ -227,6 +278,11 @@ for control_arg in "$@"; do
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
+    --reason) control_want_value=reason ;;
+    --reason=*) REASON=${control_arg#--reason=}; REASON_SET=1 ;;
+    --on) control_want_value=on ;;
+    --on=*) PARK_ON=${control_arg#--on=}; PARK_ON_SET=1 ;;
+    --over-limit) OVER_LIMIT=1 ;;
     --note-file=*)
       [ -f "${control_arg#--note-file=}" ] || die "--note-file '${control_arg#--note-file=}' is not a readable file"
       NOTE=$(cat "${control_arg#--note-file=}")
@@ -241,8 +297,21 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$NOTE_SET" = 0 ] \
-    || die "--harness, --model, --effort, and --note apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
+    || die "--harness, --model, and --effort apply to 'relaunch' only"
+fi
+case "$VERB" in
+  relaunch|resume) ;;
+  *)
+    [ "$NOTE_SET" = 0 ] || die "--note applies to 'relaunch' and 'resume' only"
+    [ "$OVER_LIMIT" = 0 ] || die "--over-limit applies to 'resume' and to 'relaunch' of a parked task only"
+    ;;
+esac
+if [ "$VERB" = park ]; then
+  [ -n "$REASON" ] || die "park requires a non-empty --reason that says what the work waits on"
+  [ "$PARK_ON_SET" = 0 ] || [ -n "$PARK_ON" ] || die "--on requires a non-empty value"
+else
+  [ "$REASON_SET" = 0 ] && [ "$PARK_ON_SET" = 0 ] || die "--reason and --on apply to 'park' only"
 fi
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
@@ -342,6 +411,51 @@ wait_agent_state() {  # <timeout> <wanted>...
   done
   printf '%s' "$state"
   return 1
+}
+
+# agent_state_settled: a recovery-grade read that re-samples, for up to
+# STATE_SETTLE seconds, an endpoint that reads neither alive, dead, nor
+# missing. An agent's own short-lived children (its hooks, a status line) can
+# make the classifier's two process samples disagree, which it correctly
+# reports as unreadable; a re-sample is read-only, so waiting briefly for a
+# positive answer is safe. Prints the last observed state.
+agent_state_settled() {
+  local state elapsed=0
+  while :; do
+    state=$(agent_state)
+    case "$state" in
+      alive|dead|missing) printf '%s' "$state"; return 0 ;;
+    esac
+    awk -v e="$elapsed" -v t="$STATE_SETTLE" 'BEGIN{exit !(e < t)}' || break
+    sleep "$POLL"
+    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+  done
+  printf '%s' "$state"
+}
+
+# park_stop_agent: stop the agent through the exit verb. An exit refused while
+# the endpoint read transiently unclassifiable is retried, up to three times,
+# while a settled read still finds the agent alive; an agent a settled read
+# finds stopped is stopped. Prints the last attempt's refusal on failure.
+park_stop_agent() {
+  local attempt=0 err state
+  err=$(mktemp "$STATE/.$ID.park-exit.XXXXXX") || return 1
+  while :; do
+    # do_exit refuses through die, which exits its shell: keep it in a subshell.
+    if ( do_exit ) >/dev/null 2>"$err"; then
+      rm -f "$err"
+      return 0
+    fi
+    attempt=$((attempt + 1))
+    state=$(agent_state_settled)
+    case "$state" in
+      dead|missing) rm -f "$err"; return 0 ;;
+      alive) [ "$attempt" -lt 3 ] && continue ;;
+    esac
+    cat "$err" >&2
+    rm -f "$err"
+    return 1
+  done
 }
 
 require_state_verified_backend() {  # <verb>
@@ -851,6 +965,350 @@ do_relaunch() {
   echo "relaunched $ID harness=$TARGET_HARNESS from=$PRIOR_RECORDED_HARNESS model=$TARGET_MODEL effort=$TARGET_EFFORT backend=$BACKEND endpoint=$T worktree=$WT"
 }
 
+# --- park and resume ----------------------------------------------------------
+#
+# A park is the ONE act for "worker gone, work preserved". Its durable record is
+# six keys in the task record, written only by this plane:
+#   parked=<utc>            the park; its presence IS the parked state
+#   parked_reason=<text>    what the work waits on
+#   parked_on=<blocker>     optional blocking ticket or node
+#   native_session=<id>     the proven native session a resume reopens
+#   native_session_harness=<adapter>
+#   native_session_file=<path>  the file that proves it and that resume needs
+# bin/fm-native-session-lib.sh owns what "proven" means per harness.
+
+PARK_KEYS="parked parked_reason parked_on native_session native_session_harness native_session_file"
+
+# The Claude configuration a resume launches with (bin/fm-spawn.sh forwards
+# the same one), so the park and the resume look for a session in one place.
+resume_claude_config() {
+  printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+}
+
+one_line() {  # <text>: a meta value is one line
+  printf '%s' "$1" | tr '\n\r\t' '   ' | sed 's/^ *//; s/ *$//'
+}
+
+# park_meta_write [key=value]...: replace every park key in this task's record
+# with exactly the given lines, atomically under the task's meta lock. No
+# arguments clears the park record.
+park_meta_write() {
+  local lock tmp status=0
+  lock=$(fm_meta_lock_path "$META") || return 1
+  fm_lock_acquire_wait "$lock"
+  tmp=$(mktemp "$STATE/.$ID.meta.park.XXXXXX") || { fm_lock_release "$lock"; return 1; }
+  awk -F= -v keys="$PARK_KEYS" '
+    BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) drop[k[i]] = 1 }
+    !($1 in drop)' "$META" > "$tmp" || status=1
+  if [ "$status" -eq 0 ] && [ "$#" -gt 0 ]; then
+    printf '%s\n' "$@" >> "$tmp" || status=1
+  fi
+  if [ "$status" -eq 0 ]; then
+    mv -f "$tmp" "$META" || status=1
+  fi
+  [ "$status" -eq 0 ] || rm -f "$tmp"
+  fm_lock_release "$lock"
+  return "$status"
+}
+
+# The name this home gives the Atlas as a park's supervising home: a secondmate
+# home's own identity, or `main` for the primary home.
+park_home_name() {
+  local id rc=0
+  id=$(fm_parent_channel_home_id "$FM_HOME") || rc=$?
+  case "$rc" in
+    0) printf '%s' "$id" ;;
+    1) printf 'main' ;;
+    *) return 1 ;;
+  esac
+}
+
+atlas_hook() {  # <verb> <hook-args>...
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+    "$SCRIPT_DIR/fm-atlas-hook.sh" "$@" --actor fm-control
+}
+
+# Whether this task's park must be mirrored on an Atlas ticket: the task names
+# one and this home is wired to an Atlas.
+atlas_ticketed() {
+  [ -n "$(fm_meta_get "$META" atlas_ticket)" ] || return 1
+  [ -n "$(FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-atlas-hook.sh" wired 2>/dev/null)" ]
+}
+
+atlas_ticket_state() {
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-atlas-hook.sh" state "$ID" 2>/dev/null
+}
+
+atlas_ticket_parked() {
+  FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" "$SCRIPT_DIR/fm-atlas-hook.sh" parked "$ID" 2>/dev/null
+}
+
+park_field() {  # <parked-read> <key>
+  printf '%s\n' "$1" | sed -n "s/^$2=//p" | head -n 1
+}
+
+# atlas_park <reason> <harness> <session> <blocker>: record the park on the
+# ticket and require the Atlas to take it. The hook never fails its caller, so
+# it reports a refused park on stdout, because a refused update of a ticket that
+# was already parked still reads parked. The read-back then proves the park in
+# force: the same reason and session, and a blocker exactly when one was sent
+# (the Atlas stores the id it resolved it to).
+atlas_park() {  # <reason> <harness> <session> <blocker>
+  local reason=$1 harness=$2 session=$3 on=$4 home out after got sent=0 held=0
+  home=$(park_home_name) \
+    || { echo "error: this home's secondmate identity marker is unusable, so the Atlas park cannot name its home" >&2; return 1; }
+  if [ -n "$on" ]; then
+    out=$(atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session" --on "$on")
+  else
+    out=$(atlas_hook park "$ID" --reason "$reason" --home "$home" --harness "$harness" --session "$session")
+  fi
+  case "$out" in
+    *refused:*)
+      echo "error: the Atlas refused the park on ticket $(fm_meta_get "$META" atlas_ticket): ${out#*refused: }" >&2
+      return 1
+      ;;
+  esac
+  after=$(atlas_ticket_parked)
+  if [ -z "$after" ]; then
+    got=$(atlas_ticket_state)
+    echo "error: the Atlas did not record ticket $(fm_meta_get "$META" atlas_ticket) as parked (it reads '${got:-unreadable}')" >&2
+    return 1
+  fi
+  [ -z "$on" ] || sent=1
+  [ -z "$(park_field "$after" on)" ] || held=1
+  if [ "$(park_field "$after" why)" != "$reason" ] || [ "$(park_field "$after" session)" != "$session" ] \
+    || [ "$held" != "$sent" ]; then
+    echo "error: the Atlas did not record this park on ticket $(fm_meta_get "$META" atlas_ticket); its park in force reads: $(printf '%s' "$after" | tr '\n' ' ')" >&2
+    return 1
+  fi
+}
+
+# atlas_unpark [note]: return the ticket to started and require the Atlas to
+# read it back as started.
+atlas_unpark() {  # [note]
+  local got
+  if [ -n "${1:-}" ]; then
+    atlas_hook unpark "$ID" --reason "$1"
+  else
+    atlas_hook unpark "$ID"
+  fi
+  got=$(atlas_ticket_state)
+  [ "$got" = started ] || {
+    echo "error: the Atlas did not return ticket $(fm_meta_get "$META" atlas_ticket) to started (it reads '${got:-unreadable}')" >&2
+    return 1
+  }
+}
+
+park_require_kind() {  # <verb>
+  case "$KIND" in
+    ship|scout) ;;
+    *) die "task $ID is a $KIND; only a ship or scout worker can be ${1}d, because its conversation is the work being preserved" ;;
+  esac
+}
+
+park_require_harness() {  # <verb>
+  fm_native_session_supported "$HARNESS" \
+    || die "task $ID runs on $HARNESS, which has no verified native session $1; relaunch it with a progress note instead"
+  [ "$RECORDED_HARNESS" = "$HARNESS" ] \
+    || die "task $ID records the raw launch command '$RECORDED_HARNESS', whose session cannot be reopened through the $HARNESS adapter"
+}
+
+do_park() {
+  local state pids gen sid file parked stamp reason on key value
+  local -a record prior
+  park_require_kind park
+  require_state_verified_backend park
+  park_require_harness park
+  reason=$(one_line "$REASON")
+  on=$(one_line "$PARK_ON")
+  parked=$(fm_meta_get "$META" parked)
+  if [ -n "$parked" ]; then
+    # Parking a parked task refreshes only its reason, blocker, and Atlas park.
+    # It never touches a pane: the recorded id can name another pane by now,
+    # and resume closes the task's own leftover pane.
+    if [ "$(agent_state_settled)" = alive ] && [ "$(resume_endpoint_owner)" = own ]; then
+      die "task $ID is recorded as parked, but an agent runs in its worktree at $T; reconcile it before parking again"
+    fi
+    sid=$(fm_meta_get "$META" native_session)
+    file=$(fm_meta_get "$META" native_session_file)
+    [ -n "$sid" ] || die "task $ID is recorded as parked with no native session; reconcile its record before parking again"
+    stamp=$parked
+    for key in $PARK_KEYS; do
+      value=$(fm_meta_get "$META" "$key")
+      [ -z "$value" ] || prior+=("$key=$value")
+    done
+  else
+    state=$(agent_state_settled)
+    case "$state" in
+      alive) ;;
+      dead|missing) die "task $ID has no running agent (its endpoint reads '$state'), so there is no live session to prove; nothing was changed" ;;
+      *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to park an unattributed endpoint" ;;
+    esac
+    pids=$(fm_backend_foreground_pids "$BACKEND" "$T") \
+      || die "the processes in task $ID's endpoint $T could not be read, so its session cannot be proven; nothing was changed"
+    gen=$(fm_meta_get "$META" busy_gen)
+    # shellcheck disable=SC2086 # One pid per word.
+    fm_native_session_capture "$HARNESS" "$WT" "$STATE" "$ID" "$gen" $pids \
+      || die "task $ID cannot be parked: $FM_NATIVE_SESSION_REASON; nothing was changed"
+    sid=$FM_NATIVE_SESSION_ID
+    file=$FM_NATIVE_SESSION_FILE
+    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$(resume_claude_config)" \
+      || die "task $ID cannot be parked, because its resume would not find the session: $FM_NATIVE_SESSION_REASON; nothing was changed"
+    stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  fi
+  record=("parked=$stamp" "parked_reason=$reason")
+  [ -z "$on" ] || record+=("parked_on=$on")
+  record+=("native_session=$sid" "native_session_harness=$HARNESS" "native_session_file=$file")
+  park_meta_write "${record[@]}" \
+    || die "task $ID's park could not be recorded in $META; nothing else was changed"
+  if atlas_ticketed && ! atlas_park "$reason" "$HARNESS" "$sid" "$on"; then
+    if [ -n "$parked" ]; then
+      park_meta_write "${prior[@]}" || true
+      die "task $ID's park was not updated, because its Atlas ticket could not record it; its prior park record was kept"
+    fi
+    park_meta_write || true
+    die "task $ID was not parked, because its Atlas ticket could not record the park; its worker is still running and nothing else was changed"
+  fi
+  if [ -n "$parked" ]; then
+    echo "parked $ID harness=$HARNESS session=$sid backend=$BACKEND worktree=$WT"
+    return 0
+  fi
+  if ! park_stop_agent; then
+    if atlas_ticketed; then
+      atlas_unpark "park of $ID was refused: its worker did not stop" || true
+    fi
+    park_meta_write || true
+    die "task $ID was not parked, because its worker did not stop; the park record was withdrawn"
+  fi
+  fm_backend_task_endpoint_close "$BACKEND" "$STATE" "$ID" "$T" "$META" \
+    || die "task $ID is parked with its session recorded, but its endpoint $T could not be closed: $FM_BACKEND_TASK_CLOSE_REASON; close that pane by hand, or resume the task, which closes its own leftover pane first"
+  echo "parked $ID harness=$HARNESS session=$sid backend=$BACKEND endpoint=$T worktree=$WT"
+}
+
+RESUME_UNPARKED=0
+RESUME_SESSION=
+RESUME_REASON=
+
+# resume_wait_composer_ready: wait up to READY_WAIT seconds for the resumed
+# agent's composer to read empty.
+resume_wait_composer_ready() {
+  local elapsed=0
+  while :; do
+    [ "$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null)" = empty ] && return 0
+    awk -v e="$elapsed" -v t="$READY_WAIT" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$POLL"
+    elapsed=$(awk -v e="$elapsed" -v p="$POLL" 'BEGIN{printf "%.3f", e + p}')
+  done
+}
+
+# Whether the recorded endpoint's pane sits in this task's worktree (own), in
+# another directory (other), or cannot be located (unknown).
+resume_endpoint_owner() {
+  local seen
+  seen=$(fm_backend_current_path "$BACKEND" "$T" 2>/dev/null) || seen=
+  if [ -z "$seen" ]; then
+    printf 'unknown'
+  elif fm_native_session_same_dir "$seen" "$WT"; then
+    printf 'own'
+  else
+    printf 'other'
+  fi
+}
+
+resume_rollback() {
+  [ "$RESUME_UNPARKED" = 1 ] || return 0
+  RESUME_UNPARKED=0
+  atlas_park "$RESUME_REASON" "$HARNESS" "$RESUME_SESSION" "$(fm_meta_get "$META" parked_on)" >/dev/null 2>&1 \
+    || echo "error: task $ID's Atlas ticket could not be parked again after the failed resume; park it again with bin/fm-control.sh $ID park" >&2
+}
+
+do_resume() {
+  local parked file state model effort
+  local -a spawn_args
+  park_require_kind resume
+  require_state_verified_backend resume
+  parked=$(fm_meta_get "$META" parked)
+  [ -n "$parked" ] \
+    || die "task $ID is not parked; resume reopens only a parked task's recorded session (use relaunch to replace a running agent)"
+  park_require_harness resume
+  RESUME_SESSION=$(fm_meta_get "$META" native_session)
+  RESUME_REASON=$(fm_meta_get "$META" parked_reason)
+  file=$(fm_meta_get "$META" native_session_file)
+  [ "$(fm_meta_get "$META" native_session_harness)" = "$HARNESS" ] \
+    || die "task $ID's recorded session belongs to '$(fm_meta_get "$META" native_session_harness)', not its recorded harness $HARNESS; it stays parked"
+  [ -n "$WT" ] && [ -d "$WT" ] \
+    || die "task $ID's recorded worktree '${WT:-none}' is missing; its session cannot be resumed where its work lives, and it stays parked"
+  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$(resume_claude_config)" \
+    || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
+  # The resume opens a new pane, so it is held to the agent limit. The launch
+  # re-checks it; checking here first keeps a refused resume from touching the
+  # Atlas ticket or any pane.
+  if [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" = 0 ]; then
+    fm_backend_source herdr \
+      || die "task $ID was not resumed, because the herdr adapter could not be loaded to count its agents; it stays parked"
+    fm_agent_limit_gate "$FM_HOME" "$CONFIG" \
+      || die "task $ID was not resumed; it stays parked and nothing was changed"
+  fi
+  # The park closed the recorded endpoint, and its id can now name another pane
+  # (Herdr pane ids restart low after a server restart), so only a pane that
+  # sits in this task's worktree is treated as the task's own. The resume
+  # always opens a new endpoint; it first closes the task's own agent-free pane
+  # left by a park whose close never finished, and leaves any other pane alone.
+  state=$(agent_state_settled)
+  case "$state" in
+    missing) ;;
+    dead|alive)
+      case "$(resume_endpoint_owner)" in
+        own)
+          [ "$state" = dead ] \
+            || die "an agent already runs in task $ID's worktree at $T; refusing to resume a second one onto the same work"
+          fm_backend_task_endpoint_close "$BACKEND" "$STATE" "$ID" "$T" "$META" \
+            || die "task $ID's leftover pane $T could not be closed before the resume: $FM_BACKEND_TASK_CLOSE_REASON; it stays parked and nothing was changed"
+          ;;
+        other) ;;
+        *) die "task $ID's recorded endpoint $T still exists but its location cannot be read, so it cannot be told apart from the task's own pane; refusing to resume" ;;
+      esac
+      ;;
+    *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to resume" ;;
+  esac
+  if atlas_ticketed; then
+    atlas_unpark "$NOTE" \
+      || die "task $ID was not resumed, because its Atlas ticket could not be returned to started; it stays parked"
+    RESUME_UNPARKED=1
+  fi
+  model=$(fm_meta_get "$META" model)
+  effort=$(fm_meta_get "$META" effort)
+  spawn_args=("$ID" --relaunch --resume-session --harness "$HARNESS")
+  [ -z "$model" ] || [ "$model" = default ] || spawn_args+=(--model "$model")
+  [ -z "$effort" ] || [ "$effort" = default ] || spawn_args+=(--effort "$effort")
+  [ "$OVER_LIMIT" = 0 ] || spawn_args+=(--over-limit)
+  if ! "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
+    resume_rollback
+    die "the resumed agent for $ID could not be launched; it stays parked with its session recorded, and its work is preserved at $WT"
+  fi
+  fm_backend_validate_task_endpoint "$META" "$ID" \
+    || { resume_rollback; die "task $ID's record names no valid endpoint after the resume launch; it stays parked"; }
+  BACKEND=$FM_BACKEND_VALIDATED_BACKEND
+  T=$FM_BACKEND_VALIDATED_TARGET
+  state=$(wait_agent_state "$LAUNCH_WAIT" alive) || {
+    resume_rollback
+    die "the resumed agent for $ID did not come up within ${LAUNCH_WAIT}s (endpoint $T reads '$state'); it stays parked"
+  }
+  RESUME_UNPARKED=0
+  park_meta_write \
+    || echo "warning: task $ID's resumed agent runs, but its park record could not be cleared from $META" >&2
+  if [ -n "$NOTE" ]; then
+    # A resumed TUI replays its conversation before its composer takes input,
+    # and a doorbell typed earlier can be lost. The steer is durable either
+    # way (the watcher re-rings an unhandled one), so the wait is bounded and
+    # the note is sent when it ends.
+    resume_wait_composer_ready || true
+    "$SCRIPT_DIR/fm-send.sh" "$ID" "$NOTE" >/dev/null \
+      || echo "warning: task $ID resumed, but its note could not be delivered as a steer; send it again with bin/fm-send.sh $ID" >&2
+  fi
+  echo "resumed $ID harness=$HARNESS session=$RESUME_SESSION backend=$BACKEND endpoint=$T worktree=$WT"
+}
+
 # --- verbs ------------------------------------------------------------------
 
 case "$VERB" in
@@ -875,6 +1333,22 @@ case "$VERB" in
     echo "$result $ID harness=$HARNESS backend=$BACKEND endpoint=$T worktree=$WT"
     ;;
   relaunch)
-    do_relaunch
+    if [ -n "$(fm_meta_get "$META" parked)" ]; then
+      # A parked task keeps its recorded conversation: relaunch reopens it.
+      { [ "$HARNESS_SET" = 0 ] || [ "$NEW_HARNESS" = "$HARNESS" ]; } \
+        && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
+        || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile, so relaunch refuses a harness, model, or effort change for it"
+      do_resume
+    else
+      [ "$OVER_LIMIT" = 0 ] \
+        || die "--over-limit applies only when relaunch resumes a parked task; a relaunch into the task's own pane is never held to the agent limit"
+      do_relaunch
+    fi
+    ;;
+  park)
+    do_park
+    ;;
+  resume)
+    do_resume
     ;;
 esac

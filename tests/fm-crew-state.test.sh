@@ -528,6 +528,26 @@ test_active_run_is_authoritative() {
   pass "active run-step is authoritative"
 }
 
+# A task parked by bin/fm-control.sh park has no agent by design. Even with an
+# active validation run and a closed endpoint, the park itself is the current
+# state, with its reason and the resume command.
+test_parked_task_reports_the_park() {
+  reset_fakes
+  local d; d=$(new_case parked)
+  make_repo_on_branch "$d/wt" fm/feat-p
+  make_fakebin "$d" >/dev/null
+  fm_write_meta "$d/state/feat-p.meta" "window=fm:fm-feat-p" "worktree=$d/wt" "kind=ship" \
+    "parked=2026-09-22T08:00:00Z" "parked_reason=waits on the merge word" "parked_on=c12"
+  FM_FAKE_AXI_STATUS="$(run_running fm/feat-p)"
+  FM_FAKE_TMUX_MISSING=1
+  local out; out=$(run_crew_state "$d" feat-p)
+  assert_contains "$out" "state: parked" "a parked task -> parked"
+  assert_contains "$out" "source: park" "a parked task -> park source"
+  assert_contains "$out" "waits on the merge word (on c12)" "a parked task reports its reason and blocker"
+  assert_contains "$out" "bin/fm-control.sh feat-p resume" "a parked task names its resume command"
+  pass "a parked task reports the park, not its closed endpoint or its run"
+}
+
 # (b) needs-decision log + a resumed (running/fixing) run = SUPERSEDED
 test_stale_needs_decision_superseded() {
   reset_fakes
@@ -2320,6 +2340,7 @@ test_missing_run_head_falls_back_to_current_state
 test_active_fix_round_unfetched_pipeline_head_reports_current
 test_unanchored_unfetched_active_row_does_not_match
 test_unresolved_terminal_row_is_history_not_current
+test_parked_task_reports_the_park
 test_runs_list_continuation_found_when_axi_answers_other_branch
 
 echo "all fm-crew-state tests passed"

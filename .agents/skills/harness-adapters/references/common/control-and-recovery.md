@@ -43,6 +43,9 @@ The tool reference records repeat, acknowledgement, and clearing behavior, while
 Native resume availability and form belong solely to the selected tool reference.
 Use native resume only when both that reference and the recovery procedure call for it.
 Deterministic relaunch instead trusts instructions on disk, not a private session.
+`park` and `resume` are the control plane's native-session verbs, for claude, codex, pi, and pi-signed only.
+Park a worker whose work waits while its pane is closed, and resume it to reopen that exact conversation.
+`../../../docs/agent-control.md` owns the contract.
 
 `../stuck-crewmate-recovery/SKILL.md` owns worker recovery and `../secondmate-provisioning/SKILL.md` owns secondmate recovery; both preserve recorded work.
 The router's recovery scenarios select the additional common references for replacement profiles and secondmates.

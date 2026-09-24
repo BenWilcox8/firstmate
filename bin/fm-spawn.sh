@@ -26,6 +26,7 @@
 #   using the same private launch-brief overlay. This never rewrites a project's
 #   instruction files or a secondmate's charter.
 #        fm-spawn.sh <task-id> --relaunch [--harness <name>] [--model <name>] [--effort <level>]
+#        fm-spawn.sh <task-id> --relaunch --resume-session [--harness <name>] [--model <name>] [--effort <level>]
 #   --relaunch launches a replacement agent for an EXISTING task into that
 #   task's own recorded endpoint and worktree instead of creating either. It is
 #   the launch half of the control plane (bin/fm-control.sh relaunch), which
@@ -41,6 +42,18 @@
 #   or herdr), refuses unless the endpoint's shell is sitting in the recorded
 #   worktree, and clears the previous harness's per-task wiring before arming
 #   the new incarnation.
+#   --resume-session is the launch half of bin/fm-control.sh resume, and
+#   applies only with --relaunch to a PARKED task. Instead of the brief, it
+#   launches the recorded harness with its native resume of the task's recorded
+#   native_session (bin/fm-native-session-lib.sh owns the resume form and the
+#   check that the session file still exists), and refuses before anything is
+#   created when that session cannot be found - never a fresh session in its
+#   place. It always opens a NEW endpoint directly in the recorded worktree
+#   (no treehouse allocation) and replaces window=, because the park closed the
+#   recorded one and its id can since name another pane (Herdr pane ids restart
+#   low after a server restart). It refuses while a pane still sits in the
+#   worktree; bin/fm-control.sh resume closes the task's own leftover pane
+#   first. The resumed agent submits no prompt, so its busy state is armed idle.
 #   A FRESH spawn on a task id this home already holds a record for is a
 #   REPLACEMENT, not a relaunch: it builds a new endpoint and rewrites window=.
 #   Such a spawn settles the endpoint the old record named in two halves. Before
@@ -249,7 +262,8 @@
 #   30). The refusal names the count, the limit, and both overrides:
 #   --over-limit lets this one spawn through, and off in config/agent-limit
 #   disables the limit. A --relaunch into the task's own open pane replaces an
-#   agent and is exempt. Secondmate spawns are never limited. Batch
+#   agent and is exempt; a --resume-session opens a new pane and is limited.
+#   Secondmate spawns are never limited. Batch
 #   dispatch passes --over-limit to every pair, and each pair checks the count
 #   on its own. bin/fm-agent-limit-lib.sh owns the count and the gate, and
 #   bin/fm-agent-count.sh prints them.
@@ -474,6 +488,10 @@ SESSION_NAME_SET=0
 TICKET_SET=0
 RELAUNCH=0
 OVER_LIMIT=0
+RESUME_SESSION=0
+RESUME_NEW_ENDPOINT=0
+RESUME_SESSION_ID=
+RESUME_SESSION_FILE=
 POS=()
 want_value=
 for a in "$@"; do
@@ -502,6 +520,7 @@ for a in "$@"; do
     --secondmate) KIND=secondmate; KIND_SET=1 ;;
     --relaunch) RELAUNCH=1 ;;
     --over-limit) OVER_LIMIT=1 ;;
+    --resume-session) RESUME_SESSION=1 ;;
     --harness) want_value=harness ;;
     --harness=*) HARNESS_ARG=${a#--harness=}; HARNESS_SET=1 ;;
     --model) want_value=model ;;
@@ -561,6 +580,8 @@ fm_backlog_directory_present "$STATE" "state directory" || {
 . "$SCRIPT_DIR/fm-secondmate-nudge-lib.sh"
 # shellcheck source=bin/fm-control-lib.sh
 . "$SCRIPT_DIR/fm-control-lib.sh"
+# shellcheck source=bin/fm-native-session-lib.sh
+. "$SCRIPT_DIR/fm-native-session-lib.sh"
 # shellcheck source=bin/fm-gate-refuse-lib.sh
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-busy-lib.sh
@@ -609,6 +630,11 @@ case "$EFFORT" in
   ''|low|medium|high|xhigh|max) ;;
   *) echo "error: --effort must be one of low, medium, high, xhigh, max" >&2; exit 1 ;;
 esac
+
+[ "$RESUME_SESSION" -eq 0 ] || [ "$RELAUNCH" -eq 1 ] || {
+  echo "error: --resume-session applies only with --relaunch, to a parked task" >&2
+  exit 1
+}
 
 # --relaunch reuses an existing task's endpoint, worktree, project, and kind,
 # so every axis this block resolves for a fresh spawn instead comes from that
@@ -1376,10 +1402,14 @@ if [ "$RELAUNCH" -eq 1 ]; then
     exit 1
   }
   RELAUNCH_STATE=$(fm_backend_agent_state "$BACKEND" "$RELAUNCH_TARGET")
-  [ "$RELAUNCH_STATE" = dead ] || {
+  if [ "$RESUME_SESSION" -eq 1 ]; then
+    # A resume always opens a new endpoint in the worktree; the endpoint check
+    # for it runs below, once the recorded worktree is known.
+    RESUME_NEW_ENDPOINT=1
+  elif [ "$RELAUNCH_STATE" != dead ]; then
     echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; a relaunch requires a positively agent-free endpoint (stop the agent first with bin/fm-control.sh $ID exit)" >&2
     exit 1
-  }
+  fi
   RELAUNCH_PRIOR_HARNESS=$(fm_meta_get "$RELAUNCH_META" harness)
   KIND=$(fm_meta_get "$RELAUNCH_META" kind)
   [ -n "$KIND" ] || KIND=ship
@@ -1400,7 +1430,10 @@ if [ "$RELAUNCH" -eq 1 ]; then
       exit 1
     }
   fi
-  if [ "$BACKEND" = herdr ]; then
+  # A resume opens a new endpoint instead of adopting the recorded one, so it
+  # must not load the recorded pane: HERDR_PANE_ID is also the launcher's own
+  # pane identity that the new endpoint's placement reads.
+  if [ "$BACKEND" = herdr ] && [ "$RESUME_NEW_ENDPOINT" -eq 0 ]; then
     HERDR_SES=$(fm_meta_get "$RELAUNCH_META" herdr_session)
     HERDR_WORKSPACE_ID=$(fm_meta_get "$RELAUNCH_META" herdr_workspace_id)
     HERDR_TAB_ID=$(fm_meta_get "$RELAUNCH_META" herdr_tab_id)
@@ -1417,6 +1450,46 @@ if [ "$RELAUNCH" -eq 1 ]; then
     echo "error: task $ID has no recorded harness; pass --harness to relaunch it" >&2
     exit 1
   }
+  if [ "$RESUME_SESSION" -eq 1 ]; then
+    [ -n "$(fm_meta_get "$RELAUNCH_META" parked)" ] || {
+      echo "error: task $ID is not parked, so it has no recorded session to resume" >&2
+      exit 1
+    }
+    [ "$ARG3" = "$(fm_meta_get "$RELAUNCH_META" native_session_harness)" ] || {
+      echo "error: task $ID's recorded session belongs to '$(fm_meta_get "$RELAUNCH_META" native_session_harness)', not '$ARG3'; a session resumes only on its own harness" >&2
+      exit 1
+    }
+    # The park closed the recorded endpoint, and its id can now name another
+    # pane. A pane still sitting in the worktree is the task's own, and
+    # bin/fm-control.sh resume closes it before launching; this launch owner
+    # independently refuses rather than open a second endpoint beside it.
+    case "$RELAUNCH_STATE" in
+      missing) ;;
+      dead|alive)
+        RESUME_SEEN=$(fm_backend_current_path "$BACKEND" "$RELAUNCH_TARGET" 2>/dev/null || true)
+        if [ -z "$RESUME_SEEN" ] || fm_native_session_same_dir "$RESUME_SEEN" "$RELAUNCH_WT"; then
+          echo "error: task $ID's recorded endpoint $RELAUNCH_TARGET still holds a pane in its worktree (or cannot be located); resume through bin/fm-control.sh $ID resume, which closes the task's own leftover pane first" >&2
+          exit 1
+        fi
+        ;;
+      *)
+        echo "error: task $ID's endpoint reads '$RELAUNCH_STATE'; refusing to resume beside an endpoint that cannot be classified" >&2
+        exit 1
+        ;;
+    esac
+    RESUME_SESSION_ID=$(fm_meta_get "$RELAUNCH_META" native_session)
+    RESUME_SESSION_FILE=$(fm_meta_get "$RELAUNCH_META" native_session_file)
+    fm_native_session_locate "$ARG3" "$RESUME_SESSION_ID" "$RESUME_SESSION_FILE" \
+        "$RELAUNCH_WT" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" || {
+      echo "error: task $ID's session cannot be resumed: $FM_NATIVE_SESSION_REASON; nothing was created" >&2
+      exit 1
+    }
+    # A resume opens a new pane, so it adds an agent to the live Herdr count
+    # exactly as a new spawn does (bin/fm-agent-limit-lib.sh).
+    if [ "$KIND" != secondmate ] && [ "$BACKEND" = herdr ] && [ "$OVER_LIMIT" -eq 0 ]; then
+      fm_agent_limit_gate "$FM_HOME" "$CONFIG" || exit 1
+    fi
+  fi
 elif [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
     ''|claude|codex|opencode|pi|pi-signed|grok|kimi|cursor|gemini|muse|rovo|omp)
@@ -1806,6 +1879,11 @@ esac
 if [ "$HARNESS" = rovo ]; then
   echo "error: rovo dispatch is disabled; select a supported harness" >&2
   exit 1
+fi
+
+if [ "$RESUME_SESSION" -eq 1 ]; then
+  LAUNCH=$(fm_native_session_resume_launch "$HARNESS" "$LAUNCH" \
+    "$RESUME_SESSION_ID" "$RESUME_SESSION_FILE") || exit 1
 fi
 
 # muse and gemini are verified as CREWMATE/SCOUT adapters only. A secondmate is
@@ -2816,7 +2894,12 @@ if [ "$RELAUNCH" -eq 0 ] && ! spawn_prior_endpoint; then
 fi
 
 W="fm-$ID"
-if [ "$RELAUNCH" -eq 1 ]; then
+# A fresh spawn opens its endpoint in the project, where `treehouse get` then
+# allocates the worktree; a resume that must open a new endpoint opens it in
+# the recorded worktree directly.
+ENDPOINT_DIR=$PROJ_ABS
+[ "$RESUME_NEW_ENDPOINT" -eq 0 ] || ENDPOINT_DIR=$RELAUNCH_WT
+if [ "$RELAUNCH" -eq 1 ] && [ "$RESUME_NEW_ENDPOINT" -eq 0 ]; then
   # Adopt the recorded endpoint instead of creating one. This is what keeps a
   # relaunch a REPLACEMENT rather than a second copy of the task: no new
   # terminal, no second worktree, and every uncommitted change left exactly
@@ -2838,7 +2921,7 @@ case "$BACKEND" in
     # treehouse cd's into the worktree. WT_TARGET carries that stable id for the
     # rename-critical worktree-detection steps below; the persisted window= handle
     # stays $T (the name form), which is safe now that rename is disabled.
-    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$PROJ_ABS") || exit 1
+    WID=$(fm_backend_tmux_create_task "$SES" "$W" "$ENDPOINT_DIR") || exit 1
     WT_TARGET="$WID"
     ;;
   herdr)
@@ -2890,7 +2973,7 @@ case "$BACKEND" in
           FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_projection_reclaim_task \
             "$HERDR_SES" "$HERDR_PRESENTATION_JOURNAL" "$ID" "$HERDR_LABEL_HOME" \
             "$HERDR_RECOVERY_WORKSPACE_ID" "$HERDR_RECOVERY_TAB_ID" "$HERDR_RECOVERY_PANE_ID" \
-            "$HERDR_PARENT_LABEL" "$W" "$PROJ_ABS"
+            "$HERDR_PARENT_LABEL" "$W" "$ENDPOINT_DIR"
           HERDR_RECLAIM_STATUS=$?
           set -e
           case "$HERDR_RECLAIM_STATUS" in
@@ -2986,7 +3069,7 @@ case "$BACKEND" in
       fi
     fi
     if [ "$HERDR_PROJECTED" -ne 1 ]; then
-      HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$PROJ_ABS" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
+      HERDR_CONTAINER_RAW=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_container_ensure "$ENDPOINT_DIR" "$HERDR_LAUNCHER_RELATIONSHIP") || exit 1
       # fm_backend_herdr_container_ensure echoes "<session>:<workspace_id>\t<seeded_default_tab_id>"
       # (the second field empty when this call ADOPTED a pre-existing workspace
       # rather than creating a fresh one). Split on the guaranteed single tab
@@ -2997,7 +3080,7 @@ case "$BACKEND" in
       HERDR_SEEDED_DEFAULT_TAB_ID=${HERDR_CONTAINER_RAW#*$'\t'}
       HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
-      HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$PROJ_ABS" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
+      HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$ENDPOINT_DIR" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
       read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
 $HERDR_TASK_IDS
 EOF
@@ -3058,6 +3141,8 @@ EOF
     T="$ORCA_TERMINAL"
     ;;
 esac
+# A resume's new endpoint was opened in the recorded worktree itself.
+[ "$RESUME_NEW_ENDPOINT" -eq 0 ] || WT=$RELAUNCH_WT
 fi
 if [ "$KIND" = secondmate ]; then
   FM_INHERITABLE_CONFIG=trace-context \
@@ -3394,6 +3479,9 @@ if [ "$KIND" != secondmate ]; then
   # armed: its BeforeAgent / AfterAgent / SessionEnd hooks are a verified
   # open-close pair.
   BUSY_GEN=
+  # A resumed session submits no prompt, so its incarnation starts idle.
+  BUSY_ARM_SEED=()
+  [ "$RESUME_SESSION" -eq 0 ] || BUSY_ARM_SEED=(--state idle --event resume)
   case "$HARNESS" in
     codex*)
       if fm_busy_codex_semantic_source; then
@@ -3404,7 +3492,7 @@ if [ "$KIND" != secondmate ]; then
   esac
   case "$HARNESS" in
     claude*|opencode*|pi|pi-signed|omp)
-      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+      BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID" ${BUSY_ARM_SEED[@]+"${BUSY_ARM_SEED[@]}"}) || {
         echo "error: failed to arm the busy-state contract for $ID" >&2
         exit 1
       }
@@ -3412,7 +3500,7 @@ if [ "$KIND" != secondmate ]; then
       ;;
     gemini)
       if [ "$RAW_LAUNCH" -eq 0 ]; then
-        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID") || {
+        BUSY_GEN=$("$FM_ROOT/bin/fm-busy-event.sh" arm "$STATE_REAL" "$ID" ${BUSY_ARM_SEED[@]+"${BUSY_ARM_SEED[@]}"}) || {
           echo "error: failed to arm the busy-state contract for $ID" >&2
           exit 1
         }
@@ -3555,7 +3643,11 @@ EOF
 // "turn_end" fires at every inner turn boundary (one LLM response plus its
 // tool calls) and stays a wake NOTIFICATION touch for the watcher, never
 // current-state truth.
+// "session_start" (startup, reload, new, resume, fork) records the live native
+// session for bin/fm-native-session-lib.sh, which owns what the record proves:
+// Pi keeps no session file open, so a park can resume only what Pi names here.
 import { execFile } from "node:child_process";
+import { renameSync, writeFileSync } from "node:fs";
 const busyEvent = (state: string, event: string) =>
   new Promise<void>((resolve) => {
     execFile("$FM_ROOT/bin/fm-busy-event.sh", [
@@ -3563,7 +3655,19 @@ const busyEvent = (state: string, event: string) =>
       "--gen", "$BUSY_GEN", "--source", "pi-ext", "--event", event,
     ], () => resolve());
   });
+const recordSession = (ctx: any) => {
+  try {
+    const sm = ctx && ctx.sessionManager;
+    const id = sm && typeof sm.getSessionId === "function" ? sm.getSessionId() : undefined;
+    const file = sm && typeof sm.getSessionFile === "function" ? sm.getSessionFile() : undefined;
+    if (!id || !file) return;
+    const tmp = "$STATE_REAL/.$ID.pi-session." + process.pid;
+    writeFileSync(tmp, JSON.stringify({ gen: "$BUSY_GEN", id, file }) + "\n");
+    renameSync(tmp, "$STATE_REAL/$ID.pi-session");
+  } catch {}
+};
 export default function (pi: any) {
+  pi.on("session_start", (_event: any, ctx: any) => recordSession(ctx));
   pi.on("agent_start", () => busyEvent("busy", "agent-start"));
   pi.on("agent_settled", (_event: any, ctx: any) => {
     if (ctx && typeof ctx.isIdle === "function" && !ctx.isIdle()) return;

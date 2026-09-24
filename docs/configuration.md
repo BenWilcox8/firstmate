@@ -436,6 +436,7 @@ At the limit, the spawn refuses and names the count, the limit, and the two over
 To start one worker past the limit, pass `--over-limit` to that spawn.
 To disable the limit, write `off` to `config/agent-limit`; to change it, write another number.
 A relaunch into the task's own open pane replaces an agent and is not limited.
+A resume of a parked task opens a new pane, so it is limited like a new spawn, and `bin/fm-control.sh <task-id> resume --over-limit` lets one resume through ([`docs/agent-control.md`](agent-control.md) "Park and resume").
 Secondmate spawns are never limited.
 Two spawns that check at the same moment can both start, because the limit spreads work out and does not reserve places.
 

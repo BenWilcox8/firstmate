@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # tests/fm-spawn-agent-limit.test.sh - bin/fm-spawn.sh enforces the concurrent
 # agent limit from the live Herdr count, with the --over-limit flag and
-# config/agent-limit off as overrides.
+# config/agent-limit off as overrides, and bin/fm-control.sh resume checks it
+# before its Atlas unpark.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -145,9 +146,103 @@ test_relaunch_in_its_own_pane_ignores_the_limit() {
   pass "fm-spawn: a relaunch into the task's own open pane replaces an agent and ignores the limit"
 }
 
+# The old task, parked on Atlas ticket c7 with its Claude session recorded. The
+# park closed its pane, so <pane> is no longer in the Herdr pane list.
+parked_task_meta() {  # <pane>
+  local sid=0f3c2a9e-3333-4a2b-9c3d-000000000003 file
+  relaunch_task_meta "$1"
+  file="$DIR/.claude/projects/-wt-old/$sid.jsonl"
+  mkdir -p "${file%/*}" "$DIR/atlas/atlas"
+  printf '{"type":"user"}\n' > "$file"
+  printf '%s\n' "atlas_ticket=c7" "parked=2026-09-23T00:00:00Z" "parked_reason=waits on the captain" \
+    "native_session=$sid" "native_session_harness=claude" "native_session_file=$file" \
+    >> "$HOME_DIR/state/old-task.meta"
+  printf '%s\n' "$DIR/atlas" > "$HOME_DIR/config/specs"
+  : > "$DIR/atlas-calls"
+  cat > "$FAKEBIN/atlas-axi" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> '$DIR/atlas-calls'
+exit 1
+SH
+  chmod +x "$FAKEBIN/atlas-axi"
+}
+
+run_control() {  # [fm-control args...]
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_TAB_ID -u HERDR_WORKSPACE_ID -u HERDR_SOCKET_PATH \
+    FM_ROOT_OVERRIDE= FM_HOME="$HOME_DIR" HOME="$DIR" CLAUDE_CONFIG_DIR= \
+    FM_STATE_OVERRIDE='' FM_DATA_OVERRIDE='' FM_PROJECTS_OVERRIDE='' FM_CONFIG_OVERRIDE='' \
+    FM_SPAWN_NO_GUARD=1 FM_BACKEND_HERDR_AXI_BIN= HERDR_SESSION=default \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_STATE_SETTLE=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 \
+    FM_FAKE_HERDR_DIR="$DIR/herdr" PATH="$FAKEBIN:$PATH" \
+    "$ROOT/bin/fm-control.sh" "$@" 2>&1
+}
+
+# A resume also reads its recorded pane's state, so proof that it went on to
+# create its endpoint must look past those reads as well as the count's.
+endpoint_calls() {
+  grep -v -e '^pane list' -e '^pane process-info' -e '^pane get' -e '^agent get' -e '^status' \
+    "$DIR/herdr/calls" || true
+}
+
+assert_resume_reached_its_endpoint() {  # <out> <label>
+  assert_not_contains "$1" "agent limit" "$2: the resume was refused by the agent limit"
+  [ -n "$(endpoint_calls)" ] || fail "$2: the resume never went on to create its endpoint"$'\n'"$1"
+}
+
+test_resume_into_a_new_pane_is_held_to_the_limit() {
+  local out rc
+  build_case resume-spawn
+  printf '2\n' > "$HOME_DIR/config/agent-limit"
+  parked_task_meta w1:p9
+  out=$(run_spawn old-task --relaunch --resume-session); rc=$?
+  [ "$rc" -ne 0 ] || fail "a resume at the agent limit succeeded: $out"
+  assert_contains "$out" "agent limit reached: 2 agents are open in Herdr and the limit is 2" \
+    "a resume into a new pane should be held to the agent limit"
+  assert_contains "$out" "--over-limit" "the refusal should name the per-spawn override"
+  [ -z "$(endpoint_calls)" ] || fail "a refused resume still made an endpoint call: $(endpoint_calls)"
+  out=$(run_spawn old-task --relaunch --resume-session --over-limit)
+  assert_resume_reached_its_endpoint "$out" "spawn --resume-session --over-limit"
+  pass "fm-spawn: a resume opens a new pane, so it is held to the agent limit unless --over-limit is passed"
+}
+
+test_control_resume_at_the_limit_keeps_the_ticket_parked() {
+  local out rc meta
+  build_case resume-control
+  printf '2\n' > "$HOME_DIR/config/agent-limit"
+  parked_task_meta w1:p9
+  out=$(run_control old-task resume --note "the captain approved"); rc=$?
+  [ "$rc" -ne 0 ] || fail "a resume at the agent limit succeeded: $out"
+  assert_contains "$out" "agent limit reached" "resume should refuse at the agent limit"
+  assert_contains "$out" "--over-limit" "the refusal should name the override"
+  assert_no_grep "unpark" "$DIR/atlas-calls" "a resume refused by the limit must not unpark the Atlas ticket"
+  assert_grep "parked=2026-09-23T00:00:00Z" "$HOME_DIR/state/old-task.meta" "a resume refused by the limit must leave the task parked"
+  [ -z "$(endpoint_calls)" ] || fail "a resume refused by the limit still made an endpoint call: $(endpoint_calls)"
+  # Without a ticket, the resume goes straight on to the launch, which shows
+  # that --over-limit reached bin/fm-spawn.sh as well.
+  meta="$HOME_DIR/state/old-task.meta"
+  grep -v '^atlas_ticket=' "$meta" > "$meta.next" && mv "$meta.next" "$meta"
+  out=$(run_control old-task resume --over-limit)
+  assert_resume_reached_its_endpoint "$out" "resume --over-limit"
+  pass "fm-control: resume at the agent limit refuses before the Atlas unpark, and --over-limit carries through to the launch"
+}
+
+test_control_relaunch_refuses_over_limit_for_a_task_that_is_not_parked() {
+  local out rc
+  build_case relaunch-over-limit
+  relaunch_task_meta w1:p9
+  out=$(run_control old-task relaunch --note "go on" --over-limit); rc=$?
+  [ "$rc" -ne 0 ] || fail "relaunch of a task that is not parked accepted --over-limit: $out"
+  assert_contains "$out" "--over-limit applies only when" \
+    "relaunch of a task that is not parked should refuse --over-limit, which it never needs"
+  pass "fm-control: a relaunch into the task's own pane refuses --over-limit, because the limit never holds it"
+}
+
 test_under_the_limit_spawns
 test_at_the_limit_refuses
 test_over_limit_flag_passes
 test_config_off_passes
 test_unreadable_count_refuses
 test_relaunch_in_its_own_pane_ignores_the_limit
+test_resume_into_a_new_pane_is_held_to_the_limit
+test_control_resume_at_the_limit_keeps_the_ticket_parked
+test_control_relaunch_refuses_over_limit_for_a_task_that_is_not_parked
