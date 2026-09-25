@@ -31,7 +31,7 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 ## Verbs
 
 Herdr ship and scout tasks in the home's workspace use the [ended-pane cleanup contract](herdr-backend.md#ended-worker-panes).
-For those tasks, `exit` closes the stopped pane and `relaunch` creates a fresh pane in its previous slot and recorded worktree.
+For those tasks, while the recorded session server runs, `exit` closes the stopped pane and `relaunch` creates a fresh pane in its previous slot and recorded worktree.
 The endpoint-preserving descriptions below apply to the other task and backend combinations.
 
 | Verb | Effect | Postcondition |

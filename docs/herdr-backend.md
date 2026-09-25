@@ -215,6 +215,11 @@ If the reservation is not available, `relaunch` refuses and the old agent contin
 The native fallback creates a fresh task tab because it has no slot ledger.
 A failed launch closes its replacement shell only when the same classifier proves the agent gone.
 
+A stopped session server answers no inventory read, so `exit` and `relaunch` do not apply this cleanup when the recorded server is stopped.
+The [endpoint-absence proof](agent-control.md#reclaiming-a-task-whose-endpoint-is-gone) owns that case: it starts the recorded server, then adopts, rebinds, or refuses.
+When the home workspace is absent, `relaunch` gives a missing recorded pane to that proof and its rebind, which re-creates the labeled workspace.
+If the recorded pane still exists but belongs to other work, `relaunch` refuses.
+
 The watcher starts one detached cleanup sweep at a time on each poll, and bootstrap runs a sweep before layout repair.
 This includes spontaneous exits, killed agents, and restored bare shells whose home and task labels still identify them unambiguously.
 A held task control lock excludes a relaunch transaction, and a held task meta lock excludes a fresh spawn that is still starting.
