@@ -36,10 +36,12 @@ FRAME_NO_CELL_AROUND=$'\033[0m\033[48;2;61;59;78m    \033[0m\033[38;2;101;99;119
 FRAME_SAVED_CONTEXT=$'\033[0m\033[48;2;61;59;78m    \033[0m\033[38;2;107;105;125m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m                    \033[0m\033[38;2;68;66;86m\033[48;2;61;59;78m⢀\033[0m\033[48;2;61;59;78m  \033[0m\033[38;2;83;81;101m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m               \033[0m\r\n\033[0m\033[1m\033[48;2;61;59;78m›\033[0m\033[48;2;61;59;78m \033[0m\033[2m\033[48;2;61;59;78mAsk Codex to do anything\033[0m\033[38;2;150;148;168m\033[48;2;61;59;78m⡀\033[0m\033[48;2;61;59;78m        \033[0m\033[38;2;72;70;89m\033[48;2;61;59;78m⠈\033[0m\033[48;2;61;59;78m \033[0m\033[38;2;137;135;156m\033[48;2;61;59;78m⠂\033[0m\033[48;2;61;59;78m  \033[0m\033[38;2;119;117;137m\033[48;2;61;59;78m⠁\033[0m\033[48;2;61;59;78m   \033[0m\r\n\033[0m\033[48;2;61;59;78m      \033[0m\033[38;2;132;130;150m\033[48;2;61;59;78m⠠\033[0m\033[48;2;61;59;78m \033[0m\033[38;2;150;148;169m\033[48;2;61;59;78m⠐\033[0m\033[48;2;61;59;78m        \033[0m\033[38;2;86;84;104m\033[48;2;61;59;78m⠄\033[0m\033[48;2;61;59;78m        \033[0m\033[38;2;150;148;169m\033[48;2;61;59;78m⠄\033[0m\033[48;2;61;59;78m         \033[0m\033[38;2;99;97;117m\033[48;2;61;59;78m⠠\033[0m\033[48;2;61;59;78m       \033[0m\r\n  \033[0m\033[2mgpt-6-astra xhigh · 295K used · Context 1…\033[0m'
 FRAME_SAVED_USAGE=$'\033[0m\033[48;2;61;59;78m                             \033[0m\r\n\033[0m\033[1m\033[48;2;61;59;78m›\033[0m\033[48;2;61;59;78m \033[0m\033[2m\033[48;2;61;59;78mAsk Codex to do anything\033[0m\033[38;2;96;94;113m\033[48;2;61;59;78m⡀\033[0m\033[48;2;61;59;78m  \033[0m\r\n\033[0m\033[48;2;61;59;78m                          \033[0m\033[38;2;128;126;147m\033[48;2;61;59;78m⠄\033[0m\033[48;2;61;59;78m  \033[0m\r\n  \033[0m\033[2mgpt-6-astra xhigh · 1.36M …\033[0m'
 
-# assert_idle_frame <label> <screen>: an idle frame reads empty on every styled
-# backend and keeps every refusal around it.
+# assert_idle_frame <label> <screen> <claude-verdict>: an idle frame reads empty
+# on every styled backend and keeps every refusal around it. Under a Claude
+# glyph the Codex proof does not apply: a bright cell on the prompt row reads
+# pending, and a dim placeholder over braille-only rows reads as a ghost (empty).
 assert_idle_frame() {
-  local label=$1 screen=$2 plain changed
+  local label=$1 screen=$2 claude_verdict=$3 plain changed
   assert_screen "$label on Herdr" empty "$CAPS_STYLED" "$screen"
   assert_screen "$label on Zellij" empty "$CAPS_STYLED_NOID" "$screen"
   assert_screen "$label on tmux" empty "$CAPS_TMUX" "$screen" 1
@@ -52,14 +54,14 @@ assert_idle_frame() {
   changed=${screen/"${ESC}[2mgpt-"/"${ESC}[0mgpt-"}
   assert_screen "$label with a bright footer-like row" pending "$CAPS_STYLED" "$changed"
   changed=${screen/›/❯}
-  assert_screen "$label under a Claude glyph" pending "$CAPS_STYLED" "$changed"
+  assert_screen "$label under a Claude glyph" "$claude_verdict" "$CAPS_STYLED" "$changed"
 }
 
 test_codex_idle_frames_ring_the_doorbell() {
-  assert_idle_frame "prompt row without animation cells" "$FRAME_NO_CELL_BELOW"
-  assert_idle_frame "prompt row without cells between animated rows" "$FRAME_NO_CELL_AROUND"
-  assert_idle_frame "saved frame with a context footer" "$FRAME_SAVED_CONTEXT"
-  assert_idle_frame "saved frame with a usage footer" "$FRAME_SAVED_USAGE"
+  assert_idle_frame "prompt row without animation cells" "$FRAME_NO_CELL_BELOW" empty
+  assert_idle_frame "prompt row without cells between animated rows" "$FRAME_NO_CELL_AROUND" empty
+  assert_idle_frame "saved frame with a context footer" "$FRAME_SAVED_CONTEXT" pending
+  assert_idle_frame "saved frame with a usage footer" "$FRAME_SAVED_USAGE" pending
   pass "real idle Codex frames read empty, with or without prompt-row animation"
 }
 

@@ -64,7 +64,8 @@ SID=0f3c2a9e-3333-4a2b-9c3d-000000000003
 # carries a brief) starts the harness named in `becomes`. The window inventory
 # is `session:name` lines, so kill-window and new-window change what each
 # session lists: a closed endpoint reads missing and a resume's new one is
-# found. FM_FAKE_KILL_FAILS leaves a killed window in place.
+# found. FM_FAKE_KILL_FAILS leaves a killed window in place. A staged launch
+# (`. '<file>'`) is read as that file's command, as in the relaunch suite.
 make_stubs() {  # <dir>
   local fb="$1/fakebin"
   mkdir -p "$fb"
@@ -85,6 +86,9 @@ case "${1:-}" in
     done
     payload=${1:-}
     if [ "$literal" = 1 ]; then
+      case "$payload" in
+        ". '"*"'") staged=${payload#". '"}; staged=${staged%"'"}; [ ! -f "$staged" ] || payload=$(cat "$staged") ;;
+      esac
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit)

@@ -155,7 +155,9 @@ for pid in $LIVE_PIDS; do
 done
 fm_backlog_record_present "$STATE/$ID.status" 'task status' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
 case "$(last_status_line "$STATE/$ID.status")" in done:*|done\ \[*\]:*) ;; *) refuse 'old record is not finished' ;; esac
-[ -z "$(status_open_decisions "$STATE/$ID.status")" ] || refuse 'old record has open decisions'
+# A ship or scout fold settles decisions at its terminal line. This repair
+# still refuses a decision that was never resolved by key, so fold without the kind.
+[ -z "$(status_open_decisions "$STATE/$ID.status" unknown)" ] || refuse 'old record has open decisions'
 KIND=$(fm_meta_get "$META" kind)
 BACKLOG_ARGS=()
 case "$KIND" in
@@ -218,7 +220,7 @@ done
 mkdir -p "$ARCHIVE"
 ARTIFACTS=(".$ID.branch-outcome-index")
 for suffix in turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement \
-  pr-poll-merge-notified busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
+  pr-poll-merge-notified merge-authority progress busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
   kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json herdr-presentation \
   control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox; do
   ARTIFACTS+=("$ID.$suffix")

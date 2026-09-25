@@ -28,6 +28,7 @@ fm_local_hook() {
     pane-exit-state)
       fm_local_pane_worker "$META" "$ID" || return 0
       fm_local_pane_flat "$META" || return 0
+      ! fm_local_pane_server_stopped "$META" || return 0
       fm_local_pane_resolve "$META" "$ID" || return 1
       if [ -n "$FM_LOCAL_PANE_TARGET" ]; then
         T=$FM_LOCAL_PANE_TARGET
@@ -45,6 +46,7 @@ fm_local_hook() {
       [ "${RESUME_SESSION:-0}" = 0 ] || return 0
       fm_local_pane_worker "$RELAUNCH_META" "$ID" || return 0
       fm_local_pane_flat "$RELAUNCH_META" || return 0
+      ! fm_local_pane_server_stopped "$RELAUNCH_META" || return 0
       fm_local_pane_relaunch_state
       ;;
     pane-spawn-create)
@@ -124,7 +126,8 @@ fm_local_hook() {
       fm_local_pane_close "$META" "$ID" held && return 0
       [ "$(fm_backend_agent_state herdr "$T")" != alive ] || FM_LOCAL_PANE_GUARD_STATE=alive
       fm_local_pane_leak_report "$FM_LOCAL_PANE_CLOSE_TRIES"
-      return 1
+      # The main Herdr close's refusal; unforced here, so it always refuses.
+      endpoint_close_refusal "$ID" herdr "$T" 1
       ;;
     pane-teardown-gone)
       fm_local_pane_worker "$META" "$ID" || return 1

@@ -455,6 +455,11 @@ test_land_defer_status() {
 
 # --- (f)-(k) callers end to end ---------------------------------------------
 
+# The merged fm-pr-merge reads one live green view before it merges and pins
+# the forge merge to that view's head, so the fake answers that read with an
+# open, clean, green pull request at FAKE_PR_HEAD.
+FAKE_PR_HEAD=0123456789abcdef0123456789abcdef01234567
+
 make_fake_forge() {  # writes gh-axi and gh into HOME_DIR/fakebin
   cat > "$HOME_DIR/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
@@ -465,6 +470,14 @@ SH
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 case "${1:-} ${2:-}" in
+  "pr view")
+    case " $* " in
+      *statusCheckRollup*)
+        printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"0123456789abcdef0123456789abcdef01234567","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+        ;;
+      *headRefOid*) printf '%s\n' 0123456789abcdef0123456789abcdef01234567 ;;
+    esac
+    ;;
   "api graphql") printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main' ;;
 esac
 exit 0
@@ -489,7 +502,7 @@ test_pr_merge_refused() {
   rc=$?
   set -e
   expect_code 0 "$rc" "$store: a refused Atlas close-out must not fail the merge"
-  grep -qxF 'pr merge 9 --repo example/repo --squash' "$HOME_DIR/gh.log" \
+  grep -qxF "pr merge 9 --repo example/repo --match-head-commit $FAKE_PR_HEAD --squash" "$HOME_DIR/gh.log" \
     || fail "$store: the merge itself did not happen"
   assert_one_gate_line "$store" "$HOME_DIR/state/task-a1.status" "captain's approval" "fm-pr-merge"
   [ -z "$(node_field "$store" "$REPO" .holder)" ] || fail "$store: fm-pr-merge left the refused node held"
@@ -505,7 +518,7 @@ test_pr_merge_with_captain_word() {
   rc=$?
   set -e
   expect_code 0 "$rc" "$store: fm-pr-merge with the captain's words must succeed"
-  grep -qxF 'pr merge 9 --repo example/repo --squash' "$HOME_DIR/gh.log" \
+  grep -qxF "pr merge 9 --repo example/repo --match-head-commit $FAKE_PR_HEAD --squash" "$HOME_DIR/gh.log" \
     || fail "$store: --captain-word leaked into the forge call or the merge did not happen:"$'\n'"$(cat "$HOME_DIR/gh.log")"
   [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "merge it" ] \
     || fail "$store: fm-pr-merge did not record the captain's words"

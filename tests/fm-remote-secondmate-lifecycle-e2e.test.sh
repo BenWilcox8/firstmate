@@ -6,6 +6,8 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 # shellcheck source=tests/remote-herdr-fixture.sh
 . "$(dirname "${BASH_SOURCE[0]}")/remote-herdr-fixture.sh"
+# shellcheck source=tests/herdr-client-pair-fixture.sh
+. "$(dirname "${BASH_SOURCE[0]}")/herdr-client-pair-fixture.sh"
 
 command -v jq >/dev/null 2>&1 || { echo "skip: jq not found"; exit 0; }
 ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
@@ -23,6 +25,9 @@ HERDR_STATE="$TMP_ROOT/remote-herdr.state"
 HERDR_LOG="$TMP_ROOT/remote-herdr.log"
 TMUX_LOG="$TMP_ROOT/remote-tmux.log"
 TMUX_STATE="$TMP_ROOT/remote-tmux.state"
+# One fixture value names the remote route's steering-inbox surface, so the
+# charter render assertions and the delivery checks below cannot drift apart.
+PARENT_ROUTE_INBOX="$REMOTE_HOME/state/parent-route/ios.inbox"
 CLAIMS="$TMP_ROOT/claims"
 mkdir -p "$PARENT/data" "$PARENT/state" "$PARENT/config" "$PARENT/projects" "$REMOTE_ROOT" "$CLAIMS"
 cleanup() {
@@ -281,6 +286,20 @@ remote_env() {
   "$@"
 }
 
+# Wait until a live background worker reaches its deliberately blocked step.
+# The worker must stay alive, and the bound is wall-clock seconds rather than a
+# poll count: on a loaded host one remote job took more than 30 seconds to reach
+# its first blocked write, while a poll-count bound also shrinks as the polls slow.
+REMOTE_STEP_SECS=${FM_TEST_REMOTE_STEP_SECS:-120}
+wait_for_blocked_step() {  # <marker> <pid> <what>
+  local marker=$1 pid=$2 what=$3 deadline=$((SECONDS + REMOTE_STEP_SECS))
+  while [ ! -f "$marker" ]; do
+    kill -0 "$pid" 2>/dev/null || fail "$what exited before its blocked step"
+    [ "$SECONDS" -le "$deadline" ] || fail "$what never reached its blocked step within ${REMOTE_STEP_SECS}s"
+    sleep 0.02
+  done
+}
+
 sha256_file() {
   if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$1" | awk '{print $1}'; else sha256sum "$1" | awk '{print $1}'; fi
 }
@@ -290,7 +309,7 @@ sha256_file() {
 # the corr a reply must echo is read from the record body, never from typed
 # pane bytes.
 newest_remote_inbox_corr() {
-  grep -Eoh 'corr=[a-f0-9]{16}' "$REMOTE_HOME"/state/parent-route/ios.inbox/*.msg 2>/dev/null \
+  grep -Eoh 'corr=[a-f0-9]{16}' "$PARENT_ROUTE_INBOX"/*.msg 2>/dev/null \
     | tail -1 | cut -d= -f2-
 }
 
@@ -466,7 +485,10 @@ projects_snapshot() { # <dir>
 }
 mkdir -p "$TMP_ROOT/seed-parent/projects"
 fm_git_init_commit "$TMP_ROOT/seed-parent/projects/resident"
-git init -q --bare "$TMP_ROOT/beta.git"
+# Pin the bare origin's initial branch to the one fm_git_init_commit creates.
+# Left to init.defaultBranch, its HEAD names a branch the push never creates on
+# a host that still defaults to master, and cloning it checks out nothing.
+git init -q --bare -b main "$TMP_ROOT/beta.git"
 fm_git_init_commit "$TMP_ROOT/beta-src"
 git -C "$TMP_ROOT/beta-src" remote add origin "file://$TMP_ROOT/beta.git"
 git -C "$TMP_ROOT/beta-src" push -q -u origin HEAD
@@ -656,6 +678,9 @@ assert_present "$REMOTE_HOME/.fm-secondmate-home" "remote provisioning did not p
 assert_present "$REMOTE_HOME/projects/alpha/.git" "remote provisioning did not clone the project on that host"
 assert_grep "$REMOTE_HOME/state/parent-replies.status" "$REMOTE_HOME/data/charter.md" "remote charter did not use its append-only reply log"
 assert_no_grep "$PARENT/state/ios.status" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local status path"
+assert_grep "$PARENT_ROUTE_INBOX" "$REMOTE_HOME/data/charter.md" "remote charter did not name its host-local steering inbox"
+assert_no_grep "$PARENT/state/ios.inbox" "$REMOTE_HOME/data/charter.md" "remote charter retained the inaccessible local steering inbox path"
+assert_grep "$PARENT_ROUTE_INBOX'/NNN.msg '$PARENT_ROUTE_INBOX'/handled/" "$REMOTE_HOME/data/charter.md" "remote charter did not render the inbox acknowledgement move host-local"
 if FM_SECONDMATE_CHARTER='Own iOS delivery on the build Mac.' \
   FM_SECONDMATE_SCOPE='iOS implementation and Xcode validation' \
   remote_env "$ROOT/bin/fm-remote-home-seed.sh" ios remote-mac "$REMOTE_ROOT" "$TMP_ROOT/other-home" alpha \
@@ -840,15 +865,8 @@ EOF
 FM_FAKE_SSH_MODE=inherit-block remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
   > "$TMP_ROOT/spawn-concurrent.out" 2>&1 &
 spawn_concurrent=$!
-spawn_inherit_wait=0
-# Earlier inherited files traverse the worker before captain-shared.md, so give
-# a loaded portable runner 30 seconds to reach this deliberately blocked write.
-while [ ! -f "$TMP_ROOT/inherit.entered" ]; do
-  kill -0 "$spawn_concurrent" 2>/dev/null || fail "remote spawn exited before its blocked inheritance write"
-  spawn_inherit_wait=$((spawn_inherit_wait + 1))
-  [ "$spawn_inherit_wait" -le 1500 ] || fail "remote spawn never reached its blocked inheritance write"
-  sleep 0.02
-done
+# Earlier inherited files traverse the worker before captain-shared.md.
+wait_for_blocked_step "$TMP_ROOT/inherit.entered" "$spawn_concurrent" "remote spawn inheritance"
 cat > "$PARENT/data/captain-shared.md" <<'EOF'
 # Shared captain preferences
 This file is main-authoritative and maintained by the main firstmate.
@@ -876,7 +894,7 @@ pass "remote spawn serializes inheritance through launch publication"
 # resend command, and the expectation resolves only after the correlated remote log
 # delta is ingested.
 ssh_before_send=$(cat "$SSH_COUNT")
-records_before_send=$(find "$REMOTE_HOME/state/parent-route/ios.inbox" -maxdepth 1 -name '*.msg' 2>/dev/null | wc -l | tr -d ' ')
+records_before_send=$(find "$PARENT_ROUTE_INBOX" -maxdepth 1 -name '*.msg' 2>/dev/null | wc -l | tr -d ' ')
 set +e
 FM_FAKE_SSH_MODE=ambiguous remote_env "$ROOT/bin/fm-send.sh" fm-ios \
   'report the build result' > "$TMP_ROOT/send.out" 2> "$TMP_ROOT/send.err"
@@ -888,7 +906,7 @@ assert_no_grep 'do not resend' "$TMP_ROOT/send.err" "ambiguous remote send kept 
 ssh_after_send=$(cat "$SSH_COUNT")
 [ "$ssh_after_send" -eq $((ssh_before_send + 2)) ] \
   || fail "ambiguous remote send was not retried exactly once (ssh calls: $((ssh_after_send - ssh_before_send)))"
-records_after_send=$(find "$REMOTE_HOME/state/parent-route/ios.inbox" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
+records_after_send=$(find "$PARENT_ROUTE_INBOX" -maxdepth 1 -name '*.msg' | wc -l | tr -d ' ')
 [ "$records_after_send" -eq $((records_before_send + 1)) ] \
   || fail "the retried remote steer did not dedup onto one new record, went $records_before_send -> $records_after_send"
 assert_no_grep 'report the build result' "$HERDR_LOG" "the steer payload was typed into the remote pane"
@@ -951,15 +969,7 @@ EOF
 FM_FAKE_SSH_MODE=inherit-block remote_env "$ROOT/bin/fm-config-push.sh" \
   > "$TMP_ROOT/config-concurrent-first.out" 2>&1 &
 config_first=$!
-inherit_wait=0
-while [ ! -f "$TMP_ROOT/inherit.entered" ]; do
-  kill -0 "$config_first" 2>/dev/null || fail "first inheritance transaction exited before its blocked write"
-  inherit_wait=$((inherit_wait + 1))
-  # Match the earlier spawn/inheritance wait: a loaded portable runner can
-  # spend several seconds in the remote entrypoint before reaching this write.
-  [ "$inherit_wait" -le 1500 ] || fail "first inheritance transaction never reached its blocked write"
-  sleep 0.02
-done
+wait_for_blocked_step "$TMP_ROOT/inherit.entered" "$config_first" "first inheritance transaction"
 cat > "$PARENT/data/captain-shared.md" <<'EOF'
 # Shared captain preferences
 This file is main-authoritative and maintained by the main firstmate.
@@ -983,18 +993,18 @@ printf 'codex\n' > "$PARENT/config/crew-harness"
 # A failed reread nudge now means the durable remote inbox RECORD could not be
 # written (a swallowed doorbell alone no longer fails a recorded steer), so
 # the failure is induced by making the remote steering inbox unwritable.
-chmod 555 "$REMOTE_HOME/state/parent-route/ios.inbox"
+chmod 555 "$PARENT_ROUTE_INBOX"
 if remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-fail.out" 2>&1; then
-  chmod 755 "$REMOTE_HOME/state/parent-route/ios.inbox"
+  chmod 755 "$PARENT_ROUTE_INBOX"
   fail "remote config push claimed success after its reread record could not be written"
 fi
 if [ ! -f "$NUDGE_MARKER" ]; then
-  chmod 755 "$REMOTE_HOME/state/parent-route/ios.inbox"
+  chmod 755 "$PARENT_ROUTE_INBOX"
   printf 'config push failure output:\n%s\n' "$(cat "$TMP_ROOT/config-push-fail.out")" >&2
   fail "failed remote config reread did not retain a retry marker"
 fi
 assert_grep 'remote=1' "$NUDGE_MARKER" "remote config reread marker lost its placement"
-chmod 755 "$REMOTE_HOME/state/parent-route/ios.inbox"
+chmod 755 "$PARENT_ROUTE_INBOX"
 remote_env "$ROOT/bin/fm-config-push.sh" > "$TMP_ROOT/config-push-retry.out" \
   || fail "unchanged remote config push did not retry its pending reread"
 assert_absent "$NUDGE_MARKER" "successful remote config reread left its retry marker"
@@ -1106,6 +1116,22 @@ launches_after_repair=$(grep -c '^tab create' "$HERDR_LOG" || true)
 [ "$(remote_env "$ROOT/bin/fm-on.sh" ios fm-remote-secondmate-control.sh state ios)" = alive ] \
   || fail "the endpoint was not probed successfully after readiness repair"
 pass "startup repairs remote readiness before probing without relaunching"
+
+# --- a stale herdr client shadowing the one the server accepts --------------
+# The remote host's job PATH can resolve an older self-updated herdr ahead of
+# the one its running server accepts; the server then refuses every command
+# from it with protocol_mismatch. The host-local state read must still reach
+# the live endpoint through the accepted client.
+make_herdr_client_pair "$TMP_ROOT/client-pair" 0.7.1 14 0.7.5 16
+export FM_HERDR_PAIR_DIR="$TMP_ROOT/client-pair"
+SHADOWED_STATE=$(FM_HOME="$REMOTE_HOME" FM_ROOT_OVERRIDE="$REMOTE_ROOT" \
+  PATH="$TMP_ROOT/client-pair/stale:$REMOTE_ROOT/bin:$TMP_ROOT/client-pair/tools:$(fm_test_core_path):/usr/bin:/bin" \
+  "$REMOTE_ROOT/bin/fm-remote-secondmate-control.sh" state ios 2>"$TMP_ROOT/shadowed-state.err")
+[ "$SHADOWED_STATE" = alive ] \
+  || fail "a live endpoint behind a stale shadowing client must still read alive, got: $SHADOWED_STATE ($(cat "$TMP_ROOT/shadowed-state.err"))"
+assert_contains "$(cat "$TMP_ROOT/client-pair/stale.log")" 'pane get' "the stale client was not the one the job PATH resolved first"
+unset FM_HERDR_PAIR_DIR
+pass "the host-local state read steps around a stale shadowing herdr client"
 
 remote_route_meta="$REMOTE_HOME/state/parent-route/ios.meta"
 cp "$remote_route_meta" "$TMP_ROOT/remote-ios-before-liveness-legacy.meta"
@@ -1252,15 +1278,8 @@ rm -f "$TMUX_STATE" "$TMP_ROOT/launch.entered" "$TMP_ROOT/launch.release"
 FM_FAKE_SSH_MODE=launch-block remote_env "$ROOT/bin/fm-spawn.sh" ios --secondmate \
   > "$TMP_ROOT/spawn-retirement.out" 2>&1 &
 spawn_retirement_pid=$!
-launch_wait=0
-# The respawn performs readiness and inheritance jobs before launch, so allow
-# the same 30-second loaded-runner bound as the earlier blocked worker path.
-while [ ! -f "$TMP_ROOT/launch.entered" ]; do
-  kill -0 "$spawn_retirement_pid" 2>/dev/null || fail "remote respawn exited before its blocked launch"
-  launch_wait=$((launch_wait + 1))
-  [ "$launch_wait" -le 1500 ] || fail "remote respawn never reached its blocked launch"
-  sleep 0.02
-done
+# The respawn performs readiness and inheritance jobs before launch.
+wait_for_blocked_step "$TMP_ROOT/launch.entered" "$spawn_retirement_pid" "remote respawn launch"
 remote_env "$ROOT/bin/fm-teardown.sh" ios > "$TMP_ROOT/teardown-serialized.out" 2>&1 &
 teardown_pid=$!
 sleep 0.2

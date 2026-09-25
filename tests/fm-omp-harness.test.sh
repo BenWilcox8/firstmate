@@ -53,10 +53,13 @@ export NODE_NO_WARNINGS=1
 # exact signal under test. Every `-c` body below ends in a no-op so bash does
 # not exec-optimize the single command away and replace the named process.
 make_named_shells() {  # <dir> -> echoes <bindir>
-  local dir=$1 name
+  local dir=$1 name bash_bin
+  # The shell is resolved from PATH (tests/lib.sh fm_test_tool): NixOS has no
+  # /bin/bash.
+  bash_bin=$(fm_test_tool bash) || return 1
   mkdir -p "$dir"
   for name in omp ompd comp; do
-    ln -sf /bin/bash "$dir/$name"
+    ln -sf "$bash_bin" "$dir/$name"
   done
   printf '%s' "$dir"
 }
@@ -97,10 +100,10 @@ test_lock_identity_and_liveness_classification() {
   # shellcheck source=bin/fm-backend.sh
   . "$ROOT/bin/fm-backend.sh"
   fm_backend_source tmux || fail "fm_backend_source tmux failed"
-  [ "$(fm_backend_tmux_classify_process_name omp)" = agent ] || fail "tmux liveness must classify omp as an agent"
-  [ "$(fm_backend_tmux_classify_process_name /opt/omp/bin/omp)" = agent ] || fail "tmux liveness must classify an omp path as an agent"
-  [ "$(fm_backend_tmux_classify_process_name ompd)" != agent ] || fail "tmux liveness must not classify ompd as an agent"
-  [ "$(fm_backend_tmux_classify_process_name comp)" != agent ] || fail "tmux liveness must not classify comp as an agent"
+  [ "$(fm_agent_process_classify_name omp)" = agent ] || fail "tmux liveness must classify omp as an agent"
+  [ "$(fm_agent_process_classify_name /opt/omp/bin/omp)" = agent ] || fail "tmux liveness must classify an omp path as an agent"
+  [ "$(fm_agent_process_classify_name ompd)" != agent ] || fail "tmux liveness must not classify ompd as an agent"
+  [ "$(fm_agent_process_classify_name comp)" != agent ] || fail "tmux liveness must not classify comp as an agent"
   pass "session lock and tmux liveness: omp is anchored, decoys stay out"
 }
 

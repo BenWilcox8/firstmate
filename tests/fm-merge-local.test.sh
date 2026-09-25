@@ -24,7 +24,7 @@ make_case() {
   dir="$TMP_ROOT/$name"
   proj="$dir/project"
   branch="fm/task-x1"
-  mkdir -p "$dir/state" "$proj"
+  mkdir -p "$dir/state" "$dir/data" "$proj"
   git -C "$proj" init -q
   fm_git_identity fmtest fmtest@example.invalid
   git -C "$proj" commit --allow-empty -q -m "init"
@@ -51,7 +51,7 @@ make_case() {
 run_merge_local() {
   local case_dir=$1; shift
   FM_ROOT_OVERRIDE="$ROOT" \
-  FM_HOME="${FM_TEST_HOME:-$ROOT}" \
+  FM_HOME="$case_dir" \
   FM_STATE_OVERRIDE="$case_dir/state" \
     "$MERGE_LOCAL" "$@"
 }

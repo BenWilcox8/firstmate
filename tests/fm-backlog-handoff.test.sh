@@ -14,6 +14,10 @@ set -u
 command -v tasks-axi >/dev/null 2>&1 || { echo "skip: tasks-axi not found (required by the delegated handoff path)"; exit 0; }
 
 TMP_ROOT=$(fm_test_tmproot fm-backlog-handoff)
+# Each race case polls every 0.02s for a blocked handoff to reach its hook.
+# The handoff also stays alive-checked each poll, so this bound is only a
+# ceiling for a loaded host, and 30 seconds keeps a busy suite from flaking.
+HANDOFF_STEP_POLLS=1500
 HANDOFF_FAKEBIN=$(make_fake_tmux "$TMP_ROOT/default-fake")
 export PATH="$HANDOFF_FAKEBIN:$PATH"
 export FM_FAKE_TMUX_WINDOW='firstmate:fm-design'
@@ -233,7 +237,7 @@ SH
   while [ ! -f "$TMP_ROOT/reconcile-race.entered" ]; do
     kill -0 "$handoff" 2>/dev/null || fail "reconciliation-race handoff exited before backend delivery"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "reconciliation-race handoff never reached backend delivery"
+    [ "$i" -le "$HANDOFF_STEP_POLLS" ] || fail "reconciliation-race handoff never reached backend delivery"
     sleep 0.02
   done
   corr=$(cut -d: -f2- "$home/state/.backlog-handoff-design.wake-pending")
@@ -583,7 +587,7 @@ SH
   while [ ! -f "$TMP_ROOT/concurrent.entered" ]; do
     kill -0 "$first" 2>/dev/null || fail "first concurrent handoff exited before its blocked wake"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "first concurrent handoff never reached its receiver wake"
+    [ "$i" -le "$HANDOFF_STEP_POLLS" ] || fail "first concurrent handoff never reached its receiver wake"
     sleep 0.02
   done
   cat > "$home/data/backlog.md" <<'EOF'
@@ -653,7 +657,7 @@ SH
   while [ ! -f "$TMP_ROOT/teardown-race.entered" ]; do
     kill -0 "$handoff" 2>/dev/null || fail "teardown-race handoff exited before its blocked wake"
     i=$((i + 1))
-    [ "$i" -le 250 ] || fail "teardown-race handoff never reached its receiver wake"
+    [ "$i" -le "$HANDOFF_STEP_POLLS" ] || fail "teardown-race handoff never reached its receiver wake"
     sleep 0.02
   done
   PATH="$basebin:$PATH" FM_HOME="$home" FM_ROOT_OVERRIDE="$ROOT" \

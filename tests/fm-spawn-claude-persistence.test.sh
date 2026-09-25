@@ -40,6 +40,15 @@ case "${1:-}" in
       prev=
       for a in "$@"; do
         if [ "$prev" = "-l" ]; then
+          # A spawn types a short line that sources its staged launch file;
+          # log the staged command, which is what the pane runs.
+          case "$a" in
+            ". '"*"'")
+              staged=${a#". '"}
+              staged=${staged%"'"}
+              [ ! -f "$staged" ] || a=$(cat "$staged")
+              ;;
+          esac
           printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
         fi
         prev=$a
@@ -147,7 +156,8 @@ test_claude_crewmate_launch_keeps_its_transcript() {
   assert_persistence_prefix "$launch" "the claude crewmate launch"
   # The prefix must lead, so it governs the claude process no matter which other
   # launch prefixes (config dir, secondmate env, trace context) are added later.
-  case "$launch" in
+  # Only the separate compact-adviser export statement may run before it.
+  case "${launch#"export COMPACT_ADVISER_DISABLE=1; "}" in
     "env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 "*) ;;
     *) fail "the persistence prefix did not lead the claude launch: $launch" ;;
   esac

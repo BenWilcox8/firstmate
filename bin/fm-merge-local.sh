@@ -27,31 +27,35 @@
 # explicit current captain merge instruction.
 # Usage: fm-merge-local.sh <task-id> [--captain-authorized]
 #        [--captain-word <words>|--captain-word=<words>]
+# The task's existing per-task control lock serializes the captain-hold check
+# through that fast-forward. A still-held or unreadable row refuses before the
+# merge, so a captain approval must be recorded as an `answer --release` before
+# this entrypoint is invoked. The lock ends when the fast-forward returns;
+# docs/captain-hold-lifecycle.md owns the accepted merge-to-cleanup residual.
 set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FM_ROOT="${FM_ROOT_OVERRIDE:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 FM_HOME="${FM_HOME:-${FM_ROOT_OVERRIDE:-$FM_ROOT}}"
 STATE="${FM_STATE_OVERRIDE:-$FM_HOME/state}"
+# shellcheck source=bin/fm-pr-lib.sh
+. "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-backlog-transition-lib.sh
+. "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
 CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
-"$FM_ROOT/bin/fm-guard.sh" || true
-# Role partition: landing local-only work is MAIN-owned; the Pi supervision
-# branch reports readiness and never lands (contract: bin/fm-lease-lib.sh;
-# no-op in homes without a branch actor).
-# shellcheck source=bin/fm-wake-lib.sh
-. "$SCRIPT_DIR/fm-wake-lib.sh"
-# shellcheck source=bin/fm-lease-lib.sh
-. "$SCRIPT_DIR/fm-lease-lib.sh"
 # shellcheck source=bin/fm-atlas-word-lib.sh
 . "$SCRIPT_DIR/fm-atlas-word-lib.sh"
-fm_lease_forbid_branch "local-only landing (fm-merge-local)"
-ID=${1:?usage: fm-merge-local.sh <task-id>}
 # --captain-authorized: explicit current captain merge instruction; passes
 # through the yolo= guard below. Never modifies the git operation itself.
 # --captain-word <words>: the captain's exact words, recorded as the Atlas
 # approval before the ticket is completed.
 CAPTAIN_AUTHORIZED=false
 CAPTAIN_WORD=
+if [ "$#" -lt 1 ] || ! fm_pr_task_id_valid "$1"; then
+  echo "error: invalid local merge request" >&2
+  exit 2
+fi
+ID=$1
 shift
 while [ "$#" -gt 0 ]; do
   case "$1" in
@@ -64,11 +68,51 @@ while [ "$#" -gt 0 ]; do
       CAPTAIN_WORD=$FM_ATLAS_CAPTAIN_WORD
       shift "$FM_ATLAS_CAPTAIN_WORD_CONSUMED"
       ;;
-    *) echo "usage: fm-merge-local.sh <task-id> [--captain-authorized] [--captain-word <words>]" >&2; exit 2 ;;
+    *) echo "error: invalid local merge request" >&2; exit 2 ;;
   esac
 done
+fm_backlog_directory_present "$STATE" "state directory" || {
+  echo "error: local merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  exit 1
+}
 META="$STATE/$ID.meta"
+
+# shellcheck source=bin/fm-wake-lib.sh
+. "$SCRIPT_DIR/fm-wake-lib.sh"
+"$FM_ROOT/bin/fm-guard.sh" || true
+# Role partition: landing local-only work is MAIN-owned; the Pi supervision
+# branch reports readiness and never lands (contract: bin/fm-lease-lib.sh;
+# no-op in homes without a branch actor). This action is deliberately NOT
+# relocated under the away-posture record: unlike the PR merge it has no
+# record-side grant gate of its own, so a parked main keeps it held for the
+# captain's return. This precedes reading the task record, because the wrong
+# actor is refused for its role whatever it says.
+# shellcheck source=bin/fm-lease-lib.sh
+. "$SCRIPT_DIR/fm-lease-lib.sh"
+fm_lease_forbid_branch "local-only landing (fm-merge-local)"
+
 [ -f "$META" ] || { echo "error: no meta for task $ID at $META" >&2; exit 1; }
+if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+  echo "error: local merge refused: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  exit 1
+fi
+MERGE_EXPECTED_SPAWN_GEN=$FM_BACKLOG_META_SPAWN_GEN
+
+MERGE_CONTROL_LOCK=
+merge_control_cleanup() {
+  [ -z "$MERGE_CONTROL_LOCK" ] || fm_lock_release "$MERGE_CONTROL_LOCK" || true
+}
+trap merge_control_cleanup EXIT
+MERGE_CONTROL_LOCK="$STATE/.control-$ID.lock"
+fm_lock_acquire_wait "$MERGE_CONTROL_LOCK"
+if ! fm_backlog_meta_spawn_gen_optional "$META" "$STATE"; then
+  echo "error: task $ID changed while waiting to merge; refusing: $FM_BACKLOG_TRANSITION_ERROR" >&2
+  exit 1
+fi
+if [ "$FM_BACKLOG_META_SPAWN_GEN" != "$MERGE_EXPECTED_SPAWN_GEN" ]; then
+  echo "error: task $ID changed incarnation while waiting to merge; refusing" >&2
+  exit 1
+fi
 
 # Merge-authority guard: refuse unless yolo=on is recorded in the task meta or
 # the caller supplied --captain-authorized (a current, explicit captain merge
@@ -124,7 +168,25 @@ if ! git -C "$PROJ" merge-base --is-ancestor "$DEFAULT" "$BRANCH"; then
 fi
 
 before=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
-git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null
+hold_status=0
+FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="$STATE" \
+  "$SCRIPT_DIR/fm-captain-hold.sh" open "$ID" --distinguish-absent || hold_status=$?
+case "$hold_status" in
+  0)
+    echo "error: task $ID is still held for the captain; release it before merging" >&2
+    exit 1
+    ;;
+  1|3) ;;
+  *)
+    echo "error: could not determine whether task $ID is still held for the captain; refusing to merge" >&2
+    exit 1
+    ;;
+esac
+merge_status=0
+git -C "$PROJ" merge --ff-only "$BRANCH" >/dev/null || merge_status=$?
+fm_lock_release "$MERGE_CONTROL_LOCK" || true
+MERGE_CONTROL_LOCK=
+[ "$merge_status" -eq 0 ] || exit "$merge_status"
 after=$(git -C "$PROJ" rev-parse --short "$DEFAULT")
 echo "merged $BRANCH into local $DEFAULT ($before -> $after) in $PROJ"
 

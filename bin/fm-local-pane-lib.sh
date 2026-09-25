@@ -22,6 +22,14 @@ fm_local_pane_error() {
   return 1
 }
 
+# A stopped session server answers no inventory read, and a restart keeps its
+# pane ids. The upstream absence proof owns that case: it starts the recorded
+# server, then re-reads the recorded pane to adopt, rebind, or refuse.
+fm_local_pane_server_stopped() { # <meta>
+  fm_backend_source herdr || return 1
+  [ "$(fm_backend_herdr_server_running_state "$(fm_meta_get "$1" herdr_session)")" = stopped ]
+}
+
 # Presentation journal resolution is a separate recovery owner. Automatic flat
 # cleanup must not interpret a projected pane as absent from the home workspace.
 fm_local_pane_flat() {
@@ -242,6 +250,14 @@ fm_local_pane_receipt() { # <meta> <task-id>
 fm_local_pane_relaunch_state() {
   local observed
   fm_local_pane_resolve "$RELAUNCH_META" "$ID" || return 1
+  # With no home workspace, a missing recorded pane belongs to the upstream
+  # absence proof and rebind, which re-create the labeled workspace. A recorded
+  # pane that still exists here was proven to belong to other work.
+  if [ -z "$FM_LOCAL_PANE_WORKSPACE" ]; then
+    [ "$RELAUNCH_STATE" != missing ] || return 0
+    fm_local_pane_error "$ID has no home workspace and its recorded pane $RELAUNCH_TARGET now belongs to other work; relaunch refused"
+    return 1
+  fi
   if [ -n "$FM_LOCAL_PANE_TARGET" ]; then
     observed=$(fm_backend_agent_state herdr "$FM_LOCAL_PANE_TARGET")
   else

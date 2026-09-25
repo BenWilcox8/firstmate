@@ -230,10 +230,21 @@ case "${1:-}" in
       case "$payload" in
         /exit|/quit) printf 'zsh' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}" ;;
         *'encode launch-brief'*) printf 'claude' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}" ;;
+        # A spawn types `. <launch file>`; the staged file holds the launch.
+        '. '*)
+          launch_file=${payload#. }
+          launch_file=${launch_file#\'}
+          launch_file=${launch_file%\'}
+          if grep -q 'encode launch-brief' "$launch_file" 2>/dev/null; then
+            printf 'claude' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}"
+          fi
+          ;;
       esac
     fi
     exit 0 ;;
-  capture-pane) printf 'x\n'; exit 0 ;;
+  # An empty composer box: an exit command is typed only into a composer
+  # proven empty (bin/fm-control.sh).
+  capture-pane) printf '╭────╮\n│    │\n╰────╯\n'; exit 0 ;;
   has-session|new-session|set-window-option) exit 0 ;;
 esac
 exit 0

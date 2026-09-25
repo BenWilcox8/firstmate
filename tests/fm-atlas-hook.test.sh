@@ -607,12 +607,16 @@ make_pr_merge_case() {  # <name> [meta-lines...]
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 exit 0
 SH
-  # fm-pr-merge reads the live outcome back after gh-axi returns and refuses
-  # any merge it cannot prove, so the fake forge has to answer that read.
+  # fm-pr-merge verifies the live pull request before it merges, then reads
+  # the live outcome back and refuses any merge it cannot prove, so the fake
+  # forge has to answer both reads.
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 case "${1:-} ${2:-}" in
+  "pr view")
+    printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+    ;;
   "api graphql")
     printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main'
     ;;
@@ -667,7 +671,7 @@ test_pr_merge_survives_a_broken_atlas() {
   rc=$?
   set -e
   expect_code 0 "$rc" "pr-merge: a broken Atlas must not fail the merge"
-  grep -qxF 'pr merge 9 --repo example/repo --squash' "$home/gh.log" \
+  grep -qxF 'pr merge 9 --repo example/repo --match-head-commit bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb --squash' "$home/gh.log" \
     || fail "pr-merge: the merge itself did not happen"$'\n'"$(cat "$home/gh.log")"
   assert_contains "$out" 'atlas-hook:' "pr-merge: the Atlas failure must still be reported"
   pass "fm-pr-merge still merges and exits 0 when the Atlas is broken"
