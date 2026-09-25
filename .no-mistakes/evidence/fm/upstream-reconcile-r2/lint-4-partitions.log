@@ -1,0 +1,11 @@
+# CI lint matrix driven locally: bin/fm-lint.sh --partition Kof4 with FM_LINT_JOBS=1 and a recording ShellCheck stand-in
+partition 1of4: exit=0 roots=120 shellcheck-invocations=5 heavy-roots-run-alone=[bin/fm-send.sh tests/fm-pending-reply.test.sh tests/fm-remote-reply.test.sh ] heavy-roots-sharing=[]
+partition 2of4: exit=0 roots=121 shellcheck-invocations=5 heavy-roots-run-alone=[bin/fm-pr-merge.sh bin/fm-procevent-remote-reply.sh bin/fm-teardown.sh ] heavy-roots-sharing=[]
+partition 3of4: exit=0 roots=121 shellcheck-invocations=2 heavy-roots-run-alone=[] heavy-roots-sharing=[]
+partition 4of4: exit=0 roots=121 shellcheck-invocations=2 heavy-roots-run-alone=[] heavy-roots-sharing=[]
+union of 4 partitions == full canonical root set (483 roots), disjoint and complete
+--partition 0of4 -> exit 2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 0of4.
+--partition 5of4 -> exit 2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 5of4.
+--partition 1of8 -> exit 2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 1of8.
+--partition 1of2 still accepted -> exit 0
+--partition 2of2 still accepted -> exit 0

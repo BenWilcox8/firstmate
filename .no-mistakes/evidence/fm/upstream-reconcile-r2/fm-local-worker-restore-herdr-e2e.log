@@ -1,0 +1,7 @@
+ok - five Claude workers run in their own lab panes and worktrees
+{"session":{"default":false,"name":"fm-lab-reboot-recovery-808282-9531","running":false,"session_dir":"/home/ben/.config/herdr/sessions/fm-lab-reboot-recovery-808282-9531","socket_path":"/home/ben/.config/herdr/sessions/fm-lab-reboot-recovery-808282-9531/herdr.sock"},"stopped":true}
+ok - the lab restart stopped every worker
+check: worker restore after machine reboot: restored 1 (working); skipped: running 1; parked 1; finished 1; captain-waiting 1 (waiting: open decision: scope); slot-reused 1 (reused: its worktree is now recorded for taker in /tmp/fm-local-pane.YPipiP/home); failed 0
+ok - only the working worker came back, in its own slot and worktree; the others stayed down
+ok - a relaunch into a worktree leased to another task refuses and leaves that task running
+ok - a restart is restored once

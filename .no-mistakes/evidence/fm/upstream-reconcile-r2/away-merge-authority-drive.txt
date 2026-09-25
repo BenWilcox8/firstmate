@@ -1,0 +1,7 @@
+--- away record present: .afk-contract 
+case green-yolo-off (yolo=off, args: none, green checks): exit=1; gh pr merge ran: 0
+  stderr: error: merge refused for task task-x1: yolo=off (expected on or --captain-authorized for an explicit captain merge instruction)
+--- away record present: .afk-contract 
+case green-yolo-off-captain (yolo=off, args: --captain-authorized, green checks): exit=0; gh pr merge ran: 1
+--- away record present: .afk-contract 
+case green-yolo-on (yolo=on, args: none, green checks): exit=0; gh pr merge ran: 1

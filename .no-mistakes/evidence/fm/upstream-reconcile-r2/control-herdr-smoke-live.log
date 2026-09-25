@@ -1,0 +1,12 @@
+ok - real herdr: exit closes an agent-free pane and preserves the supervisor and worktree
+ok - real herdr: interrupt refuses when herdr's own agent registry reports no agent
+ok - real herdr 0.8.2: a gone session reads recoverable while a live pane and a malformed target do not
+warning: /tmp/fm-local-pane.B5mG8x/home/data/hsmoke/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+ok - real herdr: a drifted agent-free shell relaunches in a new pane in its worktree and the old pane closes
+ok - real herdr: stale lifecycle-hook status does not keep a shell-only pane alive
+warning: /tmp/fm-local-pane.B5mG8x/home/data/hsmoke/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+ok - real herdr: a stale registration does not block relaunch into a new pane, and the local copy survives
+ok - real herdr: interrupt protects an exact foreground agent process
+ok - real herdr: interrupt preserves the live worker, supervisor, and local copy
+ok - real herdr: an agent behind an unproven composer fails closed instead of typing an exit command into it
+exit=0

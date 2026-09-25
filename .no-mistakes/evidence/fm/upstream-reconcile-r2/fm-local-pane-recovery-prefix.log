@@ -1,0 +1,30 @@
+ok - pane-cleanup-on-exit tests are registered through the fork family hook
+ok - recovery skips a pane whose fresh spawn holds the task meta lock
+closed ended pane=test:w1:p2
+ok - recovery closes an ended worker pane while preserving its task record
+closed ended pane=test:w1:p2
+ok - a duplicated home label resolves to the recorded workspace, never to a guess
+ok - automatic cleanup preserves a pane with unreadable process evidence
+ok - automatic cleanup preserves a secondmate supervisor pane
+ok - watcher poll closes an ended worker pane through its hook
+ok - bootstrap cleans restored shells before layout repair
+ok - bootstrap skips and reports a layout repair whose plan would close a recorded task pane
+ok - bootstrap still heals husks that have no task record in this home
+ok - bootstrap runs the existing layout repair when its plan closes no pane
+ok - exit treats a missing home workspace as proof that no task pane remains
+ok - exit refuses when the home workspace is missing but the recorded pane still exists
+ok - exit refuses when the home workspace exists but its crew inventory is unreadable
+ok - a sweep reads a failed session inventory once and closes nothing
+ok - exit refuses when a split tab hides the recorded worker pane from label resolution
+ok - teardown refuses and keeps the records when a split tab hides the recorded worker pane
+ok - recovery leaves a split-tab worker pane untouched
+ok - exit treats a recorded pane id that now names other work as gone and closes nothing
+ok - exit still refuses an unlabeled recorded pane that runs inside this worktree
+not ok - recycled relaunch output ({"tab_id":"w1:t9","label":"fm-other"}): ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: task ended's recorded worktree '/tmp/tmp.KyTu4Qe8yW/worktree' is missing; refusing to relaunch without the local copy its work lives in

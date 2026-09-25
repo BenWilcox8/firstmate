@@ -1,0 +1,26 @@
+partition 1of4: exit=0 shellcheck-invocations=5 roots=120
+  heavy root invocation: [bin/fm-send.sh]
+  heavy root invocation: [tests/fm-pending-reply.test.sh]
+  heavy root invocation: [tests/fm-remote-reply.test.sh]
+partition 2of4: exit=0 shellcheck-invocations=5 roots=121
+  heavy root invocation: [bin/fm-pr-merge.sh]
+  heavy root invocation: [bin/fm-procevent-remote-reply.sh]
+  heavy root invocation: [bin/fm-teardown.sh]
+partition 3of4: exit=0 shellcheck-invocations=2 roots=121
+partition 4of4: exit=0 shellcheck-invocations=2 roots=121
+canonical roots=483 union-of-4-partitions=483 unique=483 identical=yes
+partition 0of4 refused exit=2
+partition 5of4 refused exit=2
+partition 1of8 refused exit=2
+partition 1of2 list exit=0
+partition 2of2 list exit=0
+31:    name: Lint ${{ matrix.partition }}
+38:        partition: [1, 2, 3, 4]
+54:      # fails locally before merge. CI uses four partitions and one ShellCheck
+56:      - name: Lint canonical partition
+58:          FM_LINT_JOBS: "1"
+62:          bin/fm-lint.sh --partition "${{ matrix.partition }}of${{ strategy.job-total }}" \
+63:            --telemetry "$RUNNER_TEMP/fm-lint/partition-${{ matrix.partition }}.tsv"
+68:          name: fm-lint-telemetry-${{ matrix.partition }}
+69:          path: ${{ runner.temp }}/fm-lint/partition-${{ matrix.partition }}.tsv
+74:  # and that the portable serial CI shards partition that serial lane exactly.

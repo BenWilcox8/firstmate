@@ -1,7 +1,7 @@
 ok - local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 3s ago).
 ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
@@ -34,6 +34,10 @@ ok - herdr teardown closes a task pane whose agent already exited instead of lea
 ok - herdr teardown counts an already-dead pane as confirmed closed without issuing a close
 ok - herdr teardown retries a close the server accepted but never applied, then confirms it
 ok - herdr teardown refuses a pane it could never close unless forced, and reports it loudly by task and pane instead of leaking it silently
+ok - herdr teardown preserves unknown process panes even when forced record retirement is allowed
+ok - herdr teardown refuses unreadable ownership unless forced, and forced retirement closes no pane
+ok - herdr teardown keeps the placement receipt while a later refusal retains the task record
+ok - herdr teardown keeps its session presentation lock through the slot return after the early pane close
 ok - herdr teardown falls back to default close attempts and retry wait when the overrides are empty, zero, or non-numeric
 ok - herdr projection teardown retires its journal on the confirmation the retried close actually reached
 ok - herdr projection teardown retires its journal only after confirming the exact recorded pane is gone
@@ -48,26 +52,11 @@ ok - squash-merged task whose local branch followed the pipeline rebase is torn 
 ok - squash-merged same-path different content still refuses
 ok - squash-merged rebased local still refuses a genuinely unlanded follow-up commit
 ok - squash-merged stale local still refuses when the forge is unreachable
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 fm-contributions: data directory unavailable
 contributions: observation not armed; coverage is unconfirmed
-WARNING: watcher still down (same stale episode; last beat: 2s ago, grace 300s) - full banner already printed this episode.
 fm-contributions: data directory unavailable
 contributions: observation not armed; coverage is unconfirmed
 ok - fm-pr-check does not refresh PR head after HEAD moves
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 0s ago).
-●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
-●  This is a supervision warning only; the guarded operation WILL still run.
-●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
-●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 fm-contributions: data directory unavailable
 contributions: observation not armed; coverage is unconfirmed
 ok - fm-pr-check records the remote PR head when the local worktree lags
@@ -78,7 +67,7 @@ ok - gh lookup error with content not in default refuses (fail-safe)
 ok - a record predating spawn_gen refuses teardown until --legacy-record is passed
 ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ●  WATCHER DOWN - SUPERVISION IS OFF
-●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 2s ago).
+●  1 task(s) in flight, but no live watcher process holds this home lock (last beat: 4s ago).
 ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
 ●  This is a supervision warning only; the guarded operation WILL still run.
 ●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
@@ -129,3 +118,4 @@ ok - a process spawned during grace is reaped on a later pass
 ok - persistent leaked processes refuse teardown after bounded retries
 ok - a process exiting during identity lookup does not block teardown
 ok - the run abort and the leaked-process reap both complete before the destructive worktree return
+fm-teardown exit=0 463s

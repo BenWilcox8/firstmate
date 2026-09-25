@@ -1,13 +1,25 @@
-HEAD c46d1013a521e6092c4ae0a6e96fd7ae3b62896a
-merge 3432404 parents=af823b7 aec043c Merge upstream Firstmate while preserving fork contracts
-merge 712aed8 parents=1f626b9 7e3ad1d Merge fork main with Atlas close-out gates and the agent limit
-merge 534a987 parents=0934f4e 7e4bdf9 Merge fork main with the one-worker lint job and park and resume
-merge c91b03a parents=30f425e a21721c merge: fork main a21721c9 (idle Codex doorbell fix, PR 49)
-merge d5fbb6c parents=64e704b 5607ed7 merge: fork main 5607ed74 (typed delivery provenance, PR 50)
-ancestor-of-HEAD af823b7f569479c0a5057e127e904df55c2ec4b4 yes
-ancestor-of-HEAD aec043c718ef186a1d28c607fd5852b041e24435 yes
-ancestor-of-HEAD 7e3ad1d7 yes
-ancestor-of-HEAD 7e4bdf984a8ead682284a19fe7b4648a0b578c04 yes
-ancestor-of-HEAD a21721c99bc0a8f1f5887df36dbb8fe86203abe6 yes
-ancestor-of-HEAD 5607ed748fbb38f957d49c58e666b82e3184dfe8 yes
-merge commits on branch since af823b7f: 5
+integration merge 3432404 parents:
+3432404438b8497195d3d70e9ef83ac49d4a7117 af823b7f569479c0a5057e127e904df55c2ec4b4 aec043c718ef186a1d28c607fd5852b041e24435
+ancestor of HEAD: af823b7f569479c0a5057e127e904df55c2ec4b4 (Merge pull request #43 from BenWilcox8/fm/watcher-staging-loop-r1)
+ancestor of HEAD: aec043c718ef186a1d28c607fd5852b041e24435 (test: fix Claude session-start drain live E2E (#5165))
+ancestor of HEAD: 7e3ad1d7 (feat: enforce a Herdr-based concurrent agent limit on spawns (#44))
+ancestor of HEAD: 7e4bdf98 (feat(control): park and resume a worker's native agent session (#47))
+ancestor of HEAD: a21721c9 (fix(composer): treat idle Codex animation frames as an empty composer )
+ancestor of HEAD: 5607ed74 (feat(send): record typed delivery provenance for dashboard attribution)
+ancestor of HEAD: b2ef7600 (fix(composer): ring the doorbell for idle Codex frames with no prompt-)
+ancestor of HEAD: e1b269ed (feat(provenance): record launch, exit, and away-digest typings (#55))
+ancestor of HEAD: fe5909bb (feat(bin): relaunch the primary firstmate and authorized second mates )
+ancestor of HEAD: d2cda540 (feat(bin): restore working workers after a fleet restart (#57))
+merge 712aed80 parents: 712aed80ab3764a9a4d6304c7839fd959edbcf15 1f626b901441a9045750966827731fbaf999410f 7e3ad1d7976005e88c8162a18d5379fdb0e8766e
+merge 534a987a parents: 534a987a395314544e8dd0670fa9de344af6e65f 0934f4ee8d55ce022dbaaf2289e6f4083f467712 7e4bdf984a8ead682284a19fe7b4648a0b578c04
+merge c91b03a5 parents: c91b03a5f8d24b2944b548131598e8e60c139ef4 30f425ea8d950286f5959d2f0db65d38dec0ccb7 a21721c99bc0a8f1f5887df36dbb8fe86203abe6
+merge d5fbb6c2 parents: d5fbb6c2fbedc5475cf85f63e63e937de19fe7a3 64e704b075a4e750be094ed56f4e5dea6c983581 5607ed748fbb38f957d49c58e666b82e3184dfe8
+merge 0089320a parents: 0089320a6ef28a08d518ce73ac7aacd311d3d27d c909e24756d5931b06e763691c49ad2f84f03e1c b2ef7600494a09d694fba54885231b091d1f5399
+merge eeb841b9 parents: eeb841b9f8ecef13339c6dfcc7bc0c239e04f3f7 1c5dbbc8e338cef2515af21b4257116c4cf3d108 e1b269edc09a678fa2ca17a3323eab34b0e2fa58
+merge cc9045e parents: cc9045e04541d3ecdf4536479000d2b6c4ca390e 1968137a51bdd277333404cbd1b7e9a1580fdef4 fe5909bb88bd153bd185e3f349ea486ef92470ef
+merge d978c181 parents: d978c1818d75e3e3d3c44e2bd619de333b3b8a43 da83586d30cc672e8921dbd59423ec503f35ce77 d2cda540c244be434da1697faef3892ec5693278
+upstream commits after aec043c7 in HEAD (should be none of upstream main beyond pin):
+aec043c718ef186a1d28c607fd5852b041e24435
+first-parent linear chain from HEAD back to af823b7 (no rebase):
+436
+af823b7 is on the first-parent chain

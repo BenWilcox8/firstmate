@@ -1,0 +1,25 @@
+== lab session: fm-lab-recycled-1308822-7810
+== workspaces (no workspace carries the home label 'firstmate'):
+[]
+== foreign work: workspace w1 (label other-work), pane w1:p1
+[{"workspace_id":"w1","label":"other-work"}]
+== case: recycled pane labeled fm-other (bare shell)
+-- recorded pane as Herdr reports it:
+{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","label":"fm-other","foreground_cwd":"/"}
+-- $ fm-spawn.sh ended --relaunch  (exit 1)
+   ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   ●  WATCHER DOWN - SUPERVISION IS OFF
+   ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+   ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+   ●  This is a supervision warning only; the guarded operation WILL still run.
+   ●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+   ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   error: pane cleanup: ended has no home workspace and its recorded pane fm-lab-recycled-1308822-7810:w1:p1 now belongs to other work; relaunch refused
+-- result: pass (refused, pane still open, screen untouched, record unchanged, no workspace created)
+== case: recycled unlabeled pane with foreground cwd / (outside the worktree)
+-- recorded pane as Herdr reports it:
+{"pane_id":"w1:p1","workspace_id":"w1","tab_id":"w1:t1","label":null,"foreground_cwd":"/"}
+-- $ fm-spawn.sh ended --relaunch  (exit 1)
+   WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+   error: pane cleanup: ended has no home workspace and its recorded pane fm-lab-recycled-1308822-7810:w1:p1 now belongs to other work; relaunch refused
+-- result: pass (refused, pane still open, screen untouched, record unchanged, no workspace created)
