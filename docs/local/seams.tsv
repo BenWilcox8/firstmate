@@ -36,3 +36,4 @@ docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-c
 bin/fm-session-start.sh	88	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
 bin/fm-bootstrap.sh	64	secondmate-liveness-skip,secondmate-liveness-serial	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
 bin/fm-spawn.sh	979	worktree-lease	tests/fm-local-worker-restore.test.sh	personal: relaunch and resume lease re-check for fork park and fresh-pane relaunch	retain
+tests/fm-pending-reply.test.sh	62	lint-pending-reply-source-edge	tests/fm-lint.test.sh	generic: lint memory, upstream candidate; ShellCheck of this root alone: fork 14.65 GB (killed at a 14 GB cap) and upstream aec043c7 12.69 GB with the library followed, 6.36 GB after the edge cut; the library stays its own lint root (4.85 GB)	retain
