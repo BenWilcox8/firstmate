@@ -75,7 +75,8 @@ fm_lock_try_acquire "$FM_HOME/state/.meta-ended.lock"
 fm_lock_release "$FM_HOME/state/.meta-ended.lock"
 echo 'ok - recovery skips a pane whose fresh spawn holds the task meta lock'
 "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
-[ -f "$META" ] && [ -f "$tmp/closed" ]
+[ -f "$META" ]
+[ -f "$tmp/closed" ]
 echo 'ok - recovery closes an ended worker pane while preserving its task record'
 
 # A duplicated home label resolves only to the task's recorded workspace.
@@ -85,7 +86,8 @@ FM_LOCAL_RECOVERY_WORKSPACES='[{"workspace_id":"w9","label":"firstmate"},{"works
 [ ! -e "$tmp/closed" ]
 FM_LOCAL_RECOVERY_WORKSPACES='[{"workspace_id":"w9","label":"firstmate"},{"workspace_id":"w1","label":"firstmate"}]' \
   "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
-[ -f "$META" ] && [ -f "$tmp/closed" ]
+[ -f "$META" ]
+[ -f "$tmp/closed" ]
 echo 'ok - a duplicated home label resolves to the recorded workspace, never to a guess'
 
 # Unknown process evidence cannot authorize a close.
@@ -180,7 +182,8 @@ rm -f "$tmp/closed"
 out=$(FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
   FM_LOCAL_RECOVERY_GONE=1 "$ROOT/bin/fm-control.sh" ended exit)
 case "$out" in already-stopped*) ;; *) echo "not ok - exit output: $out" >&2; exit 1 ;; esac
-[ ! -e "$tmp/closed" ] && [ -f "$absent_home/state/ended.meta" ]
+[ ! -e "$tmp/closed" ]
+[ -f "$absent_home/state/ended.meta" ]
 echo 'ok - exit treats a missing home workspace as proof that no task pane remains'
 if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" FM_LOCAL_RECOVERY_WORKSPACES='[]' \
     "$ROOT/bin/fm-control.sh" ended exit > "$tmp/renamed.out" 2>&1; then
@@ -188,7 +191,8 @@ if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadabl
   exit 1
 fi
 grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/renamed.out" >/dev/null
-[ ! -e "$tmp/closed" ] && [ -f "$absent_home/state/ended.meta" ]
+[ ! -e "$tmp/closed" ]
+[ -f "$absent_home/state/ended.meta" ]
 echo 'ok - exit refuses when the home workspace is missing but the recorded pane still exists'
 if FM_HOME="$absent_home" FM_BACKEND_HERDR_AXI_BIN="$tmp/bin/agent-axi-unreadable" \
     "$ROOT/bin/fm-control.sh" ended exit > "$tmp/unreadable.out" 2>&1; then
@@ -221,7 +225,8 @@ if FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" \
   exit 1
 fi
 grep -F 'recorded pane test:w1:p2 is not proven gone' "$tmp/split-exit.out" >/dev/null
-[ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+[ ! -e "$tmp/closed" ]
+[ -f "$split_home/state/ended.meta" ]
 echo 'ok - exit refuses when a split tab hides the recorded worker pane from label resolution'
 if FM_HOME="$split_home" FM_STATE_OVERRIDE="$split_home/state" FM_LOCAL_RECOVERY_PANES="$split_panes" \
     "$ROOT/bin/fm-teardown.sh" ended > "$tmp/split-teardown.out" 2>&1; then
@@ -229,7 +234,8 @@ if FM_HOME="$split_home" FM_STATE_OVERRIDE="$split_home/state" FM_LOCAL_RECOVERY
   exit 1
 fi
 grep -F 'ownership could not be verified' "$tmp/split-teardown.out" >/dev/null
-[ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+[ ! -e "$tmp/closed" ]
+[ -f "$split_home/state/ended.meta" ]
 echo 'ok - teardown refuses and keeps the records when a split tab hides the recorded worker pane'
 FM_HOME="$split_home" FM_LOCAL_RECOVERY_PANES="$split_panes" "$ROOT/bin/fm-local-pane-cleanup.sh" sweep
 [ ! -e "$tmp/closed" ]
@@ -247,7 +253,8 @@ for overrides in '{"tab_id":"w1:t9","label":"fm-other"}' '{"tab_id":"w1:t9","lab
   rm -f "$tmp/closed"
   out=$(recycled_exit "$overrides") || { echo "not ok - a recycled pane id blocked exit ($overrides): $out" >&2; exit 1; }
   case "$out" in already-stopped*) ;; *) echo "not ok - recycled exit output: $out" >&2; exit 1 ;; esac
-  [ ! -e "$tmp/closed" ] && [ -f "$split_home/state/ended.meta" ]
+  [ ! -e "$tmp/closed" ]
+  [ -f "$split_home/state/ended.meta" ]
 done
 echo 'ok - exit treats a recorded pane id that now names other work as gone and closes nothing'
 if recycled_exit '{"tab_id":"w1:t9","label":null,"foreground_cwd":"'"$tmp"'/worktree"}' > "$tmp/recycled.out" 2>&1; then
@@ -270,7 +277,8 @@ for overrides in '{"tab_id":"w1:t9","label":"fm-other"}' '{"tab_id":"w1:t9","lab
   grep -F 'ended has no home workspace and its recorded pane test:w1:p2 now belongs to other work; relaunch refused' \
     "$tmp/recycled-relaunch.out" >/dev/null \
     || { echo "not ok - recycled relaunch output ($overrides): $(cat "$tmp/recycled-relaunch.out")" >&2; exit 1; }
-  [ ! -e "$tmp/closed" ] && cmp -s "$tmp/split-before.meta" "$split_home/state/ended.meta"
+  [ ! -e "$tmp/closed" ]
+  cmp -s "$tmp/split-before.meta" "$split_home/state/ended.meta"
 done
 echo 'ok - relaunch with no home workspace refuses a recorded pane id that now names other work'
 
@@ -292,7 +300,8 @@ if grep -F 'LEAKED HERDR PANE' "$tmp/recycled-force.out" >/dev/null; then
   exit 1
 fi
 grep -F 'is gone or now belongs to other work' "$tmp/recycled-force.out" >/dev/null
-[ ! -e "$tmp/closed" ] && [ ! -e "$split_home/state/ended.meta" ]
+[ ! -e "$tmp/closed" ]
+[ ! -e "$split_home/state/ended.meta" ]
 mv "$tmp/bin/herdr.inventory" "$tmp/bin/herdr"
 echo 'ok - forced teardown does not report a recycled recorded pane as this task leaked pane'
 
@@ -311,5 +320,6 @@ mkdir -p "$stop_dir"
   fm_backend_send_text_submit() { touch "$stop_dir/exit-submitted"; printf submitted; }
   fm_local_pane_stop "$stop_dir/grok.meta" ended test:w1:p2
 )
-[ -e "$stop_dir/interrupted" ] && [ ! -e "$stop_dir/exit-submitted" ]
+[ -e "$stop_dir/interrupted" ]
+[ ! -e "$stop_dir/exit-submitted" ]
 echo 'ok - teardown stop submits no exit command after an interrupt ends the agent'
