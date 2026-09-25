@@ -1,0 +1,10 @@
+partition 1of4: rc=0 shellcheck-invocations=5 every-listed-root-checked-once=yes
+   heavy root bin/fm-procevent-remote-reply.sh -> invocations containing it: 1, invocations where it is alone: 1
+   heavy root tests/fm-remote-reply.test.sh -> invocations containing it: 1, invocations where it is alone: 1
+   heavy root tests/fm-pending-reply.test.sh -> invocations containing it: 1, invocations where it is alone: 1
+partition 2of4: rc=0 shellcheck-invocations=5 every-listed-root-checked-once=yes
+   heavy root bin/fm-teardown.sh -> invocations containing it: 1, invocations where it is alone: 1
+   heavy root bin/fm-pr-merge.sh -> invocations containing it: 1, invocations where it is alone: 1
+   heavy root bin/fm-send.sh -> invocations containing it: 1, invocations where it is alone: 1
+partition 3of4: rc=0 shellcheck-invocations=2 every-listed-root-checked-once=yes
+partition 4of4: rc=0 shellcheck-invocations=2 every-listed-root-checked-once=yes

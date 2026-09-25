@@ -20,6 +20,11 @@ ok - teardown refuses and keeps the records when a split tab hides the recorded 
 ok - recovery leaves a split-tab worker pane untouched
 ok - exit treats a recorded pane id that now names other work as gone and closes nothing
 ok - exit still refuses an unlabeled recorded pane that runs inside this worktree
-ok - relaunch with no home workspace refuses a recorded pane id that now names other work
-ok - forced teardown does not report a recycled recorded pane as this task leaked pane
-ok - teardown stop submits no exit command after an interrupt ends the agent
+not ok - recycled relaunch output ({"tab_id":"w1:t9","label":"fm-other"}): ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+error: task ended's recorded worktree '/tmp/tmp.5VjrNeimy9/worktree' is missing; refusing to relaunch without the local copy its work lives in

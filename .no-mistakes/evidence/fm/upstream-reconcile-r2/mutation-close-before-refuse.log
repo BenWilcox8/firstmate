@@ -20,6 +20,3 @@ ok - teardown refuses and keeps the records when a split tab hides the recorded 
 ok - recovery leaves a split-tab worker pane untouched
 ok - exit treats a recorded pane id that now names other work as gone and closes nothing
 ok - exit still refuses an unlabeled recorded pane that runs inside this worktree
-ok - relaunch with no home workspace refuses a recorded pane id that now names other work
-ok - forced teardown does not report a recycled recorded pane as this task leaked pane
-ok - teardown stop submits no exit command after an interrupt ends the agent

@@ -1,2 +1,4 @@
+$ bin/fm-agentsmd-ceiling.sh check
 AGENTS.md is 29219 estimated tokens, within ceiling 29220 (1 to spare).
-exit=0
+rc=0
+tracked ceiling: 29220

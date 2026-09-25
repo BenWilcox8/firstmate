@@ -16,4 +16,3 @@ ok - Atlas refusal keeps a keyed blocker and the record; retry closes only the o
 ok - retirement releases and lands a node that no other open ticket holds
 ok - landed ship retirement keeps Git refs and archives only its own task artifacts
 ok - retirement refuses while another lifecycle action owns the live task
-fm-local-cleanup-slot exit=0 92s

@@ -1,0 +1,19 @@
+1of2 rc=0 roots=241
+2of2 rc=0 roots=242
+1of4 rc=0 roots=121
+2of4 rc=0 roots=121
+3of4 rc=0 roots=120
+4of4 rc=0 roots=121
+full inventory (CI context) roots=483
+4-way union=483 unique=483
+2-way union=483 unique=483
+4-way and 2-way splits cover the same inventory
+reject 5of4 rc=2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 5of4.
+reject 0of4 rc=2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 0of4.
+reject 1of3 rc=2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 1of3.
+reject 3of2 rc=2 : fm-lint.sh: --partition must be 1of2, 2of2, or 1of4 through 4of4, got 3of2.
+heavy roots listed: 6
+1of4 heavy roots: 3
+2of4 heavy roots: 3
+3of4 heavy roots: 0
+4of4 heavy roots: 0

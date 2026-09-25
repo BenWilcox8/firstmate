@@ -1,0 +1,32 @@
+away record files in state: .afk-contract 
+afk-contract status: Usage:
+afk-contract status:   fm-afk-contract.sh propose [--words-file <path> | --words <text>]
+afk-contract status:       [--expected-return <UTC ISO 8601>] [--spend <n>]
+--- case away-yolo-off (away record present, yolo=off, no --captain-authorized): exit 1
+stderr: error: merge refused for task task-x1: yolo=off (expected on or --captain-authorized for an explicit captain merge instruction)
+forge merge call: none
+merge-authority record: none
+away record files in state: .afk-contract 
+afk-contract status: Usage:
+afk-contract status:   fm-afk-contract.sh propose [--words-file <path> | --words <text>]
+afk-contract status:       [--expected-return <UTC ISO 8601>] [--spend <n>]
+--- case away-yolo-on-control (away record present, yolo=on, no --captain-authorized): exit 0
+stderr: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+stderr: ●  WATCHER DOWN - SUPERVISION IS OFF
+stderr: ●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+stderr: ●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+stderr: ●  This is a supervision warning only; the guarded operation WILL still run.
+stderr: ●  repair missing watcher supervision according to the session-start block for this harness; do not use shell &.
+forge merge call: MADE
+merge-authority record: written
+not ok - away-yolo-on-control: away posture alone authorized a merge
+control yolo=on: merged (driver refusal assertion tripped as expected, exit 1)
+away record files in state: .afk-contract 
+afk-contract status: Usage:
+afk-contract status:   fm-afk-contract.sh propose [--words-file <path> | --words <text>]
+afk-contract status:       [--expected-return <UTC ISO 8601>] [--spend <n>]
+--- case away-yolo-absent (away record present, yolo=<absent>, no --captain-authorized): exit 1
+stderr: error: merge refused for task task-x1: yolo=<missing> (expected on or --captain-authorized for an explicit captain merge instruction)
+forge merge call: none
+merge-authority record: none
+ok - away posture alone never authorizes a merge

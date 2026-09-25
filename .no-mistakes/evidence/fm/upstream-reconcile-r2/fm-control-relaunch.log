@@ -67,4 +67,3 @@ ok - reclaim: a herdr secondmate whose endpoint is gone is sent to its own respa
 ok - reclaim: a rebind refused from a plain shell reports the real cause, not a fabricated session mismatch
 ok - relaunch re-reads the backlog item instead of blindly re-running the transition
 ok - relaunch heals an item that drifted out of In flight while the task stayed live
-fm-control-relaunch exit=0
