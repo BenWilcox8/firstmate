@@ -80,6 +80,7 @@ assert.strictEqual(record.sha256, lib.sha256(fs.readFileSync(typed)), JSON.strin
 assert.deepStrictEqual(record.endpoint, { backend: "tmux", target: "sess:win", pane_id: "%7", task_id: task || null }, JSON.stringify(record));
 assert.strictEqual(record.sender_home, sender, JSON.stringify(record));
 assert.strictEqual(record.delivery_kind, kind, JSON.stringify(record));
+assert.match(record.time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/, record.time);
 assert.ok(Math.abs(Date.now() - Date.parse(record.time)) < 60000, record.time);
 assert.ok(!("text" in record), JSON.stringify(record));
 JS
