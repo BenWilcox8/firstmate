@@ -79,8 +79,11 @@
 #                     the pane is gone, `bin/fm-spawn.sh <id> --secondmate`
 #                     opens a new one in that space. When a restart gave the
 #                     space a new workspace id, agent-axi moves the home's slot
-#                     ledger to it. A recorded pane id that Herdr now uses in
-#                     another space is never typed into or closed. Each
+#                     ledger to it. A recorded pane that is not shown to sit
+#                     in the second mate's space (Herdr can give its id to a
+#                     pane in another space, or its workspace cannot be read)
+#                     is never typed into or closed, and that second mate is
+#                     left down. Each
 #                     relaunch appends one unkeyed `working:` line to
 #                     state/<id>.status, so a blocker recorded before the
 #                     restart does not read as current. Then each relaunched
@@ -116,9 +119,12 @@
 #   liveness-skip  The secondmate-liveness-skip hook in bin/fm-bootstrap.sh's
 #                startup liveness sweep. Exit 0 (leave the second mate alone)
 #                when it is dormant, while a recovery pass runs, or when it is
-#                a local Herdr second mate whose space is closed (not active),
-#                and exit 1 otherwise. A space that cannot be read, for example
-#                while Herdr is down, does not skip. A dormant skip prints a
+#                a local Herdr second mate whose space is closed (not active)
+#                or whose recorded pane, alive or agent-free, is not shown to
+#                sit in its open space (the sweep would otherwise close that
+#                pane or count it as this second mate), and exit 1 otherwise.
+#                A space that cannot be read, for example while Herdr is
+#                down, does not skip. A dormant skip prints a
 #                BOOTSTRAP_INFO fact only under FM_BOOTSTRAP_VERBOSE_FACTS=1;
 #                the other skips always print one.
 #   status       Print the recent pass ledger and the newest pass record.
@@ -548,13 +554,12 @@ rr_status_boundary() {  # <id> <class>
 }
 
 # rr_first_line <text>: the first error line of a command's output, else its
-# first nonempty line that is not a warning, else its first nonempty line.
+# first nonempty line.
 rr_first_line() {
   printf '%s\n' "$1" | awk '
     /^error: / { print; found = 1; exit }
-    NF && !first { first = $0 }
-    NF && !plain && !/^warning: / { plain = $0 }
-    END { if (!found) print (plain != "" ? plain : first) }'
+    NF && first == "" { first = $0 }
+    END { if (!found) print first }'
 }
 
 # rr_space <meta>: read the Herdr space of the second mate that <meta> records.
@@ -585,16 +590,31 @@ rr_space() {
 }
 
 # rr_pane_in_space <target>: 0 when the Herdr pane <target> (session:pane) sits
-# in one of RR_SPACE_IDS. A restart can give a recorded pane id to a pane in
+# in one of RR_SPACE_IDS, 1 when it sits in another workspace, and 2 when its
+# workspace cannot be read. A restart can give a recorded pane id to a pane in
 # another space, and that pane is never this second mate's.
 rr_pane_in_space() {
   local session=${1%%:*} pane=${1#*:} ws id
   ws=$(rr_herdr "$session" pane get "$pane" 2>/dev/null | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
-  [ -n "$ws" ] || return 1
+  [ -n "$ws" ] || return 2
   for id in $RR_SPACE_IDS; do
     [ "$id" != "$ws" ] || return 0
   done
   return 1
+}
+
+# rr_pane_away <target>: 0 when the recorded pane <target> must be left alone
+# because it is not shown to sit in RR_SPACE_IDS. RR_PANE_AWAY then says why,
+# for the pass record and the startup liveness sweep alike.
+rr_pane_away() {
+  local rc=0
+  RR_PANE_AWAY=
+  rr_pane_in_space "$1" || rc=$?
+  case "$rc" in
+    0) return 1 ;;
+    1) RR_PANE_AWAY="its recorded pane $1 now sits in another workspace, outside its Herdr space $RR_SPACE_LABEL, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it" ;;
+    *) RR_PANE_AWAY="the workspace of its recorded pane $1 could not be read, so the pane is not known to sit in its Herdr space $RR_SPACE_LABEL and nothing was typed into it or closed" ;;
+  esac
 }
 
 # rr_notify <id> <class>: send the second mate its one restart notice. The
@@ -649,8 +669,8 @@ rr_secondmates() {  # <class>
     state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
     case "$backend:$state" in
       herdr:alive|herdr:dead)
-        if ! rr_pane_in_space "$target"; then
-          rr_note "second mate $id: left down: its recorded pane $target now sits outside its space $RR_SPACE_LABEL, so nothing was typed into it or closed; relaunch it by hand"
+        if rr_pane_away "$target"; then
+          rr_note "second mate $id: left down: $RR_PANE_AWAY"
           continue
         fi
         ;;
@@ -1002,7 +1022,7 @@ cmd_run() {
 }
 
 cmd_liveness_skip() {
-  local id=${1:-} reason meta
+  local id=${1:-} reason meta target
   [ -n "$id" ] || return 1
   if reason=$("$SCRIPT_DIR/fm-local-dormant.sh" is "$id" 2>/dev/null); then
     [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] \
@@ -1017,10 +1037,20 @@ cmd_liveness_skip() {
   case "$id" in .|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
   [ -f "$meta" ] && [ -z "$(fm_meta_get "$meta" remote_host)" ] || return 1
   [ "$(fm_backend_of_meta "$meta")" = herdr ] || return 1
-  if rr_space "$meta" && [ -z "$RR_SPACE_IDS" ]; then
+  rr_space "$meta" || return 1
+  if [ -z "$RR_SPACE_IDS" ]; then
     printf 'BOOTSTRAP_INFO: secondmate %s left down: not active (its Herdr space %s is closed); relaunch it by hand when the captain works with it again\n' "$id" "$RR_SPACE_LABEL"
     return 0
   fi
+  target=$(fm_backend_target_of_meta "$meta")
+  case "$(fm_backend_agent_state herdr "$target" 2>/dev/null)" in
+    alive|dead)
+      if rr_pane_away "$target"; then
+        printf 'BOOTSTRAP_INFO: secondmate %s left down: %s\n' "$id" "$RR_PANE_AWAY"
+        return 0
+      fi
+      ;;
+  esac
   return 1
 }
 
