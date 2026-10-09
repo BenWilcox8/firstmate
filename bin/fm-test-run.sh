@@ -1196,23 +1196,10 @@ aggregate_timing_json() {
   shift
   [ "$#" -gt 0 ] || die "--aggregate-json requires at least one input timing JSON"
   command -v node >/dev/null 2>&1 || die "--aggregate-json requires node"
-  node - "$out" "$@" <<'JS'
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" node - "$out" "$@" <<'JS'
 const fs = require('fs');
 const path = require('path');
-
-// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
-function dumpJson(value) {
-  const sortKeys = (key, v) => {
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      const sorted = {};
-      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
-      return sorted;
-    }
-    return v;
-  };
-  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
-    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
-}
+const { dumpJson } = require(process.env.FM_TEST_JSON_LIB);
 
 const nullable = (v) => (v === undefined ? null : v);
 const toInt = (v) => Math.trunc(Number(v || 0));
@@ -1861,27 +1848,10 @@ write_json_artifact() {
 
   command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid timing artifact"
 
-  node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'JS'
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
+    node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'JS'
 const fs = require('fs');
-
-// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
-function dumpJson(value) {
-  const sortKeys = (key, v) => {
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      const sorted = {};
-      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
-      return sorted;
-    }
-    return v;
-  };
-  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
-    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
-}
-
-function toInt(text) {
-  if (!/^\s*[-+]?[0-9]+\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
-  return parseInt(text, 10);
-}
+const { dumpJson, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
 function rows(file, width) {
   const result = [];

@@ -108,7 +108,9 @@ set -euo pipefail
 # the bare word `ada`, so without this the model-backed subcommands fail with
 # "[Errno 2] No such file or directory: 'ada'" while note/status still work.
 # Verified: this is exactly what happens over SSH without the fix.
-for _extra in "$HOME/.toolbox/bin" "$HOME/.local/bin"; do
+# The same PATH also omits /opt/homebrew/bin and /usr/local/bin, where macOS
+# keeps node, and the machine-readable subcommands need node.
+for _extra in /usr/local/bin /opt/homebrew/bin "$HOME/.toolbox/bin" "$HOME/.local/bin"; do
   case ":$PATH:" in
     *":$_extra:"*) ;;
     *) [ -d "$_extra" ] && PATH="$_extra:$PATH" ;;
@@ -233,7 +235,7 @@ const homeLabel = (home) => {
 
 inbox_node() {  # <script> [arg...]
   node -e "$INBOX_JS_PRELUDE
-$1" "${@:2}"
+$1" -- "${@:2}"
 }
 
 valid_request_id() {
