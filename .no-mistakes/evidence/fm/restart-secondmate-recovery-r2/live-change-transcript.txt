@@ -1,0 +1,89 @@
+lab session: fm-lab-sweep-change-2267476-1251 (code root: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H3P65QYCK28T80Y6NXATBK)
+
+===== fleet before the startup sweep =====
+open spaces: [{"id":"w1","label":"2ndmate-live"},{"id":"w2","label":"2ndmate-away"},{"id":"w4","label":"captain-notes"},{"id":"w5","label":"fleet"}]
+live   recorded pane w1:p1 in workspace w1 runs ["claude"]
+away   space 2ndmate-away=w2 open; recorded pane w4:p1 is in workspace w4 (captain-notes=w4) and runs ["bash"]
+closed space 2ndmate-closed=w3 closed by the captain
+
+===== phase 1: bin/fm-bootstrap.sh (FM_BOOTSTRAP_NETWORK=only) startup liveness sweep =====
+BOOTSTRAP_INFO: secondmate away left down: its recorded pane fm-lab-sweep-change-2267476-1251:w4:p1 now sits in another workspace, outside its Herdr space 2ndmate-away, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it
+BOOTSTRAP_INFO: secondmate closed left down: not active (its Herdr space 2ndmate-closed is closed); relaunch it by hand when the captain works with it again
+BOOTSTRAP_INFO: secondmate live already live (backend=herdr)
+SECONDMATE_SYNC: secondmate away: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate closed: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate live: skipped: primary default-branch commit cannot be resolved
+
+===== fleet after the startup sweep =====
+open spaces: [{"id":"w1","label":"2ndmate-live"},{"id":"w2","label":"2ndmate-away"},{"id":"w4","label":"captain-notes"},{"id":"w5","label":"fleet"}]
+captain-notes pane w4:p1: workspace w4, runs ["bash"]
+pane-close calls: 0
+agent launches: live=1 away=0 closed=1
+
+===== phase 2: a reboot, then the boot unit's fm-local-restart-recovery.sh run =====
+fm-restart-recovery: restart recovery after machine reboot (the boot id changed)
+fm-restart-recovery: second mate away: left down: its recorded pane fm-lab-sweep-change-2267476-1251:w4:p1 now sits in another workspace, outside its Herdr space 2ndmate-away, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it
+fm-restart-recovery: second mate closed: left down: not active (its Herdr space 2ndmate-closed is closed)
+fm-restart-recovery: second mate live: relaunched in its pane
+fm-restart-recovery: second mate live: restart notice sent
+fm-restart-recovery: primary firstmate: already running (a Claude process runs in this home, pid 2269060)
+fm-restart-recovery: workers: never relaunched automatically; each second mate that got the restart notice reconciles its own workers and resumes their remaining work, and the relaunched firstmate does the same for its own
+fm-restart-recovery: restart recovery after machine reboot finished: firstmate already running; second mates relaunched 1, left down 2, failed 0; restart notices sent 1, failed 0
+pass exit status: 0
+live pane w1:p1 runs ["claude"] again
+captain-notes pane w4:p1 after the pass: workspace w4, runs ["bash"]
+captain-notes pane screen (last lines):
+agent launches: live=2 away=0 closed=1
+product Herdr calls that named the captain-notes pane w4:p1 (sweep + pass):
+        6 agent get w4:p1
+        9 pane get w4:p1
+        6 pane process-info --pane w4:p1
+        1 pane read w4:p1 --source recent --lines 200
+
+===== pass record =====
+restart recovery after machine reboot (the boot id changed), 2026-10-09T20:31:26Z
+- second mate away: left down: its recorded pane fm-lab-sweep-change-2267476-1251:w4:p1 now sits in another workspace, outside its Herdr space 2ndmate-away, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it
+- second mate closed: left down: not active (its Herdr space 2ndmate-closed is closed)
+- second mate live: relaunched in its pane
+- second mate live: restart notice sent
+- primary firstmate: already running (a Claude process runs in this home, pid 2269060)
+- workers: never relaunched automatically; each second mate that got the restart notice reconciles its own workers and resumes their remaining work, and the relaunched firstmate does the same for its own
+
+===== check wake queued for the primary =====
+1791577886	1	check	restart-recovery:1791577886	check: restart recovery after machine reboot: firstmate already running; second mates relaunched 1, left down 2, failed 0; restart notices sent 1, failed 0; record state/restart-recovery/1791577886.2289112.txt
+
+===== live's steering inbox (the restart notice) =====
+--- /tmp/fm-nm-live-change.1IPbjO/home/state/live.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-10-09T20:31:23Z
+--
+[fm-from-firstmate]⁣corr=6962b30a0d07c434 Restart notice: a machine reboot (the boot id changed) stopped Herdr and every agent in it, your workers included. Restart recovery relaunched you, but it relaunches no workers. Reconcile your own home now. For each worker you recorded, check its endpoint, its local copy, and its unlanded work. Resume the work that remains yourself, one worker at a time, through bin/fm-control.sh. Leave finished, parked, and captain-held work as it is. Then report in your status what you resumed and what you left down.
+inbox dirs for left-down second mates: away=none closed=none
+
+===== live's status boundary =====
+working: relaunched after a machine reboot by restart recovery
+
+===== the second mate home's own locked session start (RESTART line) =====
+RESTART: machine reboot since the last session start (the boot id changed). The primary firstmate's home runs restart recovery for second mates and keeps its ledger and pass records; this home keeps none. Workers are not relaunched automatically: reconcile the workers this home recorded, their local copies, and their unlanded work, then resume the remaining work yourself.
+
+===== phase 2b: the primary's next session start runs the startup sweep again =====
+BOOTSTRAP_INFO: secondmate away left down: its recorded pane fm-lab-sweep-change-2267476-1251:w4:p1 now sits in another workspace, outside its Herdr space 2ndmate-away, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it
+BOOTSTRAP_INFO: secondmate closed left down: not active (its Herdr space 2ndmate-closed is closed); relaunch it by hand when the captain works with it again
+BOOTSTRAP_INFO: secondmate live already live (backend=herdr)
+SECONDMATE_SYNC: secondmate away: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate closed: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate live: skipped: primary default-branch commit cannot be resolved
+captain-notes pane w4:p1: workspace w4, runs ["bash"]
+agent launches: live=2 away=0 closed=1
+open spaces: [{"id":"w1","label":"2ndmate-live"},{"id":"w2","label":"2ndmate-away"},{"id":"w4","label":"captain-notes"},{"id":"w5","label":"fleet"}]
+
+===== phase 3: bin/fm-spawn.sh fresh --secondmate, slot ledger bound to a missing former workspace, installed agent-axi (/home/ben/.npm-global/bin/agent-axi, main 06aad72) =====
+fresh: former workspace w6 is gone; its space 2ndmate-fresh came back as w7; ledger: {"version":1,"workspace":{"label":"2ndmate-fresh","id":"w6"},"supervisorPaneId":null,"planOverrides":{},"slots":[]}
+$ bin/fm-spawn.sh fresh --secondmate --backend herdr   (exit 1)
+warning: secondmate fresh sync skipped before launch: primary default-branch commit cannot be resolved
+fm-config-inherit: warning: skipped crew-harness for /tmp/fm-nm-live-change.1IPbjO/sm-fresh/config: destination does not allow inherited item (not gitignored or guard failed)
+error: agent-axi spawn failed for fm-fresh (session fm-lab-sweep-change-2267476-1251): the home ledger is bound to workspace 2ndmate-fresh (w6), but the exact target is 2ndmate-fresh (w7)
+help: agent-axi: Resolve the ledger conflict before you retry the spawn.
+help: agent-axi: Agent-axi will not move this home to a different workspace automatically.
+fresh launches: 0
+lab teardown: fm-lab-sweep-change-2267476-1251 removed, default-session tripwire unchanged

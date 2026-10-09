@@ -1,0 +1,16 @@
+ok - live: a primary in a lab pane records its endpoint through the real restart-record path
+ok - live: with no restart, the boot unit relaunches nothing
+ok - live: after a reboot the authorized second mates run again in their own panes, and the dormant one stays down
+ok - live: the primary comes back last, in its recorded pane, resuming its recorded session
+ok - live: the pass leaves one wake and a status boundary for each relaunched second mate
+ok - live: a second mate whose Herdr space did not survive the restart is not active and stays down
+ok - live: each relaunched second mate gets exactly one restart notice in its steering inbox, and no other does
+ok - live: no ordinary worker is relaunched by the pass or by a home's session start after the restart
+ok - live: a second mate whose space came back under a new workspace id is relaunched there, and its ledger follows
+ok - live: a ledger bound to a workspace that still exists keeps refusing, and the pass reports agent-axi's reason
+ok - live: a second mate relaunched by hand during a restart is detected and not launched twice
+ok - live: a primary whose pane is gone comes back in a new tab of its recorded workspace, named in the pass record
+ok - live: a finished restart is never recovered twice
+ok - live: a restart loop stops at the rate limit with one alert and no launches
+ok - live: a primary whose workspace is gone comes back in a new workspace with its label, named in the pass output
+exit=0

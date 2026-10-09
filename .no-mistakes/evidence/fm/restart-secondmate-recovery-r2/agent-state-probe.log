@@ -1,0 +1,19 @@
+# Output of agent-state-probe.sh (fm-lab-probe-2212519-25818): a claude stand-in
+# started by a raw `herdr pane run` reads `unknown` in Herdr's agent registry for
+# about 5 s, so fm_backend_agent_state reads `unreadable` until it settles, with or
+# without the liveness-skip hook. The hook does not change the sweep's read.
+t+1s registry=  (no hook)          sweep-read=unreadable
+t+1s registry=unknown  liveness-skip rc=1  then sweep-read=unreadable
+t+2s registry=unknown  (no hook)          sweep-read=unreadable
+t+2s registry=unknown  liveness-skip rc=1  then sweep-read=unreadable
+t+2s registry=unknown  (no hook)          sweep-read=unreadable
+t+3s registry=unknown  liveness-skip rc=1  then sweep-read=unreadable
+t+3s registry=unknown  (no hook)          sweep-read=unreadable
+t+3s registry=unknown  liveness-skip rc=1  then sweep-read=unreadable
+t+4s registry=unknown  (no hook)          sweep-read=unreadable
+t+5s registry=unknown  liveness-skip rc=1  then sweep-read=alive
+t+5s registry=idle  (no hook)          sweep-read=alive
+t+6s registry=idle  liveness-skip rc=1  then sweep-read=alive
+t+7s registry=idle  (no hook)          sweep-read=alive
+t+7s registry=idle  liveness-skip rc=1  then sweep-read=alive
+teardown ok: fm-lab-probe-2212519-25818

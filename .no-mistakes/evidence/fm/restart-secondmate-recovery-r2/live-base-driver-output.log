@@ -1,0 +1,42 @@
+lab session: fm-lab-sweep-base-2044803-313 (code root: /tmp/nm-test-01M4H3P6/base)
+
+===== fleet before the startup sweep =====
+open spaces: [{"id":"w1","label":"2ndmate-live"},{"id":"w2","label":"2ndmate-away"},{"id":"w4","label":"captain-notes"},{"id":"w5","label":"fleet"}]
+live   recorded pane w1:p1 in workspace w1 runs ["claude"]
+away   space 2ndmate-away=w2 open; recorded pane w4:p1 is in workspace w4 (captain-notes=w4) and runs ["bash"]
+closed space 2ndmate-closed=w3 closed by the captain
+
+===== phase 1: bin/fm-bootstrap.sh (FM_BOOTSTRAP_NETWORK=only) startup liveness sweep =====
+BOOTSTRAP_INFO: secondmate away relaunched after confirmed agent absence on existing endpoint (backend=herdr)
+BOOTSTRAP_INFO: secondmate closed relaunched after recorded endpoint confidently missing (backend=herdr)
+BOOTSTRAP_INFO: secondmate live already live (backend=herdr)
+SECONDMATE_SYNC: secondmate away: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate closed: skipped: primary default-branch commit cannot be resolved
+SECONDMATE_SYNC: secondmate live: skipped: primary default-branch commit cannot be resolved
+
+===== fleet after the startup sweep =====
+open spaces: [{"id":"w1","label":"2ndmate-live"},{"id":"w2","label":"2ndmate-away"},{"id":"w5","label":"fleet"},{"id":"w6","label":"2ndmate-closed"}]
+captain-notes pane w4:p1: workspace , runs 
+pane-close calls: 2
+  herdr pane close w4:p1
+  herdr pane close w6:p1
+agent launches: live=1 away=1 closed=2
+product Herdr calls that named the captain-notes pane w4:p1 (sweep):
+        4 agent get w4:p1
+        1 pane close w4:p1
+        7 pane get w4:p1
+        4 pane process-info --pane w4:p1
+away's recorded endpoint after the sweep: window=fm-lab-sweep-base-2044803-313:w2:p2 herdr_workspace_id=w2 
+
+===== base: phase 3 only =====
+
+===== phase 3: bin/fm-spawn.sh fresh --secondmate, slot ledger bound to a missing former workspace, installed agent-axi (/home/ben/.npm-global/bin/agent-axi, main 06aad72) =====
+fresh: former workspace w7 is gone; its space 2ndmate-fresh came back as w8; ledger: {"version":1,"workspace":{"label":"2ndmate-fresh","id":"w7"},"supervisorPaneId":null,"planOverrides":{},"slots":[]}
+$ bin/fm-spawn.sh fresh --secondmate --backend herdr   (exit 1)
+fatal: not a git repository (or any of the parent directories): .git
+fatal: not a git repository (or any of the parent directories): .git
+warning: secondmate fresh sync skipped before launch: primary default-branch commit cannot be resolved
+fm-config-inherit: warning: skipped crew-harness for /tmp/fm-nm-live-base.1srwXl/sm-fresh/config: destination does not allow inherited item (not gitignored or guard failed)
+error: agent-axi spawn failed for fm-fresh (session fm-lab-sweep-base-2044803-313)
+fresh launches: 0
+lab teardown: fm-lab-sweep-base-2044803-313 removed, default-session tripwire unchanged

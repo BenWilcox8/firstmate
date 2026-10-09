@@ -1,0 +1,6 @@
+ok - a recorded pane that now runs other work is not a lease on the worktree
+ok - lease-check counts a live agent whose pane location cannot be read
+ok - lease-check reports a worktree Treehouse leased to another live process
+ok - lease-check finds a newer record for the worktree in a second mate's home
+ok - fm-spawn --relaunch refuses a worktree leased to other work (worktree-lease seam)
+exit=0
