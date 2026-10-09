@@ -73,17 +73,21 @@
 #                     state/<id>.meta. It leaves down dormant ones
 #                     (bin/fm-local-dormant.sh), remote ones (they recover on
 #                     their own host), and Herdr ones whose space is closed or
-#                     cannot be read (not active). It leaves running ones
-#                     alone. An agent-free pane in the second mate's own space
-#                     gets `bin/fm-control.sh <id> relaunch` in place; when
-#                     the pane is gone, `bin/fm-spawn.sh <id> --secondmate`
-#                     opens a new one in that space. When a restart gave the
-#                     space a new workspace id, agent-axi moves the home's slot
-#                     ledger to it. A recorded pane that is not shown to sit
-#                     in the second mate's space (Herdr can give its id to a
-#                     pane in another space, or its workspace cannot be read)
-#                     is never typed into or closed, and that second mate is
-#                     left down. Each
+#                     cannot be read (not active). It does not relaunch
+#                     running ones. An agent-free pane in the second mate's
+#                     own space gets `bin/fm-control.sh <id> relaunch` in
+#                     place. When the pane is gone, `bin/fm-spawn.sh <id>
+#                     --secondmate --backend <its recorded backend>` opens a
+#                     new one in that space, with HERDR_SESSION set to the
+#                     recorded session of a Herdr second mate. When a restart
+#                     gave the space a new workspace id, that spawn needs an
+#                     agent-axi that moves the home's slot ledger to the new
+#                     id. An agent-axi that refuses fails the relaunch, and
+#                     the pass record keeps its reason. A recorded pane that
+#                     is not shown to sit in the second mate's space (Herdr
+#                     can give its id to a pane in another space, or its
+#                     workspace cannot be read) is never typed into or closed,
+#                     and that second mate is left down. Each
 #                     relaunch appends one unkeyed `working:` line to
 #                     state/<id>.status, so a blocker recorded before the
 #                     restart does not read as current. Then each relaunched
