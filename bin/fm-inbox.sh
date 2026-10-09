@@ -108,12 +108,19 @@ set -euo pipefail
 # the bare word `ada`, so without this the model-backed subcommands fail with
 # "[Errno 2] No such file or directory: 'ada'" while note/status still work.
 # Verified: this is exactly what happens over SSH without the fix.
-# The same PATH also omits /opt/homebrew/bin and /usr/local/bin, where macOS
-# keeps node, and the machine-readable subcommands need node.
-for _extra in /usr/local/bin /opt/homebrew/bin "$HOME/.toolbox/bin" "$HOME/.local/bin"; do
+for _extra in "$HOME/.toolbox/bin" "$HOME/.local/bin"; do
   case ":$PATH:" in
     *":$_extra:"*) ;;
     *) [ -d "$_extra" ] && PATH="$_extra:$PATH" ;;
+  esac
+done
+# The same PATH also omits /opt/homebrew/bin and /usr/local/bin, where macOS
+# keeps node, and the machine-readable subcommands need node. They go last, so
+# every tool that the caller's PATH already finds keeps its precedence.
+for _extra in /opt/homebrew/bin /usr/local/bin; do
+  case ":$PATH:" in
+    *":$_extra:"*) ;;
+    *) [ -d "$_extra" ] && PATH="$PATH:$_extra" ;;
   esac
 done
 unset _extra
