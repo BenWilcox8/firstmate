@@ -5267,6 +5267,8 @@ test_wait_transition_clean_timeout_returns_1() {
 # assert the invoking home is passed through unchanged) to $FM_AXI_LOG and, for
 # `spawn --json`, emits a canned spawn envelope naming a NEW tab/pane id. Other
 # verbs (teardown) succeed silently, mirroring the real CLI's quiet mutations.
+# With FM_AXI_SPAWN_STDERR set, spawn instead writes that text to stderr and
+# exits 1, as a refused agent-axi spawn does.
 make_agent_axi_fakebin() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/axibin"
   mkdir -p "$fb"
@@ -5279,7 +5281,11 @@ LOG="${FM_AXI_LOG:?}"
   for a in "$@"; do printf '\x1f%s' "$a"; done
   printf '\n'
 } >> "$LOG"
-if [ "${1:-}" = spawn ]; then
+if [ "${1:-}" = spawn ] && [ -n "${FM_AXI_SPAWN_STDERR:-}" ]; then
+  # A refused spawn: agent-axi's own error on stderr, nothing on stdout.
+  printf '%s\n' "$FM_AXI_SPAWN_STDERR" >&2
+  exit 1
+elif [ "${1:-}" = spawn ]; then
   # A spawn --json response naming the new tab/pane the shim must echo back.
   printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
 elif [ "${1:-}" = list ]; then
@@ -5320,6 +5326,44 @@ EOF
   assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "delegated create_task must not run native herdr tab create"
   assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''list' "delegated create_task must not run the native duplicate scan"
   pass "fm_backend_herdr_create_task: delegates to agent-axi spawn and echoes its tab/pane byte-identically"
+}
+
+test_create_task_reports_agent_axi_refusal_text() {
+  local dir hlog resp fb axilog axifb out json
+  dir="$TMP_ROOT/axi-create-refusal"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  create() {  # <agent-axi stderr>
+    PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+      FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+      FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' FM_AXI_SPAWN_STDERR="$1" \
+      bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj some-seeded-tab' "$ROOT" 2>&1
+  }
+  # The --json error envelope agent-axi writes for a refused spawn.
+  json='{
+  "error": {
+    "message": "the home ledger is bound to workspace 2ndmate-sm (w3A), but the exact target is 2ndmate-sm (w3E)",
+    "help": [
+      "Agent-axi will not move this home to a different workspace: workspace w3A still exists, so the home would own two workspaces.",
+      "Resolve the ledger conflict before you retry the spawn."
+    ]
+  }
+}'
+  if out=$(create "$json"); then
+    fail "create_task must fail when agent-axi refuses the spawn: $out"
+  fi
+  [ "$(printf '%s\n' "$out" | head -n 1)" = "error: agent-axi spawn failed for fm-axi1 (session fmtest): the home ledger is bound to workspace 2ndmate-sm (w3A), but the exact target is 2ndmate-sm (w3E)" ] \
+    || fail "the first error line must carry agent-axi's own reason: $out"
+  assert_contains "$out" "help: agent-axi: Agent-axi will not move this home to a different workspace: workspace w3A still exists" \
+    "agent-axi's help lines must follow the error"
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "a refused delegated spawn must not fall back to a native tab"
+  # Plain stderr text, as from a crash, joins the headline by its first line.
+  out=$(create $'error: node: not found\nsecond line') && fail "create_task must fail on a crashed agent-axi: $out"
+  [ "$(printf '%s\n' "$out" | head -n 1)" = "error: agent-axi spawn failed for fm-axi1 (session fmtest): node: not found" ] \
+    || fail "a plain agent-axi error must join the headline: $out"
+  assert_contains "$out" "agent-axi: second line" "the rest of a plain agent-axi error must follow"
+  pass "fm_backend_herdr_create_task: a refused agent-axi spawn reports agent-axi's own reason, not a bare failure"
 }
 
 test_create_task_fallback_when_agent_axi_absent() {
@@ -5468,6 +5512,7 @@ test_adopted_workspace_never_prunes_default_tab
 test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_create_task_delegates_to_agent_axi
+test_create_task_reports_agent_axi_refusal_text
 test_create_task_fallback_when_agent_axi_absent
 test_list_live_delegates_to_agent_axi
 test_list_live_excludes_secondmate_supervisor
