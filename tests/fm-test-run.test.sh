@@ -759,7 +759,7 @@ const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 assert.strictEqual(doc.summary.total, 0);
 assert.strictEqual(doc.summary.failed, 0);
 assert.strictEqual(doc.summary.skipped_gate, 0);
-assert(doc.summary.duration_ms >= 0);
+assert(typeof doc.summary.duration_ms === "number" && doc.summary.duration_ms >= 0);
 assert.deepStrictEqual(doc.scripts, []);
 assert.deepStrictEqual(doc.families, []);
 ' "$json" || { rm -rf "$tmp"; fail "empty selection JSON summary is wrong"; }
@@ -934,6 +934,16 @@ const record = doc.scripts[0];
 assert.strictEqual(record.gate_skip, true, JSON.stringify(record));
 assert.strictEqual(record.gate_skip_reason, "live: fmnosuchharness absent", JSON.stringify(record));
 ' "$json" || { rm -rf "$tmp"; fail "the timing artifact must carry the skip reason"; }
+  # A skip line that ends in CRLF records the same reason: the record reader
+  # ends a line at "\r\n", "\r", or "\n", as Python text mode did.
+  printf '#!/usr/bin/env bash\nprintf "skip: live: fmnosuchharness absent\\r\\n"\n' >"$skip_f"
+  "$RUNNER" --json "$json" "$skip_f" >"$out" 2>"$tmp/err.txt" \
+    || fail "a CRLF capability skip must still exit 0 from the runner"
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.scripts[0].gate_skip_reason, "live: fmnosuchharness absent", JSON.stringify(doc.scripts[0]));
+' "$json" || { rm -rf "$tmp"; fail "a CRLF skip line must record the reason without the carriage return"; }
   rm -rf "$tmp"
   pass "a gate skip records why it skipped"
 }
@@ -1717,9 +1727,9 @@ puts JSON.generate(
 )
 ' "$ROOT/.github/workflows/ci.yml") \
     || fail "could not parse tests-herdr timeouts from ci.yml"
-  job_timeout=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).job_timeout)' <<<"$json") \
+  job_timeout=$(jq -er '.job_timeout' <<<"$json") \
     || fail "could not read job timeout from parsed workflow"
-  step_timeout=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).step_timeout)' <<<"$json") \
+  step_timeout=$(jq -er '.step_timeout' <<<"$json") \
     || fail "could not read step timeout from parsed workflow"
   [ "$job_timeout" = 75 ] \
     || fail "tests-herdr job backstop must stay 75 minutes, got $job_timeout"
@@ -1770,6 +1780,34 @@ assert.strictEqual(doc.scripts.length, 3);
 ' "$tmp/out.json" || { rm -rf "$tmp"; fail "aggregate JSON shape wrong"; }
   rm -rf "$tmp"
   pass "aggregate-json merges lane timing artifacts"
+}
+
+# The aggregate keeps the semantics of the Python writer it replaced: a lane
+# path is written as str(Path(path)), object keys are sorted as Python sorts
+# strings, and a summary field that int() cannot read stops the aggregate.
+test_aggregate_json_keeps_python_semantics() {
+  local tmp rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-aggpy.XXXXXX")
+  mkdir -p "$tmp/lanes"
+  cat >"$tmp/lanes/a.json" <<'JSON'
+{"run_id": "a", "summary": {"total": "2", "failed": 0},
+ "scripts": [{"path": "tests/a.test.sh", "duration_ms": 5, "extra": {"2": 0, "10": 0, "!": 0}}]}
+JSON
+  "$RUNNER" --aggregate-json "$tmp/out.json" "$tmp/lanes//./a.json" >"$tmp/out" 2>&1 \
+    || { cat "$tmp/out"; rm -rf "$tmp"; fail "a well-formed lane must aggregate"; }
+  assert_contains "$(cat "$tmp/out")" "FM_TEST_AGGREGATE lanes=1 total=2 failed=0" "an integer string counts as int() reads it"
+  assert_equals "$(cd "$tmp/lanes" && pwd -L)/a.json" "$(jq -r '.lanes[0].path' "$tmp/out.json")" \
+    "the lane path is normalized as str(Path) did"
+  # The record is written twice, under scripts and under slowest.
+  assert_equals "! 10 2 ! 10 2" "$(grep -oE '^ +"(!|10|2)":' "$tmp/out.json" | tr -d ' ":' | paste -sd' ' -)" \
+    "object keys are written in Python string order"
+  printf '{"summary": {"total": "n/a"}}\n' >"$tmp/lanes/bad.json"
+  rc=0
+  "$RUNNER" --aggregate-json "$tmp/bad-out.json" "$tmp/lanes/bad.json" >"$tmp/out" 2>&1 || rc=$?
+  [ "$rc" -ne 0 ] || { rm -rf "$tmp"; fail "a summary field that int() cannot read must stop the aggregate"; }
+  assert_absent "$tmp/bad-out.json" "a refused aggregate writes no artifact"
+  rm -rf "$tmp"
+  pass "aggregate-json keeps the lane path, key order, and int() rules of the Python writer"
 }
 
 # Print a PATH like the current one with every named command hidden: each
@@ -1832,8 +1870,9 @@ const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
 assert.strictEqual(doc.scripts.length, 4);
 // Whole-second timing makes every duration a multiple of 1000; real
 // millisecond timing of a trivial script almost never lands on one.
+assert(doc.scripts.every((s) => Number.isInteger(s.duration_ms)), JSON.stringify(doc.scripts));
 assert(doc.scripts.some((s) => s.duration_ms % 1000 !== 0), JSON.stringify(doc.scripts));
-assert(doc.summary.duration_ms >= 0);
+assert(typeof doc.summary.duration_ms === "number" && doc.summary.duration_ms >= 0);
 ' "$json" || { rm -rf "$tmp"; fail "runner timing must keep millisecond precision without python3"; }
   PATH=$no_python "$RUNNER" --aggregate-json "$tmp/agg.json" "$json" >"$tmp/agg.out" 2>&1 \
     || { cat "$tmp/agg.out"; rm -rf "$tmp"; fail "--aggregate-json must work with no python3 on PATH"; }
@@ -1925,5 +1964,6 @@ test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_aggregate_json
+test_aggregate_json_keeps_python_semantics
 test_timing_has_millisecond_precision_without_python
 test_json_refuses_clearly_without_node

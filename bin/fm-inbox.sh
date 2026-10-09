@@ -222,9 +222,16 @@ need_node() {
 # JSON the machine-readable output has always had: no spaces after separators,
 # and every character outside printable ASCII written as a \uXXXX escape.
 # Plain JSON.stringify leaves DEL and non-ASCII text as is, so it is not enough.
+# jsonSpaced writes the same values with ", " and ": " separators, the layout of
+# the model request bodies that say and ask send.
 INBOX_JS_PRELUDE='
 const jsonAscii = (value) => JSON.stringify(value).replace(
   /[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+const jsonSpaced = (value) => {
+  if (value === null || typeof value !== "object") return jsonAscii(value);
+  if (Array.isArray(value)) return "[" + value.map(jsonSpaced).join(", ") + "]";
+  return "{" + Object.keys(value).map((k) => jsonAscii(k) + ": " + jsonSpaced(value[k])).join(", ") + "}";
+};
 const homeLabel = (home) => {
   if (!home) return home;
   const parts = home.split("/").filter((p) => p !== "" && p !== ".");
@@ -1083,7 +1090,15 @@ while (pos + 8 <= end) {
   const body = pos + 8;
   if (name === "fmt ") {
     if (size < 16 || body + 16 > end) fail("truncated fmt chunk");
-    if (buf.readUInt16LE(body) !== 1) fail("unknown format: " + buf.readUInt16LE(body));
+    const tag = buf.readUInt16LE(body);
+    if (tag !== 1 && tag !== 0xfffe) fail("unknown format: " + tag);
+    if (tag === 0xfffe) {
+      // WAVE_FORMAT_EXTENSIBLE is PCM only when its SubFormat is the PCM GUID.
+      if (size < 40 || body + 40 > end) fail("truncated fmt chunk");
+      if (buf.subarray(body + 24, body + 40).toString("hex") !== "0100000000001000800000aa00389b71") {
+        fail("unknown extended format");
+      }
+    }
     framerate = buf.readUInt32LE(body + 4);
     framesize = buf.readUInt16LE(body + 2) * Math.floor((buf.readUInt16LE(body + 14) + 7) / 8);
   } else if (name === "data") {
@@ -1113,7 +1128,7 @@ process.stdout.write(out + "\n");
 const fs = require("fs");
 const [src, dst] = process.argv.slice(1);
 const bytes = fs.readFileSync(src).toString("base64");
-fs.writeFileSync(dst, jsonAscii([{ role: "user", content: [
+fs.writeFileSync(dst, jsonSpaced([{ role: "user", content: [
   { audio: { format: "wav", source: { bytes } } },
   { text: "Transcribe the speech exactly. Output only the transcript, nothing else." },
 ] }]));
@@ -1183,7 +1198,7 @@ cmd_ask() {
   inbox_node '
 const fs = require("fs");
 const [question, dst] = process.argv.slice(1);
-fs.writeFileSync(dst, jsonAscii([{ role: "user", content: [{ text: question }] }]));
+fs.writeFileSync(dst, jsonSpaced([{ role: "user", content: [{ text: question }] }]));
 ' "$q" "$msg"
 
   aws_call bedrock-runtime converse \

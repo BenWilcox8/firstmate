@@ -15,11 +15,23 @@ cd "$ROOT"
 exec node - "$@" <<'JS'
 'use strict';
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
+// Python str classes: a word character (\w) and white space (str.isspace).
+// The JS \b, \w, \s, trim, and split classes differ from them.
+const PY_WORD = '\\p{L}\\p{N}_';
+const PY_SPACE = '\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000';
+const PY_SPACE_RUN_RE = new RegExp(`[${PY_SPACE}]+`, 'u');
+const PY_SPACE_EDGES_RE = new RegExp(`^[${PY_SPACE}]+|[${PY_SPACE}]+$`, 'gu');
+const PY_SPACE_CHAR_RE = new RegExp(`[${PY_SPACE}]`, 'gu');
+const PY_NOT_SLUG_RE = new RegExp(`[^${PY_WORD}\\- ]`, 'gu');
+const HEADING_RE = new RegExp(`^#{1,6}[${PY_SPACE}]+(.+?)[${PY_SPACE}]*#*[${PY_SPACE}]*$`, 'u');
+const EXPLICIT_ANCHOR_RE = new RegExp(`<(?:a|span)[${PY_SPACE}]+(?:name|id)=["']([^"']+)["']`, 'giu');
+
 const MARKDOWN_LINK_RE = /!?\[[^\]]*\]\(([^)]+)\)/g;
-const HTML_LINK_RE = /\b(?:href|src)=["']([^"']+)["']/gi;
+const HTML_LINK_RE = new RegExp(`(?<![${PY_WORD}])(?:href|src)=["']([^"']+)["']`, 'giu');
 const REQUIRED_TRACKED_PATTERNS = ['*.md', '*.mdx', '*.rst', '*.txt', 'docs/examples/*'];
 
 // Python str.splitlines line boundaries.
@@ -30,6 +42,21 @@ class CheckError extends Error {}
 function fail(message) {
   throw new CheckError(message);
 }
+
+const pyStrip = (value) => value.replace(PY_SPACE_EDGES_RE, '');
+
+// Python str order: by code point, where JS sort compares UTF-16 code units.
+function byCodePoint(a, b) {
+  const x = Array.from(a, (c) => c.codePointAt(0));
+  const y = Array.from(b, (c) => c.codePointAt(0));
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+}
+
+// Python's pathlib join: an absolute path replaces the base.
+const pyJoin = (base, p) => (p.startsWith('/') ? p : base + '/' + p);
 
 // Python-style repr for the few values that appear in messages.
 function pyRepr(v) {
@@ -86,8 +113,36 @@ function unquote(text) {
   return text.replace(/(%[0-9a-fA-F]{2})+/g, (m) => Buffer.from(m.replace(/%/g, ''), 'hex').toString('utf8'));
 }
 
+// The ValueError checks of Python 3.12 urlsplit on a network location.
+function checkNetloc(netloc) {
+  const open = netloc.includes('[');
+  if (open !== netloc.includes(']')) throw new Error('Invalid IPv6 URL');
+  if (open) {
+    const hostAndPort = netloc.slice(netloc.lastIndexOf('@') + 1);
+    const bracket = hostAndPort.indexOf('[');
+    let host = hostAndPort.split(':')[0];
+    if (bracket !== -1) {
+      if (bracket > 0) throw new Error('Invalid IPv6 URL');
+      const bracketed = hostAndPort.slice(1);
+      const close = bracketed.indexOf(']');
+      host = close === -1 ? bracketed : bracketed.slice(0, close);
+      const port = close === -1 ? '' : bracketed.slice(close + 1);
+      if (port && !port.startsWith(':')) throw new Error('Invalid IPv6 URL');
+    }
+    const valid = host.startsWith('v') ? /^v[a-fA-F0-9]+\.[^\n]+$/.test(host) : net.isIPv6(host);
+    if (!valid) throw new Error(`Invalid bracketed host: ${host}`);
+  }
+  if (/^[\x00-\x7f]*$/.test(netloc)) return;
+  const bare = netloc.replace(/[@:#?]/g, '');
+  const normalized = bare.normalize('NFKC');
+  if (bare !== normalized && /[/?#@:]/.test(normalized)) {
+    throw new Error(`netloc '${netloc}' contains invalid characters under NFKC normalization`);
+  }
+}
+
+// Python 3.12 urllib.parse.urlsplit, reduced to the parts that this check reads.
 function urlsplit(url) {
-  let rest = url;
+  let rest = url.replace(/^[\x00-\x20]+/, '').replace(/[\t\r\n]/g, '');
   let scheme = '';
   let netloc = '';
   const sm = /^([A-Za-z][A-Za-z0-9+.-]*):/.exec(rest);
@@ -100,6 +155,7 @@ function urlsplit(url) {
     const stop = end === -1 ? rest.length : end + 2;
     netloc = rest.slice(2, stop);
     rest = rest.slice(stop);
+    checkNetloc(netloc);
   }
   let fragment = '';
   const hi = rest.indexOf('#');
@@ -112,8 +168,14 @@ function urlsplit(url) {
   return { scheme, netloc, path: rest, fragment };
 }
 
+// Python's strict UTF-8 decode: other bytes are an error, and a leading byte
+// order mark stays in the text.
+function decodeUtf8(bytes) {
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(bytes);
+}
+
 function readText(file) {
-  return new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(file));
+  return decodeUtf8(fs.readFileSync(file));
 }
 
 function gitTracked(root, patterns) {
@@ -123,7 +185,7 @@ function gitTracked(root, patterns) {
     const detail = proc.stderr.toString('utf8').trim();
     fail(`git ls-files failed: ${detail || 'unknown error'}`);
   }
-  return proc.stdout.toString('utf8').split('\0').filter((p) => p).sort();
+  return decodeUtf8(proc.stdout).split('\0').filter((p) => p).sort(byCodePoint);
 }
 
 function isObject(v) {
@@ -131,15 +193,22 @@ function isObject(v) {
 }
 
 function loadInventory(file) {
-  let data;
+  let bytes;
   try {
-    data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    bytes = fs.readFileSync(file);
   } catch (exc) {
     if (exc && exc.code === 'ENOENT') fail(`inventory is missing: ${file}`);
     fail(`inventory is unreadable: ${exc.message}`);
   }
+  const text = decodeUtf8(bytes);
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch (exc) {
+    fail(`inventory is unreadable: ${exc.message}`);
+  }
   if (!isObject(data)) fail('inventory root must be an object');
-  if (data.version !== 1) fail('inventory version must be 1');
+  if (data.version !== 1 && data.version !== true) fail('inventory version must be 1');
   return data;
 }
 
@@ -151,9 +220,9 @@ function listOfStrings(value, label) {
 }
 
 function normalizedLinkValue(raw) {
-  let value = raw.trim();
-  if (value.startsWith('<') && value.endsWith('>')) value = value.slice(1, -1).trim();
-  if (value.includes(' ')) value = value.split(/\s+/).filter((s) => s)[0];
+  let value = pyStrip(raw);
+  if (value.startsWith('<') && value.endsWith('>')) value = pyStrip(value.slice(1, -1));
+  if (value.includes(' ')) value = value.split(PY_SPACE_RUN_RE)[0];
   return value;
 }
 
@@ -192,9 +261,9 @@ function markdownLocalLinks(root, source) {
 
 function githubHeadingSlug(value) {
   value = value.replace(/<[^>]+>/g, '');
-  value = value.replace(/`/g, '').trim().toLowerCase();
-  value = value.replace(/[^\p{L}\p{N}_\- ]/gu, '');
-  return value.replace(/\s/g, '-');
+  value = pyStrip(value.replace(/`/g, '')).toLowerCase();
+  value = value.replace(PY_NOT_SLUG_RE, '');
+  return value.replace(PY_SPACE_CHAR_RE, '-');
 }
 
 function markdownAnchors(file) {
@@ -207,7 +276,7 @@ function markdownAnchors(file) {
     fail(`cannot read link target ${file}: ${exc.message}`);
   }
   for (const line of lines) {
-    const match = /^#{1,6}\s+(.+?)\s*#*\s*$/.exec(line);
+    const match = HEADING_RE.exec(line);
     if (match) {
       const base = githubHeadingSlug(match[1]);
       if (base) {
@@ -216,7 +285,7 @@ function markdownAnchors(file) {
         counts.set(base, count + 1);
       }
     }
-    for (const m of line.matchAll(/<(?:a|span)\s+(?:name|id)=["']([^"']+)["']/gi)) anchors.add(m[1]);
+    for (const m of line.matchAll(EXPLICIT_ANCHOR_RE)) anchors.add(m[1]);
   }
   return anchors;
 }
@@ -260,13 +329,13 @@ function validate(root, inventoryPath) {
 
   const pathCounts = new Map();
   for (const p of paths) pathCounts.set(p, (pathCounts.get(p) || 0) + 1);
-  const duplicates = [...pathCounts].filter(([, c]) => c !== 1).map(([p]) => p).sort();
+  const duplicates = [...pathCounts].filter(([, c]) => c !== 1).map(([p]) => p).sort(byCodePoint);
   if (duplicates.length) fail('surfaces classified more than once: ' + duplicates.join(', '));
 
   const tracked = new Set(gitTracked(root, patterns));
   const classified = new Set(paths);
-  const missing = [...tracked].filter((p) => !classified.has(p)).sort();
-  const extra = [...classified].filter((p) => !tracked.has(p)).sort();
+  const missing = [...tracked].filter((p) => !classified.has(p)).sort(byCodePoint);
+  const extra = [...classified].filter((p) => !tracked.has(p)).sort(byCodePoint);
   if (missing.length || extra.length) {
     const details = [];
     if (missing.length) details.push('unclassified: ' + missing.join(', '));
@@ -293,8 +362,8 @@ function validate(root, inventoryPath) {
     if (typeof source !== 'string' || typeof target !== 'string' || !source || !target) {
       fail(`requiredOwnerPointers[${index}] needs non-empty source and target`);
     }
-    const sourcePath = root + '/' + source;
-    const targetPath = root + '/' + target;
+    const sourcePath = pyJoin(root, source);
+    const targetPath = pyJoin(root, target);
     if (!fs.existsSync(sourcePath)) fail(`owner-pointer source is missing: ${source}`);
     if (!fs.existsSync(targetPath)) fail(`owner-pointer target is missing: ${target}`);
     let sourceText;
@@ -314,7 +383,7 @@ function validate(root, inventoryPath) {
 
   let checkedLinks = 0;
   const anchorCache = new Map();
-  for (const p of [...tracked].sort()) {
+  for (const p of [...tracked].sort(byCodePoint)) {
     if (!isMarkdown(p)) continue;
     const source = root + '/' + p;
     for (const [raw, target] of markdownLocalLinks(root, source)) {
@@ -330,11 +399,24 @@ function validate(root, inventoryPath) {
   return [tracked.size, checkedLinks];
 }
 
-const USAGE = 'usage: fm-doc-audience-check.sh [-h] [--root ROOT] [--inventory INVENTORY]';
+// argparse named the program after sys.argv[0], which is "-" for `python3 -`.
+const USAGE = 'usage: - [-h] [--root ROOT] [--inventory INVENTORY]';
 
 function argError(message) {
-  process.stderr.write(`${USAGE}\nfm-doc-audience-check.sh: error: ${message}\n`);
+  process.stderr.write(`${USAGE}\n-: error: ${message}\n`);
   process.exit(2);
+}
+
+// argparse reads an argument as an option, and not as a value, by these rules.
+function isOptionString(arg) {
+  const options = ['-h', '--help', '--root', '--inventory'];
+  if (!arg.startsWith('-') || arg === '-') return false;
+  if (arg === '--') return true;
+  const head = arg.split('=')[0];
+  if (options.includes(head)) return true;
+  if (arg.startsWith('--') ? options.some((n) => n.startsWith(head)) : options.includes(arg.slice(0, 2))) return true;
+  if (/^-\d+$|^-\d*\.\d+$/.test(arg)) return false;
+  return !arg.includes(' ');
 }
 
 function parseArgs(argv) {
@@ -365,7 +447,7 @@ function parseArgs(argv) {
     } else if (arg === '--root' || arg === '--inventory') {
       let value = inline;
       if (value === null) {
-        if (i + 1 >= argv.length || argv[i + 1].startsWith('-')) argError(`argument ${arg}: expected one argument`);
+        if (i + 1 >= argv.length || isOptionString(argv[i + 1])) argError(`argument ${arg}: expected one argument`);
         value = argv[++i];
       }
       opts[arg.slice(2)] = value;

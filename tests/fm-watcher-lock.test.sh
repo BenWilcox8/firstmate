@@ -45,7 +45,7 @@ test_wait_deadline_reaps_a_stopped_child() {
   # job-control group, and this loop KILLs that whole group if it outlives the
   # bound, without trusting the wait_for_exit helper it is testing.
   local probe out err pid rc i
-  probe=$(cat <<'SH'
+  IFS= read -r -d '' probe <<'SH' || true
 . "$1"
 bash -c 'trap "" TERM; kill -STOP "$$"; exec sleep 300' &
 pid=$!
@@ -60,7 +60,6 @@ rc=$?
 [ "$rc" = 124 ] || exit 21
 ! kill -0 "$pid" 2>/dev/null || exit 22
 SH
-)
   out="$TMP_ROOT/wait-deadline.out"
   err="$TMP_ROOT/wait-deadline.err"
   set -m
@@ -91,7 +90,7 @@ SH
 stop_seed_watcher() {  # <owned-pid> <output-path>
   local pid=$1 out=$2 status=0
   kill -TERM "$pid" 2>/dev/null || true
-  wait_for_exit "$pid" 100 || status=$?
+  wait_for_exit "$pid" "$ARM_LIFECYCLE_POLLS" || status=$?
   if [ "$status" -eq 124 ]; then
     cat "$out" >&2
     fail "seed watcher survived TERM; see bounded wait/process/trap evidence above"
@@ -114,7 +113,7 @@ test_singleton_start() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" &
   pid2=$!
   i=0
-  while [ "$i" -lt 50 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     live=0
     is_live_non_zombie "$pid1" && live=$((live + 1))
     is_live_non_zombie "$pid2" && live=$((live + 1))
@@ -152,7 +151,7 @@ test_stale_watch_lock_reclaimed() {
   i=0
   live=0
   lock_pid=
-  while [ "$i" -lt 50 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     live=0
     is_live_non_zombie "$pid" && live=1
     lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
@@ -620,7 +619,7 @@ test_watcher_self_evicts_on_lock_takeover() {
   # Simulate a second watcher taking over the singleton lock. $$ (the test
   # runner) is a live pid that is not the watcher.
   printf '%s\n' "$$" > "$state/.watch.lock/pid"
-  wait_for_exit "$pid" 60 || fail "watcher did not self-evict after lock takeover"
+  wait_for_exit "$pid" "$ARM_LIFECYCLE_POLLS" || fail "watcher did not self-evict after lock takeover"
   lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
   [ "$lock_pid" = "$$" ] || fail "self-evicting watcher clobbered the new holder's lock (got '$lock_pid')"
   pass "watcher self-evicts when the lock pid no longer names it"
@@ -673,7 +672,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
-  while [ "$i" -lt 60 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
     sleep 0.1
     i=$((i + 1))
@@ -713,7 +712,7 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
-  while [ "$i" -lt 60 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
     sleep 0.1
     i=$((i + 1))

@@ -39,9 +39,18 @@ run_lock() {
 }
 
 # Prints the JSON value at the key path: strings bare, booleans as true or
-# false, null as null. A digit-only key indexes into an array.
+# false, null as null. A digit-only key indexes into an array. A key or an
+# index that is not there fails with no output, so an absent value never
+# passes for a null one.
 json_get() {
-  jq -r --args 'getpath($ARGS.positional | map(if test("^-?[0-9]+$") then tonumber else . end)) | tostring' "$@"
+  jq -r --args '
+    reduce $ARGS.positional[] as $k (.;
+      if type == "array" and ($k | test("^-?[0-9]+$"))
+        and (($k | tonumber) as $i | $i < length and $i >= -length)
+      then .[$k | tonumber]
+      elif type == "object" and has($k) then .[$k]
+      else error("no \($k) in the JSON value") end)
+    | tostring' "$@"
 }
 
 count_notes() {
@@ -236,8 +245,12 @@ pass "repair and replay do not wake firstmate for an already-acknowledged note"
 
 # --- bounded receipts JSON, omission disclosure, reply cursor ---------------
 
-json_len() {  # <key>
-  jq -r --arg k "$1" '.[$k] | length'
+json_len() {  # <key> - fails with no output unless the key holds a list, object, or string
+  jq -r --arg k "$1" '
+    if type == "object" and has($k)
+      and (.[$k] | type | . == "array" or . == "object" or . == "string")
+    then .[$k] | length
+    else error("no sized \($k) in the JSON value") end'
 }
 
 home=$(make_home receipts)
@@ -264,7 +277,7 @@ all_receipts=$(run_inbox "$home" receipts --all-pending) \
   || fail "unbounded receipts should succeed"
 assert_equals "21" "$(printf '%s' "$all_receipts" | json_len pending)" \
   "--all-pending reveals every pending note"
-assert_equals "[]" "$(printf '%s' "$all_receipts" | jq -c '.omitted')" \
+assert_equals "[]" "$(printf '%s' "$all_receipts" | json_get omitted)" \
   "revealing every row leaves omitted empty"
 
 # shellcheck disable=SC2086 # deliberate word splitting: one id per --ack arg.
@@ -289,7 +302,7 @@ run_inbox "$home" note "establish the inbox" >/dev/null || fail "seed note faile
 legacy="1700000000-legacy"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\n--\nfrom before the marker\n' \
   "$legacy" > "$home/state/inbox/$legacy.note"
-legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" 'first(.pending[] | select(.id == $id)).announced')
+legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '[.pending[] | select(.id == $id)][0]' | json_get announced)
 assert_equals "null" "$legacy_announced" \
   "a note that predates the marker reports announced as unknown, not false"
 fresh_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '[.pending[] | select(.id != $id) | .announced]')
@@ -323,12 +336,12 @@ assert_equals "2" "$(printf '%s' "$replies" | json_len replies)" \
   "both replies appear without a cursor"
 order=$(printf '%s' "$replies" | jq -r '[.replies[].id] | join(" ")')
 assert_equals "$earlier $later" "$order" "replies are ordered by when they were recorded"
-first_cursor=$(printf '%s' "$replies" | jq -r '.replies[0].cursor')
+first_cursor=$(printf '%s' "$replies" | json_get replies 0 cursor)
 after=$(run_inbox "$home" receipts --all-replies --after "$first_cursor") \
   || fail "receipts --after should succeed"
 assert_equals "1" "$(printf '%s' "$after" | json_len replies)" \
   "--after returns only replies recorded later"
-after_id=$(printf '%s' "$after" | jq -r '.replies[0].id')
+after_id=$(printf '%s' "$after" | json_get replies 0 id)
 assert_equals "$later" "$after_id" \
   "a same-second reply recorded after the cursor is still delivered"
 
@@ -342,7 +355,7 @@ pass "the reply channel is durable and its cursor is a strict order"
 
 # A lost sequence counter must not move the cursor backwards: the next reply
 # still sorts after every reply a client has already read.
-lost_cursor=$(printf '%s' "$replies" | jq -r '.reply_cursor')
+lost_cursor=$(printf '%s' "$replies" | json_get reply_cursor)
 rm -f "$home/state/inbox/.replies/.seq"
 third="1700000000-mmmmmm"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\nannounce_marker=1\n--\norder three\n' \
@@ -386,23 +399,23 @@ home=$(make_home ready-free)
 ready=$(run_inbox "$home" ready) || fail "ready should succeed with no lock"
 assert_equals "fm-primary-ready.v1" "$(printf '%s' "$ready" | json_get schema)" \
   "ready uses the readiness schema"
-assert_equals "free" "$(printf '%s' "$ready" | jq -r '.lock.state | tostring')" \
+assert_equals "free" "$(printf '%s' "$ready" | json_get lock state)" \
   "no lock file is free, not live"
-assert_equals "false" "$(printf '%s' "$ready" | jq -r '.can_receive | tostring')" \
+assert_equals "false" "$(printf '%s' "$ready" | json_get can_receive)" \
   "a free lock cannot receive work"
-assert_equals "present" "$(printf '%s' "$ready" | jq -r '.posture.state | tostring')" \
+assert_equals "present" "$(printf '%s' "$ready" | json_get posture state)" \
   "no away flag is present posture"
 
 # A live non-harness pid in the lock file must not be treated as a live primary.
 home=$(make_home ready-unknown)
 printf '%s\n' "$$" > "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for an unclassified pid"
-lock_state=$(printf '%s' "$ready" | jq -r '.lock.state | tostring')
+lock_state=$(printf '%s' "$ready" | json_get lock state)
 assert_equals "unknown" "$lock_state" \
   "a live process that is not a verified harness is unknown, not held"
-live=$(printf '%s' "$ready" | jq -r '.lock.live_harness | tostring')
+live=$(printf '%s' "$ready" | json_get lock live_harness)
 assert_equals "false" "$live" "a bash test pid is not a live harness"
-can=$(printf '%s' "$ready" | jq -r '.can_receive | tostring')
+can=$(printf '%s' "$ready" | json_get can_receive)
 [ "$can" = "false" ] || [ "$can" = "unknown" ] \
   || fail "unknown lock must not claim can_receive true (got $can)"
 
@@ -414,16 +427,16 @@ assert_contains "$human_lock" "stale (pid $$ dead or not a harness)" \
 home=$(make_home ready-stale)
 printf '%s\n' "999999" > "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for a dead pid"
-assert_equals "stale" "$(printf '%s' "$ready" | jq -r '.lock.state | tostring')" \
+assert_equals "stale" "$(printf '%s' "$ready" | json_get lock state)" \
   "a dead recorded pid is stale"
-assert_equals "false" "$(printf '%s' "$ready" | jq -r '.can_receive | tostring')" \
+assert_equals "false" "$(printf '%s' "$ready" | json_get can_receive)" \
   "a stale lock cannot receive work"
 
 # Existence of a pane-like leftover must not become liveness: unreadable lock.
 home=$(make_home ready-unreadable)
 mkdir -p "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for a directory lock"
-assert_equals "unreadable" "$(printf '%s' "$ready" | jq -r '.lock.state | tostring')" \
+assert_equals "unreadable" "$(printf '%s' "$ready" | json_get lock state)" \
   "a non-file lock is unreadable rather than held"
 # A Claude primary mid-turn runs no watcher process - its watcher is armed at
 # turn end - so the model-aware supervision verdict, not the pid-strict watcher
@@ -478,7 +491,7 @@ trap 'kill_holder; fm_test_cleanup' EXIT
 printf '%s\n' "$holder_pid" > "$home/state/.lock"
 touch "$home/state/.last-watcher-beat"
 held=$(run_inbox "$home" ready) || fail "ready should succeed for a lock-holder harness"
-assert_equals "held" "$(printf '%s' "$held" | jq -r '.lock.state | tostring')" \
+assert_equals "held" "$(printf '%s' "$held" | json_get lock state)" \
   "a live claude-named holder is a held lock"
 assert_equals "healthy" "$(printf '%s' "$held" | json_get wake_consumer state)" \
   "lock-holder ancestry plus a fresh beacon is a healthy wake consumer"
@@ -518,7 +531,7 @@ dash_out=$(run_inbox "$home" note "$transcript") \
   || fail "a note body opening with dashes should be queued"
 assert_contains "$dash_out" "queued " "a dash-leading body is queued like any other"
 assert_equals "1" "$(count_notes "$home")" "a dash-leading body writes one note"
-dash_body=$(run_inbox "$home" receipts --all-pending | jq -r '.pending[0].body')
+dash_body=$(run_inbox "$home" receipts --all-pending | json_get pending 0 body)
 assert_equals "$transcript" "$dash_body" "the transcript is stored verbatim"
 escaped=$(run_inbox "$home" note -- "--request-id is body text here") \
   || fail "-- should end option parsing"
@@ -563,7 +576,7 @@ run_say() {  # <audio-file> - stdout and stderr merged
 
 # The audio the fake aws received, decoded from the request body.
 sent_audio() {
-  jq -r '.[0].content[0].audio.source.bytes' "$home/messages.json" | base64 -d
+  json_get 0 content 0 audio source bytes <"$home/messages.json" | base64 -d
 }
 
 hex_head() {  # <file> - the first 44 bytes as hex
@@ -588,10 +601,13 @@ assert_equals "8044" "$(wc -c <"$home/sent.wav" | tr -d ' ')" \
 tail -c 8000 "$home/sent.wav" | cmp -s - "$home/pcm-quarter" \
   || fail "the PCM bytes after the header must be the input unchanged"
 assert_equals "Transcribe the speech exactly. Output only the transcript, nothing else." \
-  "$(jq -r '.[0].content[1].text' "$home/messages.json")" \
+  "$(json_get 0 content 1 text <"$home/messages.json")" \
   "the request carries the transcription instruction"
-assert_equals "wav" "$(jq -r '.[0].content[0].audio.format' "$home/messages.json")" \
+assert_equals "wav" "$(json_get 0 content 0 audio format <"$home/messages.json")" \
   "the request names the audio format as wav"
+assert_equals '[{"role": "user", "content": [{"audio": {"format": "wav", "source": {"bytes": "B"}}}, {"text": "Transcribe the speech exactly. Output only the transcript, nothing else."}]}]' \
+  "$(sed 's/"bytes": "[^"]*"/"bytes": "B"/' "$home/messages.json")" \
+  "the request body keeps the JSON layout of Python json.dump"
 assert_contains "$out" "heard: fake transcript" "the model transcript is reported"
 assert_contains "$(cat "$home"/state/inbox/*.note)" "audio_seconds=0.25" \
   "the queued note records the audio duration"
@@ -603,6 +619,25 @@ assert_contains "$out" "input is WAV, passing through" "a WAV is passed through"
 assert_contains "$out" "0.25s of audio" "a WAV reports its own duration"
 sent_audio | cmp -s - "$home/sent.wav" || fail "a WAV must reach the model byte for byte"
 pass "say passes a WAV through unchanged"
+
+# A WAVE_FORMAT_EXTENSIBLE WAV is PCM when its SubFormat is the PCM GUID, and
+# its duration comes from the same header fields. Any other SubFormat is refused.
+extensible_wav() {  # <first SubFormat byte, octal escape> <file>
+  printf 'RIFF\174\037\000\000WAVEfmt \050\000\000\000\376\377\001\000\200\076\000\000\000\175\000\000\002\000\020\000\026\000\020\000\004\000\000\000%b\000\000\000\000\000\020\000\200\000\000\252\000\070\233\161data\100\037\000\000' "$1" >"$2"
+  head -c 8000 /dev/zero >>"$2"
+}
+extensible_wav '\001' "$home/extensible.wav"
+out=$(run_say "$home/extensible.wav") || fail "say should accept extensible PCM: $out"
+assert_contains "$out" "0.25s of audio" "extensible PCM reports its own duration"
+sent_audio | cmp -s - "$home/extensible.wav" || fail "an extensible WAV must reach the model byte for byte"
+extensible_wav '\003' "$home/extensible-float.wav"
+set +e
+float_out=$(run_say "$home/extensible-float.wav")
+float_code=$?
+set -e
+expect_code 1 "$float_code" "say refuses an extensible WAV that is not PCM"
+assert_contains "$float_out" "unknown extended format" "the refusal names the extended format"
+pass "say reads extensible PCM and refuses other extended formats"
 
 # A trailing odd byte is not a whole sample and is dropped. Durations print as
 # a rounded float: whole seconds keep one decimal, and an exact tie rounds to
@@ -648,12 +683,14 @@ run_ask() {  # <question-word>... - stdout and stderr merged
 out=$(run_ask -- why did the café build fail) \
   || fail "ask should accept a question that starts with --: $out"
 assert_contains "$out" "fake transcript" "ask prints the model answer"
-assert_equals "-- why did the café build fail" "$(jq -r '.[0].content[0].text' "$home/messages.json")" \
+assert_equals "-- why did the café build fail" "$(json_get 0 content 0 text <"$home/messages.json")" \
   "a question that starts with -- reaches the model unchanged"
-assert_equals "user" "$(jq -r '.[0].role' "$home/messages.json")" "the question is the user turn"
+assert_equals "user" "$(json_get 0 role <"$home/messages.json")" "the question is the user turn"
+assert_equals '[{"role": "user", "content": [{"text": "-- why did the caf\u00e9 build fail"}]}]' \
+  "$(cat "$home/messages.json")" "the request body keeps the JSON layout and ASCII escapes of Python json.dump"
 rm -f "$home/messages.json"
 out=$(run_ask --version) || fail "ask should accept the question --version: $out"
-assert_equals "--version" "$(jq -r '.[0].content[0].text' "$home/messages.json")" \
+assert_equals "--version" "$(json_get 0 content 0 text <"$home/messages.json")" \
   "a question that looks like a node option reaches the model unchanged"
 pass "ask sends a question that starts with a dash as text"
 
@@ -691,7 +728,7 @@ else
   assert_equals "fm-inbox-reply.v1" "$(printf '%s' "$replied" | json_get schema)" \
     "reply --json under the minimal PATH"
   receipts=$(run_bare receipts) || fail "receipts must find node in $std_node_dir: $receipts"
-  assert_equals "$nid" "$(printf '%s' "$receipts" | jq -r '.replies[0].id')" \
+  assert_equals "$nid" "$(printf '%s' "$receipts" | json_get replies 0 id)" \
     "receipts under the minimal PATH"
   readiness=$(run_bare ready) || fail "ready must find node in $std_node_dir: $readiness"
   printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \

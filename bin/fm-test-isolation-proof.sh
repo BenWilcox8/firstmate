@@ -246,19 +246,13 @@ write_json_artifact() {
   FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
     node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'JS'
 const fs = require('fs');
-const { dumpJson, toInt } = require(process.env.FM_TEST_JSON_LIB);
+const { byCodePoint, dumpJson, rows, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
 const [out, started, finished, runId, total, failed, concurrency, duration, recordsPath, pool, jobsEnabled] =
   process.argv.slice(2);
-const scripts = [];
-for (const line of fs.readFileSync(recordsPath, 'utf8').split('\n')) {
-  if (!line) continue;
-  const cols = line.split('\t');
-  if (cols.length !== 4) throw new Error(`malformed record: expected 4 fields, got ${cols.length}`);
-  const [p, exitS, durS, worker] = cols;
-  scripts.push({ path: p, exit: toInt(exitS), duration_ms: toInt(durS), worker: toInt(worker) });
-}
-scripts.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+const scripts = rows(recordsPath, 4).map(([p, exitS, durS, worker]) => (
+  { path: p, exit: toInt(exitS), duration_ms: toInt(durS), worker: toInt(worker) }));
+scripts.sort((x, y) => byCodePoint(x.path, y.path));
 const doc = {
   run_id: runId,
   started_at: started,
