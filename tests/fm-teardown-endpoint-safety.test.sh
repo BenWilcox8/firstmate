@@ -364,6 +364,17 @@ test_recorded_process_identity_cleanup_is_exact() {
   pass "process cleanup: creation-time PID identity removes only the exact child and preserves the control child"
 }
 
+# Start a dedicated tmux server for one case and register its pid, so the
+# suite's teardown stops it even when a failed assertion skips the case's own
+# kill-server at the end.
+isolated_tmux_new_session() {  # <dir> <socket> <new-session args...>
+  local dir=$1 socket=$2 server
+  shift 2
+  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d "$@" ) || return 1
+  server=$(cd "$dir" && "$REAL_TMUX" -S "$socket" display-message -p '#{pid}' 2>/dev/null) || server=
+  fm_test_track_pid "$server"
+}
+
 isolated_tmux_window_exists() {  # <dir> <socket> <session> <window>
   ( cd "$1" && "$REAL_TMUX" -S "$2" list-windows -t "$3" -F '#{window_name}' 2>/dev/null ) \
     | grep -Fqx "$4"
@@ -376,7 +387,7 @@ test_isolated_tmux_invalid_and_valid_cleanup() {
   dir=$(make_case isolated-real)
   socket=dedicated.sock
   socket_id="$dir/$socket"
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n "$control" )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n "$control"
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "$session:" -n "$target" )
   printf '%s\n' "$socket_id" > "$dir/socket.identity"
   cat > "$dir/fakebin/tmux" <<SH
@@ -1014,8 +1025,14 @@ test_own_and_absent_slot_claims_still_tear_down() {
 # The socket stays a RELATIVE name reached from <dir>, matching the isolated
 # case above: this fixture's absolute path is longer than a unix socket path
 # may be on macOS.
+# The shim directory also gets an lsof that sees no process, so teardown's cwd
+# reaper finds nothing under the task's nonexistent directories, as a real lsof
+# does. Without it, a host with no lsof takes the pane process-group fallback,
+# which kills the task pane before the close under test can fail.
 write_close_failing_tmux_shim() {  # <dir> <socket-name> <real-tmux>
   local dir=$1 socket=$2 real=$3
+  printf '#!/usr/bin/env bash\nexit 0\n' > "$dir/fakebin/lsof"
+  chmod +x "$dir/fakebin/lsof"
   cat > "$dir/fakebin/tmux" <<SH
 #!/usr/bin/env bash
 set -u
@@ -1051,7 +1068,7 @@ test_failed_endpoint_close_refuses_before_removing_the_record() {
   [ -n "$REAL_TMUX" ] || { echo "skip - tmux not installed"; return 0; }
   dir=$(make_case close-failure)
   socket=dedicated.sock
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n control
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$id" )
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   isolated_tmux_window_exists "$dir" "$socket" "$session" "fm-$id" \
@@ -1111,7 +1128,7 @@ test_forced_teardown_continues_past_a_close_it_could_not_make() {
   [ -n "$REAL_TMUX" ] || { echo "skip - tmux not installed"; return 0; }
   dir=$(make_case forced-close-failure)
   socket=dedicated.sock
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n control
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$id" )
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   write_endpoint_close_meta "$dir" "$id" "$session:fm-$id"
@@ -1162,7 +1179,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes() {
   # all. Nothing here shows the window absent, so treating it as closed would
   # strand exactly the endpoint the refusal exists to keep named.
   dir=$(make_case unreadable-close-read)
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n control
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$id" )
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   write_endpoint_close_meta "$dir" "$id" "$session:fm-$id"
@@ -1189,7 +1206,7 @@ test_unreadable_close_read_refuses_while_a_definitive_absence_completes() {
   # or its whole server, is absent is proof the window is gone, so an endpoint
   # that outlived its session is still ordinary silent cleanup.
   dir=$(make_case missing-session-close-read)
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s survivor -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s survivor -n control
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   write_endpoint_close_meta "$dir" "$id" "gone session:fm-$id"
   env -u TMUX -u TMUX_PANE FM_TEST_BLOCK_KILL=1 \
@@ -1232,7 +1249,7 @@ test_forced_secondmate_child_close_failure_still_refuses() {
   mate="$dir/mate"
   mkdir -p "$mate/state" "$mate/data" "$mate/config"
   printf '%s' "$parent" > "$mate/.fm-secondmate-home"
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n control
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-window -d -t "=$session:" -n "fm-$child" )
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   fm_write_meta "$dir/home/state/$parent.meta" \
@@ -1329,7 +1346,7 @@ test_already_gone_endpoint_still_completes_without_a_refusal() {
   [ -n "$REAL_TMUX" ] || { echo "skip - tmux not installed"; return 0; }
   dir=$(make_case already-gone)
   socket=dedicated.sock
-  ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d -s "$session" -n control )
+  isolated_tmux_new_session "$dir" "$socket" -s "$session" -n control
   write_close_failing_tmux_shim "$dir" "$socket" "$REAL_TMUX"
   # The whole point of this case: the recorded window has already exited, so
   # its close cannot succeed and must still be the ordinary silent cleanup.
