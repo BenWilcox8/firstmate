@@ -6,8 +6,10 @@
 # announced state of notes that predate the marker, bounded receipts JSON with
 # omission disclosure, the reply cursor's strict order, and the readiness
 # projection's model-aware verdict and unknown path. Human note/list/drain
-# behaviour stays unchanged when the new flags are omitted. `say` is covered
-# with a fake aws: the WAV header it builds, the duration, and the request body.
+# behaviour stays unchanged when the new flags are omitted. `say` and `ask` are
+# covered with a fake aws: the WAV header that `say` builds, the duration, and
+# each request body. The machine-readable subcommands also run under a minimal
+# non-login PATH that finds node only in /opt/homebrew/bin or /usr/local/bin.
 set -euo pipefail
 
 # shellcheck source=tests/lib.sh
@@ -630,3 +632,69 @@ assert_contains "$ogg_out" "got Ogg/FLAC/MP3; re-encode to WAV first" \
   "the refusal tells the user to re-encode"
 assert_absent "$home/messages.json" "refused audio never reaches the model"
 pass "say refuses compressed audio"
+
+# --- ask: the side-question request ----------------------------------------
+#
+# The same fake aws records the request body of `ask`. A question that starts
+# with a dash is text: it must reach the request body unchanged, and the node
+# program that writes the body must not read it as an option of its own.
+
+home=$(make_home ask)
+run_ask() {  # <question-word>... - stdout and stderr merged
+  HOME="$home" PATH="$fakebin:$PATH" FAKE_AWS_DIR="$home" FM_INBOX_REGION=us-east-1 \
+    FM_INBOX_ASK_MODEL=fake-ask FM_INBOX_PROFILE="" run_inbox "$home" ask "$@" 2>&1
+}
+
+out=$(run_ask -- why did the café build fail) \
+  || fail "ask should accept a question that starts with --: $out"
+assert_contains "$out" "fake transcript" "ask prints the model answer"
+assert_equals "-- why did the café build fail" "$(jq -r '.[0].content[0].text' "$home/messages.json")" \
+  "a question that starts with -- reaches the model unchanged"
+assert_equals "user" "$(jq -r '.[0].role' "$home/messages.json")" "the question is the user turn"
+rm -f "$home/messages.json"
+out=$(run_ask --version) || fail "ask should accept the question --version: $out"
+assert_equals "--version" "$(jq -r '.[0].content[0].text' "$home/messages.json")" \
+  "a question that looks like a node option reaches the model unchanged"
+pass "ask sends a question that starts with a dash as text"
+
+# --- machine-readable output under a non-login ssh PATH ---------------------
+#
+# `ssh host fm-inbox.sh ready` gets the non-login PATH of the host. On macOS
+# that PATH has no Homebrew or nvm tools. The script adds /opt/homebrew/bin and
+# /usr/local/bin when they exist, so a node in one of them serves the
+# machine-readable subcommands. This case uses the node of this host in one of
+# those directories, and it skips when neither directory has a node.
+
+std_node_dir=
+for dir in /opt/homebrew/bin /usr/local/bin; do
+  if [ -x "$dir/node" ]; then
+    std_node_dir=$dir
+    break
+  fi
+done
+if [ -z "$std_node_dir" ]; then
+  printf '# skip: no node in /opt/homebrew/bin or /usr/local/bin, so node from a standard directory under a non-login PATH is unverified here\n'
+else
+  core_path=$(fm_test_core_path)
+  PATH=$core_path command -v node >/dev/null 2>&1 \
+    && fail "the minimal PATH must not hold node"
+  home=$(make_home ssh-path)
+  run_bare() {
+    HOME="$home" PATH="$core_path" run_inbox "$home" "$@"
+  }
+  noted=$(run_bare note --json "from a non-login shell") \
+    || fail "note --json must find node in $std_node_dir: $noted"
+  assert_equals "created" "$(printf '%s' "$noted" | json_get outcome)" "note --json under the minimal PATH"
+  nid=$(printf '%s' "$noted" | json_get id)
+  replied=$(run_bare reply --json "$nid" "an answer") \
+    || fail "reply --json must find node in $std_node_dir: $replied"
+  assert_equals "fm-inbox-reply.v1" "$(printf '%s' "$replied" | json_get schema)" \
+    "reply --json under the minimal PATH"
+  receipts=$(run_bare receipts) || fail "receipts must find node in $std_node_dir: $receipts"
+  assert_equals "$nid" "$(printf '%s' "$receipts" | jq -r '.replies[0].id')" \
+    "receipts under the minimal PATH"
+  readiness=$(run_bare ready) || fail "ready must find node in $std_node_dir: $readiness"
+  printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \
+    || fail "ready under the minimal PATH did not print the readiness JSON: $readiness"
+  pass "machine-readable subcommands find node in $std_node_dir under a non-login PATH"
+fi

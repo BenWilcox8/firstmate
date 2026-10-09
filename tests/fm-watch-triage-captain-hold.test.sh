@@ -40,6 +40,15 @@ hold_key() {
   printf '%s' test:fm-held-merge | tr ':/.' '___'
 }
 
+# One sighting that must surface and exit the cycle.
+hold_watch_surface() {  # <dir> <out> <capture> <pane-text>
+  local dir=$1 out=$2 capture=$3 text=$4
+  printf '%s\n' "$text" > "$capture"
+  hold_watch_launch "$dir" "$out" "$capture"
+  wait_for_exit "$HOLD_WATCH_PID" 100 || { reap "$HOLD_WATCH_PID"; return 1; }
+  return 0
+}
+
 # Both status lines a held task really carries: the delivery that routes through
 # the captain-relevant stale branch, and a worker line that routes through the
 # inconclusive one. The hold is invisible to the status line in both, so both

@@ -331,6 +331,17 @@ SH
   chmod +x "$dir/fakebin/mv"
 }
 
+# Wait up to <limit> 0.1s ticks while <pid> stays alive; 0 if still alive, 1 if it died.
+wait_live() {
+  local pid=$1 limit=${2:-30} i=0
+  while [ "$i" -lt "$limit" ]; do
+    kill -0 "$pid" 2>/dev/null || return 1
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 0
+}
+
 test_procevent_surface_serializes_with_drain() {
   local dir state out drain_out ready release pid drain_pid
   dir=$(make_case procevent-drain-race); state="$dir/state"; out="$dir/watch.out"

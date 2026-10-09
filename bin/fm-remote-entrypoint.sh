@@ -32,7 +32,7 @@ set -eu
 
 PROTOCOL=1
 DOCTOR_SHA256=78efccd6cb7a0123400e49fa323292a64c8e3c7ebd3717151be69f87735302fb
-REAL_SOURCE=$(node -e 'console.log(require("fs").realpathSync(process.argv[1]))' "${BASH_SOURCE[0]}" 2>/dev/null) ||
+REAL_SOURCE=$(node -e 'console.log(require("fs").realpathSync(process.argv[1]))' -- "${BASH_SOURCE[0]}" 2>/dev/null) ||
   REAL_SOURCE=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null) ||
   REAL_SOURCE=${BASH_SOURCE[0]}
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$REAL_SOURCE")" && pwd -P)

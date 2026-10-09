@@ -243,27 +243,10 @@ detect_gate_skip() {
 write_json_artifact() {
   local out=$1 started=$2 finished=$3 run_id=$4 total=$5 failed=$6 concurrency=$7 duration=$8 records=$9 pool=${10} jobs_enabled=${11}
   command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid proof artifact"
-  node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'JS'
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
+    node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'JS'
 const fs = require('fs');
-
-// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
-function dumpJson(value) {
-  const sortKeys = (key, v) => {
-    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
-      const sorted = {};
-      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
-      return sorted;
-    }
-    return v;
-  };
-  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
-    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
-}
-
-function toInt(text) {
-  if (!/^\s*[-+]?[0-9]+\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
-  return parseInt(text, 10);
-}
+const { dumpJson, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
 const [out, started, finished, runId, total, failed, concurrency, duration, recordsPath, pool, jobsEnabled] =
   process.argv.slice(2);
