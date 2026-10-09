@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Behavior tests for tests/lib.sh's shared fixture-tempdir helper
-# (fm_test_tmproot / fm_test_cleanup / fm_test_reap_orphans).
+# (fm_test_tmproot / fm_test_cleanup / fm_test_reap_orphans) and its fixture
+# process registry (fm_test_track_pid / fm_test_reap_pids).
 #
 # The near-universal call pattern across this suite is
 # `TMP_ROOT=$(fm_test_tmproot prefix)`, which forks a subshell to capture the
@@ -261,6 +262,47 @@ test_registered_fixture_processes_reaped_after_sigterm() {
   pass "registered fixture processes are reaped when their suite is terminated"
 }
 
+# A suite that replaces the lib.sh EXIT trap leaves its process registry behind.
+# The next suite that sources the library reaps a registry whose owning suite no
+# longer runs: it stops each listed process that still has its recorded start
+# time, does not signal a listed PID with another start time, and removes the
+# registry. It does not touch the registry of a suite that still runs.
+test_orphan_sweep_reaps_dead_owner_process_registry() {
+  local harness tmp dead owner fixture recycled kept pid dead_registry live_registry
+  harness=$(fm_test_tmproot fm-test-cleanup-registry-sweep)
+  tmp="$harness/tmp"
+  mkdir -p "$tmp"
+  sh -c ':' &
+  dead=$!
+  wait "$dead"
+  sleep 300 >/dev/null 2>&1 &
+  owner=$!
+  sleep 300 >/dev/null 2>&1 &
+  fixture=$!
+  sleep 300 >/dev/null 2>&1 &
+  recycled=$!
+  sleep 300 >/dev/null 2>&1 &
+  kept=$!
+  for pid in "$owner" "$fixture" "$recycled" "$kept"; do
+    fm_test_track_pid "$pid"
+  done
+  dead_registry="$tmp/.fm-test-processes.$dead.deadAA"
+  live_registry="$tmp/.fm-test-processes.$owner.liveBB"
+  printf '%s\tpid\t%s\n%s\tpid\t%s\n' "$fixture" "$(fm_test_process_start "$fixture")" \
+    "$recycled" "a start time from before the PID was reused" > "$dead_registry"
+  printf '%s\tpid\t%s\n' "$kept" "$(fm_test_process_start "$kept")" > "$live_registry"
+
+  TMPDIR="$tmp" FM_TEST_SKIP_ORPHAN_REAP=0 bash -c '. "$1"' _ "$LIB"
+
+  assert_absent "$dead_registry" "the process registry of a suite that no longer runs was not removed"
+  assert_reaped "$fixture" "a process listed by the registry of a suite that no longer runs survived the sweep"
+  fm_test_process_running "$recycled" || fail "the sweep signaled a listed PID whose start time did not match"
+  assert_present "$live_registry" "the sweep removed the process registry of a suite that still runs"
+  fm_test_process_running "$kept" || fail "the sweep signaled a process listed by a suite that still runs"
+  kill "$owner" "$recycled" "$kept" 2>/dev/null
+  pass "the orphan sweep reaps only the process registry of a suite that no longer runs"
+}
+
 test_fixture_root_gone_after_normal_exit
 test_fixture_root_gone_after_sigterm
 test_cleanup_registry_resists_precreation
@@ -270,3 +312,4 @@ test_orphan_sweep_reaps_read_only_package_tree
 test_registered_fixture_processes_reaped_after_normal_exit
 test_registered_fixture_processes_reaped_after_failure
 test_registered_fixture_processes_reaped_after_sigterm
+test_orphan_sweep_reaps_dead_owner_process_registry
