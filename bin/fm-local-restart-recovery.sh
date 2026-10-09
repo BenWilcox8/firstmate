@@ -5,10 +5,17 @@
 # logout while lingering is off), or a Herdr-only restart stops Herdr and every
 # agent in it. This script is the one owner of noticing such a restart and of
 # bringing the supervisor layer back: the primary firstmate in its recorded
-# Herdr pane, and every authorized second mate in its own pane, one at a time.
-# Working crews are not relaunched here: at its first locked session start
-# after the restart, each home runs bin/fm-local-worker-restore.sh, which
-# relaunches the workers that were working.
+# Herdr pane, and every active, authorized second mate in its own pane, one at
+# a time.
+# A Herdr second mate is active while its Herdr space (the workspace labeled
+# 2ndmate-<id>) is open: Herdr keeps the spaces open across a restart, so the
+# spaces that survive it name the second mates the captain was working with.
+# A tmux second mate has no space that survives a restart, so it counts as
+# active.
+# Workers are never relaunched automatically. Each relaunched second mate
+# gets one restart notice instead, and reconciles its own home: its recorded
+# workers, their local copies, and their unlanded work. It then resumes the
+# remaining work itself.
 #
 # Usage:
 #   fm-local-restart-recovery.sh record
@@ -24,9 +31,9 @@
 #                RESTART line when the fingerprint changed since the last
 #                locked start. In a second mate home that line points at the
 #                primary home, which runs recovery and keeps its ledger.
-#                After a restart it also starts this home's worker restore
-#                (bin/fm-local-worker-restore.sh run), detached, and says so
-#                in a second RESTART line.
+#                In every home the line also says that workers are not
+#                relaunched automatically, so the home reconciles its own
+#                recorded workers and resumes the remaining work.
 #                In a primary home (no .fm-secondmate-home
 #                marker) that runs in a Herdr pane, it also writes the primary
 #                endpoint record state/.primary-endpoint: the pane, its
@@ -61,16 +68,32 @@
 #                  4. refuses with exit 3 when FM_RESTART_MAX_PASSES passes
 #                     already started within FM_RESTART_WINDOW seconds (a
 #                     restart loop);
-#                  5. relaunches, one at a time, every second mate this home
-#                     registers in data/secondmates.md and records in
-#                     state/<id>.meta, except dormant ones
+#                  5. relaunches, one at a time, every active second mate this
+#                     home registers in data/secondmates.md and records in
+#                     state/<id>.meta. It leaves down dormant ones
 #                     (bin/fm-local-dormant.sh), remote ones (they recover on
-#                     their own host), and ones already running. An agent-free
-#                     pane gets `bin/fm-control.sh <id> relaunch` in place; a
-#                     pane that is gone gets `bin/fm-spawn.sh <id>
-#                     --secondmate`. Each relaunch appends one unkeyed
-#                     `working:` line to state/<id>.status, so a blocker
-#                     recorded before the restart does not read as current;
+#                     their own host), and Herdr ones whose space is closed or
+#                     cannot be read (not active). It does not relaunch
+#                     running ones. An agent-free pane in the second mate's
+#                     own space gets `bin/fm-control.sh <id> relaunch` in
+#                     place. When the pane is gone, `bin/fm-spawn.sh <id>
+#                     --secondmate --backend <its recorded backend>` opens a
+#                     new one in that space, with HERDR_SESSION set to the
+#                     recorded session of a Herdr second mate. When a restart
+#                     gave the space a new workspace id, that spawn needs an
+#                     agent-axi that moves the home's slot ledger to the new
+#                     id. An agent-axi that refuses fails the relaunch, and
+#                     the pass record keeps its reason. A recorded pane that
+#                     is not shown to sit in the second mate's space (Herdr
+#                     can give its id to a pane in another space, or its
+#                     workspace cannot be read) is never typed into or closed,
+#                     and that second mate is left down. Each
+#                     relaunch appends one unkeyed `working:` line to
+#                     state/<id>.status, so a blocker recorded before the
+#                     restart does not read as current. Then each relaunched
+#                     or running second mate gets one restart notice through
+#                     bin/fm-send.sh: reconcile your own home and resume the
+#                     remaining work;
 #                  6. relaunches the primary firstmate last, in its recorded
 #                     pane when that pane holds only a shell in the recorded
 #                     home, else in a new tab of the recorded workspace, else
@@ -99,10 +122,15 @@
 #                attempt.
 #   liveness-skip  The secondmate-liveness-skip hook in bin/fm-bootstrap.sh's
 #                startup liveness sweep. Exit 0 (leave the second mate alone)
-#                when it is dormant or while a recovery pass runs, and exit 1
-#                otherwise. A dormant skip prints a BOOTSTRAP_INFO fact only
-#                under FM_BOOTSTRAP_VERBOSE_FACTS=1; a skip for a running pass
-#                always prints one.
+#                when it is dormant, while a recovery pass runs, or when it is
+#                a local Herdr second mate whose space is closed (not active)
+#                or whose recorded pane, alive or agent-free, is not shown to
+#                sit in its open space (the sweep would otherwise close that
+#                pane or count it as this second mate), and exit 1 otherwise.
+#                A space that cannot be read, for example while Herdr is
+#                down, does not skip. A dormant skip prints a
+#                BOOTSTRAP_INFO fact only under FM_BOOTSTRAP_VERBOSE_FACTS=1;
+#                the other skips always print one.
 #   status       Print the recent pass ledger and the newest pass record.
 #   launch-line  Print the command a relaunch would type into the primary
 #                pane for the current primary endpoint record, and on stderr
@@ -496,13 +524,15 @@ rr_pass_note() {  # <key>
   if fm_root_is_secondmate_home "$FM_HOME"; then
     printf "The primary firstmate's home runs restart recovery for second mates and keeps its ledger and pass records; this home keeps none."
   elif rr_ledger_has 'done' "$1"; then
-    printf 'Restart recovery already relaunched the authorized supervisors; its record is under state/restart-recovery/.'
+    printf 'Restart recovery already relaunched the active, authorized supervisors; its record is under state/restart-recovery/.'
   elif rr_ledger_has start "$1" || rr_pass_active; then
-    printf 'A restart recovery pass is relaunching the authorized supervisors; its summary arrives as a check notification.'
+    printf 'A restart recovery pass is relaunching the active, authorized supervisors; its summary arrives as a check notification.'
   else
-    printf 'No restart recovery pass ran for it: check bin/fm-local-restart-recovery.sh status, and relaunch authorized second mates one at a time.'
+    printf 'No restart recovery pass ran for it: check bin/fm-local-restart-recovery.sh status, and relaunch the active, authorized second mates one at a time.'
   fi
 }
+
+RR_WORKERS_NOTE='Workers are not relaunched automatically: reconcile the workers this home recorded, their local copies, and their unlanded work, then resume the remaining work yourself.'
 
 cmd_record() {
   local class stored_session
@@ -513,25 +543,12 @@ cmd_record() {
   rr_print_current | { cat; printf 'recorded_at=%s\n' "$(date +%s)"; } | rr_write_atomic "$RR_FINGERPRINT" || true
   case "$class" in
     reboot|user-manager|herdr)
-      printf 'RESTART: %s since the last session start (%s). %s\n' \
-        "$(rr_label "$class")" "$(rr_detail "$class")" "$(rr_pass_note "$(rr_key)")"
-      rr_worker_restore "$(rr_key)" "$(rr_label "$class")"
+      printf 'RESTART: %s since the last session start (%s). %s %s\n' \
+        "$(rr_label "$class")" "$(rr_detail "$class")" "$(rr_pass_note "$(rr_key)")" "$RR_WORKERS_NOTE"
       ;;
   esac
   rr_record_endpoint
   return 0
-}
-
-# rr_worker_restore <key> <label>: start this home's worker restore for the
-# restart, detached so the session start does not wait for relaunches
-# (bin/fm-local-worker-restore.sh owns the contract).
-rr_worker_restore() {
-  if command -v setsid >/dev/null 2>&1; then
-    FM_HOME="$FM_HOME" setsid -f "$SCRIPT_DIR/fm-local-worker-restore.sh" run --key "$1" --restart "$2" </dev/null >/dev/null 2>&1
-  else
-    FM_HOME="$FM_HOME" nohup "$SCRIPT_DIR/fm-local-worker-restore.sh" run --key "$1" --restart "$2" </dev/null >/dev/null 2>&1 &
-  fi
-  printf 'RESTART: Worker restore is relaunching the workers that were working, one at a time; its summary arrives as a check notification. Do not relaunch workers by hand before it.\n'
 }
 
 # --- run: second mates ---------------------------------------------------------
@@ -540,12 +557,85 @@ rr_status_boundary() {  # <id> <class>
   printf 'working: relaunched after a %s by restart recovery\n' "$(rr_label "$2")" >> "$STATE/$1.status" 2>/dev/null || true
 }
 
+# rr_first_line <text>: the first error line of a command's output, else its
+# first nonempty line.
 rr_first_line() {
-  printf '%s\n' "$1" | awk 'NF { print; exit }'
+  printf '%s\n' "$1" | awk '
+    /^error: / { print; found = 1; exit }
+    NF && first == "" { first = $0 }
+    END { if (!found) print first }'
+}
+
+# rr_space <meta>: read the Herdr space of the second mate that <meta> records.
+# Sets RR_SPACE_LABEL to its label (2ndmate-<id>, the rule of
+# fm_backend_herdr_workspace_label for its home) and RR_SPACE_IDS to the ids of
+# the open workspaces with that label, space separated. Returns 0 when the
+# space was read (RR_SPACE_IDS is empty when it is closed), and 1 when it
+# cannot be read: the home has no second mate marker, the Herdr server of its
+# session is not running, or the workspace list is unreadable.
+rr_space() {
+  local meta=$1 home session list
+  RR_SPACE_LABEL=
+  RR_SPACE_IDS=
+  home=$(fm_meta_get "$meta" home)
+  [ -n "$home" ] || home=$(fm_meta_get "$meta" worktree)
+  [ -n "$home" ] && [ -f "$home/.fm-secondmate-home" ] || return 1
+  fm_backend_source herdr || return 1
+  RR_SPACE_LABEL=$(FM_HOME="$home" fm_backend_herdr_workspace_label)
+  case "$RR_SPACE_LABEL" in 2ndmate-?*) ;; *) return 1 ;; esac
+  session=$(fm_meta_get "$meta" herdr_session)
+  [ -n "$session" ] || session=$(fm_backend_target_of_meta "$meta" | cut -d: -f1)
+  [ -n "$session" ] || return 1
+  [ "$(rr_herdr "$session" status --json 2>/dev/null | jq -r '.server.running // false' 2>/dev/null)" = true ] || return 1
+  list=$(rr_herdr "$session" workspace list 2>/dev/null) || return 1
+  RR_SPACE_IDS=$(printf '%s' "$list" | jq -er --arg want "$RR_SPACE_LABEL" \
+    '.result.workspaces | if type == "array" then [.[] | select(.label == $want) | .workspace_id] | join(" ") else error("no workspace list") end' \
+    2>/dev/null) || return 1
+}
+
+# rr_pane_in_space <target>: 0 when the Herdr pane <target> (session:pane) sits
+# in one of RR_SPACE_IDS, 1 when it sits in another workspace, and 2 when its
+# workspace cannot be read. A restart can give a recorded pane id to a pane in
+# another space, and that pane is never this second mate's.
+rr_pane_in_space() {
+  local session=${1%%:*} pane=${1#*:} ws id
+  ws=$(rr_herdr "$session" pane get "$pane" 2>/dev/null | jq -r '.result.pane.workspace_id // empty' 2>/dev/null)
+  [ -n "$ws" ] || return 2
+  for id in $RR_SPACE_IDS; do
+    [ "$id" != "$ws" ] || return 0
+  done
+  return 1
+}
+
+# rr_pane_away <target>: 0 when the recorded pane <target> must be left alone
+# because it is not shown to sit in RR_SPACE_IDS. RR_PANE_AWAY then says why,
+# for the pass record and the startup liveness sweep alike.
+rr_pane_away() {
+  local rc=0
+  RR_PANE_AWAY=
+  rr_pane_in_space "$1" || rc=$?
+  case "$rc" in
+    0) return 1 ;;
+    1) RR_PANE_AWAY="its recorded pane $1 now sits in another workspace, outside its Herdr space $RR_SPACE_LABEL, so nothing was typed into it or closed. Leave that pane alone and ask the main firstmate before you relaunch this second mate: bin/fm-spawn.sh would close that pane, and bin/fm-control.sh would type into it" ;;
+    *) RR_PANE_AWAY="the workspace of its recorded pane $1 could not be read, so the pane is not known to sit in its Herdr space $RR_SPACE_LABEL and nothing was typed into it or closed" ;;
+  esac
+}
+
+# rr_notify <id> <class>: send the second mate its one restart notice. The
+# inbox record is the delivery (bin/fm-send.sh); the primary's watcher rings
+# it again until the second mate acknowledges it.
+rr_notify() {
+  local id=$1 class=$2 out text
+  text="Restart notice: a $(rr_label "$class") ($(rr_detail "$class")) stopped Herdr and every agent in it, your workers included. Restart recovery relaunched you, but it relaunches no workers. Reconcile your own home now. For each worker you recorded, check its endpoint, its local copy, and its unlanded work. Resume the work that remains yourself, one worker at a time, through bin/fm-control.sh. Leave finished, parked, and captain-held work as it is. Then report in your status what you resumed and what you left down."
+  if out=$(FM_HOME="$FM_HOME" "$SCRIPT_DIR/fm-send.sh" "$id" "$text" 2>&1 </dev/null); then
+    rr_note "second mate $id: restart notice sent"
+  else
+    rr_note "second mate $id: restart notice failed: $(rr_first_line "$out")"
+  fi
 }
 
 rr_secondmates() {  # <class>
-  local class=$1 meta id reason backend target state out
+  local class=$1 meta id reason backend target state out session
   for meta in "$STATE"/*.meta; do
     [ -f "$meta" ] || continue
     grep -qx 'kind=secondmate' "$meta" 2>/dev/null || continue
@@ -565,28 +655,55 @@ rr_secondmates() {  # <class>
     backend=$(fm_backend_of_meta "$meta")
     target=$(fm_backend_target_of_meta "$meta")
     case "$backend" in
-      herdr|tmux) ;;
+      herdr)
+        if ! rr_space "$meta"; then
+          rr_note "second mate $id: left down: its Herdr space ${RR_SPACE_LABEL:-2ndmate-$id} could not be read, so it is not known to be active"
+          continue
+        fi
+        if [ -z "$RR_SPACE_IDS" ]; then
+          rr_note "second mate $id: left down: not active (its Herdr space $RR_SPACE_LABEL is closed)"
+          continue
+        fi
+        ;;
+      tmux) ;;
       *) rr_note "second mate $id: skipped: restart recovery does not relaunch on backend '$backend'"; continue ;;
     esac
     # Read right before acting, so a second mate the captain relaunched by
     # hand a moment ago reads alive and is left alone.
     state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
+    case "$backend:$state" in
+      herdr:alive|herdr:dead)
+        if rr_pane_away "$target"; then
+          rr_note "second mate $id: left down: $RR_PANE_AWAY"
+          continue
+        fi
+        ;;
+    esac
     case "$state" in
       alive)
         rr_note "second mate $id: already running"
+        rr_notify "$id" "$class"
         ;;
       dead)
         if out=$(FM_SPAWN_NO_GUARD=1 "$SCRIPT_DIR/fm-control.sh" "$id" relaunch 2>&1); then
           rr_status_boundary "$id" "$class"
           rr_note "second mate $id: relaunched in its pane"
+          rr_notify "$id" "$class"
         else
           rr_note "second mate $id: relaunch failed: $(rr_first_line "$out")"
         fi
         ;;
       missing)
-        if out=$(FM_SPAWN_NO_GUARD=1 "$SCRIPT_DIR/fm-spawn.sh" "$id" --secondmate 2>&1); then
+        # A fresh spawn would otherwise pick the backend and Herdr session of
+        # this process, which runs outside Herdr; the second mate comes back on
+        # its own recorded ones.
+        session=${HERDR_SESSION:-}
+        [ "$backend" != herdr ] || session=${target%%:*}
+        if out=$(HERDR_SESSION=$session FM_SPAWN_NO_GUARD=1 \
+          "$SCRIPT_DIR/fm-spawn.sh" "$id" --secondmate --backend "$backend" 2>&1); then
           rr_status_boundary "$id" "$class"
           rr_note "second mate $id: relaunched in a new pane (its pane was gone)"
+          rr_notify "$id" "$class"
         else
           rr_note "second mate $id: relaunch failed: $(rr_first_line "$out")"
         fi
@@ -827,19 +944,21 @@ rr_primary() {
 # --- run -----------------------------------------------------------------------
 
 rr_pass() {  # <class> <key>
-  local class=$1 key=$2 body note path relaunched=0 down=0 failed=0 summary primary
+  local class=$1 key=$2 body note path relaunched=0 down=0 failed=0 notified=0 unnotified=0 summary primary
   rr_ledger start "$key" "$class"
   rr_say "restart recovery after $(rr_label "$class") ($(rr_detail "$class"))"
   rr_secondmates "$class"
   rr_primary
   [ ! -e "$STATE/.afk" ] \
     || rr_note "away mode: state/.afk survived the restart; the relaunched firstmate re-enters it"
-  rr_note "crews: not relaunched by this pass; each home's worker restore relaunches the ones that were working at its session start"
+  rr_note "workers: never relaunched automatically; each second mate that got the restart notice reconciles its own workers and resumes their remaining work, and the relaunched firstmate does the same for its own"
   body="restart recovery after $(rr_label "$class") ($(rr_detail "$class")), $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   primary="not relaunched"
   for note in ${RR_NOTES[@]+"${RR_NOTES[@]}"}; do
     body="$body"$'\n'"- $note"
     case "$note" in
+      "second mate "*": restart notice sent") notified=$((notified + 1)) ;;
+      "second mate "*": restart notice failed"*) unnotified=$((unnotified + 1)) ;;
       "second mate "*": relaunched"*) relaunched=$((relaunched + 1)) ;;
       "second mate "*": left down"*) down=$((down + 1)) ;;
       "second mate "*"failed"*) failed=$((failed + 1)) ;;
@@ -849,7 +968,7 @@ rr_pass() {  # <class> <key>
     esac
   done
   path=$(rr_record "$body") || path=
-  summary="firstmate $primary; second mates relaunched $relaunched, left down $down, failed $failed"
+  summary="firstmate $primary; second mates relaunched $relaunched, left down $down, failed $failed; restart notices sent $notified, failed $unnotified"
   fm_wake_append check "restart-recovery:$(date +%s)" \
     "check: restart recovery after $(rr_label "$class"): $summary${path:+; record $(rr_rel "$path")}" \
     || rr_say "could not queue the summary wake"
@@ -907,7 +1026,7 @@ cmd_run() {
 }
 
 cmd_liveness_skip() {
-  local id=${1:-} reason
+  local id=${1:-} reason meta target
   [ -n "$id" ] || return 1
   if reason=$("$SCRIPT_DIR/fm-local-dormant.sh" is "$id" 2>/dev/null); then
     [ "${FM_BOOTSTRAP_VERBOSE_FACTS:-0}" != 1 ] \
@@ -918,6 +1037,24 @@ cmd_liveness_skip() {
     printf 'BOOTSTRAP_INFO: secondmate %s left to the running restart recovery pass\n' "$id"
     return 0
   fi
+  meta="$STATE/$id.meta"
+  case "$id" in .|..|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  [ -f "$meta" ] && [ -z "$(fm_meta_get "$meta" remote_host)" ] || return 1
+  [ "$(fm_backend_of_meta "$meta")" = herdr ] || return 1
+  rr_space "$meta" || return 1
+  if [ -z "$RR_SPACE_IDS" ]; then
+    printf 'BOOTSTRAP_INFO: secondmate %s left down: not active (its Herdr space %s is closed); relaunch it by hand when the captain works with it again\n' "$id" "$RR_SPACE_LABEL"
+    return 0
+  fi
+  target=$(fm_backend_target_of_meta "$meta")
+  case "$(fm_backend_agent_state herdr "$target" 2>/dev/null)" in
+    alive|dead)
+      if rr_pane_away "$target"; then
+        printf 'BOOTSTRAP_INFO: secondmate %s left down: %s\n' "$id" "$RR_PANE_AWAY"
+        return 0
+      fi
+      ;;
+  esac
   return 1
 }
 

@@ -9,8 +9,9 @@
 #   - restart-record: bin/fm-session-start.sh records the restart fingerprint at
 #     a locked start and prints one RESTART line when it changed.
 #   - secondmate-liveness-skip: bin/fm-bootstrap.sh's startup liveness sweep
-#     leaves a dormant second mate down, and leaves every second mate to a
-#     restart recovery pass that is running.
+#     leaves a dormant second mate down, leaves a Herdr second mate whose space
+#     is closed or whose recorded pane is not shown to sit in its space down,
+#     and leaves every second mate to a restart recovery pass that is running.
 #   - secondmate-liveness-serial: the same sweep relaunches local second mates one at
 #     a time.
 # The Herdr lifecycle proof (a real lab restart, in-place relaunches, the
@@ -28,9 +29,12 @@ fm_git_identity fmtest fmtest@example.invalid
 
 # make_fake_herdr <dir>: a Herdr that answers `status --json` (running while
 # <dir>/running exists), `session list --json` (one default session whose
-# socket is <dir>/herdr.sock), and `workspace list`. With FM_TEST_HERDR_PANE_SHELL
+# socket is <dir>/herdr.sock), and `workspace list` (<dir>/workspaces.json when
+# it exists, else one workspace w9 labeled fleet). With FM_TEST_HERDR_PANE_SHELL
 # set to the pid of a real idle bash, it also reads every pane as present, with
-# that shell alone in it and no agent, in the directory FM_TEST_HERDR_PANE_CWD.
+# that shell alone in it and no agent, in the directory FM_TEST_HERDR_PANE_CWD,
+# and in the workspace its id names before the colon (in no workspace with
+# FM_TEST_HERDR_PANE_NO_WS=1).
 # With FM_TEST_HERDR_HOLDER set to a claude-named bash, the first `pane get`
 # also starts it as a detached stand-in in FM_TEST_HERDR_PANE_CWD and writes its
 # pid to
@@ -62,7 +66,11 @@ case "${args[0]:-} ${args[1]:-}" in
     printf '{"sessions":[{"name":"default","default":true,"running":true,"socket_path":"%s"}]}\n' "$dir/herdr.sock"
     ;;
   "workspace list")
-    printf '{"result":{"workspaces":[{"workspace_id":"w9","label":"fleet"}]}}\n'
+    if [ -f "$dir/workspaces.json" ]; then
+      cat "$dir/workspaces.json"
+    else
+      printf '{"result":{"workspaces":[{"workspace_id":"w9","label":"fleet"}]}}\n'
+    fi
     ;;
   "pane get")
     [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
@@ -71,7 +79,11 @@ case "${args[0]:-} ${args[1]:-}" in
       (cd "$FM_TEST_HERDR_PANE_CWD" && exec "$FM_TEST_HERDR_HOLDER" -c 'read -r -t 60 _ <> "$0"' "$dir/holder.fifo") >/dev/null 2>&1 < /dev/null &
       printf '%s\n' "$!" > "$dir/holder.pid"
     fi
-    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "${args[2]}" "$FM_TEST_HERDR_PANE_CWD"
+    pane=${args[2]}
+    ws=",\"workspace_id\":\"${pane%%:*}\""
+    [ "${FM_TEST_HERDR_PANE_NO_WS:-0}" != 1 ] || ws=
+    printf '{"result":{"pane":{"pane_id":"%s"%s,"foreground_cwd":"%s"}}}\n' \
+      "$pane" "$ws" "$FM_TEST_HERDR_PANE_CWD"
     ;;
   "agent get")
     [ -n "${FM_TEST_HERDR_PANE_SHELL:-}" ] || { printf '%s\n' "${args[*]}" >> "$dir/unexpected"; exit 1; }
@@ -160,6 +172,8 @@ test_record_names_each_restart_kind_once() {
   printf 'um-2\n' > "$w/user_manager"
   out=$(rr "$w" record)
   assert_contains "$out" "RESTART: user service manager restart" "a new user manager invocation was not reported"
+  assert_contains "$out" "Workers are not relaunched automatically: reconcile the workers this home recorded" \
+    "a restart must tell the home to reconcile its own workers, because nothing relaunches them"
   out=$(rr "$w" record)
   [ -z "$out" ] || fail "the same restart must be reported once, at the first record after it: $out"
 
@@ -189,6 +203,8 @@ test_record_in_a_secondmate_home_points_at_the_primary() {
     "a second mate home has no recovery ledger, so it must not claim that no pass ran"
   assert_contains "$out" "The primary firstmate's home runs restart recovery" \
     "a second mate home must point at the primary home's restart recovery"
+  assert_contains "$out" "Workers are not relaunched automatically" \
+    "a second mate home must reconcile its own workers after a restart"
   pass "record: a second mate home points at the primary home's restart recovery"
 }
 
@@ -334,7 +350,7 @@ test_run_keeps_a_restart_that_a_session_start_records_during_the_herdr_wait() {
   # locked session start records the new fingerprint.
   out=$(rr "$w" record)
   assert_contains "$out" "RESTART: machine reboot" "the session start did not report the reboot: $out"
-  assert_contains "$out" "A restart recovery pass is relaunching the authorized supervisors" \
+  assert_contains "$out" "A restart recovery pass is relaunching the active, authorized supervisors" \
     "the session start did not say that a recovery pass is running: $out"
   : > "$w/herdr/running"
   wait "$bg" || fail "the pass failed: $(cat "$w/bg.out")"
@@ -488,6 +504,156 @@ test_run_ignores_a_claude_process_older_than_herdr() {
   assert_contains "$out" "primary firstmate: not relaunched: its pane default:w9:p3 reads" \
     "the pass did not go on to read the recorded pane: $out"
   pass "run: a Claude process older than the Herdr server is not read as a manual relaunch"
+}
+
+# add_herdr_secondmate <world> <id> <pane>: a registered local Herdr second mate
+# whose recorded endpoint is default:<pane>.
+add_herdr_secondmate() {
+  local w=$1 id=$2 pane=$3 home="$1/$2"
+  mkdir -p "$home/state"
+  printf '%s\n' "$id" > "$home/.fm-secondmate-home"
+  fm_write_meta "$w/home/state/$id.meta" "window=default:$pane" "kind=secondmate" "harness=claude" \
+    "home=$home" "backend=herdr" "herdr_session=default" "herdr_workspace_id=${pane%%:*}" "herdr_pane_id=$pane"
+  printf -- '- %s - supervisor (home: %s; scope: %s; projects: ; added 2026-10-09)\n' \
+    "$id" "$home" "$id" >> "$w/home/data/secondmates.md"
+}
+
+spaces() {  # <world> <workspace-id> <label> ...: the open Herdr workspaces
+  local w=$1 json='' sep=''
+  shift
+  while [ "$#" -ge 2 ]; do
+    json="$json$sep{\"workspace_id\":\"$1\",\"label\":\"$2\"}"
+    sep=,
+    shift 2
+  done
+  printf '{"result":{"workspaces":[%s]}}\n' "$json" > "$w/herdr/workspaces.json"
+}
+
+test_run_leaves_a_second_mate_with_a_closed_space_down() {
+  local w out
+  w=$(new_world space-closed)
+  rr "$w" record >/dev/null
+  add_herdr_secondmate "$w" sm-closed w3:p2
+  spaces "$w" w9 fleet w4 2ndmate-other
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(rr "$w" run 2>&1) || fail "the pass failed: $out"
+  assert_contains "$out" "second mate sm-closed: left down: not active (its Herdr space 2ndmate-sm-closed is closed)" \
+    "a second mate whose Herdr space did not survive the restart must stay down: $out"
+  assert_contains "$out" "second mates relaunched 0, left down 1, failed 0; restart notices sent 0, failed 0" \
+    "the summary must count the inactive second mate as left down: $out"
+  [ ! -s "$w/herdr/unexpected" ] || fail "an inactive second mate's pane was read or touched: $(cat "$w/herdr/unexpected")"
+  [ ! -e "$w/home/state/sm-closed.inbox" ] || fail "an inactive second mate must not get a restart notice"
+
+  w=$(new_world space-unreadable)
+  rr "$w" record >/dev/null
+  add_herdr_secondmate "$w" sm-unknown w3:p2
+  printf 'not json\n' > "$w/herdr/workspaces.json"
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(rr "$w" run 2>&1) || fail "the pass failed: $out"
+  assert_contains "$out" "second mate sm-unknown: left down: its Herdr space 2ndmate-sm-unknown could not be read" \
+    "a second mate whose space cannot be read must not be relaunched on a guess: $out"
+  [ ! -s "$w/herdr/unexpected" ] || fail "a second mate with an unreadable space was touched: $(cat "$w/herdr/unexpected")"
+  pass "run: a second mate whose Herdr space is closed or unreadable is not active and stays down"
+}
+
+test_run_never_types_into_a_recorded_pane_in_another_space() {
+  local w shell out
+  w=$(new_world space-moved)
+  rr "$w" record >/dev/null
+  add_herdr_secondmate "$w" sm-moved w3:p2
+  # The space survived with a new id, and Herdr gave the recorded pane id to an
+  # agent-free pane of another space.
+  spaces "$w" w5 2ndmate-sm-moved w3 2ndmate-other
+  mkfifo "$w/shell.fifo"
+  bash -c 'read -r _ < "$0"' "$w/shell.fifo" >/dev/null 2>&1 &
+  shell=$!
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" rr "$w" run 2>&1)
+  kill "$shell" 2>/dev/null; wait "$shell" 2>/dev/null
+  assert_contains "$out" "second mate sm-moved: left down: its recorded pane default:w3:p2 now sits in another workspace, outside its Herdr space 2ndmate-sm-moved" \
+    "a recorded pane in another space must not be used: $out"
+  assert_contains "$out" "Leave that pane alone and ask the main firstmate" \
+    "the pass must not send the captain to a relaunch that closes or types into the other space's pane: $out"
+  assert_not_contains "$(cat "$w/herdr/unexpected" 2>/dev/null)" "pane run" "the pass typed into a pane of another space"
+  assert_not_contains "$(cat "$w/herdr/unexpected" 2>/dev/null)" "close" "the pass closed a pane of another space"
+  [ ! -e "$w/home/state/sm-moved.inbox" ] || fail "a second mate left down must not get a restart notice"
+  pass "run: a recorded pane id that a restart gave to another space is never typed into or closed"
+
+  # The pane's workspace cannot be read: it is not known to be this second
+  # mate's, so it is left down with that reason, not as a pane of another space.
+  w=$(new_world space-pane-unreadable)
+  rr "$w" record >/dev/null
+  add_herdr_secondmate "$w" sm-blind w3:p2
+  spaces "$w" w3 2ndmate-sm-blind
+  mkfifo "$w/shell.fifo"
+  bash -c 'read -r _ < "$0"' "$w/shell.fifo" >/dev/null 2>&1 &
+  shell=$!
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" FM_TEST_HERDR_PANE_NO_WS=1 rr "$w" run 2>&1)
+  kill "$shell" 2>/dev/null; wait "$shell" 2>/dev/null
+  assert_contains "$out" "second mate sm-blind: left down: the workspace of its recorded pane default:w3:p2 could not be read" \
+    "a pane whose workspace cannot be read must be left down with that reason: $out"
+  assert_not_contains "$out" "sm-blind: left down: its recorded pane default:w3:p2 now sits in another workspace" \
+    "a pane whose workspace cannot be read was reported as a pane of another space: $out"
+  assert_contains "$out" "second mates relaunched 0, left down 1, failed 0" \
+    "the summary must count the second mate as left down: $out"
+  assert_not_contains "$(cat "$w/herdr/unexpected" 2>/dev/null)" "pane run" "the pass typed into a pane it could not place"
+  pass "run: a recorded pane whose workspace cannot be read is left down with that reason"
+}
+
+test_liveness_skip_leaves_a_second_mate_with_a_closed_space_down() {
+  local w out rc
+  w=$(new_world skip-space)
+  add_herdr_secondmate "$w" sm-h w3:p2
+  spaces "$w" w3 2ndmate-sm-h
+  out=$(rr "$w" liveness-skip sm-h 2>&1); rc=$?
+  [ "$rc" -eq 1 ] || fail "a second mate with an open space must not be skipped: $out"
+  spaces "$w" w9 fleet
+  out=$(rr "$w" liveness-skip sm-h 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || fail "a second mate with a closed space must be skipped: $out"
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm-h left down: not active (its Herdr space 2ndmate-sm-h is closed)" \
+    "the sweep must say why it left the inactive second mate down"
+  rm -f "$w/herdr/running"
+  out=$(rr "$w" liveness-skip sm-h 2>&1); rc=$?
+  [ "$rc" -eq 1 ] || fail "a space that cannot be read while Herdr is down must not skip: $out"
+  : > "$w/herdr/running"
+  fm_write_meta "$w/home/state/sm-t.meta" "window=firstmate:fm-sm-t" "kind=secondmate" "harness=claude" "home=$w/sm-t"
+  out=$(rr "$w" liveness-skip sm-t 2>&1); rc=$?
+  [ "$rc" -eq 1 ] || fail "a tmux second mate has no space and must not be skipped: $out"
+  pass "liveness-skip: a Herdr second mate whose space is closed is left down; an unreadable space or a tmux one is not"
+}
+
+test_liveness_skip_leaves_a_recorded_pane_in_another_space_alone() {
+  local w shell out rc
+  w=$(new_world skip-pane-moved)
+  add_herdr_secondmate "$w" sm-m w3:p2
+  mkfifo "$w/shell.fifo"
+  bash -c 'read -r _ < "$0"' "$w/shell.fifo" >/dev/null 2>&1 &
+  shell=$!
+  # The recorded pane is an agent-free shell in the second mate's own open
+  # space: the sweep may relaunch it there.
+  spaces "$w" w3 2ndmate-sm-m
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" rr "$w" liveness-skip sm-m 2>&1); rc=$?
+  [ "$rc" -eq 1 ] || { kill "$shell"; fail "an agent-free pane in the second mate's own space must not be skipped: $out"; }
+  # The space is open with a new id, and Herdr gave the recorded pane id to an
+  # agent-free shell of another space: the sweep would close that shell.
+  spaces "$w" w5 2ndmate-sm-m w3 2ndmate-other
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" rr "$w" liveness-skip sm-m 2>&1); rc=$?
+  [ "$rc" -eq 0 ] || { kill "$shell"; fail "a recorded pane in another space must be left to the captain, not to the sweep: $out"; }
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm-m left down: its recorded pane default:w3:p2 now sits in another workspace, outside its Herdr space 2ndmate-sm-m" \
+    "the sweep must say why it left the second mate down: $out"
+  [ "$(printf '%s\n' "$out" | grep -c '^BOOTSTRAP_INFO:')" = 1 ] || fail "the skip must print exactly one BOOTSTRAP_INFO line: $out"
+  # The pane's workspace cannot be read: the sweep cannot place it, so it is
+  # left alone too.
+  spaces "$w" w3 2ndmate-sm-m
+  out=$(FM_TEST_HERDR_PANE_SHELL=$shell FM_TEST_HERDR_PANE_CWD="$w/home" FM_TEST_HERDR_PANE_NO_WS=1 \
+    rr "$w" liveness-skip sm-m 2>&1); rc=$?
+  kill "$shell" 2>/dev/null; wait "$shell" 2>/dev/null
+  [ "$rc" -eq 0 ] || fail "a recorded pane whose workspace cannot be read must not be closed by the sweep: $out"
+  assert_contains "$out" "BOOTSTRAP_INFO: secondmate sm-m left down: the workspace of its recorded pane default:w3:p2 could not be read" \
+    "the sweep must say it could not place the pane: $out"
+  assert_not_contains "$(cat "$w/herdr/unexpected" 2>/dev/null)" "close" "liveness-skip closed a pane"
+  pass "liveness-skip: a recorded pane in another space, or one it cannot place, is never left to the sweep to close"
 }
 
 test_dormant_marker_cli() {
@@ -720,6 +886,10 @@ for t in \
   test_run_leaves_a_primary_that_already_runs_elsewhere \
   test_run_rechecks_for_a_primary_right_before_typing \
   test_run_ignores_a_claude_process_older_than_herdr \
+  test_run_leaves_a_second_mate_with_a_closed_space_down \
+  test_run_never_types_into_a_recorded_pane_in_another_space \
+  test_liveness_skip_leaves_a_second_mate_with_a_closed_space_down \
+  test_liveness_skip_leaves_a_recorded_pane_in_another_space_alone \
   test_dormant_marker_cli \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \
