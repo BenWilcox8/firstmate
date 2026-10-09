@@ -307,7 +307,10 @@ family_for_basename() {
     fm-mail.test.sh|fm-mail-check.test.sh|\
     fm-turnend-foreign-owner-arm-fix.test.sh|\
     fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
-    fm-watch-triage.test.sh|fm-task-inbox.test.sh|fm-ping-ack.test.sh|\
+    fm-watch-triage.test.sh|fm-watch-triage-stale.test.sh|fm-watch-triage-wedge.test.sh|\
+    fm-watch-triage-gone-endpoint.test.sh|fm-watch-triage-captain-hold.test.sh|\
+    fm-watch-triage-busy.test.sh|fm-watch-triage-procevent-afk.test.sh|\
+    fm-task-inbox.test.sh|fm-ping-ack.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
       ;;
@@ -872,7 +875,13 @@ tests/fm-wake-queue.test.sh 85252
 tests/fm-watch-arm.test.sh 68479
 tests/fm-watch-checkpoint.test.sh 6101
 tests/fm-watch-recovery-loop.test.sh 58946
-tests/fm-watch-triage.test.sh 697969
+tests/fm-watch-triage-busy.test.sh 78487
+tests/fm-watch-triage-captain-hold.test.sh 104545
+tests/fm-watch-triage-gone-endpoint.test.sh 102963
+tests/fm-watch-triage-procevent-afk.test.sh 68532
+tests/fm-watch-triage-stale.test.sh 119481
+tests/fm-watch-triage-wedge.test.sh 118958
+tests/fm-watch-triage.test.sh 105003
 tests/fm-watcher-lock.test.sh 108940
 EOF
 }
