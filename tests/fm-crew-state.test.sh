@@ -3251,6 +3251,18 @@ runs[2]{id,branch,status,head,pr}:
   $3 fm/competing $short 2026-09-14 12:00"
 }
 
+# The capped-inventory fixtures write a no-mistakes sqlite database with
+# python3, which is the same reader pair the product reads it with. A machine
+# without python3 and its sqlite3 module cannot build them, so those cases
+# report a skip. The cases that fake only the AXI text keep running.
+sqlite_case() {
+  if command -v python3 >/dev/null 2>&1 && python3 -c "import sqlite3" >/dev/null 2>&1; then
+    "$@"
+  else
+    printf "ok - SKIP %s: python3 with sqlite3 is not installed\n" "$1"
+  fi
+}
+
 make_capped_runs_case() {
   make_competing_runs_case "$1" "$2" "$3"
   local d=$TMP_ROOT/$1
@@ -3522,7 +3534,7 @@ test_complete_inventory_ignores_unrelated_semantics() {
     make_competing_runs_case "unrelated-semantics-$i" running cancelled
     d=$TMP_ROOT/unrelated-semantics-$i
     git -C "$d/wt" check-ref-format --branch "$branch" >/dev/null || fail 'fixture branch must be valid Git syntax'
-    encoded=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$branch")
+    encoded=$(jq -nc --arg b "$branch" '$b')
     FM_FAKE_AXI_HOME="$(printf '%s\n' "$FM_FAKE_AXI_HOME" | sed 's/2 of 2/3 of 3/; s/runs\[2\]/runs[3]/')
   01OTHER,$encoded,running,$FM_FAKE_RUN_HEAD,\"\""
     FM_FAKE_AXI_STATUS="$(run_running fm/competing | sed 's/01RUN/01NEW/')"
@@ -3547,7 +3559,7 @@ test_requested_branch_has_no_character_whitelist() {
     make_competing_runs_case "requested-branch-syntax-$i" running cancelled
     d=$TMP_ROOT/requested-branch-syntax-$i
     git -C "$d/wt" branch -m "$branch"
-    encoded=$(python3 -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$branch")
+    encoded=$(jq -nc --arg b "$branch" '$b')
     FM_FAKE_AXI_HOME="count: 2 of 2 total
 runs[2]{id,branch,status,head,pr}:
   01NEW,$encoded,running,$FM_FAKE_RUN_HEAD,\"\"
@@ -4838,7 +4850,7 @@ test_captured_completed_history() {
 }
 
 test_captured_axi_status_shapes
-test_captured_inventory_replay
+sqlite_case test_captured_inventory_replay
 test_captured_authority_transition
 test_captured_completed_history
 test_active_run_is_authoritative
@@ -4946,24 +4958,24 @@ test_parked_task_reports_the_park
 test_runs_list_continuation_found_when_axi_answers_other_branch
 test_no_run_herdr_stale_registration_over_shell_reads_agent_gone
 test_no_run_herdr_stale_working_record_is_never_busy
-test_capped_competing_live_runs_report_both_ids
-test_capped_overview_without_branch_rows_reports_both_ids
-test_capped_overview_without_repo_line_and_no_runs_reports_absent
-test_no_branch_run_beside_a_live_run_elsewhere_reads_absent
-test_capped_inventory_reader_is_time_bounded
-test_capped_inventory_requires_exact_worktree_path
-test_capped_replacement_keeps_gate_and_inventory_unchanged
-test_capped_inventory_failures_report_unknown
+sqlite_case test_capped_competing_live_runs_report_both_ids
+sqlite_case test_capped_overview_without_branch_rows_reports_both_ids
+sqlite_case test_capped_overview_without_repo_line_and_no_runs_reports_absent
+sqlite_case test_no_branch_run_beside_a_live_run_elsewhere_reads_absent
+sqlite_case test_capped_inventory_reader_is_time_bounded
+sqlite_case test_capped_inventory_requires_exact_worktree_path
+sqlite_case test_capped_replacement_keeps_gate_and_inventory_unchanged
+sqlite_case test_capped_inventory_failures_report_unknown
 test_complete_inventory_ignores_unrelated_semantics
 test_requested_branch_has_no_character_whitelist
-test_capped_inventory_ignores_unrelated_semantics
-test_capped_requested_semantics_do_not_hide_ids
-test_capped_requested_branch_with_comma_names_both_ids
+sqlite_case test_capped_inventory_ignores_unrelated_semantics
+sqlite_case test_capped_requested_semantics_do_not_hide_ids
+sqlite_case test_capped_requested_branch_with_comma_names_both_ids
 test_inventory_structure_and_requested_semantics_remain_checked
 test_complete_inventory_without_python_keeps_gate
 test_complete_ambiguity_without_python_names_both_ids
-test_capped_without_python_preserves_available_ids
-test_capped_without_sqlite_preserves_available_ids
+sqlite_case test_capped_without_python_preserves_available_ids
+sqlite_case test_capped_without_sqlite_preserves_available_ids
 test_live_to_terminal_inventory_disagreement_is_unknown
 test_uninitialized_busy_worker_uses_pane
 test_uninitialized_idle_worker_uses_status
