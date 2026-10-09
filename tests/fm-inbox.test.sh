@@ -11,6 +11,7 @@
 # each request body. The machine-readable subcommands also run under a minimal
 # non-login PATH that finds node only in /opt/homebrew/bin or /usr/local/bin,
 # and a node on that PATH still wins over the node in those directories.
+# Without any node, they stop before they write a note, a wake or a reply.
 set -euo pipefail
 
 # shellcheck source=tests/lib.sh
@@ -303,7 +304,10 @@ run_inbox "$home" note "establish the inbox" >/dev/null || fail "seed note faile
 legacy="1700000000-legacy"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\n--\nfrom before the marker\n' \
   "$legacy" > "$home/state/inbox/$legacy.note"
-legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '[.pending[] | select(.id == $id)][0]' | json_get announced)
+legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '
+  [.pending[] | select(.id == $id)]
+  | if length > 0 then last else error("no pending note \($id)") end
+  | if has("announced") then .announced else error("no announced in the note \($id)") end')
 assert_equals "null" "$legacy_announced" \
   "a note that predates the marker reports announced as unknown, not false"
 fresh_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '[.pending[] | select(.id != $id) | .announced]')
@@ -754,4 +758,55 @@ NODE
   [ -s "$home/shim-node.log" ] \
     || fail "the node on the caller PATH must win over the node in $std_node_dir"
   pass "a node on the caller PATH wins over the node in $std_node_dir"
+fi
+
+# --- no node: the machine-readable subcommands write nothing ----------------
+#
+# Without node, `note --json`, `announce --json` and `reply --json` stop with
+# exit 1 before they write a note, a wake or a reply. The error names where the
+# script looks for node and how to link one. A host with node in
+# /opt/homebrew/bin or /usr/local/bin always finds it, so this case skips there.
+
+if [ -n "$std_node_dir" ]; then
+  printf '# skip: fm-inbox.sh always finds the node in %s, so a host without node is unverified here\n' "$std_node_dir"
+else
+  core_path=$(fm_test_core_path)
+  home=$(make_home no-node)
+  run_nodeless() {
+    HOME="$home" PATH="$core_path" run_inbox "$home" "$@"
+  }
+  set +e
+  nodeless_out=$(run_nodeless note --json "needs node" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "note --json without node fails"
+  assert_contains "$nodeless_out" "PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin" \
+    "the error names where fm-inbox.sh looks for node"
+  assert_contains "$nodeless_out" "~/.local/bin/node" "the error tells how to link a node"
+  assert_equals "0" "$(count_notes "$home")" "note --json without node must not save a note"
+  assert_equals "0" "$(count_wakes "$home")" "note --json without node must not append a wake"
+
+  plain=$(run_nodeless note "saved without node") || fail "a plain note must not need node: $plain"
+  nid=$(printf '%s\n' "$plain" | sed -n 's/^queued //p')
+  [ -n "$nid" ] || fail "a plain note without node printed no id: $plain"
+  rm -f "$home/state/inbox/.announced/$nid"
+  wakes=$(count_wakes "$home")
+  set +e
+  nodeless_out=$(run_nodeless announce --json "$nid" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "announce --json without node fails"
+  assert_contains "$nodeless_out" "~/.local/bin/node" "the announce error tells how to link a node"
+  assert_equals "$wakes" "$(count_wakes "$home")" "announce --json without node must not append a wake"
+  [ ! -e "$home/state/inbox/.announced/$nid" ] \
+    || fail "announce --json without node must not mark the note announced"
+
+  set +e
+  nodeless_out=$(run_nodeless reply --json "$nid" "an answer" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "reply --json without node fails"
+  assert_contains "$nodeless_out" "~/.local/bin/node" "the reply error tells how to link a node"
+  [ ! -e "$home/state/inbox/.replies/$nid" ] || fail "reply --json without node must not record a reply"
+  pass "without node, note, announce and reply --json stop before they write anything"
 fi

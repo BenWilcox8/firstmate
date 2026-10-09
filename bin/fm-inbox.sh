@@ -85,7 +85,11 @@
 # need NO configuration at all, because they make no model call. The voice
 # handover depends on `note`, so it keeps working in a home that has configured
 # nothing. `--json` / `receipts` / `ready` / `say` / `ask` need node (20 or
-# newer), which a firstmate home already uses for other tools.
+# newer). The script finds node on the caller's PATH, in ~/.local/bin, in
+# /opt/homebrew/bin or in /usr/local/bin. A non-login `ssh host fm-inbox.sh`
+# does not load a version manager such as nvm, so a node from a version manager
+# needs a link in ~/.local/bin. Without node, these subcommands stop before they
+# write a note, a wake or a reply, and the error tells how to add that link.
 #
 # Environment:
 #   FM_HOME              operational home whose state/ and data/ are used.
@@ -222,7 +226,8 @@ load_wake_lib() {
 }
 
 need_node() {
-  command -v node >/dev/null 2>&1 || die "node is required for machine-readable inbox output"
+  command -v node >/dev/null 2>&1 \
+    || die "node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s \"\$(command -v node)\" ~/.local/bin/node"
 }
 
 # Shared prelude for every inline node program below. jsonAscii writes the compact
@@ -339,7 +344,6 @@ write_note_file() {  # <path> <id> <source> <body> [extra] [request-id]
 }
 
 emit_note_json() {  # <outcome> <id> <request-id> <saved> <announced> <path> [acknowledged]
-  need_node
   inbox_node '
 const [outcome, noteId, requestId, saved, announced, path, acknowledged] = process.argv.slice(1);
 process.stdout.write(jsonAscii({
@@ -529,6 +533,7 @@ cmd_note() {
   else
     body="$*"
   fi
+  [ "$json" -eq 0 ] || need_node
   queue_note text "$body" "" "$request_id" "$json"
 }
 
@@ -542,6 +547,7 @@ cmd_announce() {
   [ -n "$id" ] || die "usage: fm-inbox.sh announce [--json] <id>"
   valid_note_id "$id" || die "invalid note id"
   path=$(note_path "$id") || die "no such note: $id"
+  [ "$json" -eq 0 ] || need_node
   summary=$(note_summary_from_body "$(read_note_body "$path")")
   state=$(note_announce_state "$id" "$path")
   if [ "$state" != true ] && [ "$path" = "$INBOX/handled/$id.note" ]; then
@@ -642,6 +648,7 @@ cmd_reply() {
     body="$*"
   fi
   [ -n "${body//[[:space:]]/}" ] || die "refusing to record an empty reply"
+  [ "$json" -eq 0 ] || need_node
   mkdir -p "$REPLIES"
   load_wake_lib || die "the reply sequence needs $FM_ROOT/bin/fm-wake-lib.sh"
   fm_lock_acquire_wait "$REPLY_SEQ_LOCK" || die "could not claim the reply sequence"
@@ -668,7 +675,6 @@ cmd_reply() {
   mv "$staging" "$REPLIES/$id"
   fm_lock_release "$REPLY_SEQ_LOCK"
   if [ "$json" -eq 1 ]; then
-    need_node
     inbox_node '
 const [noteId, path] = process.argv.slice(1);
 process.stdout.write(jsonAscii({
@@ -1024,7 +1030,7 @@ cmd_say() {
   # rather than what to install for a call it is not yet allowed to make.
   need_stt_model
   need aws
-  need node
+  need_node
   need base64
 
   local src wav raw transcript
@@ -1196,7 +1202,7 @@ cmd_ask() {
   [ "$#" -gt 0 ] || die "usage: fm-inbox.sh ask <question>..."
   need_ask_model
   need aws
-  need node
+  need_node
   local q="$*" msg
   msg=$(mktemp /tmp/fm-inbox-ask-XXXXXX.json)
   # shellcheck disable=SC2064
