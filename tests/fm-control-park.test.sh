@@ -35,13 +35,9 @@ mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
 FM_TEST_REAL_PS=$(command -v ps)
 export FM_TEST_REAL_PS
-STAND_IN_PIDS=()
 TASK_TMPS=()
 park_cleanup() {
-  local pid d
-  for pid in "${STAND_IN_PIDS[@]:-}"; do
-    [ -n "$pid" ] && kill "$pid" 2>/dev/null
-  done
+  local d
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
@@ -227,16 +223,20 @@ SH
 }
 
 # stand_in <comm> <env-assignment> <snippet>: a real process named <comm> that
-# runs <snippet> and blocks. Echoes its pid.
+# runs <snippet> and blocks. Echoes its pid. Callers capture that pid in a
+# command substitution, so the stand-in is registered with fm_test_track_pid
+# (which survives the subshell) rather than a shell array (which does not), and
+# its block expires on its own after FM_TEST_STUB_MAX_BLOCK_SECONDS. The FIFO is
+# opened read-write so the open itself never blocks ahead of that timeout.
 stand_in() {
   local comm=$1 envset=$2 snippet=$3 bin="$TMP_ROOT/bin" fifo pid
   mkdir -p "$bin"
   [ -x "$bin/$comm" ] || cp "$(command -v bash)" "$bin/$comm"
   fifo="$TMP_ROOT/block.$RANDOM$RANDOM"
   mkfifo "$fifo"
-  env "$envset" "$bin/$comm" -c "$snippet; read -r _ < '$fifo'" >/dev/null 2>&1 &
+  env "$envset" "$bin/$comm" -c "$snippet; read -r -t $FM_TEST_STUB_MAX_BLOCK_SECONDS _ <> '$fifo'" >/dev/null 2>&1 &
   pid=$!
-  STAND_IN_PIDS+=("$pid")
+  fm_test_track_pid "$pid"
   for _ in $(seq 1 100); do
     [ "$(cat "/proc/$pid/comm" 2>/dev/null)" = "$comm" ] && break
     sleep 0.02

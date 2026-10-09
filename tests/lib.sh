@@ -151,6 +151,93 @@ fm_test_reap_procevent_homes() {
   rm -f "$FM_TEST_PROCEVENT_REGISTRY"
 }
 
+# --- fixture process reaping ------------------------------------------------
+#
+# Removing a fixture directory does not stop a process the fixture started, so a
+# suite that starts a long-lived stand-in registers it here and the guarded
+# teardown below reaps it on success, failure, and a terminating signal alike.
+# Registration goes through a `$$`-keyed registry file for the same reason the
+# temp roots do: stand-ins are usually started inside a command substitution
+# (`pid=$(stand_in ...)`), where an array append never reaches the parent.
+#
+# Each record pins the process start time, so a recycled PID is never signaled.
+# The start time alone is the identity because a stand-in may exec into another
+# program after registration. The sweep signals only registered PIDs (and, for
+# the `group` scope, the process group the fixture itself made that PID lead),
+# never a process name, which real workers share.
+
+FM_TEST_PROCESS_REGISTRY=$(mktemp "${TMPDIR:-/tmp}/.fm-test-processes.$$.XXXXXX") || return 1
+
+fm_test_process_start() {  # <pid>
+  local stat_line
+  local -a fm_stat_fields
+  if [ -r "/proc/$1/stat" ]; then
+    stat_line=$(cat "/proc/$1/stat" 2>/dev/null) || return 1
+    read -r -a fm_stat_fields <<< "${stat_line##*)}"
+    [ "${#fm_stat_fields[@]}" -ge 20 ] || return 1
+    printf '%s\n' "${fm_stat_fields[19]}"
+    return 0
+  fi
+  stat_line=$(LC_ALL=C TZ=UTC ps -p "$1" -o lstart= 2>/dev/null) || return 1
+  stat_line=${stat_line#"${stat_line%%[![:space:]]*}"}
+  [ -n "$stat_line" ] || return 1
+  printf '%s\n' "$stat_line"
+}
+
+fm_test_process_running() {  # <pid>: alive and not a zombie
+  local stat
+  kill -0 "$1" 2>/dev/null || return 1
+  stat=$(ps -p "$1" -o stat= 2>/dev/null) || return 1
+  case "$stat" in *Z*) return 1 ;; esac
+  return 0
+}
+
+# fm_test_track_pid <pid> [pid|group]: reap <pid> at teardown. `group` also
+# signals the process group <pid> leads; use it only when the fixture started
+# <pid> as a group leader (set -m), or the signal would reach this suite.
+fm_test_track_pid() {
+  local pid=${1:-} scope=${2:-pid} start
+  case "$pid" in '' | *[!0-9]*) return 1 ;; esac
+  case "$scope" in pid | group) ;; *) return 1 ;; esac
+  start=$(fm_test_process_start "$pid") || return 0
+  printf '%s\t%s\t%s\n' "$pid" "$scope" "$start" >> "$FM_TEST_PROCESS_REGISTRY"
+}
+
+fm_test_reap_pids() {
+  local pid scope start entry i
+  local -a fm_reap_pending=() fm_reap_remaining=()
+  [ -f "$FM_TEST_PROCESS_REGISTRY" ] || return 0
+  while IFS=$'\t' read -r pid scope start; do
+    [ -n "$pid" ] || continue
+    [ "$(fm_test_process_start "$pid" 2>/dev/null)" = "$start" ] || continue
+    [ "$scope" = group ] && kill -TERM -- "-$pid" 2>/dev/null
+    kill -TERM "$pid" 2>/dev/null
+    fm_reap_pending+=("$pid:$scope:$start")
+  done < "$FM_TEST_PROCESS_REGISTRY"
+  i=0
+  while [ "${#fm_reap_pending[@]}" -gt 0 ] && [ "$i" -lt 30 ]; do
+    fm_reap_remaining=()
+    for entry in "${fm_reap_pending[@]}"; do
+      fm_test_process_running "${entry%%:*}" && fm_reap_remaining+=("$entry")
+    done
+    fm_reap_pending=("${fm_reap_remaining[@]+"${fm_reap_remaining[@]}"}")
+    [ "${#fm_reap_pending[@]}" -gt 0 ] || break
+    sleep 0.1
+    i=$((i + 1))
+  done
+  for entry in "${fm_reap_pending[@]+"${fm_reap_pending[@]}"}"; do
+    pid=${entry%%:*}
+    scope=${entry#*:}
+    start=${scope#*:}
+    scope=${scope%%:*}
+    [ "$(fm_test_process_start "$pid" 2>/dev/null)" = "$start" ] || continue
+    [ "$scope" = group ] && kill -KILL -- "-$pid" 2>/dev/null
+    kill -KILL "$pid" 2>/dev/null
+  done
+  rm -f "$FM_TEST_PROCESS_REGISTRY"
+  return 0
+}
+
 # Ceiling on how long a fixture's blocking stub may keep polling. A stub that
 # waits for a trigger file by re-running `sleep` is a high-frequency source of
 # process spawns, and one that outlives its test - because the test was killed
@@ -163,6 +250,7 @@ export FM_TEST_STUB_MAX_BLOCK_SECONDS
 
 fm_test_cleanup() {
   local d
+  fm_test_reap_pids
   fm_test_reap_procevent_homes
   for d in "${FM_TEST_CLEANUP_DIRS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"

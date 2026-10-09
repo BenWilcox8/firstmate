@@ -164,9 +164,109 @@ test_orphan_sweep_reaps_read_only_package_tree() {
   pass "the orphan sweep reaps read-only package fixtures"
 }
 
+# --- fixture process reaping ---------------------------------------------------
+#
+# A child suite starts stand-in processes the way real fixtures do - inside a
+# command substitution, which loses any shell-array registration - and registers
+# them with fm_test_track_pid. Once the child is gone, every registered process
+# must be gone too, whichever way the child ended. The parent registers each
+# reported PID in its own registry as well, so a regression here cannot leak the
+# probes past this suite.
+
+# Run a child suite that starts stand-ins and then ends through <ending>
+# (exit, fail, or term). Prints the child's pid file directory.
+run_reaping_child() {  # <ending>
+  local ending=$1 harness pid tries
+  harness=$(fm_test_tmproot fm-test-cleanup-reap-harness)
+  bash -c '
+    # shellcheck source=tests/lib.sh
+    . "$1"
+    out=$2
+    plain() { sleep 300 >/dev/null 2>&1 & fm_test_track_pid "$!"; printf "%s\n" "$!"; }
+    execed() { bash -c "exec sleep 300" >/dev/null 2>&1 & fm_test_track_pid "$!"; printf "%s\n" "$!"; }
+    leader() {
+      set -m
+      bash -c "sleep 300 >/dev/null 2>&1 & printf \"%s\\n\" \"\$!\" > \"$1\"; wait" >/dev/null 2>&1 &
+      set +m
+      fm_test_track_pid "$!" group
+      printf "%s\n" "$!"
+    }
+    p=$(plain); printf "%s\n" "$p" > "$out/plain"
+    e=$(execed); printf "%s\n" "$e" > "$out/execed"
+    l=$(leader "$out/member"); printf "%s\n" "$l" > "$out/leader"
+    sleep 300 >/dev/null 2>&1 &
+    printf "%s\n" "$!" > "$out/unregistered"
+    tries=0
+    while [ ! -s "$out/member" ] && [ "$tries" -lt 200 ]; do sleep 0.05; tries=$((tries + 1)); done
+    : > "$out/ready"
+    case "$3" in
+      exit) exit 0 ;;
+      fail) fail "deliberate failure after starting stand-ins" ;;
+      term) while :; do sleep 0.1; done ;;
+    esac
+  ' _ "$LIB" "$harness" "$ending" 2>/dev/null &
+  pid=$!
+  tries=0
+  while [ ! -e "$harness/ready" ] && [ "$tries" -lt 400 ]; do
+    sleep 0.05
+    tries=$((tries + 1))
+  done
+  [ -e "$harness/ready" ] || fail "the reaping child never started its stand-ins"
+  for f in plain execed leader member unregistered; do
+    fm_test_track_pid "$(cat "$harness/$f")"
+  done
+  [ "$ending" = term ] && kill -TERM "$pid"
+  wait "$pid" 2>/dev/null
+  printf '%s\n' "$harness"
+}
+
+assert_reaped() {  # <pid> <message>
+  local tries=0
+  while fm_test_process_running "$1" && [ "$tries" -lt 50 ]; do
+    sleep 0.1
+    tries=$((tries + 1))
+  done
+  ! fm_test_process_running "$1" || fail "$2"
+}
+
+check_reaping_child() {  # <ending>
+  local harness unregistered
+  harness=$(run_reaping_child "$1")
+  assert_reaped "$(cat "$harness/plain")" \
+    "a stand-in registered from a command substitution survived its suite's $1"
+  assert_reaped "$(cat "$harness/execed")" \
+    "a registered stand-in that exec'd into another program survived its suite's $1"
+  assert_reaped "$(cat "$harness/leader")" \
+    "a registered process-group leader survived its suite's $1"
+  assert_reaped "$(cat "$harness/member")" \
+    "a member of a registered fixture process group survived its suite's $1"
+  unregistered=$(cat "$harness/unregistered")
+  fm_test_process_running "$unregistered" \
+    || fail "teardown signaled a process the suite never registered"
+  kill "$unregistered" 2>/dev/null
+}
+
+test_registered_fixture_processes_reaped_after_normal_exit() {
+  check_reaping_child exit
+  pass "registered fixture processes are reaped when their suite exits normally"
+}
+
+test_registered_fixture_processes_reaped_after_failure() {
+  check_reaping_child fail
+  pass "registered fixture processes are reaped when their suite fails"
+}
+
+test_registered_fixture_processes_reaped_after_sigterm() {
+  check_reaping_child term
+  pass "registered fixture processes are reaped when their suite is terminated"
+}
+
 test_fixture_root_gone_after_normal_exit
 test_fixture_root_gone_after_sigterm
 test_cleanup_registry_resists_precreation
 test_fixture_registration_failure_rolls_back_root
 test_orphan_sweep_respects_fixture_ownership
 test_orphan_sweep_reaps_read_only_package_tree
+test_registered_fixture_processes_reaped_after_normal_exit
+test_registered_fixture_processes_reaped_after_failure
+test_registered_fixture_processes_reaped_after_sigterm
