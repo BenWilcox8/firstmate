@@ -1199,10 +1199,25 @@ aggregate_timing_json() {
   FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" node - "$out" "$@" <<'JS'
 const fs = require('fs');
 const path = require('path');
-const { dumpJson } = require(process.env.FM_TEST_JSON_LIB);
+const { byCodePoint, dumpJson, readUtf8, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
+// The lane fields follow the Python reader this replaced: doc.get(key) or
+// default, int(value or 0), and str(Path(lane)). A value that Python refused
+// still stops the aggregate with exit 1.
 const nullable = (v) => (v === undefined ? null : v);
-const toInt = (v) => Math.trunc(Number(v || 0));
+const truthy = (v) => !(v === undefined || v === null || v === false || v === 0 || v === '' ||
+  (typeof v === 'object' && Object.keys(v).length === 0));
+const or = (v, fallback) => (truthy(v) ? v : fallback);
+const intOr0 = (v) => {
+  if (!truthy(v)) return 0;
+  if (typeof v === 'string') return toInt(v);
+  if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) return Math.trunc(Number(v));
+  throw new TypeError(`int() cannot convert ${JSON.stringify(v)}`);
+};
+const pathStr = (p) => {
+  const root = p.startsWith('//') && !p.startsWith('///') ? '//' : p.startsWith('/') ? '/' : '';
+  return root + p.split('/').filter((part) => part !== '' && part !== '.').join('/') || '.';
+};
 
 const out = process.argv[2];
 const inputs = process.argv.slice(3);
@@ -1213,32 +1228,31 @@ let skipped = 0;
 let total = 0;
 let wallMs = 0;
 for (const input of inputs) {
-  const doc = JSON.parse(fs.readFileSync(input, 'utf8'));
-  const summary = doc.summary || {};
+  const doc = JSON.parse(readUtf8(input));
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) throw new TypeError(`${input} is not a JSON object`);
+  const summary = or(doc.summary, {});
   lanes.push({
-    path: input,
+    path: pathStr(input),
     run_id: nullable(doc.run_id),
     selection: nullable(doc.selection),
     started_at: nullable(doc.started_at),
     finished_at: nullable(doc.finished_at),
     summary,
   });
-  total += toInt(summary.total);
-  failed += toInt(summary.failed);
-  skipped += toInt(summary.skipped_gate);
-  wallMs = Math.max(wallMs, toInt(summary.duration_ms));
-  for (const s of doc.scripts || []) {
+  total += intOr0(summary.total);
+  failed += intOr0(summary.failed);
+  skipped += intOr0(summary.skipped_gate);
+  wallMs = Math.max(wallMs, intOr0(summary.duration_ms));
+  for (const s of or(doc.scripts, [])) {
     allScripts.push({ ...s, lane_selection: nullable(doc.selection), lane_run_id: nullable(doc.run_id) });
   }
 }
 
 allScripts.sort((x, y) => {
-  const dx = toInt(x.duration_ms);
-  const dy = toInt(y.duration_ms);
+  const dx = intOr0(x.duration_ms);
+  const dy = intOr0(y.duration_ms);
   if (dx !== dy) return dy - dx;
-  const px = x.path || '';
-  const py = y.path || '';
-  return px < py ? -1 : px > py ? 1 : 0;
+  return byCodePoint(or(x.path, ''), or(y.path, ''));
 });
 const agg = {
   kind: 'aggregate',
@@ -1851,18 +1865,7 @@ write_json_artifact() {
   FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
     node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'JS'
 const fs = require('fs');
-const { dumpJson, toInt } = require(process.env.FM_TEST_JSON_LIB);
-
-function rows(file, width) {
-  const result = [];
-  for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
-    if (!raw) continue;
-    const cols = raw.split('\t');
-    if (cols.length !== width) throw new Error(`malformed record in ${file}: expected ${width} fields, got ${cols.length}`);
-    result.push(cols);
-  }
-  return result;
-}
+const { dumpJson, rows, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
 const [out, started, finished, runId, total, failed, skipped, duration, selection, recordsFile, familiesFile] =
   process.argv.slice(2);

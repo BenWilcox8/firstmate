@@ -210,8 +210,8 @@ fm_test_reap_pids() {
   while IFS=$'\t' read -r pid scope start; do
     [ -n "$pid" ] || continue
     [ "$(fm_test_process_start "$pid" 2>/dev/null)" = "$start" ] || continue
-    [ "$scope" = group ] && kill -TERM -- "-$pid" 2>/dev/null
-    kill -TERM "$pid" 2>/dev/null
+    [ "$scope" = group ] && kill -TERM -- "-$pid" 2>/dev/null || true
+    kill -TERM "$pid" 2>/dev/null || true
     fm_reap_pending+=("$pid:$scope:$start")
   done < "$FM_TEST_PROCESS_REGISTRY"
   i=0
@@ -231,8 +231,8 @@ fm_test_reap_pids() {
     start=${scope#*:}
     scope=${scope%%:*}
     [ "$(fm_test_process_start "$pid" 2>/dev/null)" = "$start" ] || continue
-    [ "$scope" = group ] && kill -KILL -- "-$pid" 2>/dev/null
-    kill -KILL "$pid" 2>/dev/null
+    [ "$scope" = group ] && kill -KILL -- "-$pid" 2>/dev/null || true
+    kill -KILL "$pid" 2>/dev/null || true
   done
   rm -f "$FM_TEST_PROCESS_REGISTRY"
   return 0

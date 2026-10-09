@@ -372,7 +372,7 @@ isolated_tmux_new_session() {  # <dir> <socket> <new-session args...>
   shift 2
   ( cd "$dir" && env -u TMUX -u TMUX_PANE "$REAL_TMUX" -S "$socket" new-session -d "$@" ) || return 1
   server=$(cd "$dir" && "$REAL_TMUX" -S "$socket" display-message -p '#{pid}' 2>/dev/null) || server=
-  fm_test_track_pid "$server"
+  [ -z "$server" ] || fm_test_track_pid "$server"
 }
 
 isolated_tmux_window_exists() {  # <dir> <socket> <session> <window>

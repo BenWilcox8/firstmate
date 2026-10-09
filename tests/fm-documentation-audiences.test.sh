@@ -135,7 +135,35 @@ MD
   pass "local links resolve while dates, versions, commands, and incident prose remain semantically reviewed"
 }
 
+# The checker reads links and headings as the Python checker that it replaced
+# did: a tab inside a link target is removed, a letter directly before href
+# makes it part of a word and not an attribute, and a byte order mark stays in
+# front of the first heading, so that heading has no anchor. A --root value
+# that looks like a negative number is a value and not an option.
+test_link_parsing_keeps_python_semantics() {
+  local repo="$TMP_ROOT/semantics"
+  mkdir -p "$repo/docs"
+  git -C "$repo" init -q
+  printf '[Setup](docs/se\ttup.md) [Policy](docs/policy.md#policy) <p caf\303\251href="docs/missing.md">x</p>\n' \
+    > "$repo/README.md"
+  printf '# Setup\n' > "$repo/docs/setup.md"
+  printf '# Policy\n' > "$repo/docs/policy.md"
+  printf '# Evidence\n' > "$repo/docs/evidence.md"
+  write_fixture_inventory "$repo"
+  git -C "$repo" add README.md docs
+  "$CHECK" --root "$repo" >/dev/null \
+    || fail "a tab in a link target or a letter before href changed what the checker reads as a link"
+
+  printf '\357\273\277# Policy\n' > "$repo/docs/policy.md"
+  git -C "$repo" add docs/policy.md
+  run_expect_failure "unresolved local anchor in README.md: docs/policy.md#policy" "$CHECK" --root "$repo"
+
+  run_expect_failure "inventory is missing" "$CHECK" --root -1
+  pass "links, anchors, and arguments keep the semantics of the Python checker"
+}
+
 test_repository_inventory_passes
 test_duplicate_and_setup_classification_fail
 test_required_pointer_fails
 test_local_links_and_no_keyword_heuristic
+test_link_parsing_keeps_python_semantics
