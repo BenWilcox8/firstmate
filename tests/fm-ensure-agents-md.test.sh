@@ -367,6 +367,29 @@ test_agents_md_symlink_is_refused() {
   pass "fm-ensure-agents-md.sh: refuses AGENTS.md when it is a symlink"
 }
 
+# A CLAUDE.md symlink whose target is not the literal name AGENTS.md but still
+# resolves to it is a correct symlink: it migrates like `ln -s AGENTS.md`.
+test_resolved_symlink_target_migrates_to_pointer() {
+  local repo dir out rc target
+  repo="$TMP_ROOT/resolved-symlink-project"
+  mkdir -p "$repo/sub"
+  dir=$(cd "$repo" && pwd -P)
+  printf '# Resolved agent memory\n\n## Maintaining this file\n\nKeep this file for knowledge useful to almost every future agent session in this project.\nDo not repeat what the codebase already shows; point to the authoritative file or command instead.\nPrefer rewriting or pruning existing entries over appending new ones.\nWhen updating this file, preserve this bar for all agents and keep entries concise.\n' > "$repo/AGENTS.md"
+  cp "$repo/AGENTS.md" "$repo/.before"
+  for target in "$dir/AGENTS.md" sub/../AGENTS.md; do
+    rm -f "$repo/CLAUDE.md"
+    ln -s "$target" "$repo/CLAUDE.md"
+    out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+    rc=$?
+    expect_code 0 "$rc" "a CLAUDE.md symlink to $target"
+    assert_equals "updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in $dir" "$out" \
+      "a CLAUDE.md symlink to $target did not migrate to the pointer"
+    assert_claude_pointer "$repo/CLAUDE.md"
+    cmp -s "$repo/.before" "$repo/AGENTS.md" || fail "migrating a symlink to $target modified AGENTS.md"
+  done
+  pass "fm-ensure-agents-md.sh: a CLAUDE.md symlink that resolves to AGENTS.md migrates to the pointer"
+}
+
 test_wrong_target_symlink_is_refused() {
   local repo out rc
   repo="$TMP_ROOT/wrong-target-project"
@@ -421,6 +444,7 @@ test_promoted_claude_md_includes_self_governance
 test_promoted_claude_md_without_trailing_newline_keeps_blank_separator
 test_existing_agents_md_with_symlink_gains_self_governance
 test_correct_symlink_migrates_to_pointer_without_clobbering_agents
+test_resolved_symlink_target_migrates_to_pointer
 test_existing_agents_md_without_claude_gains_section_and_pointer
 test_existing_agents_md_with_section_reports_unchanged
 test_existing_crlf_agents_md_with_section_stays_unchanged

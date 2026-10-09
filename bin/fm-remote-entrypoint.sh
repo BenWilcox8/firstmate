@@ -32,9 +32,19 @@ set -eu
 
 PROTOCOL=1
 DOCTOR_SHA256=78efccd6cb7a0123400e49fa323292a64c8e3c7ebd3717151be69f87735302fb
-REAL_SOURCE=$(node -e 'console.log(require("fs").realpathSync(process.argv[1]))' -- "${BASH_SOURCE[0]}" 2>/dev/null) ||
-  REAL_SOURCE=$(realpath "${BASH_SOURCE[0]}" 2>/dev/null) ||
-  REAL_SOURCE=${BASH_SOURCE[0]}
+# Follow the installed symlink chain with bash and readlink alone: the plain SSH
+# PATH of a remote account can hold neither node nor realpath (macOS 12).
+REAL_SOURCE=${BASH_SOURCE[0]}
+source_hops=0
+while [ -L "$REAL_SOURCE" ] && [ "$source_hops" -lt 40 ]; do
+  source_dir=$(CDPATH='' cd -P "$(dirname "$REAL_SOURCE")" && pwd) || break
+  source_target=$(readlink "$REAL_SOURCE") || break
+  case "$source_target" in
+    /*) REAL_SOURCE=$source_target ;;
+    *) REAL_SOURCE=$source_dir/$source_target ;;
+  esac
+  source_hops=$((source_hops + 1))
+done
 SCRIPT_DIR=$(CDPATH='' cd "$(dirname "$REAL_SOURCE")" && pwd -P)
 
 # shellcheck source=bin/fm-remote-job-lib.sh
