@@ -84,8 +84,8 @@
 # `note`, `announce`, `reply`, `receipts`, `ready`, `status`, `list` and `drain`
 # need NO configuration at all, because they make no model call. The voice
 # handover depends on `note`, so it keeps working in a home that has configured
-# nothing. `--json` / `receipts` / `ready` require python3, which a firstmate
-# home already uses for other tools.
+# nothing. `--json` / `receipts` / `ready` / `say` / `ask` need node (20 or
+# newer), which a firstmate home already uses for other tools.
 #
 # Environment:
 #   FM_HOME              operational home whose state/ and data/ are used.
@@ -212,8 +212,28 @@ load_wake_lib() {
   FM_INBOX_WAKE_LIB=1
 }
 
-need_python() {
-  command -v python3 >/dev/null 2>&1 || die "python3 is required for machine-readable inbox output"
+need_node() {
+  command -v node >/dev/null 2>&1 || die "node is required for machine-readable inbox output"
+}
+
+# Shared prelude for every inline node program below. jsonAscii writes the compact
+# JSON the machine-readable output has always had: no spaces after separators,
+# and every character outside printable ASCII written as a \uXXXX escape.
+# Plain JSON.stringify leaves DEL and non-ASCII text as is, so it is not enough.
+INBOX_JS_PRELUDE='
+const jsonAscii = (value) => JSON.stringify(value).replace(
+  /[\u007f-\uffff]/g, (c) => "\\u" + c.charCodeAt(0).toString(16).padStart(4, "0"));
+const homeLabel = (home) => {
+  if (!home) return home;
+  const parts = home.split("/").filter((p) => p !== "" && p !== ".");
+  if (home.startsWith("/")) parts.unshift("/");
+  return parts.slice(-2).join("/");
+};
+'
+
+inbox_node() {  # <script> [arg...]
+  node -e "$INBOX_JS_PRELUDE
+$1" "${@:2}"
 }
 
 valid_request_id() {
@@ -303,22 +323,20 @@ write_note_file() {  # <path> <id> <source> <body> [extra] [request-id]
 }
 
 emit_note_json() {  # <outcome> <id> <request-id> <saved> <announced> <path> [acknowledged]
-  need_python
-  python3 - "$1" "$2" "$3" "$4" "$5" "$6" "${7:-0}" <<'PY'
-import json, sys
-outcome, note_id, request_id, saved, announced, path, acknowledged = sys.argv[1:8]
-json.dump({
-    "schema": "fm-inbox-note.v1",
-    "outcome": outcome,
-    "id": note_id,
-    "request_id": request_id or None,
-    "saved": saved == "1",
-    "announced": True if announced == "1" else False if announced == "0" else None,
-    "acknowledged": acknowledged == "1",
-    "path": path,
-}, sys.stdout, separators=(",", ":"))
-sys.stdout.write("\n")
-PY
+  need_node
+  inbox_node '
+const [outcome, noteId, requestId, saved, announced, path, acknowledged] = process.argv.slice(1);
+process.stdout.write(jsonAscii({
+  schema: "fm-inbox-note.v1",
+  outcome,
+  id: noteId,
+  request_id: requestId || null,
+  saved: saved === "1",
+  announced: announced === "1" ? true : announced === "0" ? false : null,
+  acknowledged: acknowledged === "1",
+  path,
+}) + "\n");
+' "$1" "$2" "$3" "$4" "$5" "$6" "${7:-0}"
 }
 
 # Append exactly one wake so firstmate picks the note up at its next drain.
@@ -634,18 +652,16 @@ cmd_reply() {
   mv "$staging" "$REPLIES/$id"
   fm_lock_release "$REPLY_SEQ_LOCK"
   if [ "$json" -eq 1 ]; then
-    need_python
-    python3 - "$id" "$REPLIES/$id" <<'PY'
-import json, sys
-note_id, path = sys.argv[1], sys.argv[2]
-json.dump({
-    "schema": "fm-inbox-reply.v1",
-    "outcome": "created",
-    "id": note_id,
-    "path": path,
-}, sys.stdout, separators=(",", ":"))
-sys.stdout.write("\n")
-PY
+    need_node
+    inbox_node '
+const [noteId, path] = process.argv.slice(1);
+process.stdout.write(jsonAscii({
+  schema: "fm-inbox-reply.v1",
+  outcome: "created",
+  id: noteId,
+  path,
+}) + "\n");
+' "$id" "$REPLIES/$id"
   else
     printf 'replied %s\n' "$id"
   fi
@@ -668,184 +684,210 @@ cmd_receipts() {
       *) die "usage: fm-inbox.sh receipts [--after <cursor>] [--all-pending] [--all-handled] [--all-replies]" ;;
     esac
   done
-  need_python
-  python3 - "$INBOX" "$ANNOUNCED_DIR" "$REPLIES" "$FM_HOME" \
+  need_node
+  inbox_node '
+const fs = require("fs");
+
+const [inbox, announcedDir, repliesDir, home] = process.argv.slice(1, 5);
+const pendingBound = parseInt(process.argv[5], 10);
+const handledBound = parseInt(process.argv[6], 10);
+const repliesBound = parseInt(process.argv[7], 10);
+const allPending = process.argv[8] === "1";
+const allHandled = process.argv[9] === "1";
+const allReplies = process.argv[10] === "1";
+const after = process.argv[11];
+const generated = process.argv[12];
+
+// A record that vanishes between listing and reading - drain --ack moving a
+// note to handled/ - is skipped, and undecodable bytes are replaced, so one bad
+// or moving file never fails the whole view.
+function parseRecord(path) {
+  let text;
+  try {
+    text = fs.readFileSync(path).toString("utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+  let headers;
+  let body;
+  let at = text.indexOf("\n--\n");
+  if (at >= 0) {
+    headers = text.slice(0, at);
+    body = text.slice(at + 4);
+  } else {
+    at = text.indexOf("\n--");
+    if (at >= 0) {
+      headers = text.slice(0, at);
+      body = text.slice(at + 3);
+      if (body.startsWith("\n")) body = body.slice(1);
+    } else {
+      headers = text;
+      body = "";
+    }
+  }
+  const meta = new Map();
+  for (const line of headers.split(/\r\n|[\n\r\x0b\x0c\x1c-\x1e\x85\u2028\u2029]/)) {
+    const eq = line.indexOf("=");
+    if (eq >= 0) meta.set(line.slice(0, eq), line.slice(eq + 1));
+  }
+  if (body.endsWith("\n")) body = body.slice(0, -1);
+  return { meta, body };
+}
+
+const under = (dir, name) => (name.startsWith("/") ? name : dir + "/" + name);
+
+function isFile(path) {
+  try {
+    return fs.statSync(path).isFile();
+  } catch (err) {
+    return false;
+  }
+}
+
+function listNotes(folder) {
+  let names;
+  try {
+    if (!fs.statSync(folder).isDirectory()) return [];
+    names = fs.readdirSync(folder);
+  } catch (err) {
+    return [];
+  }
+  names = names.filter((n) => n.endsWith(".note")).sort().reverse();
+  const notes = [];
+  for (const name of names) {
+    if (name.startsWith(".")) continue;
+    const record = parseRecord(folder + "/" + name);
+    if (record === null) continue;
+    const { meta, body } = record;
+    notes.push({
+      id: meta.get("id") || name.slice(0, -5),
+      at: meta.has("at") ? meta.get("at") : null,
+      source: meta.has("source") ? meta.get("source") : null,
+      request_id: meta.has("request_id") ? meta.get("request_id") : null,
+      announce_marker: meta.get("announce_marker") === "1",
+      body,
+    });
+  }
+  return notes;
+}
+
+// The cursor is the reply sequence, a strict total order in creation order.
+// Every reply is recorded with one, so a reply without a valid sequence is
+// malformed: it is reported in omitted[] rather than given a made-up position.
+const malformedReplies = [];
+
+function replyRecord(noteId) {
+  const path = under(repliesDir, noteId);
+  if (!isFile(path)) return null;
+  const record = parseRecord(path);
+  if (record === null) return null;
+  const { meta, body } = record;
+  const rawSeq = meta.get("seq") || "";
+  if (!/^[0-9]+$/.test(rawSeq)) {
+    malformedReplies.push(noteId);
+    return null;
+  }
+  return {
+    id: noteId,
+    at: meta.has("at") ? meta.get("at") : null,
+    body,
+    cursor: BigInt(rawSeq).toString().padStart(12, "0"),
+  };
+}
+
+// announced is null - not false - for a note written before this home tracked
+// announcement markers: it appended its own wake at creation and left no record
+// of it, so "not announced" is not something anyone can read off this state.
+function enrich(note, acknowledged) {
+  const rec = { ...note, acknowledged };
+  if (isFile(under(announcedDir, note.id))) {
+    rec.announced = true;
+  } else if (note.announce_marker) {
+    rec.announced = false;
+  } else {
+    rec.announced = null;
+  }
+  rec.reply = replyRecord(note.id);
+  delete rec.announce_marker;
+  return rec;
+}
+
+// Pending is listed before handled so a note acked mid-listing still appears
+// in handled; one that was seen in both is reported once, as handled.
+const pendingNotes = listNotes(inbox);
+const handledNotes = listNotes(inbox + "/handled");
+const handledIds = new Set(handledNotes.map((n) => n.id));
+const pendingAll = pendingNotes.filter((n) => !handledIds.has(n.id)).map((n) => enrich(n, false));
+const handledAll = handledNotes.map((n) => enrich(n, true));
+
+function boundList(rows, limit, unlimited) {
+  if (unlimited || limit <= 0 || rows.length <= limit) return [rows, 0];
+  return [rows.slice(0, limit), rows.length - limit];
+}
+
+const [pending, pendingOmitted] = boundList(pendingAll, pendingBound, allPending);
+const [handled, handledOmitted] = boundList(handledAll, handledBound, allHandled);
+
+let repliesAll = [];
+for (const group of [pendingAll, handledAll]) {
+  for (const note of group) {
+    if (note.reply) repliesAll.push(note.reply);
+  }
+}
+repliesAll.sort((a, b) => (a.cursor < b.cursor ? -1 : a.cursor > b.cursor ? 1 : 0));
+
+if (after) repliesAll = repliesAll.filter((r) => r.cursor > after);
+
+const [replies, repliesOmitted] = boundList(repliesAll, repliesBound, allReplies);
+const replyCursor = replies.length ? replies[replies.length - 1].cursor : after || "";
+
+const omitted = [];
+if (pendingOmitted) {
+  omitted.push({
+    surface: "pending notes omitted by bound: " + pendingOmitted,
+    reveal: "pass --all-pending",
+  });
+}
+if (handledOmitted) {
+  omitted.push({
+    surface: "handled notes omitted by bound: " + handledOmitted,
+    reveal: "pass --all-handled",
+  });
+}
+if (repliesOmitted) {
+  omitted.push({
+    surface: "replies omitted by bound: " + repliesOmitted,
+    reveal: "pass --all-replies",
+  });
+}
+if (malformedReplies.length) {
+  omitted.push({
+    surface: "malformed replies without a valid sequence: " + malformedReplies.length
+      + " (" + [...malformedReplies].sort().join(", ") + ")",
+    reveal: "inspect " + repliesDir,
+  });
+}
+
+process.stdout.write(jsonAscii({
+  schema: "fm-inbox-receipts.v1",
+  home: homeLabel(home),
+  generated,
+  pending,
+  handled,
+  replies,
+  reply_cursor: replyCursor,
+  omitted,
+}) + "\n");
+' "$INBOX" "$ANNOUNCED_DIR" "$REPLIES" "$FM_HOME" \
     "$RECEIPTS_PENDING_BOUND" "$RECEIPTS_HANDLED_BOUND" "$RECEIPTS_REPLIES_BOUND" \
     "$all_pending" "$all_handled" "$all_replies" "$after" \
-    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
-import json, os, sys
-from pathlib import Path
-
-inbox, announced_dir, replies_dir, home = sys.argv[1:5]
-pending_bound = int(sys.argv[5])
-handled_bound = int(sys.argv[6])
-replies_bound = int(sys.argv[7])
-all_pending = sys.argv[8] == "1"
-all_handled = sys.argv[9] == "1"
-all_replies = sys.argv[10] == "1"
-after = sys.argv[11]
-generated = sys.argv[12]
-
-# A record that vanishes between listing and reading - drain --ack moving a
-# note to handled/ - is skipped, and undecodable bytes are replaced, so one bad
-# or moving file never fails the whole view.
-def parse_record(path):
-    try:
-        text = Path(path).read_bytes().decode("utf-8", errors="replace")
-    except FileNotFoundError:
-        return None
-    headers, sep, body = text.partition("\n--\n")
-    if not sep:
-        headers, sep, body = text.partition("\n--")
-        if sep:
-            body = body[1:] if body.startswith("\n") else body
-        else:
-            body = ""
-    meta = {}
-    for line in headers.splitlines():
-        if "=" in line:
-            key, val = line.split("=", 1)
-            meta[key] = val
-    if body.endswith("\n"):
-        body = body[:-1]
-    return meta, body
-
-def list_notes(folder):
-    folder = Path(folder)
-    if not folder.is_dir():
-        return []
-    notes = []
-    for path in sorted(folder.glob("*.note"), key=lambda p: p.name, reverse=True):
-        if path.name.startswith("."):
-            continue
-        record = parse_record(path)
-        if record is None:
-            continue
-        meta, body = record
-        note_id = meta.get("id") or path.name[:-5]
-        notes.append({
-            "id": note_id,
-            "at": meta.get("at"),
-            "source": meta.get("source"),
-            "request_id": meta.get("request_id"),
-            "announce_marker": meta.get("announce_marker") == "1",
-            "body": body,
-            "path": str(path),
-        })
-    return notes
-
-# The cursor is the reply sequence, a strict total order in creation order.
-# Every reply is recorded with one, so a reply without a valid sequence is
-# malformed: it is reported in omitted[] rather than given a made-up position.
-malformed_replies = []
-
-def reply_record(note_id):
-    path = Path(replies_dir) / note_id
-    if not path.is_file():
-        return None
-    record = parse_record(path)
-    if record is None:
-        return None
-    meta, body = record
-    raw_seq = meta.get("seq") or ""
-    if not (raw_seq.isascii() and raw_seq.isdigit()):
-        malformed_replies.append(note_id)
-        return None
-    return {
-        "id": note_id,
-        "at": meta.get("at"),
-        "body": body,
-        "cursor": "%012d" % int(raw_seq),
-    }
-
-# announced is null - not false - for a note written before this home tracked
-# announcement markers: it appended its own wake at creation and left no record
-# of it, so "not announced" is not something anyone can read off this state.
-def enrich(note, acknowledged):
-    note_id = note["id"]
-    rec = dict(note)
-    rec["acknowledged"] = acknowledged
-    if (Path(announced_dir) / note_id).is_file():
-        rec["announced"] = True
-    elif note.get("announce_marker"):
-        rec["announced"] = False
-    else:
-        rec["announced"] = None
-    rec["reply"] = reply_record(note_id)
-    rec.pop("path", None)
-    rec.pop("announce_marker", None)
-    return rec
-
-# Pending is listed before handled so a note acked mid-listing still appears
-# in handled; one that was seen in both is reported once, as handled.
-pending_notes = list_notes(inbox)
-handled_notes = list_notes(Path(inbox) / "handled")
-handled_ids = {n["id"] for n in handled_notes}
-pending_all = [enrich(n, False) for n in pending_notes if n["id"] not in handled_ids]
-handled_all = [enrich(n, True) for n in handled_notes]
-
-def bound_list(rows, limit, unlimited):
-    if unlimited or limit <= 0 or len(rows) <= limit:
-        return rows, 0
-    return rows[:limit], len(rows) - limit
-
-pending, pending_omitted = bound_list(pending_all, pending_bound, all_pending)
-handled, handled_omitted = bound_list(handled_all, handled_bound, all_handled)
-
-replies_all = []
-for group in (pending_all, handled_all):
-    for note in group:
-        if note.get("reply"):
-            replies_all.append(note["reply"])
-replies_all.sort(key=lambda r: r["cursor"])
-
-if after:
-    replies_all = [r for r in replies_all if r["cursor"] > after]
-
-replies, replies_omitted = bound_list(replies_all, replies_bound, all_replies)
-reply_cursor = replies[-1]["cursor"] if replies else (after or "")
-
-omitted = []
-if pending_omitted:
-    omitted.append({
-        "surface": "pending notes omitted by bound: %d" % pending_omitted,
-        "reveal": "pass --all-pending",
-    })
-if handled_omitted:
-    omitted.append({
-        "surface": "handled notes omitted by bound: %d" % handled_omitted,
-        "reveal": "pass --all-handled",
-    })
-if replies_omitted:
-    omitted.append({
-        "surface": "replies omitted by bound: %d" % replies_omitted,
-        "reveal": "pass --all-replies",
-    })
-if malformed_replies:
-    omitted.append({
-        "surface": "malformed replies without a valid sequence: %d (%s)"
-            % (len(malformed_replies), ", ".join(sorted(malformed_replies))),
-        "reveal": "inspect %s" % replies_dir,
-    })
-
-home_label = "/".join(Path(home).parts[-2:]) if home else home
-json.dump({
-    "schema": "fm-inbox-receipts.v1",
-    "home": home_label,
-    "generated": generated,
-    "pending": pending,
-    "handled": handled,
-    "replies": replies,
-    "reply_cursor": reply_cursor,
-    "omitted": omitted,
-}, sys.stdout, separators=(",", ":"))
-sys.stdout.write("\n")
-PY
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 
 cmd_ready() {
   [ "$#" -eq 0 ] || die "usage: fm-inbox.sh ready"
-  need_python
+  need_node
   # shellcheck source=bin/fm-session-lock-lib.sh
   . "$SELF_DIR/fm-session-lock-lib.sh"
   load_wake_lib || true
@@ -930,37 +972,33 @@ cmd_ready() {
     *) can_receive=unknown ;;
   esac
 
-  python3 - "$lock_state" "$lock_pid" "$live_harness" \
+  inbox_node '
+const [lockState, lockPid, liveHarness, consumerState, consumerReason,
+  beaconAge, posture, canReceive, observed, home] = process.argv.slice(1, 11);
+const liveVal = liveHarness === "true" ? true : liveHarness === "false" ? false : null;
+const recv = canReceive === "true" ? true : canReceive === "false" ? false : "unknown";
+const pidVal = /^[0-9]+$/.test(lockPid) ? Number(lockPid) : null;
+const ageVal = /^[0-9]+$/.test(beaconAge) ? Number(beaconAge) : null;
+process.stdout.write(jsonAscii({
+  schema: "fm-primary-ready.v1",
+  home: homeLabel(home),
+  observed_at: observed,
+  lock: {
+    state: lockState,
+    pid: pidVal,
+    live_harness: liveVal,
+  },
+  wake_consumer: {
+    state: consumerState,
+    reason: consumerReason || null,
+    beacon_age_seconds: ageVal,
+  },
+  posture: { state: posture },
+  can_receive: recv,
+}) + "\n");
+' "$lock_state" "$lock_pid" "$live_harness" \
     "$consumer_state" "$consumer_reason" "$beacon_age" \
-    "$posture" "$can_receive" "$observed" "$FM_HOME" <<'PY'
-import json, sys
-from pathlib import Path
-(lock_state, lock_pid, live_harness, consumer_state, consumer_reason,
- beacon_age, posture, can_receive, observed, home) = sys.argv[1:11]
-live_val = True if live_harness == "true" else False if live_harness == "false" else None
-recv = True if can_receive == "true" else False if can_receive == "false" else "unknown"
-pid_val = int(lock_pid) if lock_pid.isdigit() else None
-age_val = int(beacon_age) if beacon_age.isdigit() else None
-home_label = "/".join(Path(home).parts[-2:]) if home else home
-json.dump({
-    "schema": "fm-primary-ready.v1",
-    "home": home_label,
-    "observed_at": observed,
-    "lock": {
-        "state": lock_state,
-        "pid": pid_val,
-        "live_harness": live_val,
-    },
-    "wake_consumer": {
-        "state": consumer_state,
-        "reason": consumer_reason or None,
-        "beacon_age_seconds": age_val,
-    },
-    "posture": {"state": posture},
-    "can_receive": recv,
-}, sys.stdout, separators=(",", ":"))
-sys.stdout.write("\n")
-PY
+    "$posture" "$can_receive" "$observed" "$FM_HOME"
 }
 
 # ---------------------------------------------------------------- say
@@ -970,7 +1008,7 @@ cmd_say() {
   # rather than what to install for a call it is not yet allowed to make.
   need_stt_model
   need aws
-  need python3
+  need node
   need base64
 
   local src wav raw transcript
@@ -990,38 +1028,94 @@ cmd_say() {
 
   # Accept a real WAV as-is; wrap headerless 16kHz mono s16le PCM if that is
   # what arrived. Anything else is rejected rather than silently mistranscribed.
-  python3 - "$raw" "$wav" <<'PY'
-import sys, wave
-src, dst = sys.argv[1], sys.argv[2]
-data = open(src, 'rb').read()
-if data[:4] == b'RIFF':
-    open(dst, 'wb').write(data)
-    sys.stderr.write("fm-inbox: input is WAV, passing through\n")
-elif data[:4] in (b'OggS', b'fLaC') or data[:3] == b'ID3':
-    sys.exit("fm-inbox: got Ogg/FLAC/MP3; re-encode to WAV first")
-else:
-    if len(data) % 2:
-        data = data[:-1]
-    w = wave.open(dst, 'wb')
-    w.setnchannels(1); w.setsampwidth(2); w.setframerate(16000)
-    w.writeframes(data); w.close()
-    sys.stderr.write("fm-inbox: input looked like raw PCM, wrapped as 16kHz mono WAV\n")
-PY
+  inbox_node '
+const fs = require("fs");
+const [src, dst] = process.argv.slice(1);
+let data = fs.readFileSync(src);
+const magic4 = data.subarray(0, 4).toString("latin1");
+if (magic4 === "RIFF") {
+  fs.writeFileSync(dst, data);
+  process.stderr.write("fm-inbox: input is WAV, passing through\n");
+} else if (magic4 === "OggS" || magic4 === "fLaC" || data.subarray(0, 3).toString("latin1") === "ID3") {
+  process.stderr.write("fm-inbox: got Ogg/FLAC/MP3; re-encode to WAV first\n");
+  process.exit(1);
+} else {
+  if (data.length % 2) data = data.subarray(0, data.length - 1);
+  // The canonical 44-byte header for 16kHz mono s16le PCM.
+  const header = Buffer.alloc(44);
+  header.write("RIFF", 0, "latin1");
+  header.writeUInt32LE(36 + data.length, 4);
+  header.write("WAVEfmt ", 8, "latin1");
+  header.writeUInt32LE(16, 16);
+  header.writeUInt16LE(1, 20);
+  header.writeUInt16LE(1, 22);
+  header.writeUInt32LE(16000, 24);
+  header.writeUInt32LE(16000 * 2, 28);
+  header.writeUInt16LE(2, 32);
+  header.writeUInt16LE(16, 34);
+  header.write("data", 36, "latin1");
+  header.writeUInt32LE(data.length, 40);
+  fs.writeFileSync(dst, Buffer.concat([header, data]));
+  process.stderr.write("fm-inbox: input looked like raw PCM, wrapped as 16kHz mono WAV\n");
+}
+' "$raw" "$wav"
 
   local secs
-  secs=$(python3 -c "
-import wave,sys
-w=wave.open('$wav'); print(round(w.getnframes()/w.getframerate(),2))")
+  secs=$(inbox_node '
+const fs = require("fs");
+const fail = (why) => {
+  process.stderr.write("fm-inbox: cannot read the WAV: " + why + "\n");
+  process.exit(1);
+};
+const buf = fs.readFileSync(process.argv[1]);
+if (buf.length < 12 || buf.toString("latin1", 0, 4) !== "RIFF") fail("file does not start with RIFF id");
+if (buf.toString("latin1", 8, 12) !== "WAVE") fail("not a WAVE file");
+const end = Math.min(buf.length, 8 + buf.readUInt32LE(4));
+let pos = 12;
+let framerate = 0;
+let framesize = 0;
+let nframes = -1;
+while (pos + 8 <= end) {
+  const name = buf.toString("latin1", pos, pos + 4);
+  const size = buf.readUInt32LE(pos + 4);
+  const body = pos + 8;
+  if (name === "fmt ") {
+    if (size < 16 || body + 16 > end) fail("truncated fmt chunk");
+    if (buf.readUInt16LE(body) !== 1) fail("unknown format: " + buf.readUInt16LE(body));
+    framerate = buf.readUInt32LE(body + 4);
+    framesize = buf.readUInt16LE(body + 2) * Math.floor((buf.readUInt16LE(body + 14) + 7) / 8);
+  } else if (name === "data") {
+    if (framesize === 0) fail("data chunk before a usable fmt chunk");
+    nframes = Math.floor(size / framesize);
+    break;
+  }
+  pos = body + size + (size & 1);
+}
+if (nframes < 0 || framerate === 0) fail("no fmt or data chunk");
+// Round half to even on the exact value of the float, to 2 places, and print
+// it as a float: whole seconds keep one decimal ("1.0").
+const exact = (nframes / framerate).toFixed(100);
+const dot = exact.indexOf(".");
+let int = BigInt(exact.slice(0, dot) + exact.slice(dot + 1, dot + 3));
+const rest = exact.slice(dot + 3);
+if (rest[0] > "5" || (rest[0] === "5" && (/[1-9]/.test(rest.slice(1)) || int % 2n === 1n))) int += 1n;
+const digits = int.toString().padStart(3, "0");
+let out = digits.slice(0, -2) + "." + digits.slice(-2);
+out = out.replace(/0$/, "");
+if (out.endsWith(".")) out += "0";
+process.stdout.write(out + "\n");
+' "$wav")
   printf 'fm-inbox: %ss of audio, transcribing with %s in %s\n' "$secs" "$STT_MODEL" "$REGION" >&2
 
-  python3 - "$wav" "$wav.json" <<'PY'
-import base64, json, sys
-b = base64.b64encode(open(sys.argv[1], 'rb').read()).decode()
-json.dump([{"role": "user", "content": [
-    {"audio": {"format": "wav", "source": {"bytes": b}}},
-    {"text": "Transcribe the speech exactly. Output only the transcript, nothing else."},
-]}], open(sys.argv[2], 'w'))
-PY
+  inbox_node '
+const fs = require("fs");
+const [src, dst] = process.argv.slice(1);
+const bytes = fs.readFileSync(src).toString("base64");
+fs.writeFileSync(dst, jsonAscii([{ role: "user", content: [
+  { audio: { format: "wav", source: { bytes } } },
+  { text: "Transcribe the speech exactly. Output only the transcript, nothing else." },
+] }]));
+' "$wav" "$wav.json"
 
   transcript=$(aws_call bedrock-runtime converse \
     --model-id "$STT_MODEL" \
@@ -1078,17 +1172,17 @@ cmd_ask() {
   [ "$#" -gt 0 ] || die "usage: fm-inbox.sh ask <question>..."
   need_ask_model
   need aws
-  need python3
+  need node
   local q="$*" msg
   msg=$(mktemp /tmp/fm-inbox-ask-XXXXXX.json)
   # shellcheck disable=SC2064
   trap "rm -f '$msg'" EXIT
 
-  Q="$q" python3 - "$msg" <<'PY'
-import json, os, sys
-json.dump([{"role": "user", "content": [{"text": os.environ["Q"]}]}],
-          open(sys.argv[1], 'w'))
-PY
+  inbox_node '
+const fs = require("fs");
+const [question, dst] = process.argv.slice(1);
+fs.writeFileSync(dst, jsonAscii([{ role: "user", content: [{ text: question }] }]));
+' "$q" "$msg"
 
   aws_call bedrock-runtime converse \
     --model-id "$ASK_MODEL" \

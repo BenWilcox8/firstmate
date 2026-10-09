@@ -148,8 +148,8 @@
 set -eu
 
 now_ms() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import time; print(int(time.time() * 1000))'
+  if command -v node >/dev/null 2>&1; then
+    node -e 'console.log(Date.now())'
   else
     echo $(($(date +%s) * 1000))
   fi
@@ -1186,59 +1186,81 @@ aggregate_timing_json() {
   local out=$1
   shift
   [ "$#" -gt 0 ] || die "--aggregate-json requires at least one input timing JSON"
-  command -v python3 >/dev/null 2>&1 || die "--aggregate-json requires python3"
-  python3 - "$out" "$@" <<'PY'
-import json, sys
-from pathlib import Path
+  command -v node >/dev/null 2>&1 || die "--aggregate-json requires node"
+  node - "$out" "$@" <<'JS'
+const fs = require('fs');
+const path = require('path');
 
-out = Path(sys.argv[1])
-inputs = [Path(p) for p in sys.argv[2:]]
-lanes = []
-all_scripts = []
-failed = 0
-skipped = 0
-total = 0
-wall_ms = 0
-for path in inputs:
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    summary = doc.get("summary") or {}
-    lane = {
-        "path": str(path),
-        "run_id": doc.get("run_id"),
-        "selection": doc.get("selection"),
-        "started_at": doc.get("started_at"),
-        "finished_at": doc.get("finished_at"),
-        "summary": summary,
+// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
+function dumpJson(value) {
+  const sortKeys = (key, v) => {
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const sorted = {};
+      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
+      return sorted;
     }
-    lanes.append(lane)
-    total += int(summary.get("total") or 0)
-    failed += int(summary.get("failed") or 0)
-    skipped += int(summary.get("skipped_gate") or 0)
-    wall_ms = max(wall_ms, int(summary.get("duration_ms") or 0))
-    for s in doc.get("scripts") or []:
-        row = dict(s)
-        row["lane_selection"] = doc.get("selection")
-        row["lane_run_id"] = doc.get("run_id")
-        all_scripts.append(row)
-
-all_scripts.sort(key=lambda s: (-int(s.get("duration_ms") or 0), s.get("path") or ""))
-agg = {
-    "kind": "aggregate",
-    "lanes": lanes,
-    "summary": {
-        "lanes": len(lanes),
-        "total": total,
-        "failed": failed,
-        "skipped_gate": skipped,
-        "critical_path_duration_ms": wall_ms,
-    },
-    "scripts": all_scripts,
-    "slowest": all_scripts[:15],
+    return v;
+  };
+  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
+    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(json.dumps(agg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print(f"FM_TEST_AGGREGATE lanes={len(lanes)} total={total} failed={failed} skipped_gate={skipped} critical_path_duration_ms={wall_ms}")
-PY
+
+const nullable = (v) => (v === undefined ? null : v);
+const toInt = (v) => Math.trunc(Number(v || 0));
+
+const out = process.argv[2];
+const inputs = process.argv.slice(3);
+const lanes = [];
+let allScripts = [];
+let failed = 0;
+let skipped = 0;
+let total = 0;
+let wallMs = 0;
+for (const input of inputs) {
+  const doc = JSON.parse(fs.readFileSync(input, 'utf8'));
+  const summary = doc.summary || {};
+  lanes.push({
+    path: input,
+    run_id: nullable(doc.run_id),
+    selection: nullable(doc.selection),
+    started_at: nullable(doc.started_at),
+    finished_at: nullable(doc.finished_at),
+    summary,
+  });
+  total += toInt(summary.total);
+  failed += toInt(summary.failed);
+  skipped += toInt(summary.skipped_gate);
+  wallMs = Math.max(wallMs, toInt(summary.duration_ms));
+  for (const s of doc.scripts || []) {
+    allScripts.push({ ...s, lane_selection: nullable(doc.selection), lane_run_id: nullable(doc.run_id) });
+  }
+}
+
+allScripts.sort((x, y) => {
+  const dx = toInt(x.duration_ms);
+  const dy = toInt(y.duration_ms);
+  if (dx !== dy) return dy - dx;
+  const px = x.path || '';
+  const py = y.path || '';
+  return px < py ? -1 : px > py ? 1 : 0;
+});
+const agg = {
+  kind: 'aggregate',
+  lanes,
+  summary: {
+    lanes: lanes.length,
+    total,
+    failed,
+    skipped_gate: skipped,
+    critical_path_duration_ms: wallMs,
+  },
+  scripts: allScripts,
+  slowest: allScripts.slice(0, 15),
+};
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, dumpJson(agg) + '\n');
+console.log(`FM_TEST_AGGREGATE lanes=${lanes.length} total=${total} failed=${failed} skipped_gate=${skipped} critical_path_duration_ms=${wallMs}`);
+JS
 }
 
 all_repo_tests() {
@@ -1828,64 +1850,77 @@ write_json_artifact() {
   local records_file=${10}
   local families_file=${11}
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    die "--json requires python3 to emit a valid timing artifact"
-  fi
+  command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid timing artifact"
 
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'PY'
-import json, sys
+  node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'JS'
+const fs = require('fs');
 
-out, started, finished, run_id, total, failed, skipped, duration, selection, records_file, families_file = sys.argv[1:]
-
-scripts = []
-with open(records_file, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        path, family, expected, exit_s, dur_s, gate, reason = line.split("\t")
-        scripts.append({
-            "path": path,
-            "family": family,
-            "expected_gate_skip": expected,
-            "duration_ms": int(dur_s),
-            "exit": int(exit_s),
-            "gate_skip": gate == "true",
-            "gate_skip_reason": reason,
-        })
-
-families = []
-with open(families_file, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        name, count_s, dur_s, failed_s = line.split("\t")
-        families.append({
-            "name": name,
-            "count": int(count_s),
-            "duration_ms": int(dur_s),
-            "failed": int(failed_s),
-        })
-
-doc = {
-    "run_id": run_id,
-    "started_at": started,
-    "finished_at": finished,
-    "selection": selection,
-    "summary": {
-        "total": int(total),
-        "failed": int(failed),
-        "skipped_gate": int(skipped),
-        "duration_ms": int(duration),
-    },
-    "scripts": scripts,
-    "families": families,
+// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
+function dumpJson(value) {
+  const sortKeys = (key, v) => {
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const sorted = {};
+      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
+      return sorted;
+    }
+    return v;
+  };
+  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
+    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
-with open(out, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PY
+
+function toInt(text) {
+  if (!/^\s*[-+]?[0-9]+\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
+  return parseInt(text, 10);
+}
+
+function rows(file, width) {
+  const result = [];
+  for (const raw of fs.readFileSync(file, 'utf8').split('\n')) {
+    if (!raw) continue;
+    const cols = raw.split('\t');
+    if (cols.length !== width) throw new Error(`malformed record in ${file}: expected ${width} fields, got ${cols.length}`);
+    result.push(cols);
+  }
+  return result;
+}
+
+const [out, started, finished, runId, total, failed, skipped, duration, selection, recordsFile, familiesFile] =
+  process.argv.slice(2);
+
+const scripts = rows(recordsFile, 7).map(([p, family, expected, exitS, durS, gate, reason]) => ({
+  path: p,
+  family,
+  expected_gate_skip: expected,
+  duration_ms: toInt(durS),
+  exit: toInt(exitS),
+  gate_skip: gate === 'true',
+  gate_skip_reason: reason,
+}));
+
+const families = rows(familiesFile, 4).map(([name, countS, durS, failedS]) => ({
+  name,
+  count: toInt(countS),
+  duration_ms: toInt(durS),
+  failed: toInt(failedS),
+}));
+
+const doc = {
+  run_id: runId,
+  started_at: started,
+  finished_at: finished,
+  selection,
+  summary: {
+    total: toInt(total),
+    failed: toInt(failed),
+    skipped_gate: toInt(skipped),
+    duration_ms: toInt(duration),
+  },
+  scripts,
+  families,
+};
+fs.writeFileSync(out, dumpJson(doc) + '\n');
+JS
 }
 
 while [ "$#" -gt 0 ]; do
@@ -2655,7 +2690,7 @@ fi
 
 if [ -n "$JSON_PATH" ]; then
   mkdir -p "$(dirname "$JSON_PATH")"
-  # Families file may be unsorted; write_json reads as-is (deterministic sort in python).
+  # Families file may be unsorted; write_json reads as-is (deterministic sort in node).
   if [ -s "$FAMILIES_TSV" ]; then
     sort -t$'\t' -k1,1 "$FAMILIES_TSV" -o "$FAMILIES_TSV"
   else

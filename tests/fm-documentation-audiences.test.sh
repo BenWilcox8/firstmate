@@ -24,31 +24,31 @@ run_expect_failure() {
 
 mutate_inventory() {
   local source=$1 destination=$2 mode=$3
-  python3 - "$source" "$destination" "$mode" <<'PY'
-import json
-import sys
-from pathlib import Path
+  node - "$source" "$destination" "$mode" <<'JS'
+const fs = require('fs');
+const path = require('path');
 
-source, destination, mode = map(Path, sys.argv[1:])
-data = json.loads(source.read_text(encoding="utf-8"))
-if mode.name == "duplicate":
-    data["surfaces"].append(dict(data["surfaces"][0]))
-elif mode.name == "bad-setup-audience":
-    for entry in data["surfaces"]:
-        if entry["path"] == "docs/tmux-backend.md":
-            entry["audience"] = "maintainer-verification"
-            break
-elif mode.name == "missing-owner-pointer":
-    data["requiredOwnerPointers"][0] = {
-        "source": "README.md",
-        "target": "docs/sessionstart-nudge.md",
-    }
-elif mode.name == "shrink-scope":
-    data["scope"]["trackedPatterns"] = ["README.md"]
-else:
-    raise SystemExit(f"unknown mode: {mode.name}")
-destination.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-PY
+const [source, destination, mode] = process.argv.slice(2);
+const data = JSON.parse(fs.readFileSync(source, 'utf8'));
+const name = path.basename(mode);
+if (name === 'duplicate') {
+  data.surfaces.push({ ...data.surfaces[0] });
+} else if (name === 'bad-setup-audience') {
+  const entry = data.surfaces.find((e) => e.path === 'docs/tmux-backend.md');
+  if (entry) entry.audience = 'maintainer-verification';
+} else if (name === 'missing-owner-pointer') {
+  data.requiredOwnerPointers[0] = {
+    source: 'README.md',
+    target: 'docs/sessionstart-nudge.md',
+  };
+} else if (name === 'shrink-scope') {
+  data.scope.trackedPatterns = ['README.md'];
+} else {
+  console.error(`unknown mode: ${name}`);
+  process.exit(1);
+}
+fs.writeFileSync(destination, JSON.stringify(data, null, 2) + '\n');
+JS
 }
 
 test_repository_inventory_passes() {

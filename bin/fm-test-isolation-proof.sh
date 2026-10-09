@@ -85,8 +85,8 @@ now_iso() {
 }
 
 now_ms() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import time; print(int(time.time() * 1000))'
+  if command -v node >/dev/null 2>&1; then
+    node -e 'console.log(Date.now())'
   else
     echo $(($(date +%s) * 1000))
   fi
@@ -240,43 +240,58 @@ detect_gate_skip() {
 
 write_json_artifact() {
   local out=$1 started=$2 finished=$3 run_id=$4 total=$5 failed=$6 concurrency=$7 duration=$8 records=$9 pool=${10} jobs_enabled=${11}
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'PY'
-import json, sys
-out, started, finished, run_id, total, failed, concurrency, duration, records_path, pool, jobs_enabled = sys.argv[1:12]
-scripts = []
-with open(records_path, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        path, exit_s, dur_s, worker = line.split("\t")
-        scripts.append({
-            "path": path,
-            "exit": int(exit_s),
-            "duration_ms": int(dur_s),
-            "worker": int(worker),
-        })
-scripts.sort(key=lambda s: s["path"])
-doc = {
-    "run_id": run_id,
-    "started_at": started,
-    "finished_at": finished,
-    "kind": "isolation-proof",
-    "pool": pool,
-    "concurrency": int(concurrency),
-    "summary": {
-        "total": int(total),
-        "failed": int(failed),
-        "duration_ms": int(duration),
-    },
-    "scripts": scripts,
-    "production_sharding_enabled": False,
-    "fm_test_run_jobs_enabled": jobs_enabled == "1",
+  command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid proof artifact"
+  node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'JS'
+const fs = require('fs');
+
+// Match Python's json.dump(indent=2, sort_keys=True, ensure_ascii=True) layout.
+function dumpJson(value) {
+  const sortKeys = (key, v) => {
+    if (v !== null && typeof v === 'object' && !Array.isArray(v)) {
+      const sorted = {};
+      for (const k of Object.keys(v).sort()) sorted[k] = v[k];
+      return sorted;
+    }
+    return v;
+  };
+  return JSON.stringify(value, sortKeys, 2).replace(/[^\x20-\x7e\n]/g, (c) =>
+    String.fromCharCode(92) + 'u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
 }
-with open(out, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PY
+
+function toInt(text) {
+  if (!/^\s*[-+]?[0-9]+\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
+  return parseInt(text, 10);
+}
+
+const [out, started, finished, runId, total, failed, concurrency, duration, recordsPath, pool, jobsEnabled] =
+  process.argv.slice(2);
+const scripts = [];
+for (const line of fs.readFileSync(recordsPath, 'utf8').split('\n')) {
+  if (!line) continue;
+  const cols = line.split('\t');
+  if (cols.length !== 4) throw new Error(`malformed record: expected 4 fields, got ${cols.length}`);
+  const [p, exitS, durS, worker] = cols;
+  scripts.push({ path: p, exit: toInt(exitS), duration_ms: toInt(durS), worker: toInt(worker) });
+}
+scripts.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+const doc = {
+  run_id: runId,
+  started_at: started,
+  finished_at: finished,
+  kind: 'isolation-proof',
+  pool,
+  concurrency: toInt(concurrency),
+  summary: {
+    total: toInt(total),
+    failed: toInt(failed),
+    duration_ms: toInt(duration),
+  },
+  scripts,
+  production_sharding_enabled: false,
+  fm_test_run_jobs_enabled: jobsEnabled === '1',
+};
+fs.writeFileSync(out, dumpJson(doc) + '\n');
+JS
 }
 
 while [ "$#" -gt 0 ]; do

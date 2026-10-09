@@ -151,12 +151,15 @@ is_correct_claude_symlink() {
     "$AGENTS"|"./$AGENTS") return 0 ;;
   esac
   [ -e "$AGENTS" ] || return 1
-  if command -v python3 >/dev/null 2>&1; then
-    python3 - "$CLAUDE" "$AGENTS" <<'PY'
-import os
-import sys
-sys.exit(0 if os.path.realpath(sys.argv[1]) == os.path.realpath(sys.argv[2]) else 1)
-PY
+  if command -v node >/dev/null 2>&1; then
+    node - "$CLAUDE" "$AGENTS" <<'JS'
+const fs = require('fs');
+try {
+  process.exit(fs.realpathSync(process.argv[2]) === fs.realpathSync(process.argv[3]) ? 0 : 1);
+} catch (e) {
+  process.exit(1);
+}
+JS
     return $?
   fi
   return 1

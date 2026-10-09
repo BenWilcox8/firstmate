@@ -504,15 +504,18 @@ SH
   esac
   [ "$expected_jobs" -le 4 ] || expected_jobs=4
   [ "$expected_jobs" -ge 1 ] || expected_jobs=1
-  python3 - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'PY' \
+  node - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'JS' \
     || fail "changed timing artifacts did not record their resolved worker counts"
-import json, sys
-automatic = json.load(open(sys.argv[1], encoding="utf-8"))
-serial = json.load(open(sys.argv[2], encoding="utf-8"))
-expected = int(sys.argv[3])
-assert automatic["selection"].split(";")[-1] == f"jobs={expected}"
-assert serial["selection"].split(";")[-1] == "jobs=1"
-PY
+const assert = require('assert');
+const fs = require('fs');
+const [automaticPath, serialPath, expectedArg] = process.argv.slice(2);
+const automatic = JSON.parse(fs.readFileSync(automaticPath, 'utf8'));
+const serial = JSON.parse(fs.readFileSync(serialPath, 'utf8'));
+const expected = parseInt(expectedArg, 10);
+const lastPart = (doc) => doc.selection.split(';').pop();
+assert.strictEqual(lastPart(automatic), `jobs=${expected}`);
+assert.strictEqual(lastPart(serial), 'jobs=1');
+JS
 
   timeout_repo="$tmp/timeout-repo"
   timeout_script=tests/fm-calm-pi-extension.test.sh
@@ -644,15 +647,18 @@ SH
   esac
   [ "$expected_jobs" -le 4 ] || expected_jobs=4
   [ "$expected_jobs" -ge 1 ] || expected_jobs=1
-  python3 - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'PYJSON' \
+  node - "$tmp/parallel.json" "$tmp/serial.json" "$expected_jobs" <<'JS' \
     || fail "script-list timing artifacts did not record their resolved worker counts"
-import json, sys
-automatic = json.load(open(sys.argv[1], encoding="utf-8"))
-serial = json.load(open(sys.argv[2], encoding="utf-8"))
-expected = int(sys.argv[3])
-assert automatic["selection"].split(";")[-1] == f"jobs={expected}"
-assert serial["selection"].split(";")[-1] == "jobs=1"
-PYJSON
+const assert = require('assert');
+const fs = require('fs');
+const [automaticPath, serialPath, expectedArg] = process.argv.slice(2);
+const automatic = JSON.parse(fs.readFileSync(automaticPath, 'utf8'));
+const serial = JSON.parse(fs.readFileSync(serialPath, 'utf8'));
+const expected = parseInt(expectedArg, 10);
+const lastPart = (doc) => doc.selection.split(';').pop();
+assert.strictEqual(lastPart(automatic), `jobs=${expected}`);
+assert.strictEqual(lastPart(serial), 'jobs=1');
+JS
 
   (cd "$repo" && bin/fm-test-run.sh tests/fm-backend-orca.test.sh) \
     >"$tmp/named.out" 2>"$tmp/named.err" \
@@ -690,27 +696,30 @@ SH
     >"$tmp/out" 2>"$tmp/err" \
     || fail "cross-family phase fixture failed: $(cat "$tmp/err")"
 
-  python3 - "$tmp/out" <<'PY' \
+  node - "$tmp/out" <<'JS' \
     || fail "family-proof scripts from different families overlapped: $(cat "$tmp/out")"
-import re, sys
-active = {}
-overlap = {"pure-contract-unit": False, "pr-forge": False}
-for line in open(sys.argv[1], encoding="utf-8"):
-    if line.startswith("FM_TEST_BEGIN "):
-        match = re.search(r" (tests/\S+) family=(\S+) ", line)
-        assert match, line
-        path, family = match.groups()
-        assert not active or set(active.values()) == {family}, (active, line)
-        active[path] = family
-        if sum(value == family for value in active.values()) > 1:
-            overlap[family] = True
-    elif line.startswith("FM_TEST_END "):
-        match = re.search(r" (tests/\S+) exit=", line)
-        assert match and match.group(1) in active, (active, line)
-        del active[match.group(1)]
-assert not active, active
-assert all(overlap.values()), overlap
-PY
+const assert = require('assert');
+const fs = require('fs');
+const active = new Map();
+const overlap = { 'pure-contract-unit': false, 'pr-forge': false };
+for (const line of fs.readFileSync(process.argv[2], 'utf8').split('\n')) {
+  if (line.startsWith('FM_TEST_BEGIN ')) {
+    const match = / (tests\/\S+) family=(\S+) /.exec(line);
+    assert(match, line);
+    const [, path, family] = match;
+    const families = new Set(active.values());
+    assert(active.size === 0 || (families.size === 1 && families.has(family)), line);
+    active.set(path, family);
+    if ([...active.values()].filter((value) => value === family).length > 1) overlap[family] = true;
+  } else if (line.startsWith('FM_TEST_END ')) {
+    const match = / (tests\/\S+) exit=/.exec(line);
+    assert(match && active.has(match[1]), line);
+    active.delete(match[1]);
+  }
+}
+assert.strictEqual(active.size, 0);
+assert(Object.values(overlap).every(Boolean), JSON.stringify(overlap));
+JS
 
   rm -rf "$tmp"
   pass "family proofs run concurrently only within separate family phases"
@@ -743,15 +752,15 @@ test_empty_selection_emits_summary() {
     '^FM_TEST_SUMMARY total=0 failed=0 skipped_gate=0 duration_ms=[0-9]+$' \
     || fail "empty selection summary is missing or malformed: $out"
   json="$tmp/artifacts/timing.json"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-assert doc["summary"]["total"] == 0
-assert doc["summary"]["failed"] == 0
-assert doc["summary"]["skipped_gate"] == 0
-assert doc["summary"]["duration_ms"] >= 0
-assert doc["scripts"] == []
-assert doc["families"] == []
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.summary.total, 0);
+assert.strictEqual(doc.summary.failed, 0);
+assert.strictEqual(doc.summary.skipped_gate, 0);
+assert(doc.summary.duration_ms >= 0);
+assert.deepStrictEqual(doc.scripts, []);
+assert.deepStrictEqual(doc.families, []);
 ' "$json" || { rm -rf "$tmp"; fail "empty selection JSON summary is wrong"; }
   fake_bin="$tmp/fake-bin"
   real_git=$(command -v git)
@@ -822,18 +831,18 @@ SH
   grep -q '^FM_TEST_SLOWEST rank=1 ' "$out" \
     || fail "expected FM_TEST_SLOWEST rank=1"
   [ -f "$json" ] || fail "JSON timing artifact was not written"
-  python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$json" \
+  node -e 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"))' "$json" \
     || fail "JSON timing artifact is not valid JSON"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-assert "scripts" in doc and len(doc["scripts"]) == 1, doc
-assert doc["scripts"][0]["exit"] == 0
-assert doc["scripts"][0]["gate_skip"] is False
-assert doc["summary"]["total"] == 1
-assert doc["summary"]["failed"] == 0
-assert "duration_ms" in doc["scripts"][0]
-assert "family" in doc["scripts"][0]
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert("scripts" in doc && doc.scripts.length === 1, JSON.stringify(doc));
+assert.strictEqual(doc.scripts[0].exit, 0);
+assert.strictEqual(doc.scripts[0].gate_skip, false);
+assert.strictEqual(doc.summary.total, 1);
+assert.strictEqual(doc.summary.failed, 0);
+assert("duration_ms" in doc.scripts[0]);
+assert("family" in doc.scripts[0]);
 ' "$json" || { rm -rf "$tmp"; fail "JSON timing artifact missing required fields"; }
   rm -rf "$tmp"
   pass "timing markers and JSON artifact are valid"
@@ -890,12 +899,12 @@ SH
     || fail "END must mark gate_skip=true: $(grep '^FM_TEST_END' "$out")"
   grep -q 'FM_TEST_SUMMARY total=1 failed=0 skipped_gate=1' "$out" \
     || fail "summary must count skipped_gate=1: $(grep FM_TEST_SUMMARY "$out")"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-assert doc["scripts"][0]["gate_skip"] is True
-assert doc["summary"]["skipped_gate"] == 1
-assert doc["summary"]["failed"] == 0
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.scripts[0].gate_skip, true);
+assert.strictEqual(doc.summary.skipped_gate, 1);
+assert.strictEqual(doc.summary.failed, 0);
 ' "$json" || { rm -rf "$tmp"; fail "JSON gate_skip accounting is wrong"; }
   rm -rf "$tmp"
   pass "gate-skip accounting is honest and non-failing"
@@ -917,12 +926,12 @@ SH
     || fail "a capability skip must still exit 0 from the runner"
   grep -q 'live: fmnosuchharness absent' "$tmp/err.txt" \
     || fail "the runner log must name what this host could not exercise: $(cat "$tmp/err.txt")"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-record = doc["scripts"][0]
-assert record["gate_skip"] is True, record
-assert record["gate_skip_reason"] == "live: fmnosuchharness absent", record
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const record = doc.scripts[0];
+assert.strictEqual(record.gate_skip, true, JSON.stringify(record));
+assert.strictEqual(record.gate_skip_reason, "live: fmnosuchharness absent", JSON.stringify(record));
 ' "$json" || { rm -rf "$tmp"; fail "the timing artifact must carry the skip reason"; }
   rm -rf "$tmp"
   pass "a gate skip records why it skipped"
@@ -941,12 +950,12 @@ SH
   chmod +x "$ran_f"
   "$RUNNER" --json "$json" "$ran_f" >"$tmp/out.txt" 2>&1 \
     || fail "a passing fixture must exit 0 from the runner"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-record = doc["scripts"][0]
-assert record["gate_skip"] is False, record
-assert record["gate_skip_reason"] == "", record
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const record = doc.scripts[0];
+assert.strictEqual(record.gate_skip, false, JSON.stringify(record));
+assert.strictEqual(record.gate_skip_reason, "", JSON.stringify(record));
 ' "$json" || { rm -rf "$tmp"; fail "a script that ran must carry an empty skip reason"; }
   rm -rf "$tmp"
   pass "a script that actually ran records no skip reason"
@@ -963,13 +972,13 @@ test_live_guards_expect_a_capability_skip_class() {
     || fail "a disabled live guard must not fail the runner: $(cat "$tmp/err.txt")"
   grep -q 'expected_gate_skip=live-capability' "$out" \
     || fail "the live-harness family must expect a capability skip: $(grep FM_TEST_BEGIN "$out")"
-  python3 -c '
-import json, sys
-doc = json.load(open(sys.argv[1]))
-record = doc["scripts"][0]
-assert record["expected_gate_skip"] == "live-capability", record
-assert record["gate_skip"] is True, record
-assert record["gate_skip_reason"].startswith("live: "), record
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+const record = doc.scripts[0];
+assert.strictEqual(record.expected_gate_skip, "live-capability", JSON.stringify(record));
+assert.strictEqual(record.gate_skip, true, JSON.stringify(record));
+assert(record.gate_skip_reason.startsWith("live: "), JSON.stringify(record));
 ' "$tmp/timing.json" || { rm -rf "$tmp"; fail "the live guard record is wrong"; }
   rm -rf "$tmp"
   pass "live guards are recorded as a capability class, not a bare env opt-in"
@@ -1622,12 +1631,12 @@ SH
   [ "$end_n" -eq 3 ] || fail "expected 3 END markers, got $end_n"
   grep -q 'FM_TEST_SUMMARY total=3 failed=0' "$tmp/out" \
     || fail "summary missing for jobs run: $(grep FM_TEST_SUMMARY "$tmp/out")"
-  python3 -c '
-import json,sys
-doc=json.load(open(sys.argv[1]))
-assert doc["summary"]["total"]==3
-assert doc["summary"]["failed"]==0
-assert "jobs=2" in doc["selection"]
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.summary.total, 3);
+assert.strictEqual(doc.summary.failed, 0);
+assert(doc.selection.includes("jobs=2"));
 ' "$tmp/timing.json" || { rm -rf "$tmp"; fail "jobs JSON artifact wrong"; }
 
   # Non-proven path is refused before any worker starts (no race masking).
@@ -1704,9 +1713,9 @@ puts JSON.generate(
 )
 ' "$ROOT/.github/workflows/ci.yml") \
     || fail "could not parse tests-herdr timeouts from ci.yml"
-  job_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["job_timeout"])' <<<"$json") \
+  job_timeout=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).job_timeout)' <<<"$json") \
     || fail "could not read job timeout from parsed workflow"
-  step_timeout=$(python3 -c 'import json,sys; print(json.load(sys.stdin)["step_timeout"])' <<<"$json") \
+  step_timeout=$(node -e 'console.log(JSON.parse(require("fs").readFileSync(0, "utf8")).step_timeout)' <<<"$json") \
     || fail "could not read step timeout from parsed workflow"
   [ "$job_timeout" = 75 ] \
     || fail "tests-herdr job backstop must stay 75 minutes, got $job_timeout"
@@ -1745,18 +1754,112 @@ JSON
 JSON
   out=$("$RUNNER" --aggregate-json "$tmp/out.json" "$tmp/a.json" "$tmp/b.json")
   assert_contains "$out" "FM_TEST_AGGREGATE lanes=2 total=3 failed=1" "aggregate summary line"
-  python3 -c '
-import json,sys
-doc=json.load(open(sys.argv[1]))
-assert doc["kind"]=="aggregate"
-assert doc["summary"]["lanes"]==2
-assert doc["summary"]["total"]==3
-assert doc["summary"]["failed"]==1
-assert doc["summary"]["critical_path_duration_ms"]==2000
-assert len(doc["scripts"])==3
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.kind, "aggregate");
+assert.strictEqual(doc.summary.lanes, 2);
+assert.strictEqual(doc.summary.total, 3);
+assert.strictEqual(doc.summary.failed, 1);
+assert.strictEqual(doc.summary.critical_path_duration_ms, 2000);
+assert.strictEqual(doc.scripts.length, 3);
 ' "$tmp/out.json" || { rm -rf "$tmp"; fail "aggregate JSON shape wrong"; }
   rm -rf "$tmp"
   pass "aggregate-json merges lane timing artifacts"
+}
+
+# Print a PATH like the current one with every named command hidden: each
+# directory that holds one of them is replaced by a mirror of symlinks that
+# leaves those names out, so the rest of the toolchain still resolves.
+path_without() {
+  local mirror_root=$1 dir mirror entry name hidden skip n=0 result=''
+  local -a dirs keep
+  shift
+  IFS=: read -r -a dirs <<<"$PATH"
+  for dir in "${dirs[@]}"; do
+    [ -d "$dir" ] || continue
+    keep=()
+    skip=0
+    for entry in "$dir"/*; do
+      [ -e "$entry" ] || [ -L "$entry" ] || continue
+      name=${entry##*/}
+      for hidden in "$@"; do
+        case "$name" in "$hidden"|"$hidden"[0-9]*) skip=1 ; continue 2 ;; esac
+      done
+      keep+=("$entry")
+    done
+    if [ "$skip" -eq 0 ]; then
+      result=${result:+$result:}$dir
+      continue
+    fi
+    n=$((n + 1))
+    mirror="$mirror_root/$n"
+    mkdir -p "$mirror"
+    [ "${#keep[@]}" -eq 0 ] || ln -s "${keep[@]}" "$mirror/"
+    result=${result:+$result:}$mirror
+  done
+  printf '%s\n' "$result"
+}
+
+test_timing_has_millisecond_precision_without_python() {
+  local tmp no_python i out json
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-nopy.XXXXXX")
+  no_python=$(path_without "$tmp/mirror" python3 python)
+  PATH=$no_python command -v python3 >/dev/null 2>&1 \
+    && { rm -rf "$tmp"; fail "python3 is still on the restricted PATH"; }
+  PATH=$no_python command -v node >/dev/null 2>&1 \
+    || { rm -rf "$tmp"; fail "node must stay on the restricted PATH"; }
+  for i in 1 2 3 4; do
+    cat >"$tmp/s$i.test.sh" <<'SH'
+#!/usr/bin/env bash
+echo "ok - fixture"
+exit 0
+SH
+    chmod +x "$tmp/s$i.test.sh"
+  done
+  json="$tmp/timing.json"
+  out=$(PATH=$no_python "$RUNNER" --json "$json" \
+    "$tmp/s1.test.sh" "$tmp/s2.test.sh" "$tmp/s3.test.sh" "$tmp/s4.test.sh" 2>"$tmp/err") \
+    || { cat "$tmp/err"; rm -rf "$tmp"; fail "--json must work with no python3 on PATH"; }
+  assert_contains "$out" "FM_TEST_SUMMARY total=4 failed=0" "run summary without python3"
+  node -e '
+const assert = require("assert");
+const doc = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(doc.scripts.length, 4);
+// Whole-second timing makes every duration a multiple of 1000; real
+// millisecond timing of a trivial script almost never lands on one.
+assert(doc.scripts.some((s) => s.duration_ms % 1000 !== 0), JSON.stringify(doc.scripts));
+assert(doc.summary.duration_ms >= 0);
+' "$json" || { rm -rf "$tmp"; fail "runner timing must keep millisecond precision without python3"; }
+  PATH=$no_python "$RUNNER" --aggregate-json "$tmp/agg.json" "$json" >"$tmp/agg.out" 2>&1 \
+    || { cat "$tmp/agg.out"; rm -rf "$tmp"; fail "--aggregate-json must work with no python3 on PATH"; }
+  assert_contains "$(cat "$tmp/agg.out")" "FM_TEST_AGGREGATE lanes=1 total=4 failed=0" "aggregate without python3"
+  rm -rf "$tmp"
+  pass "timing keeps millisecond precision and JSON artifacts work with no python3"
+}
+
+test_json_refuses_clearly_without_node() {
+  local tmp no_node rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-nonode.XXXXXX")
+  no_node=$(path_without "$tmp/mirror" node)
+  PATH=$no_node command -v node >/dev/null 2>&1 \
+    && { rm -rf "$tmp"; fail "node is still on the restricted PATH"; }
+  cat >"$tmp/ok.test.sh" <<'SH'
+#!/usr/bin/env bash
+echo "ok - fixture"
+exit 0
+SH
+  chmod +x "$tmp/ok.test.sh"
+  rc=0
+  PATH=$no_node "$RUNNER" --json "$tmp/timing.json" "$tmp/ok.test.sh" >"$tmp/out" 2>"$tmp/err" || rc=$?
+  [ "$rc" -eq 2 ] || { rm -rf "$tmp"; fail "--json without node must be refused, got $rc"; }
+  assert_contains "$(cat "$tmp/err")" "--json requires node" "refusal must name node"
+  rc=0
+  PATH=$no_node "$RUNNER" --aggregate-json "$tmp/agg.json" "$tmp/ok.test.sh" >"$tmp/out" 2>"$tmp/err" || rc=$?
+  [ "$rc" -eq 2 ] || { rm -rf "$tmp"; fail "--aggregate-json without node must be refused, got $rc"; }
+  assert_contains "$(cat "$tmp/err")" "--aggregate-json requires node" "aggregate refusal must name node"
+  rm -rf "$tmp"
+  pass "JSON writers refuse with a clear message when node is absent"
 }
 
 test_coverage_is_locale_independent() {
@@ -1818,3 +1921,5 @@ test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_aggregate_json
+test_timing_has_millisecond_precision_without_python
+test_json_refuses_clearly_without_node
