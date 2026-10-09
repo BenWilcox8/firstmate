@@ -287,13 +287,12 @@ while [ ! -e "$CADENCE_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 100 ]; do
 done
 [ -e "$CADENCE_HOME/state/.last-watcher-beat" ] \
   || fail "the cadence watcher did not complete its initial cycle"
-python3 - "$CADENCE_HOME/data/backlog.md" <<'PY'
-from pathlib import Path
-import sys
-path = Path(sys.argv[1])
-text = path.read_text()
-path.write_text(text.replace("## Queued\n\n## Done", "## Queued\n- [ ] cadence-task - Publish without a status signal (repo: firstmate) (kind: ship)\n\n## Done"))
-PY
+node - "$CADENCE_HOME/data/backlog.md" <<'JS'
+const fs = require("fs");
+const path = process.argv[2];
+const text = fs.readFileSync(path, "utf8");
+fs.writeFileSync(path, text.replace("## Queued\n\n## Done", () => "## Queued\n- [ ] cadence-task - Publish without a status signal (repo: firstmate) (kind: ship)\n\n## Done"));
+JS
 i=0
 while ! jq -e 'any(.queued[]; .id == "cadence-task")' \
   "$CADENCE_HOME/state/home-summary.json" >/dev/null 2>&1; do
@@ -556,40 +555,51 @@ pass "best-effort refresh logs worker termination"
 
 rm -f "$SIGNAL_MARKER" "$HOME_DIR/state/.home-summary-refresh.log"
 mkdir "$HOME_DIR/state/.home-summary-refresh.log"
+mkfifo "$TMP_ROOT/full-stderr.fifo"
 if ! PATH="$SIGNALBIN:$FAKEBIN:$PATH" FM_TEST_REAL_ENV="$REAL_ENV" \
   FM_TEST_SIGNAL_MARKER="$SIGNAL_MARKER" FM_TIMEOUT_MECHANISM_OVERRIDE=bash \
-  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" WRITER="$WRITER" python3 - <<'PY'
-import os
-import subprocess
-import time
+  FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$HOME_DIR" WRITER="$WRITER" FULL_FIFO="$TMP_ROOT/full-stderr.fifo" node - <<'JS'
+const fs = require("fs");
+const { spawnSync } = require("child_process");
 
-read_fd, write_fd = os.pipe()
-os.set_blocking(write_fd, False)
-try:
-    while True:
-        os.write(write_fd, b"x" * 4096)
-except BlockingIOError:
-    pass
-os.set_blocking(write_fd, True)
-started = time.monotonic()
-try:
-    result = subprocess.run(
-        [os.environ["WRITER"], "--best-effort"],
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=write_fd,
-        env=os.environ,
-        timeout=7,
-    )
-finally:
-    os.close(write_fd)
-    os.close(read_fd)
-elapsed = time.monotonic() - started
-if result.returncode != 0:
-    raise SystemExit(f"blocked failure logger changed caller result: {result.returncode}")
-if elapsed >= 6:
-    raise SystemExit(f"blocked failure logger exceeded its bound: {elapsed:.2f}s")
-PY
+// Build a pipe whose buffer is full: one non-blocking read-write descriptor
+// fills it and keeps it open, a second blocking write descriptor is handed to
+// the writer as stderr so any log write to it blocks.
+const fifo = process.env.FULL_FIFO;
+const holdFd = fs.openSync(fifo, fs.constants.O_RDWR | fs.constants.O_NONBLOCK);
+const writeFd = fs.openSync(fifo, fs.constants.O_WRONLY);
+const chunk = Buffer.alloc(4096, "x");
+try {
+  for (;;) fs.writeSync(holdFd, chunk);
+} catch (err) {
+  if (err.code !== "EAGAIN") throw err;
+}
+const started = process.hrtime.bigint();
+let result;
+try {
+  result = spawnSync(process.env.WRITER, ["--best-effort"], {
+    stdio: ["ignore", "ignore", writeFd],
+    env: process.env,
+    timeout: 7000,
+  });
+} finally {
+  fs.closeSync(writeFd);
+  fs.closeSync(holdFd);
+}
+const elapsed = Number(process.hrtime.bigint() - started) / 1e9;
+if (result.error) {
+  console.error(`blocked failure logger exceeded its bound or failed to run: ${result.error.message}`);
+  process.exit(1);
+}
+if (result.status !== 0) {
+  console.error(`blocked failure logger changed caller result: ${result.status === null ? result.signal : result.status}`);
+  process.exit(1);
+}
+if (elapsed >= 6) {
+  console.error(`blocked failure logger exceeded its bound: ${elapsed.toFixed(2)}s`);
+  process.exit(1);
+}
+JS
 then
   fail "best-effort failure reporting was not fully bounded"
 fi
@@ -643,15 +653,16 @@ fm_write_meta "$COST_HOME/state/cost-task.meta" \
 cost_busy_gen=$("$ROOT/bin/fm-busy-event.sh" arm "$COST_HOME/state" cost-task)
 "$ROOT/bin/fm-busy-event.sh" apply "$COST_HOME/state" cost-task idle \
   --gen "$cost_busy_gen" --source claude-hook --event stop
-python3 - "$COST_HOME/state/cost-task.status" <<'PY'
-import sys
-note = ("the crewmate ran validation and reported checks on the branch "
-        "after review ") * 25
-with open(sys.argv[1], "w") as handle:
-    for i in range(300):
-        handle.write(f"working: {note}({i})\n")
-    handle.write("needs-decision [key=cost-gate]: which base to rebuild from\n")
-PY
+cost_note=
+for _ in $(seq 1 25); do
+  cost_note="${cost_note}the crewmate ran validation and reported checks on the branch after review "
+done
+{
+  for i in $(seq 0 299); do
+    printf 'working: %s(%s)\n' "$cost_note" "$i"
+  done
+  printf 'needs-decision [key=cost-gate]: which base to rebuild from\n'
+} > "$COST_HOME/state/cost-task.status"
 PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$COST_HOME" \
   FM_SNAPSHOT_NOW="$NOW_ONE" FM_SNAPSHOT_NOW_EPOCH="$EPOCH_ONE" \
   FM_HOME_SUMMARY_TIMEOUT=30 "$WRITER" --best-effort \
@@ -777,7 +788,7 @@ while [ ! -e "$BEAT_HOME/state/.last-watcher-beat" ] && [ "$i" -lt 200 ]; do
 done
 [ -e "$BEAT_HOME/state/.last-watcher-beat" ] \
   || fail "the stalled-publication watcher never beat: $(cat "$TMP_ROOT/beat-watch.err" 2>/dev/null)"
-beat_mtime() { python3 -c 'import os,sys; print(os.stat(sys.argv[1]).st_mtime)' "$1"; }
+beat_mtime() { node -p 'require("fs").statSync(process.argv[1], { bigint: true }).mtimeNs' "$1"; }
 seen=0
 last=$(beat_mtime "$BEAT_HOME/state/.last-watcher-beat")
 i=0
@@ -1006,13 +1017,9 @@ REAL_DATE=$(command -v date)
 cat > "$ORDER_DATE_BIN/date" <<'SH'
 #!/usr/bin/env bash
 if [ "$#" -eq 2 ] && [ "$1" = -u ] && [ "$2" = +%Y-%m-%dT%H:%M:%SZ ]; then
-  python3 - "$FM_TEST_ORDER_START" "$FM_TEST_ORDER_EARLY" "$FM_TEST_ORDER_LATE" <<'PY'
-import sys
-import time
-
-started = float(sys.argv[1])
-print(sys.argv[2] if time.time() - started < 1 else sys.argv[3])
-PY
+  node -e 'const [start, early, late] = process.argv.slice(1)
+console.log(Date.now() / 1000 - parseFloat(start) < 1 ? early : late)' \
+    "$FM_TEST_ORDER_START" "$FM_TEST_ORDER_EARLY" "$FM_TEST_ORDER_LATE"
   exit 0
 fi
 exec "$FM_TEST_REAL_DATE" "$@"
@@ -1033,7 +1040,7 @@ while [ ! -e "$ORDER_LOCK_MARKER" ] && [ "$i" -lt 100 ]; do
   i=$((i + 1))
 done
 [ -e "$ORDER_LOCK_MARKER" ] || fail "could not hold the publication lock for ordering coverage"
-order_started=$(python3 -c 'import time; print(time.time())')
+order_started=$(node -p 'Date.now() / 1000')
 PATH="$ORDER_DATE_BIN:$FAKEBIN:$PATH" FM_TEST_REAL_DATE="$REAL_DATE" \
   FM_TEST_ORDER_START="$order_started" FM_TEST_ORDER_EARLY="$NOW_ONE" \
   FM_TEST_ORDER_LATE="$NOW_THREE" FM_ROOT_OVERRIDE="$ROOT" \

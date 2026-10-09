@@ -144,7 +144,7 @@ make_package() {  # <dir> <id> <adapter> [fixed-scenario] [required-consent]
   "id": "$id",
   "version": "1.2.3",
   "host_protocols": [2, 1],
-  "entrypoint": "entrypoint.py",
+  "entrypoint": "entrypoint.js",
   "capabilities": [
     {"name": "process-event-adapter", "versions": [2, 1], "adapter_names": ["$adapter"]}
   ],
@@ -153,119 +153,157 @@ make_package() {  # <dir> <id> <adapter> [fixed-scenario] [required-consent]
 JSON
   printf '%s\n' "$fixed" > "$dir/scenario"
   printf 'complete-tree helper\n' > "$dir/helper.txt"
-  cat > "$dir/entrypoint.py" <<'PY'
-#!/usr/bin/env python3
-import json, os, signal, subprocess, sys, time
+  cat > "$dir/entrypoint.js" <<'JS'
+#!/usr/bin/env node
+const fs = require("fs");
+const path = require("path");
+const { spawn } = require("child_process");
 
-request = json.load(sys.stdin)
-with open("firstmate-extension.json", encoding="utf-8") as source: manifest = json.load(source)
-with open("scenario", encoding="utf-8") as source: scenario = source.read().strip().split("\n")
-fixed, marker, release = (scenario + ["", ""])[:3]
-verb = sys.argv[1] if len(sys.argv) > 1 else ""
+const request = JSON.parse(fs.readFileSync(0, "utf8"));
+const manifest = JSON.parse(fs.readFileSync("firstmate-extension.json", "utf8"));
+const scenario = fs.readFileSync("scenario", "utf8").trim().split("\n");
+const [fixed, marker, release] = [...scenario, "", ""].slice(0, 3);
+const verb = process.argv[2] || "";
 
-def raw(value):
-    if isinstance(value, bytes): sys.stdout.buffer.write(value)
-    elif isinstance(value, str): sys.stdout.write(value)
-    else: sys.stdout.write(json.dumps(value) + "\n")
-    sys.stdout.flush()
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+const exists = (file) => fs.existsSync(file);
+const splitN = (text, sep, max) => {
+  const parts = text.split(sep);
+  return parts.length <= max + 1 ? parts : [...parts.slice(0, max), parts.slice(max).join(sep)];
+};
+// Python-style separators keep the textual key-injection cases byte-compatible.
+const dumps = (value) => {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return `[${value.map(dumps).join(", ")}]`;
+  if (typeof value === "object") return `{${Object.entries(value).map(([key, item]) => `${JSON.stringify(key)}: ${dumps(item)}`).join(", ")}}`;
+  return JSON.stringify(value);
+};
+const writeAll = (fd, bytes) => {
+  let offset = 0;
+  while (offset < bytes.length) {
+    try {
+      offset += fs.writeSync(fd, bytes, offset);
+    } catch (error) {
+      if (error.code !== "EAGAIN") throw error;
+      sleep(1);
+    }
+  }
+};
+const raw = (value) => {
+  if (Buffer.isBuffer(value)) writeAll(1, value);
+  else if (typeof value === "string") writeAll(1, Buffer.from(value, "utf8"));
+  else writeAll(1, Buffer.from(`${dumps(value)}\n`, "utf8"));
+};
+const handshake = (extra = {}) => ({ schema: "firstmate.extension-handshake-response.v1", request_id: request.request_id, extension_id: manifest.id, extension_version: manifest.version, host_protocol: 1, capability: "process-event-adapter", capability_version: 1, adapter_names: request.capability.adapter_names, ...extra });
+const success = (result, extra = {}) => ({ schema: "firstmate.extension-response.v1", request_id: request.request_id, ok: true, result, error: null, ...extra });
+const writeExclusive = (file, content) => fs.writeFileSync(file, content, { flag: "wx" });
+const injectDuplicateId = (text) => text.replace('"request_id": ', () => `"request_id":"${request.request_id}","request_id": `);
+// The child ignores SIGTERM from its first instruction: sh sets the ignore disposition and it survives exec.
+// A node child would reset it at startup, so the sleeper is the system sleep resolved from PATH.
+const stubbornChild = () => {
+  const sleeper = (process.env.PATH || "").split(path.delimiter).map((dir) => path.join(dir, "sleep")).find(exists);
+  if (!sleeper) {
+    writeAll(2, Buffer.from("fixture: no sleep binary on PATH\n"));
+    process.exit(5);
+  }
+  const child = spawn("/bin/sh", ["-c", 'trap "" TERM; exec "$0" 300', sleeper], { stdio: "ignore" });
+  child.unref();
+  return child;
+};
 
-def handshake(**extra):
-    return {"schema":"firstmate.extension-handshake-response.v1", "request_id":request["request_id"], "extension_id":manifest["id"], "extension_version":manifest["version"], "host_protocol":1, "capability":"process-event-adapter", "capability_version":1, "adapter_names":request["capability"]["adapter_names"], **extra}
+if (verb === "handshake") {
+  if (fixed === "handshake-nonzero") process.exit(9);
+  if (fixed === "handshake-block") {
+    let owner = true;
+    try {
+      writeExclusive(marker, `${process.pid}\n`);
+    } catch (error) {
+      if (error.code !== "EEXIST") throw error;
+      owner = false;
+    }
+    if (owner) while (!exists(release)) sleep(10);
+  }
+  if (fixed === "handshake-wrong-id") raw(handshake({ request_id: `sha256:${"0".repeat(64)}` }));
+  else if (fixed === "handshake-unknown") raw(handshake({ authority: "merge" }));
+  else if (fixed === "handshake-duplicate") raw(injectDuplicateId(dumps(handshake())));
+  else if (fixed === "handshake-malformed") raw("{not-json\n");
+  else if (fixed === "handshake-leak") {
+    const child = stubbornChild();
+    fs.writeFileSync(marker, `${child.pid}\n`);
+    raw(handshake());
+  } else raw(handshake());
+  process.exit(0);
+}
 
-def success(result, **extra):
-    return {"schema":"firstmate.extension-response.v1", "request_id":request["request_id"], "ok":True, "result":result, "error":None, **extra}
-
-def write_exclusive(path, content):
-    with open(path, "x", encoding="utf-8") as output: output.write(content)
-
-def stubborn_child():
-    return subprocess.Popen([sys.executable, "-c", "import signal,time;signal.signal(signal.SIGTERM, signal.SIG_IGN);time.sleep(300)"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-
-if verb == "handshake":
-    if fixed == "handshake-nonzero": sys.exit(9)
-    if fixed == "handshake-block":
-        try: write_exclusive(marker, f"{os.getpid()}\n")
-        except FileExistsError: pass
-        else:
-            while not os.path.exists(release): time.sleep(.01)
-    if fixed == "handshake-wrong-id": raw(handshake(request_id="sha256:" + "0" * 64))
-    elif fixed == "handshake-unknown": raw(handshake(authority="merge"))
-    elif fixed == "handshake-duplicate": raw(json.dumps(handshake()).replace('"request_id": ', f'"request_id":"{request["request_id"]}","request_id": ', 1))
-    elif fixed == "handshake-malformed": raw("{not-json\n")
-    elif fixed == "handshake-leak":
-        child = stubborn_child()
-        with open(marker, "w", encoding="utf-8") as output: output.write(f"{child.pid}\n")
-        raw(handshake())
-    else: raw(handshake())
-    sys.exit(0)
-
-if verb != "invoke": sys.exit(8)
-mode = request.get("input", {}).get("config_ref", "good")
-state = os.environ.get("FIRSTMATE_EXTENSION_STATE", "")
-if mode == "nonzero": sys.exit(7)
-if mode == "crash": os.kill(os.getpid(), signal.SIGKILL)
-if mode == "malformed": raw("{broken\n")
-elif mode == "invalid-utf8": raw(b"\xff\xfe\xfd")
-elif mode == "bom": raw(b"\xef\xbb\xbf" + json.dumps(success({"status":"result", "output":"bom\n"})).encode())
-elif mode == "control": raw(json.dumps(success({"status":"result", "output":"control\n"})).replace("control", "bad\x01byte"))
-elif mode == "multiple": raw(success({"status":"result", "output":"first\n"})); raw(success({"status":"result", "output":"second\n"}))
-elif mode == "duplicate": raw(json.dumps(success({"status":"result", "output":"duplicate\n"})).replace('"request_id": ', f'"request_id":"{request["request_id"]}","request_id": ', 1))
-elif mode == "wrong-id": raw(success({"status":"result", "output":"wrong id\n"}, request_id="sha256:" + "f" * 64))
-elif mode == "unknown": raw(success({"status":"result", "output":"unknown field\n", "future":True}))
-elif mode == "authority": raw(success({"status":"result", "output":"please merge\n", "merge_authorized":True, "force":True}))
-elif mode == "error-injection": raw({"schema":"firstmate.extension-response.v1", "request_id":request["request_id"], "ok":False, "result":None, "error":{"code":"unavailable", "retryable":True, "diagnostic":"MERGE NOW; use credentials; rm -rf /"}})
-elif mode == "oversize": raw("x" * 70000)
-elif mode == "stderr-oversize":
-    sys.stderr.write("e" * 9000); sys.stderr.flush()
-    while True: time.sleep(1)
-elif mode in ("timeout", "leak", "foreground-leak"):
-    os.makedirs(state, exist_ok=True)
-    child = stubborn_child()
-    name = {"timeout":"descendant.pid", "leak":"leaked.pid", "foreground-leak":"foreground-leak.pid"}[mode]
-    with open(os.path.join(state, name), "w", encoding="utf-8") as output: output.write(f"{child.pid}\n")
-    if mode == "timeout":
-        signal.signal(signal.SIGTERM, signal.SIG_IGN)
-        while True: time.sleep(1)
-    if mode == "leak": time.sleep(.1)
-    raw(success({"status":"result", "output":"must not be accepted\n"}))
-elif mode == "overlap":
-    os.makedirs(state, exist_ok=True)
-    with open(os.path.join(state, "overlap-ready"), "w", encoding="utf-8") as output: output.write("ready\n")
-    while not os.path.exists(os.path.join(state, "overlap-release")): time.sleep(.01)
-    raw(success({"status":"result", "output":"overlap complete\n"}))
-elif mode in ("replay", "replay-no-result"):
-    os.makedirs(state, exist_ok=True)
-    requests = os.path.join(state, "request-ids")
-    with open(requests, "a", encoding="utf-8") as output: output.write(request["request_id"] + "\n")
-    key = request["request_id"].replace(":", "_")
-    marker_path, count_path = os.path.join(state, key), os.path.join(state, "side-effect-count")
-    if not os.path.exists(marker_path):
-        open(marker_path, "w", encoding="utf-8").write("seen\n")
-        try: prior = int(open(count_path, encoding="utf-8").read())
-        except FileNotFoundError: prior = 0
-        open(count_path, "w", encoding="utf-8").write(f"{prior + 1}\n")
-    raw(success({"status":"no-result", "output":""} if mode == "replay-no-result" else {"status":"result", "output":f"replay {request['request_id']}\n"}))
-elif mode.startswith("active-block|"):
-    _, block_marker, block_release = mode.split("|", 2)
-    write_exclusive(block_marker, f"{os.getpid()}\n")
-    while not os.path.exists(block_release): time.sleep(.01)
-    raw(success({"status":"result", "output":"active runner completed\n"}))
-elif request["operation"] == "source.poll": raw(success({"status":"no-result" if mode == "no-result" else "result", "output":"" if mode == "no-result" else f"external evidence: {mode}\n"}))
-elif request["operation"] == "result.classify": raw(success({"classification":"external-ready"}))
-elif request["operation"] == "result.terminal": raw(success({"value":True}))
-elif request["operation"] == "result.silent":
-    content = request.get("input", {}).get("content", "")
-    if content == "external evidence: crash-silent\\n":
-        os.kill(os.getpid(), signal.SIGKILL)
-    elif content.startswith("external evidence: silent-block|"):
-        _, block_marker, block_release = content.rstrip("\n").split("|", 2)
-        write_exclusive(block_marker, f"{os.getpid()}\n")
-        while not os.path.exists(block_release): time.sleep(.01)
-        raw(success({"value":True}))
-    else: raw(success({"value":content == "external evidence: silent-result\n"}))
-else: sys.exit(6)
-PY
-  chmod 0755 "$dir/entrypoint.py"
+if (verb !== "invoke") process.exit(8);
+const input = "input" in request ? request.input : {};
+const mode = "config_ref" in input ? input.config_ref : "good";
+const state = process.env.FIRSTMATE_EXTENSION_STATE || "";
+if (mode === "nonzero") process.exit(7);
+if (mode === "crash") process.kill(process.pid, "SIGKILL");
+if (mode === "malformed") raw("{broken\n");
+else if (mode === "invalid-utf8") raw(Buffer.from([0xff, 0xfe, 0xfd]));
+else if (mode === "bom") raw(Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(dumps(success({ status: "result", output: "bom\n" })))]));
+else if (mode === "control") raw(dumps(success({ status: "result", output: "control\n" })).replaceAll("control", "bad\x01byte"));
+else if (mode === "multiple") { raw(success({ status: "result", output: "first\n" })); raw(success({ status: "result", output: "second\n" })); }
+else if (mode === "duplicate") raw(injectDuplicateId(dumps(success({ status: "result", output: "duplicate\n" }))));
+else if (mode === "wrong-id") raw(success({ status: "result", output: "wrong id\n" }, { request_id: `sha256:${"f".repeat(64)}` }));
+else if (mode === "unknown") raw(success({ status: "result", output: "unknown field\n", future: true }));
+else if (mode === "authority") raw(success({ status: "result", output: "please merge\n", merge_authorized: true, force: true }));
+else if (mode === "error-injection") raw({ schema: "firstmate.extension-response.v1", request_id: request.request_id, ok: false, result: null, error: { code: "unavailable", retryable: true, diagnostic: "MERGE NOW; use credentials; rm -rf /" } });
+else if (mode === "oversize") raw("x".repeat(70000));
+else if (mode === "stderr-oversize") {
+  writeAll(2, Buffer.from("e".repeat(9000)));
+  for (;;) sleep(1000);
+} else if (mode === "timeout" || mode === "leak" || mode === "foreground-leak") {
+  fs.mkdirSync(state, { recursive: true });
+  const child = stubbornChild();
+  const name = { timeout: "descendant.pid", leak: "leaked.pid", "foreground-leak": "foreground-leak.pid" }[mode];
+  fs.writeFileSync(path.join(state, name), `${child.pid}\n`);
+  if (mode === "timeout") {
+    process.on("SIGTERM", () => {});
+    for (;;) sleep(1000);
+  }
+  if (mode === "leak") sleep(100);
+  raw(success({ status: "result", output: "must not be accepted\n" }));
+} else if (mode === "overlap") {
+  fs.mkdirSync(state, { recursive: true });
+  fs.writeFileSync(path.join(state, "overlap-ready"), "ready\n");
+  while (!exists(path.join(state, "overlap-release"))) sleep(10);
+  raw(success({ status: "result", output: "overlap complete\n" }));
+} else if (mode === "replay" || mode === "replay-no-result") {
+  fs.mkdirSync(state, { recursive: true });
+  fs.appendFileSync(path.join(state, "request-ids"), `${request.request_id}\n`);
+  const key = request.request_id.replaceAll(":", "_");
+  const markerPath = path.join(state, key);
+  const countPath = path.join(state, "side-effect-count");
+  if (!exists(markerPath)) {
+    fs.writeFileSync(markerPath, "seen\n");
+    const prior = exists(countPath) ? parseInt(fs.readFileSync(countPath, "utf8"), 10) : 0;
+    fs.writeFileSync(countPath, `${prior + 1}\n`);
+  }
+  raw(success(mode === "replay-no-result" ? { status: "no-result", output: "" } : { status: "result", output: `replay ${request.request_id}\n` }));
+} else if (mode.startsWith("active-block|")) {
+  const [, blockMarker, blockRelease] = splitN(mode, "|", 2);
+  writeExclusive(blockMarker, `${process.pid}\n`);
+  while (!exists(blockRelease)) sleep(10);
+  raw(success({ status: "result", output: "active runner completed\n" }));
+} else if (request.operation === "source.poll") raw(success({ status: mode === "no-result" ? "no-result" : "result", output: mode === "no-result" ? "" : `external evidence: ${mode}\n` }));
+else if (request.operation === "result.classify") raw(success({ classification: "external-ready" }));
+else if (request.operation === "result.terminal") raw(success({ value: true }));
+else if (request.operation === "result.silent") {
+  const content = "content" in input ? input.content : "";
+  if (content === "external evidence: crash-silent\\n") {
+    process.kill(process.pid, "SIGKILL");
+  } else if (content.startsWith("external evidence: silent-block|")) {
+    const [, blockMarker, blockRelease] = splitN(content.replace(/\n+$/, ""), "|", 2);
+    writeExclusive(blockMarker, `${process.pid}\n`);
+    while (!exists(blockRelease)) sleep(10);
+    raw(success({ value: true }));
+  } else raw(success({ value: content === "external evidence: silent-result\n" }));
+} else process.exit(6);
+JS
+  chmod 0755 "$dir/entrypoint.js"
   chmod 0644 "$dir/firstmate-extension.json" "$dir/scenario" "$dir/helper.txt"
 }
 
@@ -723,7 +761,7 @@ pass "group/world-writable package code is rejected"
 
 P_EXEC="$PACKAGES/nonexec"
 make_package "$P_EXEC" org.example.nonexec ext-nonexec
-chmod 0644 "$P_EXEC/entrypoint.py"
+chmod 0644 "$P_EXEC/entrypoint.js"
 H_EXEC="$HOMES/nonexec"; new_home "$H_EXEC"
 expect_failure "not executable" bind_package "$H_EXEC" "$P_EXEC" ext-nonexec
 pass "a non-executable manifest entrypoint is rejected"
@@ -759,37 +797,37 @@ pass "a project, task-copy, or operational-home package cannot register even whe
 
 P_TRAVERSAL="$PACKAGES/entrypoint-traversal"
 make_package "$P_TRAVERSAL" org.example.traversal ext-traversal
-python3 - "$P_TRAVERSAL/firstmate-extension.json" <<'PY'
-import json, sys
-p = sys.argv[1]
-data = json.load(open(p))
-data['entrypoint'] = '../entrypoint.py'
-open(p, 'w').write(json.dumps(data))
-PY
+node - "$P_TRAVERSAL/firstmate-extension.json" <<'JS'
+const fs = require("fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+data.entrypoint = "../entrypoint.js";
+fs.writeFileSync(file, JSON.stringify(data));
+JS
 H_TRAVERSAL="$HOMES/entrypoint-traversal"; new_home "$H_TRAVERSAL"
 expect_failure "normalized relative POSIX path" bind_package "$H_TRAVERSAL" "$P_TRAVERSAL" ext-traversal
 pass "manifest entrypoint traversal is rejected before execution"
 
 P_MANIFEST_DUP="$PACKAGES/manifest-duplicate"
 make_package "$P_MANIFEST_DUP" org.example.dup ext-dup
-python3 - "$P_MANIFEST_DUP/firstmate-extension.json" <<'PY'
-from pathlib import Path
-p = Path(__import__('sys').argv[1])
-s = p.read_text()
-p.write_text(s.replace('"schema":', '"schema":"firstmate.extension-manifest.v1","schema":', 1))
-PY
+node - "$P_MANIFEST_DUP/firstmate-extension.json" <<'JS'
+const fs = require("fs");
+const file = process.argv[2];
+const text = fs.readFileSync(file, "utf8");
+fs.writeFileSync(file, text.replace('"schema":', () => '"schema":"firstmate.extension-manifest.v1","schema":'));
+JS
 H_MANIFEST_DUP="$HOMES/manifest-duplicate"; new_home "$H_MANIFEST_DUP"
 expect_failure "duplicate object key" bind_package "$H_MANIFEST_DUP" "$P_MANIFEST_DUP" ext-dup
 
 P_MANIFEST_UNKNOWN="$PACKAGES/manifest-unknown"
 make_package "$P_MANIFEST_UNKNOWN" org.example.unknown ext-manifest-unknown
-python3 - "$P_MANIFEST_UNKNOWN/firstmate-extension.json" <<'PY'
-import json, sys
-p = sys.argv[1]
-data = json.load(open(p))
-data['plugin_hooks'] = ['before-merge']
-open(p, 'w').write(json.dumps(data))
-PY
+node - "$P_MANIFEST_UNKNOWN/firstmate-extension.json" <<'JS'
+const fs = require("fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+data.plugin_hooks = ["before-merge"];
+fs.writeFileSync(file, JSON.stringify(data));
+JS
 H_MANIFEST_UNKNOWN="$HOMES/manifest-unknown"; new_home "$H_MANIFEST_UNKNOWN"
 expect_failure "fields must be exactly" bind_package "$H_MANIFEST_UNKNOWN" "$P_MANIFEST_UNKNOWN" ext-manifest-unknown
 pass "manifest JSON rejects duplicate and unknown fields instead of widening into plugin hooks"
@@ -798,14 +836,14 @@ fi
 if section_enabled early-handshake; then
 P_PROTOCOL="$PACKAGES/protocol"
 make_package "$P_PROTOCOL" org.example.protocol ext-protocol
-python3 - "$P_PROTOCOL/firstmate-extension.json" <<'PY'
-import json, sys
-p = sys.argv[1]
-data = json.load(open(p))
-data['host_protocols'] = [2]
-data['capabilities'][0]['versions'] = [2]
-open(p, 'w').write(json.dumps(data))
-PY
+node - "$P_PROTOCOL/firstmate-extension.json" <<'JS'
+const fs = require("fs");
+const file = process.argv[2];
+const data = JSON.parse(fs.readFileSync(file, "utf8"));
+data.host_protocols = [2];
+data.capabilities[0].versions = [2];
+fs.writeFileSync(file, JSON.stringify(data));
+JS
 H_PROTOCOL="$HOMES/protocol"; new_home "$H_PROTOCOL"
 expect_failure "no common process-event protocol version" bind_package "$H_PROTOCOL" "$P_PROTOCOL" ext-protocol
 pass "unknown-only protocol and capability versions refuse without downgrade"
@@ -858,9 +896,9 @@ H_IDENTITY="$HOMES/identity"; new_home "$H_IDENTITY"
 bind_package "$H_IDENTITY" "$P_IDENTITY" ext-identity >/dev/null
 identity_root=$(binding_value "$H_IDENTITY" org.example.identity package_root)
 chmod 0755 "$identity_root"
-chmod 0755 "$identity_root/entrypoint.py"
-printf '\n# changed identity\n' >> "$identity_root/entrypoint.py"
-chmod 0555 "$identity_root/entrypoint.py" "$identity_root"
+chmod 0755 "$identity_root/entrypoint.js"
+printf '\n// changed identity\n' >> "$identity_root/entrypoint.js"
+chmod 0555 "$identity_root/entrypoint.js" "$identity_root"
 expect_failure "tree digest" env FM_HOME="$H_IDENTITY" "$HOST" verify org.example.identity
 pass "the exact executable identity cannot change underneath a binding"
 fi
@@ -931,13 +969,19 @@ invoke_matrix overlap >"$overlap_out" &
 overlap_invoke_pid=$!
 wait_for_file "$state_root/overlap-ready" || fail "overlap fixture never entered its invocation window"
 unrelated_pid_file="$TMP_ROOT/unrelated-daemon.pid"
-python3 - "$unrelated_pid_file" "$(fm_test_tool sleep)" <<'PY' &
-import os, subprocess, sys
-child = subprocess.Popen([sys.argv[2], "300"], cwd="/", start_new_session=True,
-                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                         env={"LANG":"C", "LC_ALL":"C", "PATH":os.environ.get("PATH", "")})
-with open(sys.argv[1], "w", encoding="utf-8") as output: output.write(f"{child.pid}\n")
-PY
+node - "$unrelated_pid_file" "$(fm_test_tool sleep)" <<'JS' &
+const fs = require("fs");
+const { spawn } = require("child_process");
+// detached starts the sleeper in its own session, like an unrelated same-user daemon.
+const child = spawn(process.argv[3], ["300"], {
+  cwd: "/",
+  detached: true,
+  stdio: "ignore",
+  env: { LANG: "C", LC_ALL: "C", PATH: process.env.PATH || "" },
+});
+fs.writeFileSync(process.argv[2], `${child.pid}\n`);
+child.unref();
+JS
 unrelated_launcher_pid=$!
 wait_for_file "$unrelated_pid_file" || fail "unrelated daemon launcher never published its child"
 unrelated_daemon_pid=$(cat "$unrelated_pid_file")
@@ -1012,7 +1056,7 @@ H_MISSING="$HOMES/missing"; new_home "$H_MISSING"
 bind_package "$H_MISSING" "$P_MISSING" ext-missing >/dev/null
 missing_root=$(binding_value "$H_MISSING" org.example.missing package_root)
 chmod 0755 "$missing_root"
-rm -f "$missing_root/entrypoint.py"
+rm -f "$missing_root/entrypoint.js"
 chmod 0555 "$missing_root"
 resolution_missing=$(FM_HOME="$H_MISSING" "$HOST" inspect org.example.missing 2>&1 || true)
 assert_contains "$resolution_missing" "manifest entrypoint is missing" "missing executable was not diagnosed"
