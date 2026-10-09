@@ -71,6 +71,8 @@ An unfinished or failed invocation is not a healthy duration sample.
 A cancelled workflow supplies only its completed exit-0 records, not a green workflow verdict.
 An exit-0 capability skip measures only that skip path.
 The native-Windows test retains its separate 5121 ms measurement.
+The seven `tests/fm-watch-triage*.test.sh` hints divide the 697969 ms measurement of the former single-file suite in proportion to each file's share of one local serial run on 2026-10-09.
+They are derived, not measured; replace them with CI observations at the next refresh.
 Local measurements for endpoint retirement and Herdr layout remain lower bounds.
 
 Nine serial runners use this combined table.
