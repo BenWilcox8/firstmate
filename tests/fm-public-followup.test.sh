@@ -340,7 +340,7 @@ test_outcome_text_is_bounded_without_corrupting_characters() {
 
   # A very long sentence is capped by codepoint, so the JSON stays valid.
   rm -f "$event"
-  long=$(python3 -c 'print("é" * 5000, end="")')
+  long=$(printf 'é%.0s' $(seq 1 5000))
   "$EMIT" --home "$home" --obligation pf-text --relation rel-code \
     --source-home main --work-id work-text --generation 1 --outcome pr-merged \
     --deliverable pr_url=https://github.com/example/repo/pull/4 \

@@ -11,7 +11,7 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-fm_live_gate opt-in FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E pi python3
+fm_live_gate opt-in FM_QUOTA_ARRAY_DISPATCH_LIVE_E2E pi node
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OWNER="$ROOT/.agents/skills/quota-array-dispatch/SKILL.md"
@@ -45,96 +45,76 @@ record() {
   printf '%s\n' "$1" >> "${QUOTA_AXI_CALLS:?}"
 }
 emit_toon() {
-  python3 - "${QUOTA_AXI_FIXTURE:?}" <<'PY'
-import json
-import sys
+  node - "${QUOTA_AXI_FIXTURE:?}" <<'JS'
+const fs = require("fs");
 
-data = json.load(open(sys.argv[1], encoding="utf-8"))
-generated = data.get("generatedAt", "unknown")
-quota = []
-exhaustion = []
-attention = []
+// Falsy means null, 0, "", or an empty array or object, so empty lists fall through to the fallback.
+const truthy = (value) => {
+  if (Array.isArray(value)) return value.length > 0;
+  if (value && typeof value === "object") return Object.keys(value).length > 0;
+  return Boolean(value);
+};
+const or = (value, fallback) => (truthy(value) ? value : fallback);
+const joinIds = (ids) => (truthy(ids) ? ids.map(String).join(" + ") : "unknown");
+const get = (object, key, fallback) => (object != null && key in object ? object[key] : fallback);
 
+const data = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
+const generated = get(data, "generatedAt", "unknown");
+const quota = [];
+const exhaustion = [];
+const attention = [];
 
-def join_ids(ids):
-    if not ids:
-        return "unknown"
-    return " + ".join(str(item) for item in ids)
+for (const provider of or(data.providers, [])) {
+  const name = get(provider, "provider", "unknown");
+  const windows = new Map(or(provider.windows, []).map((window) => [window.id, window]));
+  const semantics = or(provider.quotaSemantics, {});
+  for (const scope of or(semantics.effectiveAvailability, [])) {
+    const remaining = scope.effectivePercentRemaining;
+    const selection = or(scope.selection, {});
+    const runway = or(scope.runway, {});
+    const scopeName = get(scope, "scope", "unknown");
+    if (remaining == null) {
+      attention.push(`  ${name},${scopeName},headroom_unknown,${joinIds(or(runway.unmeasurableWindowIds, scope.boundedBy))},none`);
+      continue;
+    }
+    const spend = selection.status === "known" && "spendPriority" in selection ? selection.spendPriority : "unknown";
+    const runwayStatus = or(runway.status, "unknown");
+    const confidence = or(runway.projectionConfidence, "unknown");
+    const limited = joinIds(scope.limitingWindowIds);
+    let binding = null;
+    for (const windowId of or(scope.limitingWindowIds, [])) {
+      binding = (windows.get(windowId) || {}).resetsAt;
+      if (truthy(binding)) break;
+    }
+    const resetsAt = or(binding, "unknown");
+    quota.push(`  ${name},${scopeName},${remaining},${spend},${runwayStatus},${confidence},${limited},${resetsAt}`);
+    if (runwayStatus === "projected_exhaustion" || runwayStatus === "exhausted_now") {
+      const seconds = get(runway, "usableRunwaySeconds", "unknown");
+      const exhaustedAt = get(runway, "projectedExhaustedAt", "unknown");
+      const limiting = get(runway, "limitingWindowId", "unknown");
+      exhaustion.push(`  ${name},${scopeName},${seconds},${exhaustedAt},${limiting}`);
+    }
+    const blocked = [];
+    if (truthy(runway.unmeasurableWindowIds)) blocked.push(`${joinIds(runway.unmeasurableWindowIds)} blocks runway`);
+    if (truthy(selection.unmeasurableWindowIds)) blocked.push(`${joinIds(selection.unmeasurableWindowIds)} blocks spendPriority`);
+    if (blocked.length > 0) attention.push(`  ${name},${scopeName},unmeasurable,${blocked.join(" · ")},none`);
+  }
+}
 
-
-for provider in data.get("providers") or []:
-    name = provider.get("provider", "unknown")
-    windows = {window.get("id"): window for window in (provider.get("windows") or [])}
-    semantics = provider.get("quotaSemantics") or {}
-    for scope in semantics.get("effectiveAvailability") or []:
-        remaining = scope.get("effectivePercentRemaining")
-        selection = scope.get("selection") or {}
-        runway = scope.get("runway") or {}
-        scope_name = scope.get("scope", "unknown")
-        if remaining is None:
-            attention.append(
-                f"  {name},{scope_name},headroom_unknown,{join_ids(runway.get('unmeasurableWindowIds') or scope.get('boundedBy'))},none"
-            )
-            continue
-        if selection.get("status") == "known" and "spendPriority" in selection:
-            spend = selection["spendPriority"]
-        else:
-            spend = "unknown"
-        runway_status = runway.get("status") or "unknown"
-        confidence = runway.get("projectionConfidence") or "unknown"
-        limited = join_ids(scope.get("limitingWindowIds"))
-        binding = None
-        for window_id in scope.get("limitingWindowIds") or []:
-            binding = (windows.get(window_id) or {}).get("resetsAt")
-            if binding:
-                break
-        resets_at = binding or "unknown"
-        quota.append(
-            f"  {name},{scope_name},{remaining},{spend},{runway_status},{confidence},{limited},{resets_at}"
-        )
-        if runway_status in ("projected_exhaustion", "exhausted_now"):
-            seconds = runway.get("usableRunwaySeconds", "unknown")
-            exhausted_at = runway.get("projectedExhaustedAt", "unknown")
-            limiting = runway.get("limitingWindowId", "unknown")
-            exhaustion.append(
-                f"  {name},{scope_name},{seconds},{exhausted_at},{limiting}"
-            )
-        blocked = []
-        if runway.get("unmeasurableWindowIds"):
-            blocked.append(f"{join_ids(runway['unmeasurableWindowIds'])} blocks runway")
-        if selection.get("unmeasurableWindowIds"):
-            blocked.append(
-                f"{join_ids(selection['unmeasurableWindowIds'])} blocks spendPriority"
-            )
-        if blocked:
-            attention.append(
-                f"  {name},{scope_name},unmeasurable,{' · '.join(blocked)},none"
-            )
-
-print('bin: fake-quota-axi')
-print('description: Report local agent-provider quota windows for routing-aware agents')
-print(f'generatedAt: "{generated}"')
-print(
-    f"quota[{len(quota)}]{{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}}:"
-)
-print("\n".join(quota) if quota else "")
-print(
-    f"exhaustion[{len(exhaustion)}]{{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}}:"
-    if exhaustion
-    else "exhaustion[0]:"
-)
-if exhaustion:
-    print("\n".join(exhaustion))
-print(
-    f"attention[{len(attention)}]{{provider,scope,kind,detail,remedy}}:"
-    if attention
-    else "attention[0]:"
-)
-if attention:
-    print("\n".join(attention))
-print("help[1]:")
-print("  Run `quota-axi --full` for windows, pace, reserve, and account evidence")
-PY
+const lines = [
+  "bin: fake-quota-axi",
+  "description: Report local agent-provider quota windows for routing-aware agents",
+  `generatedAt: "${generated}"`,
+  `quota[${quota.length}]{provider,scope,effectivePercentRemaining,spendPriority,runway,confidence,limitedBy,resetsAt}:`,
+  quota.length > 0 ? quota.join("\n") : "",
+  exhaustion.length > 0 ? `exhaustion[${exhaustion.length}]{provider,scope,usableRunwaySeconds,projectedExhaustedAt,limitingWindowId}:` : "exhaustion[0]:",
+];
+if (exhaustion.length > 0) lines.push(exhaustion.join("\n"));
+lines.push(attention.length > 0 ? `attention[${attention.length}]{provider,scope,kind,detail,remedy}:` : "attention[0]:");
+if (attention.length > 0) lines.push(attention.join("\n"));
+lines.push("help[1]:", "  Run `quota-axi --full` for windows, pace, reserve, and account evidence");
+process.stdout.write(`${lines.join("\n")}\n`);
+JS
 }
 
 case "$*" in

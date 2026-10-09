@@ -97,15 +97,15 @@ OUT="$SCRATCH/out"; RCF="$SCRATCH/rc"
 WPID=$!
 sleep 0.5   # let it connect, subscribe, and reconcile the idle baseline
 
-START=$(python3 -c 'import time; print(time.time())')
+START=$(node -p 'Date.now() / 1000')
 fm_herdr_lab_cli "$SESSION" pane report-agent "$PANE_ID" --source fm-evwait-test --agent claude --state blocked >/dev/null 2>&1 \
   || fail "could not drive the pane's agent to blocked"
 wait "$WPID"
-END=$(python3 -c 'import time; print(time.time())')
+END=$(node -p 'Date.now() / 1000')
 
 RC=$(cat "$RCF" 2>/dev/null || echo "")
 REC=$(cat "$OUT" 2>/dev/null || echo "")
-ELAPSED=$(python3 -c "print(f'{($END)-($START):.3f}')" 2>/dev/null || echo "?")
+ELAPSED=$(node -p "(($END) - ($START)).toFixed(3)" 2>/dev/null || echo "?")
 
 [ "$RC" = 0 ] || fail "wait_transition should return 0 on a real idle->blocked transition, got rc='$RC' rec='$REC'"
 REC_PANE=$(fm_transition_pane_id "$REC")
@@ -113,7 +113,7 @@ REC_TO=$(fm_transition_to_status "$REC")
 [ "$REC_PANE" = "$PANE_ID" ] || fail "the returned record's pane_id ('$REC_PANE') must match the driven pane ('$PANE_ID')"
 [ "$REC_TO" = "blocked" ] || fail "the returned record's to_status must be 'blocked', got '$REC_TO'"
 # Sub-second: comfortably under the ~240s stale-pane wedge timer this replaces.
-UNDER_ONE=$(python3 -c "print('yes' if (($END)-($START)) < 1.0 else 'no')" 2>/dev/null || echo "no")
+UNDER_ONE=$(node -p "(($END) - ($START)) < 1.0 ? 'yes' : 'no'" 2>/dev/null || echo "no")
 [ "$UNDER_ONE" = yes ] || echo "note: idle->blocked wake took ${ELAPSED}s (>1s; still far under the 240s wedge timer, not fatal)" >&2
 pass "real herdr ($HERDR_VERSION): a driven idle->blocked transition returns the blocked record in ${ELAPSED}s (pane $PANE_ID)"
 

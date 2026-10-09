@@ -78,14 +78,18 @@ test_outcome_store_is_append_only_with_cursor_reads() {
   [ "$seq2" = 2 ] || fail "second outcome seq was $seq2, not 2"
 
   # The store is the owned durable contract: every line stays valid JSON.
-  python3 - "$store" <<'PY' || fail "outcome store holds invalid JSON"
-import json, sys
-rows = [json.loads(line) for line in open(sys.argv[1])]
-assert [row["seq"] for row in rows] == [1, 2], rows
-assert rows[0]["verdict"] == "routine" and rows[1]["verdict"] == "captain", rows
-assert rows[0]["summary"] == 'worker healthy, "quoted" text kept', rows[0]
-assert rows[0]["silent"] is False and rows[1]["silent"] is False, rows
-PY
+  node - "$store" <<'JS' || fail "outcome store holds invalid JSON"
+const assert = require("assert");
+const fs = require("fs");
+const lines = fs.readFileSync(process.argv[2], "utf8").split("\n");
+if (lines[lines.length - 1] === "") lines.pop();
+const rows = lines.map((line) => JSON.parse(line));
+const shown = JSON.stringify(rows);
+assert.deepStrictEqual(rows.map((row) => row.seq), [1, 2], shown);
+assert.ok(rows[0].verdict === "routine" && rows[1].verdict === "captain", shown);
+assert.strictEqual(rows[0].summary, 'worker healthy, "quoted" text kept', shown);
+assert.ok(rows[0].silent === false && rows[1].silent === false, shown);
+JS
 
   # mark-read moves only the cursor sidecar; the log bytes never change.
   snapshot=$(cat "$store")
