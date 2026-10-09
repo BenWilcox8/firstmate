@@ -9,7 +9,8 @@
 # behaviour stays unchanged when the new flags are omitted. `say` and `ask` are
 # covered with a fake aws: the WAV header that `say` builds, the duration, and
 # each request body. The machine-readable subcommands also run under a minimal
-# non-login PATH that finds node only in /opt/homebrew/bin or /usr/local/bin.
+# non-login PATH that finds node only in /opt/homebrew/bin or /usr/local/bin,
+# and a node on that PATH still wins over the node in those directories.
 set -euo pipefail
 
 # shellcheck source=tests/lib.sh
@@ -697,10 +698,11 @@ pass "ask sends a question that starts with a dash as text"
 # --- machine-readable output under a non-login ssh PATH ---------------------
 #
 # `ssh host fm-inbox.sh ready` gets the non-login PATH of the host. On macOS
-# that PATH has no Homebrew or nvm tools. The script adds /opt/homebrew/bin and
-# /usr/local/bin when they exist, so a node in one of them serves the
-# machine-readable subcommands. This case uses the node of this host in one of
-# those directories, and it skips when neither directory has a node.
+# that PATH has no Homebrew or nvm tools. The script appends /opt/homebrew/bin
+# and /usr/local/bin when they exist, so a node in one of them serves the
+# machine-readable subcommands, and a node that the PATH already holds still
+# wins. This case uses the node of this host in one of those directories, and
+# it skips when neither directory has a node.
 
 std_node_dir=
 for dir in /opt/homebrew/bin /usr/local/bin; do
@@ -734,4 +736,22 @@ else
   printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \
     || fail "ready under the minimal PATH did not print the readiness JSON: $readiness"
   pass "machine-readable subcommands find node in $std_node_dir under a non-login PATH"
+
+  shimbin="$home/shimbin"
+  mkdir -p "$shimbin"
+  cat >"$shimbin/node" <<'NODE'
+#!/usr/bin/env bash
+printf '%s\n' "$#" >>"$SHIM_NODE_LOG"
+exec "$REAL_NODE" "$@"
+NODE
+  chmod +x "$shimbin/node"
+  : >"$home/shim-node.log"
+  readiness=$(SHIM_NODE_LOG="$home/shim-node.log" REAL_NODE="$std_node_dir/node" \
+    HOME="$home" PATH="$shimbin:$core_path" run_inbox "$home" ready) \
+    || fail "ready must run with the node of the caller PATH: $readiness"
+  printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \
+    || fail "ready with a node on the caller PATH did not print the readiness JSON: $readiness"
+  [ -s "$home/shim-node.log" ] \
+    || fail "the node on the caller PATH must win over the node in $std_node_dir"
+  pass "a node on the caller PATH wins over the node in $std_node_dir"
 fi
