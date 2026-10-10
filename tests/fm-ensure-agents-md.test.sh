@@ -368,7 +368,8 @@ test_agents_md_symlink_is_refused() {
 }
 
 # A CLAUDE.md symlink whose target is not the literal name AGENTS.md but still
-# resolves to it is a correct symlink: it migrates like `ln -s AGENTS.md`.
+# resolves to it is a correct symlink: it migrates like `ln -s AGENTS.md`. As
+# with non-strict os.path.realpath, a missing component before .. still resolves.
 test_resolved_symlink_target_migrates_to_pointer() {
   local repo dir out rc target
   repo="$TMP_ROOT/resolved-symlink-project"
@@ -376,7 +377,7 @@ test_resolved_symlink_target_migrates_to_pointer() {
   dir=$(cd "$repo" && pwd -P)
   printf '# Resolved agent memory\n\n## Maintaining this file\n\nKeep this file for knowledge useful to almost every future agent session in this project.\nDo not repeat what the codebase already shows; point to the authoritative file or command instead.\nPrefer rewriting or pruning existing entries over appending new ones.\nWhen updating this file, preserve this bar for all agents and keep entries concise.\n' > "$repo/AGENTS.md"
   cp "$repo/AGENTS.md" "$repo/.before"
-  for target in "$dir/AGENTS.md" sub/../AGENTS.md; do
+  for target in "$dir/AGENTS.md" sub/../AGENTS.md missing/../AGENTS.md; do
     rm -f "$repo/CLAUDE.md"
     ln -s "$target" "$repo/CLAUDE.md"
     out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
