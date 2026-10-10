@@ -2484,6 +2484,41 @@ test_projection_close_move_failure_falls_back_to_plain_close() {
   pass "herdr presentation cleanup: a failed repositioning move falls back to the plain close with a warning"
 }
 
+test_projection_close_without_python3_names_python3() {
+  local dir log resp fb out status bgpid
+  dir="$TMP_ROOT/close-no-python"; mkdir -p "$dir/responses"
+  log="$dir/log"; resp="$dir/responses"; : > "$log"
+  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w1","active_tab_id":"w1:t1","focused":false},{"workspace_id":"w2","active_tab_id":"w2:t1","focused":true},{"workspace_id":"w3","active_tab_id":"w3:t1","focused":false}]}}' > "$resp/1.out"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t1","focused":true}]}}' > "$resp/2.out"
+  printf '%s\n' '{"result":{"pane":{"pane_id":"w1:p1","tab_id":"w1:t1","workspace_id":"w1"}}}' > "$resp/3.out"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w1:t1","workspace_id":"w1"}]}}' > "$resp/4.out"
+  printf '%s\n' '{"result":{"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1"}]}}' > "$resp/5.out"
+  cp "$resp/1.out" "$resp/6.out"
+  printf '%s\n' '{"error":{"code":"pane_not_found"}}' > "$resp/8.out"
+  printf '%s\n' '{"result":{"workspaces":[{"workspace_id":"w2","active_tab_id":"w2:t1","focused":true},{"workspace_id":"w3","active_tab_id":"w3:t1","focused":false}]}}' > "$resp/9.out"
+  printf '%s\n' '{"result":{"tabs":[{"tab_id":"w2:t1","focused":true}]}}' > "$resp/10.out"
+  sleep 300 & bgpid=$!
+  make_death_lab "$dir" "$bgpid"
+  fb=$(make_herdr_fakebin "$dir")
+  rm -f "$fb/python3"
+  PATH="$fb:$CORE_PATH" bash -c '! command -v python3' >/dev/null \
+    || fail "the fixture PATH must not hold python3"
+  out=$(PATH="$fb:$CORE_PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" \
+    FM_HERDR_PS_BIN="$dir/ps" FM_BACKEND_HERDR_WORKSPACE_MOVER="$dir/mover" \
+    FM_FAKE_MOVER_LOG="$dir/mover.log" FM_FAKE_MOVER_RESPONSE="$dir/no-response" \
+    FM_BACKEND_HERDR_DEATH_CLOSE_POLLS=2 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_projection_close_pane_focus_preserving fmtest w1:p1' "$ROOT" 2>&1)
+  status=$?
+  [ "$status" -eq 0 ] || fail "a close without python3 should fall back to the plain close: $out"
+  assert_contains "$out" "requires python3 to verify workspace.move support" \
+    "a close without python3 did not name python3 as the reason it lost the focus-safe path"
+  assert_contains "$(cat "$log")" $'pane\x1fclose\x1fw1:p1' "a close without python3 did not use the plain close"
+  [ ! -s "$dir/mover.log" ] || fail "a close without python3 invoked the workspace mover"
+  kill -0 "$bgpid" 2>/dev/null || fail "a close without python3 signaled the pane's shell"
+  kill "$bgpid" 2>/dev/null || true; wait "$bgpid" 2>/dev/null || true
+  pass "herdr presentation cleanup: without python3 the close falls back to the plain close and names python3"
+}
+
 test_projection_close_busy_pane_falls_back_to_plain_close() {
   local dir log resp fb out status bgpid
   dir="$TMP_ROOT/close-busy-pane"; mkdir -p "$dir/responses"
@@ -5511,6 +5546,7 @@ test_projection_close_non_emptying_stays_plain_without_proof_or_move
 test_projection_close_plain_without_move_requires_structured_removal
 test_projection_close_ambiguous_positions_fall_back_to_plain_close
 test_projection_close_move_failure_falls_back_to_plain_close
+test_projection_close_without_python3_names_python3
 test_projection_close_busy_pane_falls_back_to_plain_close
 test_projection_close_transient_prompt_helper_settles_then_uses_pane_death
 test_projection_close_death_escalates_sigkill_after_sighup_survival

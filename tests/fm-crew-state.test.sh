@@ -3449,6 +3449,27 @@ SH
   pass 'the capped inventory reader is bounded by the crew read budget'
 }
 
+# Without python3 the complete-inventory reader cannot run. A capped overview
+# then reads unknown, keeps the visible run id, and names python3 as the cause,
+# so the verdict is not mistaken for a slow or unreadable database.
+test_capped_inventory_without_python3_names_python3() {
+  local d toolbin out
+  make_competing_runs_case capped-no-python running pending
+  d=$TMP_ROOT/capped-no-python
+  FM_FAKE_AXI_HOME="$(printf '%s\n' "$FM_FAKE_AXI_HOME" | sed 's/2 of 2/2 of 3/')"
+  FM_FAKE_AXI_STATUS="$(run_running fm/competing | sed 's/01RUN/01NEW/')"
+  FM_FAKE_AXI_STATUS_RUN="$(run_parked fm/competing | sed 's/01RUN/01NEW/')"
+  toolbin=$(make_no_python_toolbin "$d")
+  PATH="$d/fakebin:$toolbin" bash -c '! command -v python3' >/dev/null \
+    || fail 'the fixture PATH must not hold python3'
+  out=$(PATH="$d/fakebin:$toolbin" FM_STATE_OVERRIDE="$d/state" "$CREW_STATE" competing)
+  assert_contains "$out" 'state: unknown' 'a capped overview without its inventory reader cannot establish a verdict'
+  assert_contains "$out" '01NEW' 'the unknown verdict keeps the visible run id'
+  assert_contains "$out" 'reader unavailable (python3 is not installed)' \
+    'the unknown verdict names the missing python3'
+  pass 'a capped inventory without python3 reads unknown and names python3'
+}
+
 # Repo identity is looked up by the exact recorded `working_path`; a worktree
 # spelled differently from the registered row is not guessed at, and reads as
 # an unreadable inventory that still names every candidate run id.
@@ -4963,6 +4984,7 @@ sqlite_case test_capped_overview_without_branch_rows_reports_both_ids
 sqlite_case test_capped_overview_without_repo_line_and_no_runs_reports_absent
 sqlite_case test_no_branch_run_beside_a_live_run_elsewhere_reads_absent
 sqlite_case test_capped_inventory_reader_is_time_bounded
+test_capped_inventory_without_python3_names_python3
 sqlite_case test_capped_inventory_requires_exact_worktree_path
 sqlite_case test_capped_replacement_keeps_gate_and_inventory_unchanged
 sqlite_case test_capped_inventory_failures_report_unknown
