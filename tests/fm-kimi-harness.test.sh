@@ -18,10 +18,22 @@ KIMI_HOOK="$ROOT/bin/fm-kimi-turnend-hook.sh"
 TMP_ROOT=$(fm_test_tmproot fm-kimi-harness)
 KIMI_RUNTIME_TASK_TMP=
 KIMI_RUNTIME_LAUNCH_DIR=
-PYTHON_BIN=$(command -v python3) || fail "test needs python3"
-PYTHON_BIN_DIR=$(dirname "$PYTHON_BIN")
+# The Kimi hook validates config.toml with python3 tomllib, so only the cases
+# that install or remove the hook, and every case that spawns a Kimi worker (the
+# spawn installs the hook), need it. The rest runs without python3.
+PYTHON_BIN=$(command -v python3 || true)
 JQ_BIN=$(command -v jq) || fail "test needs jq"
-BASE_PATH=${FM_TEST_BASE_PATH:-"$PYTHON_BIN_DIR:$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
+BASE_PATH=${FM_TEST_BASE_PATH:-"${PYTHON_BIN:+$(dirname "$PYTHON_BIN"):}$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
+
+# Runs a case that needs the hook, or reports a skip when python3 with tomllib
+# is missing. The hook itself refuses with a message naming python3 then.
+tomllib_case() {
+  if [ -n "$PYTHON_BIN" ] && "$PYTHON_BIN" -c "import tomllib" >/dev/null 2>&1; then
+    "$@"
+  else
+    printf "ok - SKIP %s: python3 with tomllib is not installed\n" "$1"
+  fi
+}
 
 cleanup_kimi_harness() {
   [ -z "$KIMI_RUNTIME_TASK_TMP" ] || rm -rf "$KIMI_RUNTIME_TASK_TMP"
@@ -1115,31 +1127,31 @@ test_kimi_bordered_prompt_needs_no_override() {
   pass "composer classifier: kimi's existing bordered > shape is already safe without an override"
 }
 
-test_kimi_hook_install_is_surgical_idempotent_and_removable
-test_kimi_hook_remove_preserves_owned_newline_boundary
-test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config
-test_kimi_hook_install_refuses_without_jq
-test_kimi_launch_then_send_is_verified
-test_kimi_spawn_refuses_shared_task_temp_root
-test_kimi_hook_is_silent_and_requires_registered_workspace_token
-test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation
-test_kimi_teardown_removes_pointer_and_registry_token
-test_kimi_falls_back_to_expanded_home_binary
+tomllib_case test_kimi_hook_install_is_surgical_idempotent_and_removable
+tomllib_case test_kimi_hook_remove_preserves_owned_newline_boundary
+tomllib_case test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config
+tomllib_case test_kimi_hook_install_refuses_without_jq
+tomllib_case test_kimi_launch_then_send_is_verified
+tomllib_case test_kimi_spawn_refuses_shared_task_temp_root
+tomllib_case test_kimi_hook_is_silent_and_requires_registered_workspace_token
+tomllib_case test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation
+tomllib_case test_kimi_teardown_removes_pointer_and_registry_token
+tomllib_case test_kimi_falls_back_to_expanded_home_binary
 test_kimi_missing_binary_refuses_before_pane_creation
-test_kimi_unconfirmed_delivery_fails_loudly
-test_kimi_readiness_gate_precedes_pointer
-test_kimi_fresh_worktree_trust_is_answered_and_verified
-test_kimi_swallowed_trust_enter_is_retried_until_the_dialog_clears
-test_kimi_banner_before_the_dialog_paints_does_not_pass_readiness
-test_kimi_answered_dialog_left_in_history_does_not_restart_the_answer
-test_kimi_blank_viewport_frame_costs_only_its_poll
+tomllib_case test_kimi_unconfirmed_delivery_fails_loudly
+tomllib_case test_kimi_readiness_gate_precedes_pointer
+tomllib_case test_kimi_fresh_worktree_trust_is_answered_and_verified
+tomllib_case test_kimi_swallowed_trust_enter_is_retried_until_the_dialog_clears
+tomllib_case test_kimi_banner_before_the_dialog_paints_does_not_pass_readiness
+tomllib_case test_kimi_answered_dialog_left_in_history_does_not_restart_the_answer
+tomllib_case test_kimi_blank_viewport_frame_costs_only_its_poll
 test_kimi_refuses_a_backend_without_a_viewport_capture
-test_kimi_answers_a_trust_dialog_with_a_wrapped_hint
-test_kimi_blank_frame_between_banners_restarts_the_ready_count
-test_kimi_failed_viewport_read_fails_readiness_at_once
-test_kimi_partial_trust_dialog_blocks_the_ready_verdict
-test_kimi_stuck_trust_dialog_fails_before_delivery
-test_kimi_trust_detection_requires_the_complete_dialog
+tomllib_case test_kimi_answers_a_trust_dialog_with_a_wrapped_hint
+tomllib_case test_kimi_blank_frame_between_banners_restarts_the_ready_count
+tomllib_case test_kimi_failed_viewport_read_fails_readiness_at_once
+tomllib_case test_kimi_partial_trust_dialog_blocks_the_ready_verdict
+tomllib_case test_kimi_stuck_trust_dialog_fails_before_delivery
+tomllib_case test_kimi_trust_detection_requires_the_complete_dialog
 test_kimi_detection_uses_ancestry_after_markers
 test_kimi_session_lock_identity
 test_kimi_busy_signature_is_scoped_to_spinner_lines

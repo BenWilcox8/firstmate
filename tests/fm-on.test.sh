@@ -494,6 +494,25 @@ if "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" 1 "$traversal_root_b64" "$home_b64
 fi
 pass "the fixed entrypoint refuses incompatible protocols and unsafe roots"
 
+# The install puts a symlink to the entrypoint on the plain SSH PATH, and on an
+# older macOS that PATH has neither node nor realpath. Through a relative link
+# to an absolute link, the entrypoint must still load its library from the
+# checkout: then it reaches its own protocol refusal, and not a failed source.
+SSH_BIN="$TMP_ROOT/ssh-bin"
+mkdir -p "$SSH_BIN/hop"
+ln -s "$REMOTE_ROOT/bin/fm-remote-entrypoint.sh" "$SSH_BIN/hop/fm-remote-entrypoint.sh"
+ln -s hop/fm-remote-entrypoint.sh "$SSH_BIN/fm-remote-entrypoint.sh"
+BARE_PATH=$(fm_test_core_path)
+for tool in node realpath; do
+  PATH=$BARE_PATH command -v "$tool" >/dev/null 2>&1 && fail "the bare SSH PATH fixture still holds $tool"
+done
+rc=0
+out=$(PATH=$BARE_PATH "$SSH_BIN/fm-remote-entrypoint.sh" 2 "$root_b64" "$home_b64" "$argv_b64" 2>&1) || rc=$?
+expect_code 64 "$rc" "the linked entrypoint under a bare PATH"
+assert_contains "$out" "incompatible remote protocol: local=2 remote=1" \
+  "the linked entrypoint did not load its library from the checkout"
+pass "the fixed entrypoint resolves its install symlink chain without node or realpath"
+
 cat >> "$LOCAL_HOME/data/secondmates.md" <<EOF
 - build - build delivery (host: remote-mac; root: $REMOTE_ROOT; home: $TMP_ROOT/other-remote-home; scope: build work; projects: beta; added 2026-08-02)
 EOF

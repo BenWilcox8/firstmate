@@ -367,6 +367,32 @@ test_agents_md_symlink_is_refused() {
   pass "fm-ensure-agents-md.sh: refuses AGENTS.md when it is a symlink"
 }
 
+# A CLAUDE.md symlink whose target is not the literal name AGENTS.md but still
+# resolves to it is a correct symlink: it migrates like `ln -s AGENTS.md`. As
+# with non-strict os.path.realpath, a missing component before .. still resolves,
+# also at the end of a two-hop symlink chain.
+test_resolved_symlink_target_migrates_to_pointer() {
+  local repo dir out rc target
+  repo="$TMP_ROOT/resolved-symlink-project"
+  mkdir -p "$repo/sub"
+  ln -s missing/../AGENTS.md "$repo/hop"
+  dir=$(cd "$repo" && pwd -P)
+  printf '# Resolved agent memory\n\n## Maintaining this file\n\nKeep this file for knowledge useful to almost every future agent session in this project.\nDo not repeat what the codebase already shows; point to the authoritative file or command instead.\nPrefer rewriting or pruning existing entries over appending new ones.\nWhen updating this file, preserve this bar for all agents and keep entries concise.\n' > "$repo/AGENTS.md"
+  cp "$repo/AGENTS.md" "$repo/.before"
+  for target in "$dir/AGENTS.md" sub/../AGENTS.md missing/../AGENTS.md hop; do
+    rm -f "$repo/CLAUDE.md"
+    ln -s "$target" "$repo/CLAUDE.md"
+    out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+    rc=$?
+    expect_code 0 "$rc" "a CLAUDE.md symlink to $target"
+    assert_equals "updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in $dir" "$out" \
+      "a CLAUDE.md symlink to $target did not migrate to the pointer"
+    assert_claude_pointer "$repo/CLAUDE.md"
+    cmp -s "$repo/.before" "$repo/AGENTS.md" || fail "migrating a symlink to $target modified AGENTS.md"
+  done
+  pass "fm-ensure-agents-md.sh: a CLAUDE.md symlink that resolves to AGENTS.md migrates to the pointer"
+}
+
 test_wrong_target_symlink_is_refused() {
   local repo out rc
   repo="$TMP_ROOT/wrong-target-project"
@@ -384,6 +410,27 @@ test_wrong_target_symlink_is_refused() {
   cmp -s "$repo/.agents-before" "$repo/AGENTS.md" \
     || fail "wrong-target refusal modified AGENTS.md"
   pass "fm-ensure-agents-md.sh: refuses a CLAUDE.md symlink that does not point to AGENTS.md"
+}
+
+# As with os.path.realpath, a symlinked directory resolves before a later ..
+# applies, so ln/missing/../../AGENTS.md with ln -> deep/x names deep/AGENTS.md.
+test_symlinked_dir_before_parent_is_refused() {
+  local repo out rc
+  repo="$TMP_ROOT/symlinked-dir-parent-project"
+  mkdir -p "$repo/deep/x"
+  printf '# Agents memory\n' > "$repo/AGENTS.md"
+  ln -s deep/x "$repo/ln"
+  ln -s ln/missing/../../AGENTS.md "$repo/CLAUDE.md"
+  cp "$repo/AGENTS.md" "$repo/.agents-before"
+  out=$("$ROOT/bin/fm-ensure-agents-md.sh" "$repo" 2>&1)
+  rc=$?
+  expect_code 1 "$rc" "a CLAUDE.md symlink through a symlinked dir before .."
+  assert_contains "$out" "conflict: CLAUDE.md is a symlink" "a symlinked dir before .. did not report a conflict"
+  [ "$(readlink "$repo/CLAUDE.md")" = "ln/missing/../../AGENTS.md" ] \
+    || fail "a symlinked dir before .. changed the CLAUDE.md symlink"
+  cmp -s "$repo/.agents-before" "$repo/AGENTS.md" \
+    || fail "a symlinked dir before .. modified AGENTS.md"
+  pass "fm-ensure-agents-md.sh: resolves a symlinked dir before .. and refuses the link"
 }
 
 test_non_regular_claude_md_is_refused() {
@@ -421,6 +468,7 @@ test_promoted_claude_md_includes_self_governance
 test_promoted_claude_md_without_trailing_newline_keeps_blank_separator
 test_existing_agents_md_with_symlink_gains_self_governance
 test_correct_symlink_migrates_to_pointer_without_clobbering_agents
+test_resolved_symlink_target_migrates_to_pointer
 test_existing_agents_md_without_claude_gains_section_and_pointer
 test_existing_agents_md_with_section_reports_unchanged
 test_existing_crlf_agents_md_with_section_stays_unchanged
@@ -431,5 +479,6 @@ test_canonical_pointer_is_accepted_when_both_are_real_files
 test_distinct_real_files_are_refused
 test_agents_md_symlink_is_refused
 test_wrong_target_symlink_is_refused
+test_symlinked_dir_before_parent_is_refused
 test_non_regular_claude_md_is_refused
 test_lowercase_agents_md_refuses_case_fragile_pointer

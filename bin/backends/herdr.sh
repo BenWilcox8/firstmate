@@ -1240,7 +1240,11 @@ fm_backend_herdr_emptying_close_plan() {  # <session> <pane-id> <workspace-id> <
       capable=$?
     fi
     if [ "$capable" -ne 0 ]; then
-      echo "warning: herdr presentation cleanup could not verify workspace.move support; closing without the focus-safe removal path" >&2
+      if [ "$capable" -eq 1 ]; then
+        echo "warning: herdr presentation cleanup requires python3 to verify workspace.move support; closing without the focus-safe removal path" >&2
+      else
+        echo "warning: herdr presentation cleanup could not verify workspace.move support; closing without the focus-safe removal path" >&2
+      fi
       printf 'plain\n'
       return 0
     fi

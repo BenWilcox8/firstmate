@@ -320,6 +320,14 @@ SH
 test_viewer_refuses_unowned_sessions() {
   local name="fm-lab-viewer-guard-$$" status=0 out
   : > "$FAKE_LOG"
+  # Both refusals land before the launcher would run, but viewer start checks
+  # that python3 exists first. A stub that only satisfies that check keeps the
+  # case independent of a real interpreter; reaching it would fail the case.
+  cat > "$FAKEBIN/python3" <<'SH'
+#!/usr/bin/env bash
+exit 97
+SH
+  chmod +x "$FAKEBIN/python3"
   out=$(run_with_fake fm_herdr_lab_viewer_start "$name" 2>&1) || status=$?
   expect_code 1 "$status" "a session without an ownership tripwire must not be attached to"
   assert_contains "$out" "does not own" \
@@ -330,6 +338,7 @@ test_viewer_refuses_unowned_sessions() {
   status=0
   run_with_fake fm_herdr_lab_viewer_start default >/dev/null 2>&1 || status=$?
   expect_code 1 "$status" "the default session must never be attached to"
+  rm -f "$FAKEBIN/python3"
   pass "fm-herdr-lab: the viewer attaches only to a session this lab owns"
 }
 
@@ -554,7 +563,10 @@ test_viewer_stop_retains_record_when_detach_is_unreadable() {
 
 test_viewer_launcher_refuses_unsafe_arguments() {
   local launcher="$ROOT/bin/fm-herdr-lab-viewer.py" status=0
-  command -v python3 >/dev/null 2>&1 || { pass "fm-herdr-lab: viewer launcher argument guard (skipped, no python3)"; return; }
+  command -v python3 >/dev/null 2>&1 || {
+    printf 'ok - SKIP fm-herdr-lab viewer launcher argument guard: python3 is not installed\n'
+    return 0
+  }
   python3 "$launcher" default "$TMP_ROOT/pid" >/dev/null 2>&1 || status=$?
   expect_code 2 "$status" "the launcher must refuse the default session"
   status=0
