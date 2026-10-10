@@ -43,9 +43,10 @@ run_lock() {
 # Prints the JSON value at the key path: strings bare, booleans as true or
 # false, null as null. A digit-only key indexes into an array. A key or an
 # index that is not there fails with no output, so an absent value never
-# passes for a null one.
+# passes for a null one. Input that is not exactly one JSON document also
+# fails with no output.
 json_get() {
-  jq -r --args '
+  jq -rs --args "$FM_TEST_ONE_JSON"' |
     reduce $ARGS.positional[] as $k (.;
       if type == "array" and ($k | test("^-?[0-9]+$"))
         and (($k | tonumber) as $i | $i < length and $i >= -length)
@@ -248,7 +249,7 @@ pass "repair and replay do not wake firstmate for an already-acknowledged note"
 # --- bounded receipts JSON, omission disclosure, reply cursor ---------------
 
 json_len() {  # <key> - fails with no output unless the key holds a list, object, or string
-  jq -r --arg k "$1" '
+  jq -rs --arg k "$1" "$FM_TEST_ONE_JSON"' |
     if type == "object" and has($k)
       and (.[$k] | type | . == "array" or . == "object" or . == "string")
     then .[$k] | length
@@ -304,13 +305,14 @@ run_inbox "$home" note "establish the inbox" >/dev/null || fail "seed note faile
 legacy="1700000000-legacy"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\n--\nfrom before the marker\n' \
   "$legacy" > "$home/state/inbox/$legacy.note"
-legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '
+legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -cs --arg id "$legacy" "$FM_TEST_ONE_JSON"' |
   [.pending[] | select(.id == $id)]
   | if length > 0 then last else error("no pending note \($id)") end
   | if has("announced") then .announced else error("no announced in the note \($id)") end')
 assert_equals "null" "$legacy_announced" \
   "a note that predates the marker reports announced as unknown, not false"
-fresh_announced=$(run_inbox "$home" receipts --all-pending | jq -c --arg id "$legacy" '[.pending[] | select(.id != $id) | .announced]')
+fresh_announced=$(run_inbox "$home" receipts --all-pending | jq -cs --arg id "$legacy" \
+  "$FM_TEST_ONE_JSON"' | [.pending[] | select(.id != $id) | .announced]')
 assert_equals "[true]" "$fresh_announced" \
   "a note this version wrote still reports a definite announced state"
 before_wakes=$(count_wakes "$home")
@@ -339,7 +341,7 @@ run_inbox "$home" reply "$later" "answer two" >/dev/null || fail "second reply f
 replies=$(run_inbox "$home" receipts --all-replies) || fail "receipts with replies should succeed"
 assert_equals "2" "$(printf '%s' "$replies" | json_len replies)" \
   "both replies appear without a cursor"
-order=$(printf '%s' "$replies" | jq -r '[.replies[].id] | join(" ")')
+order=$(printf '%s' "$replies" | jq -rs "$FM_TEST_ONE_JSON"' | [.replies[].id] | join(" ")')
 assert_equals "$earlier $later" "$order" "replies are ordered by when they were recorded"
 first_cursor=$(printf '%s' "$replies" | json_get replies 0 cursor)
 after=$(run_inbox "$home" receipts --all-replies --after "$first_cursor") \
@@ -737,7 +739,7 @@ else
   assert_equals "$nid" "$(printf '%s' "$receipts" | json_get replies 0 id)" \
     "receipts under the minimal PATH"
   readiness=$(run_bare ready) || fail "ready must find node in $std_node_dir: $readiness"
-  printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \
+  printf '%s' "$readiness" | jq -es "$FM_TEST_ONE_JSON"' | has("can_receive")' >/dev/null \
     || fail "ready under the minimal PATH did not print the readiness JSON: $readiness"
   pass "machine-readable subcommands find node in $std_node_dir under a non-login PATH"
 
@@ -753,7 +755,7 @@ NODE
   readiness=$(SHIM_NODE_LOG="$home/shim-node.log" REAL_NODE="$std_node_dir/node" \
     HOME="$home" PATH="$shimbin:$core_path" run_inbox "$home" ready) \
     || fail "ready must run with the node of the caller PATH: $readiness"
-  printf '%s' "$readiness" | jq -e 'has("can_receive")' >/dev/null \
+  printf '%s' "$readiness" | jq -es "$FM_TEST_ONE_JSON"' | has("can_receive")' >/dev/null \
     || fail "ready with a node on the caller PATH did not print the readiness JSON: $readiness"
   [ -s "$home/shim-node.log" ] \
     || fail "the node on the caller PATH must win over the node in $std_node_dir"
