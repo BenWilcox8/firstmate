@@ -154,8 +154,18 @@ is_correct_claude_symlink() {
   if command -v node >/dev/null 2>&1; then
     node - "$CLAUDE" "$AGENTS" <<'JS'
 const fs = require('fs');
+const path = require('path');
+// Match non-strict os.path.realpath: when a missing component stops
+// realpathSync, resolve the link target lexically against the link directory.
+function resolveLink(link) {
+  try {
+    return fs.realpathSync(link);
+  } catch (e) {
+    return fs.realpathSync(path.resolve(path.dirname(link), fs.readlinkSync(link)));
+  }
+}
 try {
-  process.exit(fs.realpathSync(process.argv[2]) === fs.realpathSync(process.argv[3]) ? 0 : 1);
+  process.exit(resolveLink(process.argv[2]) === fs.realpathSync(process.argv[3]) ? 0 : 1);
 } catch (e) {
   process.exit(1);
 }
