@@ -1,0 +1,127 @@
+python3: none; ruby: none; lsof: none; chromium: none
+FM_TEST_BEGIN 2026-10-10T03:37:16Z tests/fm-ci-workflow.test.sh family=unclassified expected_gate_skip=none
+skip: ruby not found (it parses .github/workflows/ci.yml as YAML)
+fm-test-run: gate skip: tests/fm-ci-workflow.test.sh: ruby not found (it parses .github/workflows/ci.yml as YAML)
+FM_TEST_END 2026-10-10T03:37:16Z tests/fm-ci-workflow.test.sh exit=0 duration_ms=128 gate_skip=true
+FM_TEST_BEGIN 2026-10-10T03:37:16Z tests/fm-nm-test-contract.test.sh family=unclassified expected_gate_skip=none
+skip: ruby not found (it parses .no-mistakes.yaml for this contract)
+fm-test-run: gate skip: tests/fm-nm-test-contract.test.sh: ruby not found (it parses .no-mistakes.yaml for this contract)
+FM_TEST_END 2026-10-10T03:37:16Z tests/fm-nm-test-contract.test.sh exit=0 duration_ms=135 gate_skip=true
+FM_TEST_BEGIN 2026-10-10T03:37:16Z tests/fm-no-mistakes-required.test.sh family=standalone expected_gate_skip=none
+skip: python3 not found (the pinned shared action verifier is a Python program)
+fm-test-run: gate skip: tests/fm-no-mistakes-required.test.sh: python3 not found (the pinned shared action verifier is a Python program)
+FM_TEST_END 2026-10-10T03:37:16Z tests/fm-no-mistakes-required.test.sh exit=0 duration_ms=126 gate_skip=true
+FM_TEST_BEGIN 2026-10-10T03:37:16Z tests/fm-turnend-foreign-owner-arm-fix.test.sh family=watcher-wake-lock expected_gate_skip=none
+skip: python3 not found (the turn-end reproduction is a Python program)
+fm-test-run: gate skip: tests/fm-turnend-foreign-owner-arm-fix.test.sh: python3 not found (the turn-end reproduction is a Python program)
+FM_TEST_END 2026-10-10T03:37:16Z tests/fm-turnend-foreign-owner-arm-fix.test.sh exit=0 duration_ms=67 gate_skip=true
+FM_TEST_BEGIN 2026-10-10T03:37:16Z tests/fm-voice-relay.test.sh family=standalone expected_gate_skip=none
+skip: python3 not found (the voice relay, client and record reader are Python programs)
+fm-test-run: gate skip: tests/fm-voice-relay.test.sh: python3 not found (the voice relay, client and record reader are Python programs)
+FM_TEST_END 2026-10-10T03:37:16Z tests/fm-voice-relay.test.sh exit=0 duration_ms=137 gate_skip=true
+FM_TEST_BEGIN 2026-10-10T03:37:17Z tests/fm-mail.test.sh family=watcher-wake-lock expected_gate_skip=none
+ok - fm-mail: missing required configuration fails cleanly naming the variable
+ok - SKIP test_env_overrides_env_file: python3 is not installed
+ok - SKIP test_status_without_network: python3 is not installed
+ok - SKIP test_help_plumbing: python3 is not installed
+ok - SKIP test_unknown_subcommand_prints_usage: python3 is not installed
+ok - SKIP test_no_secret_leaked_to_status: python3 is not installed
+ok - fm-mail: send passes body not empty through stdin
+ok - fm-mail: poll propagates errors instead of swallowing them
+ok - fm-mail: poll surfaces each new uid exactly once
+ok - fm-mail: generation change prevents a reused uid from being suppressed
+ok - fm-mail: poll heals a wake whose cursor record was interrupted
+ok - fm-mail: a poll interrupted before evidence writes does not duplicate on recovery
+ok - fm-mail: the poll lock serializes overlapping polls so mail wakes exactly once
+ok - fm-mail: journal recovers a wake the drain already acknowledged
+ok - fm-mail: an acknowledged wake whose cursor record was lost is recovered from the journal
+ok - fm-mail: a legacy generation-less wake never marks a reused uid surfaced
+ok - fm-mail: a missing wake library fails the poll instead of suppressing mail
+ok - fm-mail: a wake with no durable record is rolled back, not left ackable
+ok - fm-mail: a rollback failure never releases a wake the drain could acknowledge without a durable record
+ok - fm-mail: per-poll wake cap bounds the durable queue without missing mail
+ok - SKIP test_poll_sanitizes_header_fields: python3 is not installed
+ok - fm-mail: bounded fetch makes progress through a large backlog without re-surfacing mail
+ok - SKIP test_poll_skips_unfetchable_uid_but_keeps_progress: python3 is not installed
+ok - SKIP test_poll_retries_transient_fetch_and_surfaces_real_metadata: python3 is not installed
+ok - SKIP test_poll_retry_cursor_advances_past_failures: python3 is not installed
+ok - SKIP test_poll_retry_position_does_not_advance_past_unpublished_wake: python3 is not installed
+ok - SKIP test_poll_retry_budget_advances_by_examined_not_window: python3 is not installed
+ok - SKIP test_poll_retry_window_of_unseen_never_stalls_cursor: python3 is not installed
+ok - SKIP test_poll_retry_unfetchable_window_advances_with_new_mail: python3 is not installed
+ok - SKIP test_poll_retry_unseen_window_advances_with_new_mail: python3 is not installed
+ok - SKIP test_poll_retry_logout_before_emit_and_position_save: python3 is not installed
+ok - SKIP test_poll_list_logs_out_on_imap_error: python3 is not installed
+ok - SKIP test_poll_retry_position_not_saved_when_row_emitted: python3 is not installed
+ok - SKIP test_poll_retry_small_window_rotates_past_unfetchable_prefix: python3 is not installed
+ok - SKIP test_poll_cap_one_turn_not_saved_before_emit: python3 is not installed
+ok - SKIP test_poll_cap_one_turn_not_saved_when_retry_pos_write_fails: python3 is not installed
+ok - SKIP test_poll_retry_surfaces_under_new_mail_flood: python3 is not installed
+ok - SKIP test_poll_resurfaces_degraded_uid_whose_wake_never_recorded: python3 is not installed
+ok - SKIP test_poll_cap_one_never_suppresses_new_mail: python3 is not installed
+ok - SKIP test_poll_cap_one_alternates_new_and_retry: python3 is not installed
+ok - SKIP test_poll_cap_one_does_not_advance_unexamined_retry_window: python3 is not installed
+ok - fm-mail: a failed retry write fails the poll instead of losing recovery
+ok - fm-mail: a journal write failure never cursor-records a suppressed mail
+ok - fm-mail: a failed retry clear fails the poll; the published wake stays and the retry entry remains
+ok - fm-mail: a failed stale-retry clear fails the poll instead of silently leaving a duplicate-wake entry
+ok - tests/lib: assert_equals fails on mismatch so cursor assertions cannot false-pass
+ok - fm-mail: a failed poll_list fails closed, wakes nothing, and releases the lock
+ok - fm-mail: a recovered wake that cannot append restores the retry instead of stranding the metadata
+ok - fm-mail: a death between retry remove and wake publish cannot strand recovered metadata
+ok - SKIP test_poll_fetch_raise_does_not_abort_the_scan: python3 is not installed
+ok - fm-mail: the journal survives when the heal cannot commit a uid
+ok - fm-mail: heal failure with unseen mail fails the poll instead of re-waking
+ok - SKIP test_body_preview_falls_back_from_empty_plain: python3 is not installed
+ok - SKIP test_body_preview_tolerates_none_payload: python3 is not installed
+ok - SKIP test_read_tolerates_none_payload: python3 is not installed
+ok - SKIP test_read_surfaces_unfetchable_uid: python3 is not installed
+ok - fm-mail: a non-numeric port fails cleanly in bash
+FM_TEST_END 2026-10-10T03:37:28Z tests/fm-mail.test.sh exit=0 duration_ms=11838 gate_skip=false
+FM_TEST_BEGIN 2026-10-10T03:37:28Z tests/fm-kimi-harness.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - SKIP test_kimi_hook_install_is_surgical_idempotent_and_removable: python3 with tomllib is not installed
+ok - SKIP test_kimi_hook_remove_preserves_owned_newline_boundary: python3 with tomllib is not installed
+ok - SKIP test_kimi_hook_fails_closed_on_missing_malformed_or_partial_config: python3 with tomllib is not installed
+ok - SKIP test_kimi_hook_install_refuses_without_jq: python3 with tomllib is not installed
+ok - SKIP test_kimi_launch_then_send_is_verified: python3 with tomllib is not installed
+ok - SKIP test_kimi_spawn_refuses_shared_task_temp_root: python3 with tomllib is not installed
+ok - SKIP test_kimi_hook_is_silent_and_requires_registered_workspace_token: python3 with tomllib is not installed
+ok - SKIP test_kimi_spawn_refuses_unsafe_global_config_before_pane_creation: python3 with tomllib is not installed
+ok - SKIP test_kimi_teardown_removes_pointer_and_registry_token: python3 with tomllib is not installed
+ok - SKIP test_kimi_falls_back_to_expanded_home_binary: python3 with tomllib is not installed
+ok - fm-spawn: missing Kimi executable refuses before pane creation
+ok - SKIP test_kimi_unconfirmed_delivery_fails_loudly: python3 with tomllib is not installed
+ok - SKIP test_kimi_readiness_gate_precedes_pointer: python3 with tomllib is not installed
+ok - SKIP test_kimi_fresh_worktree_trust_is_answered_and_verified: python3 with tomllib is not installed
+ok - SKIP test_kimi_swallowed_trust_enter_is_retried_until_the_dialog_clears: python3 with tomllib is not installed
+ok - SKIP test_kimi_banner_before_the_dialog_paints_does_not_pass_readiness: python3 with tomllib is not installed
+ok - SKIP test_kimi_answered_dialog_left_in_history_does_not_restart_the_answer: python3 with tomllib is not installed
+ok - SKIP test_kimi_blank_viewport_frame_costs_only_its_poll: python3 with tomllib is not installed
+ok - fm-spawn: Kimi refuses a backend that cannot read the viewport, before launching
+ok - SKIP test_kimi_answers_a_trust_dialog_with_a_wrapped_hint: python3 with tomllib is not installed
+ok - SKIP test_kimi_blank_frame_between_banners_restarts_the_ready_count: python3 with tomllib is not installed
+ok - SKIP test_kimi_failed_viewport_read_fails_readiness_at_once: python3 with tomllib is not installed
+ok - SKIP test_kimi_partial_trust_dialog_blocks_the_ready_verdict: python3 with tomllib is not installed
+ok - SKIP test_kimi_stuck_trust_dialog_fails_before_delivery: python3 with tomllib is not installed
+ok - SKIP test_kimi_trust_detection_requires_the_complete_dialog: python3 with tomllib is not installed
+ok - fm-harness: markerless kimi keeps its ancestry identity under an inherited marker
+lock acquired: harness pid 3251851
+ok - fm-lock recognizes Kimi ancestry and live lock holders
+ok - busy detection: real Kimi moon-plus-middot captures require its harness while idle labels stay idle
+ok - fm-watch classifies Kimi as unknown rather than from its spinner, and Grok's fallback stays isolated
+ok - composer classifier: kimi's existing bordered > shape is already safe without an override
+FM_TEST_END 2026-10-10T03:37:30Z tests/fm-kimi-harness.test.sh exit=0 duration_ms=1996 gate_skip=false
+FM_TEST_SUMMARY total=7 failed=0 skipped_gate=5 duration_ms=15011
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=1996 failed=0
+FM_TEST_SUMMARY_FAMILY family=standalone count=2 duration_ms=263 failed=0
+FM_TEST_SUMMARY_FAMILY family=unclassified count=2 duration_ms=263 failed=0
+FM_TEST_SUMMARY_FAMILY family=watcher-wake-lock count=2 duration_ms=11905 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-mail.test.sh duration_ms=11838
+FM_TEST_SLOWEST rank=2 script=tests/fm-kimi-harness.test.sh duration_ms=1996
+FM_TEST_SLOWEST rank=3 script=tests/fm-voice-relay.test.sh duration_ms=137
+FM_TEST_SLOWEST rank=4 script=tests/fm-nm-test-contract.test.sh duration_ms=135
+FM_TEST_SLOWEST rank=5 script=tests/fm-ci-workflow.test.sh duration_ms=128
+FM_TEST_SLOWEST rank=6 script=tests/fm-no-mistakes-required.test.sh duration_ms=126
+FM_TEST_SLOWEST rank=7 script=tests/fm-turnend-foreign-owner-arm-fix.test.sh duration_ms=67
+fm-test-run: wrote timing artifact: /home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/r3-missing-tool-skips.json
+missing-tool-skips runner exit 0

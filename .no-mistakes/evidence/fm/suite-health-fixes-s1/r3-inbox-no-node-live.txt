@@ -1,0 +1,33 @@
+node on PATH: none
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note --json -- should not be saved
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+[exit 1]
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note --json --request-id r9 -- should not be saved either
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+[exit 1]
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh receipts
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+[exit 1]
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh ready
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+[exit 1]
+== files under the home after the refused calls:
+<home>/data
+<home>/state
+== the human note path still works without node:
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note -- human note without node
+queued 1791602027-NtAHQO
+  human note without node
+  firstmate will pick this up at its next check.
+[exit 0]
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh reply --json 1791602027-NtAHQO json reply without node
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+[exit 1]
+== replies dir after refused reply --json:
+ls: cannot access '/tmp/fm-inbox-nonode.o7jo5l/state/inbox/.replies': No such file or directory

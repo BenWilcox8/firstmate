@@ -1,0 +1,12 @@
+== 2812e3cb (2812e3c): contention cases, first contender of each case 2.5 s late; load 4.11 5.72 6.43
+not ok - expected exactly one lock winner under concurrency, got 2
+[suite exit 1]
+late contenders delayed: 1 (lock-concurrency )
+
+== HEAD (6ad37c7): contention cases, first contender of each case 2.5 s late; load 7.95 6.49 6.67
+ok - concurrent fm_lock_try_acquire yields exactly one winner
+ok - concurrent stale-lock steal yields exactly one winner
+ok - live steal mutex is not reclaimed
+[suite exit 0]
+late contenders delayed: 3 (lock-concurrency lock-live-stealer lock-stale-concurrency )
+

@@ -1,0 +1,20 @@
+$ bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=270 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=229 serial_shards=9 serial_unhinted=25 herdr=17
+[exit 0]
+
+$ bin/fm-test-run.sh --list-scheduled --family watcher-wake-lock | grep watch-triage
+1:tests/fm-watch-triage-stale.test.sh
+2:tests/fm-watch-triage-wedge.test.sh
+4:tests/fm-watch-triage.test.sh
+5:tests/fm-watch-triage-captain-hold.test.sh
+6:tests/fm-watch-triage-gone-endpoint.test.sh
+9:tests/fm-watch-triage-busy.test.sh
+11:tests/fm-watch-triage-procevent-afk.test.sh
+
+sum of the seven new serial hints: 697969 ms (base hint for the single file: 697969 ms)
+
+$ bin/fm-test-isolation-proof.sh --list-exclusions | grep watch-triage
+(--list-exclusions prints a fixed report list that never named fm-watch-triage, at base or head; empty output above is expected)
+
+$ bin/fm-test-isolation-proof.sh --list | grep -c watch-triage   (split files stay out of the proven-concurrent pool)
+0

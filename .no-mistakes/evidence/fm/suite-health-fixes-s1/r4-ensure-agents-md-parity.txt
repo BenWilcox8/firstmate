@@ -1,0 +1,11 @@
+p1   missing/../AGENTS.md           node=p1/AGENTS.md       gnu-m=p1/AGENTS.md       python=p1/AGENTS.md       node==python:yes
+p4   hop                            node=p4/AGENTS.md       gnu-m=p4/AGENTS.md       python=p4/AGENTS.md       node==python:yes
+p5   ln/missing/../../AGENTS.md     node=p5/deep/AGENTS.md  gnu-m=p5/deep/AGENTS.md  python=p5/deep/AGENTS.md  node==python:yes
+p6   h1                             node=p6/AGENTS.md       gnu-m=p6/AGENTS.md       python=p6/AGENTS.md       node==python:yes
+p8   loopa                          node=p8/loopa           gnu-m=p8/loopb           python=p8/loopa           node==python:yes
+p9   CLAUDE.md                      node=p9/CLAUDE.md       gnu-m=p9/CLAUDE.md       python=p9/CLAUDE.md       node==python:yes
+p11  missing/AGENTS.md              node=p11/missing/AGENTS.md gnu-m=p11/missing/AGENTS.md python=p11/missing/AGENTS.md node==python:yes
+p13  AGENTS.md/../AGENTS.md         node=p13/AGENTS.md      gnu-m=p13/AGENTS.md      python=p13/AGENTS.md      node==python:yes
+p14  la/../AGENTS.md                node=p14/AGENTS.md      gnu-m=p14/AGENTS.md      python=p14/AGENTS.md      node==python:yes
+p16  root<T>/p16/missing/../AGENTS.md node=p16/AGENTS.md      gnu-m=p16/AGENTS.md      python=p16/AGENTS.md      node==python:yes
+p17  up<T>/p17/AGENTS.md            node=p17/AGENTS.md      gnu-m=p17/AGENTS.md      python=p17/AGENTS.md      node==python:yes

@@ -1,0 +1,35 @@
+$ bin/fm-test-run.sh --check-coverage
+FM_TEST_COVERAGE ok total=270 parallel=24 parallel_max_ms=417163 parallel_imbalance_ms=2894 parallel_unhinted=0 serial=229 serial_shards=9 serial_unhinted=25 herdr=17
+[exit 0]
+
+$ bin/fm-test-run.sh --list --family watcher-wake-lock | grep watch-triage
+tests/fm-watch-triage-busy.test.sh
+tests/fm-watch-triage-captain-hold.test.sh
+tests/fm-watch-triage-gone-endpoint.test.sh
+tests/fm-watch-triage-procevent-afk.test.sh
+tests/fm-watch-triage-stale.test.sh
+tests/fm-watch-triage-wedge.test.sh
+tests/fm-watch-triage.test.sh
+tests/fm-watcher-lock.test.sh
+
+$ bin/fm-test-run.sh --list-scheduled --lane portable-parallel-1 | grep -n watch-triage
+$ bin/fm-test-run.sh --list-scheduled --lane portable-parallel-2 | grep -n watch-triage
+$ bin/fm-test-run.sh --list-scheduled --lane portable-serial | grep -n watch-triage
+14:tests/fm-watch-triage-stale.test.sh
+15:tests/fm-watch-triage-wedge.test.sh
+18:tests/fm-watch-triage.test.sh
+19:tests/fm-watch-triage-captain-hold.test.sh
+21:tests/fm-watch-triage-gone-endpoint.test.sh
+28:tests/fm-watch-triage-busy.test.sh
+32:tests/fm-watch-triage-procevent-afk.test.sh
+
+== duration hints (bin/fm-test-run.sh): the seven split files' hints sum to the base single hint
+tests/fm-watch-triage-busy.test.sh 78487
+tests/fm-watch-triage-captain-hold.test.sh 104545
+tests/fm-watch-triage-gone-endpoint.test.sh 102963
+tests/fm-watch-triage-procevent-afk.test.sh 68532
+tests/fm-watch-triage-stale.test.sh 119481
+tests/fm-watch-triage-wedge.test.sh 118958
+tests/fm-watch-triage.test.sh 105003
+sum: 697969
+base 2812e3cb: tests/fm-watch-triage.test.sh 697969

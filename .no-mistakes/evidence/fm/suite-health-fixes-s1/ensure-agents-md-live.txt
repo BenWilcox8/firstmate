@@ -1,0 +1,30 @@
+python3 on PATH: none
+== CLAUDE.md -> sub/../AGENTS.md (resolves to AGENTS.md through a detour)
+-rw-r--r-- AGENTS.md  
+lrwxrwxrwx CLAUDE.md -> sub/../AGENTS.md
+drwxr-xr-x sub  
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p1
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p1
+[exit 0]
+CLAUDE.md now: regular file
+<!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+@AGENTS.md
+== CLAUDE.md -> absolute path of AGENTS.md
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p2
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p2
+[exit 0]
+CLAUDE.md now: regular file
+== adversarial: CLAUDE.md -> sub/../OTHER.md (resolves elsewhere)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p3
+conflict: CLAUDE.md is a symlink in <tmp>/p3 but does not point to AGENTS.md
+[exit 1]
+CLAUDE.md still: symlink -> sub/../OTHER.md
+== adversarial: CLAUDE.md -> missing/../AGENTS.md (dangling middle component)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p4
+conflict: CLAUDE.md is a symlink in <tmp>/p4 but does not point to AGENTS.md
+[exit 1]
+CLAUDE.md still: symlink -> missing/../AGENTS.md

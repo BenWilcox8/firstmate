@@ -1,0 +1,23 @@
+{
+  "concurrency": 1,
+  "finished_at": "2026-10-10T02:12:15Z",
+  "fm_test_run_jobs_enabled": false,
+  "kind": "isolation-proof",
+  "pool": "browser-reap",
+  "production_sharding_enabled": false,
+  "run_id": "fm-isolation-1791598313194-3044590",
+  "scripts": [
+    {
+      "duration_ms": 21811,
+      "exit": 0,
+      "path": "tests/fm-browser-reap.test.sh",
+      "worker": 1
+    }
+  ],
+  "started_at": "2026-10-10T02:11:53Z",
+  "summary": {
+    "duration_ms": 21992,
+    "failed": 0,
+    "total": 1
+  }
+}

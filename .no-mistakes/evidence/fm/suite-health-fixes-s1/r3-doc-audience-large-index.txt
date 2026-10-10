@@ -1,0 +1,6 @@
+tracked entries: 30699; ls-files -z output bytes matching the inventory patterns: 1804407
+
+$ bin/fm-doc-audience-check.sh --root <copy>
+fm-doc-audience-check: unclassified: docs/bulk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-00001.md, docs/bulk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-00002.md, docs/bulk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-00003.md, docs/bulk/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+... (message is 1830035 bytes; ENOBUFS mentioned: 0)
+[exit 1]

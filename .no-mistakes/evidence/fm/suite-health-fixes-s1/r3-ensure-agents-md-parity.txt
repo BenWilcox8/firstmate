@@ -1,0 +1,187 @@
+python3 on PATH: none; node: v24.18.0; realpath (GNU coreutils) 9.11
+
+== one-hop: CLAUDE.md -> missing/../AGENTS.md (missing middle component)
+  before:
+    AGENTS.md
+    CLAUDE.md -> missing/../AGENTS.md
+  oracle realpath -m CLAUDE.md = one-hop/AGENTS.md
+  oracle realpath -m AGENTS.md = one-hop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/one-hop
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/one-hop
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== two-hop: two-hop chain CLAUDE.md -> hop -> missing/../AGENTS.md (round-2 failure)
+  before:
+    AGENTS.md
+    CLAUDE.md -> hop
+    hop -> missing/../AGENTS.md
+  oracle realpath -m CLAUDE.md = two-hop/AGENTS.md
+  oracle realpath -m AGENTS.md = two-hop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/two-hop
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/two-hop
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== three-hop: three-hop chain CLAUDE.md -> sub/h1 -> ../h2 -> missing/../AGENTS.md
+  before:
+    AGENTS.md
+    CLAUDE.md -> sub/h1
+    h2 -> missing/../AGENTS.md
+    sub/
+  oracle realpath -m CLAUDE.md = three-hop/AGENTS.md
+  oracle realpath -m AGENTS.md = three-hop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/three-hop
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/three-hop
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== abs-two-hop: absolute two-hop chain CLAUDE.md -> <abs>/hop -> <abs>/missing/../AGENTS.md
+  before:
+    AGENTS.md
+    CLAUDE.md -> /tmp/fm-ensure-r3.TMenai/abs-two-hop/hop
+    hop -> /tmp/fm-ensure-r3.TMenai/abs-two-hop/missing/../AGENTS.md
+  oracle realpath -m CLAUDE.md = abs-two-hop/AGENTS.md
+  oracle realpath -m AGENTS.md = abs-two-hop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/abs-two-hop
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/abs-two-hop
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== two-hop-wrong: adversarial: two-hop chain to an existing OTHER.md
+  before:
+    AGENTS.md
+    CLAUDE.md -> hop
+    hop -> missing/../OTHER.md
+    OTHER.md
+  oracle realpath -m CLAUDE.md = two-hop-wrong/OTHER.md
+  oracle realpath -m AGENTS.md = two-hop-wrong/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/two-hop-wrong
+    conflict: CLAUDE.md is a symlink in <tmp>/two-hop-wrong but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== symdir-before-parent: symlinked dir before ..: CLAUDE.md -> ln/missing/../../AGENTS.md, ln -> deep/x (round-2 failure)
+  before:
+    AGENTS.md
+    CLAUDE.md -> ln/missing/../../AGENTS.md
+    deep/
+    ln -> deep/x
+  oracle realpath -m CLAUDE.md = symdir-before-parent/deep/AGENTS.md
+  oracle realpath -m AGENTS.md = symdir-before-parent/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/symdir-before-parent
+    conflict: CLAUDE.md is a symlink in <tmp>/symdir-before-parent but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== symdir-before-parent-ok: symlinked dir before .. that lands on AGENTS.md: ln -> sub
+  before:
+    AGENTS.md
+    CLAUDE.md -> ln/missing/../../AGENTS.md
+    ln -> sub
+    sub/
+  oracle realpath -m CLAUDE.md = symdir-before-parent-ok/AGENTS.md
+  oracle realpath -m AGENTS.md = symdir-before-parent-ok/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/symdir-before-parent-ok
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/symdir-before-parent-ok
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== dangling-symdir: adversarial: CLAUDE.md -> sub/../AGENTS.md, sub -> nowhere/deeper (dangling symlinked dir)
+  before:
+    AGENTS.md
+    CLAUDE.md -> sub/../AGENTS.md
+    sub -> nowhere/deeper
+  oracle realpath -m CLAUDE.md = dangling-symdir/nowhere/AGENTS.md
+  oracle realpath -m AGENTS.md = dangling-symdir/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/dangling-symdir
+    conflict: CLAUDE.md is a symlink in <tmp>/dangling-symdir but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== abs-symdir: adversarial: CLAUDE.md -> ln/../AGENTS.md, ln -> <abs>/elsewhere/x (another AGENTS.md)
+  before:
+    AGENTS.md
+    CLAUDE.md -> ln/../AGENTS.md
+    ln -> /tmp/fm-ensure-r3.TMenai/elsewhere/x
+  oracle realpath -m CLAUDE.md = elsewhere/AGENTS.md
+  oracle realpath -m AGENTS.md = abs-symdir/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/abs-symdir
+    conflict: CLAUDE.md is a symlink in <tmp>/abs-symdir but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== self-loop: loop: CLAUDE.md -> loop, loop -> loop
+  before:
+    AGENTS.md
+    CLAUDE.md -> loop
+    loop -> loop
+  oracle realpath -m CLAUDE.md = self-loop/loop
+  oracle realpath -m AGENTS.md = self-loop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/self-loop
+    conflict: CLAUDE.md is a symlink in <tmp>/self-loop but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== two-link-loop: loop: CLAUDE.md -> a, a -> b, b -> a
+  before:
+    a -> b
+    AGENTS.md
+    b -> a
+    CLAUDE.md -> a
+  oracle realpath -m CLAUDE.md = two-link-loop/b
+  oracle realpath -m AGENTS.md = two-link-loop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/two-link-loop
+    conflict: CLAUDE.md is a symlink in <tmp>/two-link-loop but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== claude-self: loop: CLAUDE.md -> CLAUDE.md
+  before:
+    AGENTS.md
+    CLAUDE.md -> CLAUDE.md
+  oracle realpath -m CLAUDE.md = claude-self/CLAUDE.md
+  oracle realpath -m AGENTS.md = claude-self/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/claude-self
+    conflict: CLAUDE.md is a symlink in <tmp>/claude-self but does not point to AGENTS.md
+  [exit 1, expected 1]
+  after: CLAUDE.md symlink and AGENTS.md untouched
+  => MATCH
+
+== mid-loop: loop before ..: CLAUDE.md -> loop/../AGENTS.md, loop -> loop
+  before:
+    AGENTS.md
+    CLAUDE.md -> loop/../AGENTS.md
+    loop -> loop
+  oracle realpath -m CLAUDE.md = mid-loop/AGENTS.md
+  oracle realpath -m AGENTS.md = mid-loop/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/mid-loop
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/mid-loop
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+== trailing-slash: edge: CLAUDE.md -> AGENTS.md/ (trailing slash)
+  before:
+    AGENTS.md
+    CLAUDE.md -> AGENTS.md/
+  oracle realpath -m CLAUDE.md = trailing-slash/AGENTS.md
+  oracle realpath -m AGENTS.md = trailing-slash/AGENTS.md
+  $ bin/fm-ensure-agents-md.sh <tmp>/trailing-slash
+    updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/trailing-slash
+  [exit 0, expected 0]
+  after: CLAUDE.md is now the @AGENTS.md pointer file
+  => MATCH
+
+SUMMARY: 0 mismatch(es) against the realpath -m oracle

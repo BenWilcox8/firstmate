@@ -1,0 +1,209 @@
+python3 on PATH: none
+
+$ bin/fm-test-run.sh --json <tmp>/lane-a.json tests/fm-ensure-agents-md.test.sh
+FM_TEST_BEGIN 2026-10-10T02:44:23Z tests/fm-ensure-agents-md.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - fm-ensure-agents-md.sh: created AGENTS.md includes self-governance section
+ok - fm-ensure-agents-md.sh: fresh setup writes a real @AGENTS.md pointer
+ok - fm-ensure-agents-md.sh: promoted CLAUDE.md includes self-governance section
+ok - fm-ensure-agents-md.sh: newline-less promotion keeps a blank separator line
+ok - fm-ensure-agents-md.sh: existing symlinked AGENTS.md gains the section idempotently
+ok - fm-ensure-agents-md.sh: correct symlink migrates to pointer without clobbering AGENTS.md
+ok - fm-ensure-agents-md.sh: a CLAUDE.md symlink that resolves to AGENTS.md migrates to the pointer
+ok - fm-ensure-agents-md.sh: existing AGENTS.md without CLAUDE.md gains section and pointer
+ok - fm-ensure-agents-md.sh: AGENTS.md that already has the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF AGENTS.md with the section stays unchanged
+ok - fm-ensure-agents-md.sh: CRLF injection preserves line endings idempotently
+ok - fm-ensure-agents-md.sh: prose and marker examples do not replace a first-line mark
+ok - fm-ensure-agents-md.sh: marked project guidance is preserved across ensure paths and line endings
+ok - fm-ensure-agents-md.sh: canonical real CLAUDE.md pointer is not a conflict
+ok - fm-ensure-agents-md.sh: refuses distinct real AGENTS.md and CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses AGENTS.md when it is a symlink
+ok - fm-ensure-agents-md.sh: refuses a CLAUDE.md symlink that does not point to AGENTS.md
+ok - fm-ensure-agents-md.sh: refuses a non-regular CLAUDE.md
+ok - fm-ensure-agents-md.sh: refuses a case-variant lowercase agents.md (issue #389)
+FM_TEST_END 2026-10-10T02:44:25Z tests/fm-ensure-agents-md.test.sh exit=0 duration_ms=2145 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=2283
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=2145 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-ensure-agents-md.test.sh duration_ms=2145
+fm-test-run: wrote timing artifact: <tmp>/lane-a.json
+[exit 0]
+
+$ bin/fm-test-run.sh --json <tmp>/lane-b.json tests/fm-documentation-audiences.test.sh
+FM_TEST_BEGIN 2026-10-10T02:44:25Z tests/fm-documentation-audiences.test.sh family=pure-contract-unit expected_gate_skip=none
+ok - documentation inventory classifies every maintained prose surface exactly once
+ok - classification, setup routing, and maintained-prose scope fail safely
+ok - required documentation owner pointers cannot silently disappear
+ok - local links resolve while dates, versions, commands, and incident prose remain semantically reviewed
+ok - links, anchors, and arguments keep the semantics of the Python checker
+FM_TEST_END 2026-10-10T02:44:26Z tests/fm-documentation-audiences.test.sh exit=0 duration_ms=1349 gate_skip=false
+FM_TEST_SUMMARY total=1 failed=0 skipped_gate=0 duration_ms=1499
+FM_TEST_SUMMARY_FAMILY family=pure-contract-unit count=1 duration_ms=1349 failed=0
+FM_TEST_SLOWEST rank=1 script=tests/fm-documentation-audiences.test.sh duration_ms=1349
+fm-test-run: wrote timing artifact: <tmp>/lane-b.json
+[exit 0]
+
+--- lane-a.json (raw bytes: 2-space indent, sorted keys) ---
+{
+  "families": [
+    {
+      "count": 1,
+      "duration_ms": 2145,
+      "failed": 0,
+      "name": "pure-contract-unit"
+    }
+  ],
+  "finished_at": "2026-10-10T02:44:25Z",
+  "run_id": "fm-test-run-1791600263108-3301077",
+  "scripts": [
+    {
+      "duration_ms": 2145,
+      "exit": 0,
+      "expected_gate_skip": "none",
+      "family": "pure-contract-unit",
+      "gate_skip": false,
+      "gate_skip_reason": "",
+      "path": "tests/fm-ensure-agents-md.test.sh"
+    }
+  ],
+  "selection": "scripts;jobs=1",
+  "started_at": "2026-10-10T02:44:23Z",
+  "summary": {
+    "duration_ms": 2283,
+    "failed": 0,
+    "skipped_gate": 0,
+    "total": 1
+  }
+}
+--- jq: keys sorted at every level? true
+--- trailing newline present: \n
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/aggregate.json <tmp>/./lane-a.json <tmp>//lane-b.json
+FM_TEST_AGGREGATE lanes=2 total=2 failed=0 skipped_gate=0 critical_path_duration_ms=2283
+[exit 0]
+--- aggregate.json projection ---
+{
+  "kind": "aggregate",
+  "summary": {
+    "critical_path_duration_ms": 2283,
+    "failed": 0,
+    "lanes": 2,
+    "skipped_gate": 0,
+    "total": 2
+  },
+  "lanes": [
+    {
+      "path": "<tmp>/lane-a.json",
+      "selection": "scripts;jobs=1",
+      "total": 1
+    },
+    {
+      "path": "<tmp>/lane-b.json",
+      "selection": "scripts;jobs=1",
+      "total": 1
+    }
+  ],
+  "slowest": [
+    {
+      "path": "tests/fm-ensure-agents-md.test.sh",
+      "duration_ms": 2145,
+      "lane_selection": "scripts;jobs=1"
+    },
+    {
+      "path": "tests/fm-documentation-audiences.test.sh",
+      "duration_ms": 1349,
+      "lane_selection": "scripts;jobs=1"
+    }
+  ]
+}
+
+== adversarial: a lane that is a JSON array, not an object
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/bad.json <tmp>/lane-a.json <tmp>/bad-array.json
+[stdin]:33
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) throw new TypeError(`${input} is not a JSON object`);
+                                                                     ^
+
+TypeError: <tmp>/bad-array.json is not a JSON object
+    at [stdin]:33:76
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_stdin:51:5
+    at Socket.<anonymous> (node:internal/process/execution:205:5)
+    at Socket.emit (node:events:521:24)
+
+Node.js v24.18.0
+[exit 1]
+bad.json written: no
+
+== adversarial: a lane whose summary.total is not an integer
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/bad2.json <tmp>/bad-total.json
+/home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-test-json-lib.cjs:41
+  if (!/^\s*[-+]?[0-9]+(?:_[0-9]+)*\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
+                                                     ^
+
+Error: invalid literal for int(): 'seven'
+    at toInt (/home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-test-json-lib.cjs:41:60)
+    at intOr0 ([stdin]:14:37)
+    at [stdin]:43:12
+    at runScriptInThisContext (node:internal/vm:219:10)
+    at node:internal/process/execution:451:12
+    at [stdin]-wrapper:6:24
+    at runScriptInContext (node:internal/process/execution:449:60)
+    at evalFunction (node:internal/process/execution:283:30)
+    at evalTypeScript (node:internal/process/execution:295:3)
+    at node:internal/main/eval_stdin:51:5
+
+Node.js v24.18.0
+[exit 1]
+
+== adversarial: no input lanes
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/none.json
+fm-test-run: --aggregate-json requires at least one input timing JSON
+[exit 2]
+
+== non-ASCII selection label is written as an ASCII \u escape
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/u.json <tmp>/lane-u.json
+FM_TEST_AGGREGATE lanes=1 total=1 failed=0 skipped_gate=0 critical_path_duration_ms=1499
+[exit 0]
+      "selection": "lane \u00e9 \u2615",
+      "lane_selection": "lane \u00e9 \u2615",
+
+== fm-test-isolation-proof.sh --json (pool browser-reap, one worker)
+
+$ bin/fm-test-isolation-proof.sh --pool browser-reap --jobs 1 --json <tmp>/proof.json
+FM_ISOLATION_BEGIN 2026-10-10T02:44:29Z concurrency=1 candidates=1
+FM_ISOLATION_CANDIDATE_BEGIN 2026-10-10T02:44:29Z tests/fm-browser-reap.test.sh worker=1
+FM_ISOLATION_CANDIDATE_END 2026-10-10T02:44:47Z tests/fm-browser-reap.test.sh exit=0 duration_ms=17572 worker=1
+FM_ISOLATION_SUMMARY total=1 failed=0 concurrency=1 duration_ms=17750
+fm-test-isolation-proof: wrote isolation proof artifact: <tmp>/proof.json
+[exit 0]
+{
+  "concurrency": 1,
+  "finished_at": "2026-10-10T02:44:47Z",
+  "fm_test_run_jobs_enabled": false,
+  "kind": "isolation-proof",
+  "pool": "browser-reap",
+  "production_sharding_enabled": false,
+  "run_id": "fm-isolation-1791600269952-3312985",
+  "scripts": [
+    {
+      "duration_ms": 17572,
+      "exit": 0,
+      "path": "tests/fm-browser-reap.test.sh",
+      "worker": 1
+    }
+  ],
+  "started_at": "2026-10-10T02:44:29Z",
+  "summary": {
+    "duration_ms": 17750,
+    "failed": 0,
+    "total": 1
+  }
+}

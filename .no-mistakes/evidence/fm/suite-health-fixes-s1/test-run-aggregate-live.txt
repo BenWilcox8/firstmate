@@ -1,0 +1,93 @@
+python3 on PATH: none
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/out/aggregate.json <tmp>/./lane-a.json <tmp>//lane-b.json
+FM_TEST_AGGREGATE lanes=2 total=2 failed=0 skipped_gate=0 critical_path_duration_ms=21049
+[exit 0]
+--- aggregate.json (projection) ---
+{
+  "kind": "aggregate",
+  "summary": {
+    "critical_path_duration_ms": 21049,
+    "failed": 0,
+    "lanes": 2,
+    "skipped_gate": 0,
+    "total": 2
+  },
+  "lanes": [
+    {
+      "path": "<tmp>/lane-a.json",
+      "selection": "scripts;jobs=1",
+      "total": 1
+    },
+    {
+      "path": "<tmp>/lane-b.json",
+      "selection": "scripts;jobs=1",
+      "total": 1
+    }
+  ],
+  "slowest": [
+    {
+      "path": "tests/fm-on.test.sh",
+      "duration_ms": 20890,
+      "lane_selection": "scripts;jobs=1"
+    },
+    {
+      "path": "tests/fm-ensure-agents-md.test.sh",
+      "duration_ms": 1933,
+      "lane_selection": "scripts;jobs=1"
+    }
+  ]
+}
+--- first lines of raw aggregate.json ---
+{
+  "kind": "aggregate",
+  "lanes": [
+    {
+      "finished_at": "2026-10-10T01:45:56Z",
+      "path": "<tmp>/lane-a.json",
+      "run_id": "fm-test-run-1791596754850-253348",
+      "selection": "scripts;jobs=1",
+      "started_at": "2026-10-10T01:45:54Z",
+      "summary": {
+        "duration_ms": 2069,
+        "failed": 0,
+== adversarial: a lane that is a JSON array
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/bad.json <tmp>/lane-a.json <tmp>/arr.json
+[stdin]:33
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) throw new TypeError(`${input} is not a JSON object`);
+                                                                     ^
+
+TypeError: <tmp>/arr.json is not a JSON object
+
+Node.js v24.18.0
+[exit 1]
+ls: cannot access '<tmp>/bad.json': No such file or directory
+== adversarial: summary.total is not an integer
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/bad2.json <tmp>/str.json
+/home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-test-json-lib.cjs:41
+  if (!/^\s*[-+]?[0-9]+(?:_[0-9]+)*\s*$/.test(text)) throw new Error(`invalid literal for int(): '${text}'`);
+                                                     ^
+
+Error: invalid literal for int(): 'abc'
+
+Node.js v24.18.0
+[exit 1]
+== adversarial: lane file is not JSON
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/bad3.json <tmp>/txt.json
+<anonymous_script>:1
+nope
+ ^
+
+SyntaxError: Unexpected token 'o', "nope
+" is not valid JSON
+
+Node.js v24.18.0
+[exit 1]
+== adversarial: no inputs
+
+$ bin/fm-test-run.sh --aggregate-json <tmp>/bad4.json
+fm-test-run: --aggregate-json requires at least one input timing JSON
+[exit 2]

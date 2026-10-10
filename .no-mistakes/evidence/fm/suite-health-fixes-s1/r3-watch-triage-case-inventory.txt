@@ -1,0 +1,24 @@
+case functions defined: base fm-watch-triage.test.sh 131; head seven files 131 (duplicates: 0)
+in base, missing from head: 0; in head, not in base: 0
+
+executed cases in the round-3 run (ok lines per file, from the runner log):
+  tests/fm-watcher-lock.test.sh: ok=33 not_ok=0
+  tests/fm-watch-triage-busy.test.sh: ok=18 not_ok=0
+  tests/fm-watch-triage-captain-hold.test.sh: ok=12 not_ok=0
+  tests/fm-watch-triage-gone-endpoint.test.sh: ok=6 not_ok=0
+  tests/fm-watch-triage-procevent-afk.test.sh: ok=23 not_ok=0
+  tests/fm-watch-triage-stale.test.sh: ok=9 not_ok=0
+  tests/fm-watch-triage.test.sh: ok=57 not_ok=0
+  tests/fm-watch-triage-wedge.test.sh: ok=6 not_ok=0
+  total ok lines across the seven watch-triage files: 131
+
+per-file wall time (runner):
+  tests/fm-watch-triage.test.sh duration_ms=193348
+  tests/fm-watch-triage-busy.test.sh duration_ms=129120
+  tests/fm-watch-triage-captain-hold.test.sh duration_ms=239730
+  tests/fm-watch-triage-gone-endpoint.test.sh duration_ms=164061
+  tests/fm-watch-triage-procevent-afk.test.sh duration_ms=152706
+  tests/fm-watch-triage-stale.test.sh duration_ms=211553
+  tests/fm-watch-triage-wedge.test.sh duration_ms=260401
+  tests/fm-watcher-lock.test.sh duration_ms=76641
+base single-file CI hint: 697969 ms (15-27 min observed per the audit); longest split file this run: 260401 ms

@@ -1,0 +1,8 @@
+p1   CLAUDE.md -> missing/../AGENTS.md         realpath -m: p1/AGENTS.md         same as AGENTS.md: yes-migrate
+p4   CLAUDE.md -> hop                          realpath -m: p4/AGENTS.md         same as AGENTS.md: yes-migrate
+p5   CLAUDE.md -> ln/missing/../../AGENTS.md   realpath -m: p5/deep/AGENTS.md    same as AGENTS.md: no-refuse
+p6   CLAUDE.md -> h1                           realpath -m: p6/AGENTS.md         same as AGENTS.md: yes-migrate
+p8   CLAUDE.md -> loopa                        realpath -m: p8/loopb             same as AGENTS.md: no-refuse
+p11  CLAUDE.md -> missing/AGENTS.md            realpath -m: p11/missing/AGENTS.md same as AGENTS.md: no-refuse
+p13  CLAUDE.md -> AGENTS.md/../AGENTS.md       realpath -m: p13/AGENTS.md        same as AGENTS.md: yes-migrate
+p14  CLAUDE.md -> la/../AGENTS.md              realpath -m: p14/AGENTS.md        same as AGENTS.md: yes-migrate

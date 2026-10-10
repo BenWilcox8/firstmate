@@ -1,0 +1,6 @@
+== HEAD tests/fm-ensure-agents-md.test.sh with the round-2 script (cfb989f, whole-target lexical fallback) in place
+not ok - a CLAUDE.md symlink to hop: expected exit 0, got 1
+[suite exit 1]
+
+== same suite with the HEAD script (6ad37c7, component-by-component port)
+[suite exit 0]

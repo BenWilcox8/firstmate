@@ -1,0 +1,13 @@
+$ FM_TEST_ONLY=test_gone_endpoint_delivery_survives_output_failure bash tests/fm-watch-triage.test.sh
+not ok - FM_TEST_ONLY names no case in this file: test_gone_endpoint_delivery_survives_output_failure
+[exit 1] ok-count=0
+
+$ FM_TEST_ONLY=test_no_such_case_anywhere bash tests/fm-watch-triage.test.sh
+not ok - FM_TEST_ONLY names no case in this file: test_no_such_case_anywhere
+[exit 1] ok-count=0
+
+$ FM_TEST_ONLY=test_turn_ended_churn_existing_marker_absorbed bash tests/fm-watch-triage.test.sh
+ok - a churning turn-end inside an already-open deferral window is absorbed without re-marking
+[exit 0] ok-count=1
+
+(bash 5.3.15(1)-release)

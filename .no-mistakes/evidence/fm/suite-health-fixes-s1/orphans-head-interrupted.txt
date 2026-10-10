@@ -1,0 +1,14 @@
+=== head: fm-backend-herdr-codex-attribution.test.sh, SIGTERM after 8 s ===
+sending SIGTERM to the suite (pid 2038687) after 8s
+suite exit: 0; case lines: 4; not ok: 0
+fixture processes left alive: 0
+
+=== head: fm-teardown-endpoint-safety.test.sh, SIGTERM after 20 s ===
+sending SIGTERM to the suite (pid 2055208) after 20s
+suite exit: 143; case lines: 3; not ok: 0
+LEFT ALIVE pid=2061790 comm=sleep cmd=sleep 30 
+fixture processes left alive: 1
+=== head: fm-backend-herdr-codex-attribution.test.sh, SIGTERM after 3 s ===
+sending SIGTERM to the suite (pid 2100249) after 3s
+suite exit: 143; case lines: 1; not ok: 0
+fixture processes left alive: 0

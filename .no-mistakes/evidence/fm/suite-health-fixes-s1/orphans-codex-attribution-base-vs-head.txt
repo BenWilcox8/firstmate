@@ -1,0 +1,16 @@
+=== base 2812e3cb: fm-backend-herdr-codex-attribution.test.sh, full run ===
+suite exit: 0; case lines: 4; not ok: 0
+LEFT ALIVE pid=2005183 comm=MainThread cmd=<private>/tmp/fm-herdr-codex-attribution.5R3sAt/node <private>/tmp/fm-herdr-codex-attribution.5R3sAt/codex 
+LEFT ALIVE pid=2005899 comm=MainThread cmd=<private>/tmp/fm-herdr-codex-attribution.5R3sAt/node <private>/tmp/fm-herdr-codex-attribution.5R3sAt/not-codex 
+LEFT ALIVE pid=2006662 comm=MainThread cmd=<private>/tmp/fm-herdr-codex-attribution.5R3sAt/node <private>/tmp/fm-herdr-codex-attribution.5R3sAt/not-codex 
+LEFT ALIVE pid=2007398 comm=MainThread cmd=<private>/tmp/fm-herdr-codex-attribution.5R3sAt/node <private>/tmp/fm-herdr-codex-attribution.5R3sAt/codex 
+LEFT ALIVE pid=2008073 comm=MainThread cmd=<private>/tmp/fm-herdr-codex-attribution.5R3sAt/-node <private>/tmp/fm-herdr-codex-attribution.5R3sAt/-codex 
+fixture processes left alive: 5
+
+=== head: fm-backend-herdr-codex-attribution.test.sh, full run ===
+suite exit: 0; case lines: 4; not ok: 0
+fixture processes left alive: 0
+
+real	0m17.957s
+user	0m3.115s
+sys	0m4.261s

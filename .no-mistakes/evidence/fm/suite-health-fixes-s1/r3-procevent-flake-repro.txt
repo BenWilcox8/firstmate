@@ -1,0 +1,14 @@
+== tests/fm-procevent.test.sh with the first detached runner delayed 5 s (> FM_PROCEVENT_LAUNCH_CONFIRM default 3 s); no code changed
+$ BASH_ENV=<shim> R3_SLOW_ONCE=<dir> timeout 120 bash tests/fm-procevent.test.sh
+ok - no configured source means no generated state and no process
+not ok - completion publishes the committed result sequence (missing: 'procevent lavish src-one 1')
+--- output ---
+check: process-event source src-one is registered but its launch did not prove it took the source's claim within FM_PROCEVENT_LAUNCH_CONFIRM_SECONDS, so nothing is confirmed to be collecting from it; reconcile reports that as failed= and keeps launching it every supervision cycle. If it stays that w
+[exit 1]
+shim fired: yes
+
+== same shim, base commit 2812e3cb tree (the flake predates this branch)
+ok - no configured source means no generated state and no process
+not ok - completion publishes the committed result sequence (missing: 'procevent lavish src-one 1')
+[exit 1]
+== the same suite without the shim, at the target commit: see r3-procevent-rerun.log (exit 0)

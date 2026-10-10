@@ -1,0 +1,47 @@
+python3 on PATH: none
+
+$ <repo>/bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=117 local_links=463
+[exit 0]
+
+== clean copy
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.V2BnDE
+fm-doc-audience-check: ok surfaces=117 local_links=463
+[exit 0]
+
+== broken local link added to docs/configuration.md
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.XVp8Ze
+fm-doc-audience-check: unresolved local link in docs/configuration.md: missing-page.md
+[exit 1]
+
+== broken anchor
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.SnfG7n
+fm-doc-audience-check: unresolved local anchor in docs/configuration.md: scripts.md#no-such-heading-here
+[exit 1]
+
+== a new tracked Markdown file with no classification
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.Psx1JL
+fm-doc-audience-check: unclassified: docs/unclassified-new.md
+[exit 1]
+
+== a surface with an unsupported audience
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.TFEQNG
+fm-doc-audience-check: .agents/skills/afk/SKILL.md: unsupported audience 'pirates'
+[exit 1]
+
+== inventory missing
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.msf91M
+fm-doc-audience-check: inventory is missing: /tmp/fm-doc-aud.msf91M/docs/documentation-audiences.json
+[exit 1]
+
+== inventory is not JSON
+
+$ <repo>/bin/fm-doc-audience-check.sh --root /tmp/fm-doc-aud.2r6bbF
+fm-doc-audience-check: inventory is unreadable: Expected property name or '}' in JSON at position 1 (line 1 column 2)
+[exit 1]

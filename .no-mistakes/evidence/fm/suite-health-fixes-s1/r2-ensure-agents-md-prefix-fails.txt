@@ -1,0 +1,6 @@
+== tests/fm-ensure-agents-md.test.sh with the pre-fix script (dbfac5f) in place
+not ok - a CLAUDE.md symlink to missing/../AGENTS.md: expected exit 0, got 1
+[suite exit 1]
+
+== same suite with the fixed script (HEAD cfb989f)
+[suite exit 0]

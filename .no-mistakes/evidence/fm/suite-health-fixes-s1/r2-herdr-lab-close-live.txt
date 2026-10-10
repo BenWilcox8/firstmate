@@ -1,0 +1,30 @@
+Herdr herdr 0.8.2, lab session fm-lab-pyclose-r2-3539659-1124 (throwaway, provisioned by bin/fm-herdr-lab.sh)
+python3 on PATH: none
+--- layout before: 'w1' doomed (one tab, one pane w1:p1) sits before the focused w2, which is not last ---
+{"workspace_id":"w1","label":"doomed","focused":false,"active_tab_id":"w1:t1"}
+{"workspace_id":"w2","label":"focused","focused":true,"active_tab_id":"w2:t1"}
+{"workspace_id":"w3","label":"tail","focused":false,"active_tab_id":"w3:t1"}
+
+$ . bin/backends/herdr.sh; fm_backend_herdr_projection_close_pane_focus_preserving <lab> w1:p1
+warning: herdr presentation cleanup requires python3 to verify workspace.move support; closing without the focus-safe removal path
+[exit 0]
+--- layout after ---
+{"workspace_id":"w2","label":"focused","focused":true,"active_tab_id":"w2:t1"}
+{"workspace_id":"w3","label":"tail","focused":false,"active_tab_id":"w3:t1"}
+
+=== base commit 2812e3cb bin/backends/herdr.sh, same lab, same shape ===
+--- layout before: w2 (one pane w2:p1) sits before the focused w4, which is not last ---
+{"workspace_id":"w2","label":"focused","focused":false,"active_tab_id":"w2:t1"}
+{"workspace_id":"w3","label":"tail","focused":false,"active_tab_id":"w3:t1"}
+{"workspace_id":"w4","label":"doomed2","focused":true,"active_tab_id":"w4:t1"}
+{"workspace_id":"w5","label":"tail2","focused":false,"active_tab_id":"w5:t1"}
+$ . <base>/bin/backends/herdr.sh; fm_backend_herdr_projection_close_pane_focus_preserving <lab> w2:p1
+warning: herdr presentation cleanup could not verify workspace.move support; closing without the focus-safe removal path
+[exit 0]
+--- layout after ---
+{"workspace_id":"w3","label":"tail","focused":false,"active_tab_id":"w3:t1"}
+{"workspace_id":"w4","label":"doomed2","focused":true,"active_tab_id":"w4:t1"}
+{"workspace_id":"w5","label":"tail2","focused":false,"active_tab_id":"w5:t1"}
+
+teardown of fm-lab-pyclose-r2-3539659-1124 exit=0
+"lab sessions left with this name: 0"

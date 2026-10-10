@@ -1,0 +1,31 @@
+=== base 2812e3cb: fm-control-park.test.sh, full run ===
+suite exit: 0; case lines: 20; not ok: 0
+LEFT ALIVE pid=1621963 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.412724
+LEFT ALIVE pid=1625030 comm=codex cmd=<private>/tmp/fm-control-park.5w0mXE/bin/codex -c exec 3>>'<private>/tmp/fm-control-park.5w0mXE/park-codex-30474/cod
+LEFT ALIVE pid=1627920 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.567165
+LEFT ALIVE pid=1629024 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.318712
+LEFT ALIVE pid=1630799 comm=grok cmd=<private>/tmp/fm-control-park.5w0mXE/bin/grok -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.10091156
+LEFT ALIVE pid=1631570 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.513285
+LEFT ALIVE pid=1632519 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.222262
+LEFT ALIVE pid=1639593 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.463423
+LEFT ALIVE pid=1639729 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.149655
+LEFT ALIVE pid=1640815 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.688864
+LEFT ALIVE pid=1643644 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.287405
+LEFT ALIVE pid=1646271 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.143991
+LEFT ALIVE pid=1660200 comm=codex cmd=<private>/tmp/fm-control-park.5w0mXE/bin/codex -c exec 3>>'<private>/tmp/fm-control-park.5w0mXE/resume-codex-4235/co
+LEFT ALIVE pid=1669818 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.179645
+LEFT ALIVE pid=1679059 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.160402
+LEFT ALIVE pid=1687185 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.452126
+LEFT ALIVE pid=1690385 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.292251
+LEFT ALIVE pid=1693588 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.180131
+LEFT ALIVE pid=1709481 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.206842
+LEFT ALIVE pid=1714072 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.185401
+LEFT ALIVE pid=1714936 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.796720
+LEFT ALIVE pid=1721872 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.765370
+LEFT ALIVE pid=1727657 comm=claude cmd=<private>/tmp/fm-control-park.5w0mXE/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.5w0mXE/block.135272
+fixture processes left alive: 23
+
+=== head: fm-control-park.test.sh, SIGTERM after 25 s ===
+sending SIGTERM to the suite (pid 1755919) after 25s
+suite exit: 143; case lines: 7; not ok: 0
+fixture processes left alive: 0

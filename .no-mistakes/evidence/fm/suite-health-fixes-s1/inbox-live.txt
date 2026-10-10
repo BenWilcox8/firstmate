@@ -1,0 +1,71 @@
+python3 on PATH: none
+node: v24.18.0
+== note --json with non-ASCII, DEL and a quote
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note --json --request-id req-1 -- café ☕ 𝄞 tab	"q" del
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791596646-YTQNt0","request_id":"req-1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-inbox-live.EkLVJk/state/inbox/1791596646-YTQNt0.note"}
+[exit 0]
+== replay of the same request id
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note --json --request-id req-1 -- café ☕ 𝄞 tab	"q" del
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1791596646-YTQNt0","request_id":"req-1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-inbox-live.EkLVJk/state/inbox/1791596646-YTQNt0.note"}
+[exit 0]
+== second note, human output
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note -- plain second note
+queued 1791596646-50p91k
+  plain second note
+  firstmate will pick this up at its next check.
+[exit 0]
+== reply --json to 1791596646-50p91k
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh reply --json 1791596646-50p91k answer with ünïcode
+{"schema":"fm-inbox-reply.v1","outcome":"created","id":"1791596646-50p91k","path":"/tmp/fm-inbox-live.EkLVJk/state/inbox/.replies/1791596646-50p91k"}
+[exit 0]
+== second reply refused
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh reply --json 1791596646-50p91k again
+fm-inbox: reply already recorded for 1791596646-50p91k
+[exit 1]
+== drain --ack
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh drain --ack 1791596646-50p91k
+acked 1791596646-50p91k
+[exit 0]
+== hand-made note whose name is not valid UTF-8, next to ok.note
+== receipts
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh receipts
+{"schema":"fm-inbox-receipts.v1","home":"tmp/fm-inbox-live.EkLVJk","generated":"2026-10-10T01:44:07Z","pending":[{"id":"ok","at":"2026-10-09T00:00:01Z","source":"text","request_id":null,"body":"body of ok","acknowledged":false,"announced":null,"reply":null},{"id":"bad","at":"2026-10-09T00:00:00Z","source":"text","request_id":null,"body":"body of bad","acknowledged":false,"announced":null,"reply":null},{"id":"1791596646-YTQNt0","at":"2026-10-10T01:44:06Z","source":"text","request_id":"req-1","body":"caf\u00e9 \u2615 \ud834\udd1e tab\t\"q\" del\u007f","acknowledged":false,"announced":true,"reply":null}],"handled":[{"id":"1791596646-50p91k","at":"2026-10-10T01:44:06Z","source":"text","request_id":null,"body":"plain second note","acknowledged":true,"announced":true,"reply":{"id":"1791596646-50p91k","at":"2026-10-10T01:44:06Z","body":"answer with \u00fcn\u00efcode","cursor":"000000000001"}}],"replies":[{"id":"1791596646-50p91k","at":"2026-10-10T01:44:06Z","body":"answer with \u00fcn\u00efcode","cursor":"000000000001"}],"reply_cursor":"000000000001","omitted":[]}
+[exit 0]
+== receipts piped to jq (valid JSON, pending ids)
+{"pending":["ok","bad","1791596646-YTQNt0"],"handled":[{"id":"1791596646-50p91k","acknowledged":true,"announced":true,"reply":"answer with ünïcode"}],"reply_cursor":"000000000001","omitted":[]}
+== receipts --after a cursor
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh receipts --after 000000000001
+{"schema":"fm-inbox-receipts.v1","home":"tmp/fm-inbox-live.EkLVJk","generated":"2026-10-10T01:44:07Z","pending":[{"id":"ok","at":"2026-10-09T00:00:01Z","source":"text","request_id":null,"body":"body of ok","acknowledged":false,"announced":null,"reply":null},{"id":"bad","at":"2026-10-09T00:00:00Z","source":"text","request_id":null,"body":"body of bad","acknowledged":false,"announced":null,"reply":null},{"id":"1791596646-YTQNt0","at":"2026-10-10T01:44:06Z","source":"text","request_id":"req-1","body":"caf\u00e9 \u2615 \ud834\udd1e tab\t\"q\" del\u007f","acknowledged":false,"announced":true,"reply":null}],"handled":[{"id":"1791596646-50p91k","at":"2026-10-10T01:44:06Z","source":"text","request_id":null,"body":"plain second note","acknowledged":true,"announced":true,"reply":{"id":"1791596646-50p91k","at":"2026-10-10T01:44:06Z","body":"answer with \u00fcn\u00efcode","cursor":"000000000001"}}],"replies":[],"reply_cursor":"000000000001","omitted":[]}
+[exit 0]
+== ready with no lock
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh ready
+{"schema":"fm-primary-ready.v1","home":"tmp/fm-inbox-live.EkLVJk","observed_at":"2026-10-10T01:44:07Z","lock":{"state":"free","pid":null,"live_harness":false},"wake_consumer":{"state":"unknown","reason":"supervision-model-unknown-for-home","beacon_age_seconds":null},"posture":{"state":"present"},"can_receive":false}
+[exit 0]
+== ready with a corrupt 25-digit pid in state/.lock
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh ready
+{"schema":"fm-primary-ready.v1","home":"tmp/fm-inbox-live.EkLVJk","observed_at":"2026-10-10T01:44:07Z","lock":{"state":"stale","pid":9999999999999999999999999,"live_harness":false},"wake_consumer":{"state":"unknown","reason":"supervision-model-unknown-for-home","beacon_age_seconds":null},"posture":{"state":"present"},"can_receive":false}
+[exit 0]
+== status (human, unchanged)
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh status
+=== firstmate status (read-only, no wake sent) ===
+home     /tmp/fm-inbox-live.EkLVJk
+time     2026-10-10T01:44:07Z
+inbox    3 note(s) waiting for firstmate
+
+(no backlog at /tmp/fm-inbox-live.EkLVJk/data/backlog.md)
+
+(no workers on deck)
+
+Note: the last event line is history, not current state.
+[exit 0]

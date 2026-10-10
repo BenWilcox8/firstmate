@@ -1,0 +1,13 @@
+=== head: fm-control-park.test.sh, full run ===
+suite exit: 0; case lines: 20; not ok: 0
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 26: /proc/1133/environ: Permission denied
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 26: /proc/1146/environ: Permission denied
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 26: /proc/1817624/environ: Permission denied
+fixture processes left alive: 0
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 37: /proc/1133/environ: Permission denied
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 37: /proc/1146/environ: Permission denied
+/home/ben/.no-mistakes/evidence/01M4H5WW15SZSW08R0855VX1BY/orphan-check.sh: line 37: /proc/1817624/environ: Permission denied
+
+real	1m23.931s
+user	0m20.739s
+sys	0m39.615s

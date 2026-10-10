@@ -1,0 +1,7 @@
+=== base 2812e3cb: fm-control-park.test.sh, full run (same orphan check as r3-orphans-head.txt)
+suite exit: 0; case lines: 20; not ok: 0
+LEFT ALIVE pid=3906630 comm=claude cmd=<private>/tmp/fm-control-park.3Cmkm2/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.3Cmkm2/block.209923
+LEFT ALIVE pid=3909786 comm=codex cmd=<private>/tmp/fm-control-park.3Cmkm2/bin/codex -c exec 3>>'<private>/tmp/fm-control-park.3Cmkm2/park-codex-19833/cod
+LEFT ALIVE pid=3912815 comm=claude cmd=<private>/tmp/fm-control-park.3Cmkm2/bin/claude -c :; read -r _ < '<private>/tmp/fm-control-park.3Cmkm2/block.308953
+fixture processes left alive: 23
+  ... (20 more LEFT ALIVE lines)

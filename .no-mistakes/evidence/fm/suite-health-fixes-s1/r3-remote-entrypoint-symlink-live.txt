@@ -1,0 +1,24 @@
+install: $HOME/bin/fm-remote-entrypoint.sh -> ../opt/link-hop -> <repo>/bin/fm-remote-entrypoint.sh (absolute)
+PATH holds node: no; realpath: no; python3: no
+
+$ fm-remote-entrypoint.sh 999 x y z
+error: incompatible remote protocol: local=999 remote=1
+[exit 64]
+
+$ fm-remote-entrypoint.sh 1 "!!!" y z
+error: invalid base64 for remote root
+[exit 64]
+
+$ fm-remote-entrypoint.sh 1 <b64 /nonexistent> <b64 home> <b64 argv>
+error: remote root is not a safe existing directory
+[exit 64]
+
+== control: a plain copy in $HOME/bin (no link to follow) cannot find its library
+$ fm-remote-entrypoint.sh 999 x y z
+/tmp/fm-entry.t21oXo/home/bin/fm-remote-entrypoint.sh: line 51: /tmp/fm-entry.t21oXo/home/bin/fm-remote-job-lib.sh: No such file or directory
+[exit 1]
+
+== base commit's entrypoint through the same symlink chain on the same PATH
+$ fm-remote-entrypoint.sh 999 x y z   (base)
+/tmp/fm-entry.t21oXo/home/bin/fm-remote-entrypoint.sh: line 41: /tmp/fm-entry.t21oXo/home/bin/fm-remote-job-lib.sh: No such file or directory
+[exit 1]

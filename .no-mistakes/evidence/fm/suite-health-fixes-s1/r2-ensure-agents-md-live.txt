@@ -1,0 +1,116 @@
+python3 on PATH: none; node: v24.18.0
+
+== 1. the fixed case: CLAUDE.md -> missing/../AGENTS.md (middle component does not exist)
+before:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/../AGENTS.md (symlink)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p1
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p1
+[exit 0]
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 2. same, AGENTS.md already has the maintenance section (plain replace line)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p2
+updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in <tmp>/p2
+[exit 0]
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 3. absolute dangling form: CLAUDE.md -> <tmp>/p3/missing/../AGENTS.md
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p3
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p3
+[exit 0]
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 4. regression: CLAUDE.md -> sub/../AGENTS.md through an existing dir
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p4
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p4
+[exit 0]
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  sub/ (dir)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 5. adversarial: CLAUDE.md -> missing/../OTHER.md, OTHER.md exists (wrong file)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p5
+conflict: CLAUDE.md is a symlink in <tmp>/p5 but does not point to AGENTS.md
+[exit 1]
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/../OTHER.md (symlink)
+  OTHER.md (file)
+
+== 6. adversarial: CLAUDE.md -> missing/../NOPE.md (dangling, no such file)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p6
+conflict: CLAUDE.md is a symlink in <tmp>/p6 but does not point to AGENTS.md
+[exit 1]
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/../NOPE.md (symlink)
+
+== 7. adversarial: CLAUDE.md -> missing/AGENTS.md (missing dir, no ..)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p7
+conflict: CLAUDE.md is a symlink in <tmp>/p7 but does not point to AGENTS.md
+[exit 1]
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/AGENTS.md (symlink)
+
+== 8. adversarial: CLAUDE.md -> ../elsewhere/AGENTS.md (an AGENTS.md of another dir)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p8
+conflict: CLAUDE.md is a symlink in <tmp>/p8 but does not point to AGENTS.md
+[exit 1]
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> ../elsewhere/AGENTS.md (symlink)
+
+== 9. parity probe: two-hop chain CLAUDE.md -> hop -> missing/../AGENTS.md
+   (Python non-strict realpath follows hop, then resolves missing/.. lexically: dir/AGENTS.md)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p9
+conflict: CLAUDE.md is a symlink in <tmp>/p9 but does not point to AGENTS.md
+[exit 1]
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> hop (symlink)
+  hop -> missing/../AGENTS.md (symlink)
+
+== 10. parity probe: symlinked dir before .. : CLAUDE.md -> ln/missing/../../AGENTS.md, ln -> deep/x
+   (Python resolves ln first: dir/deep/AGENTS.md, which differs from dir/AGENTS.md)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p10
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p10
+[exit 0]
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  deep/ (dir)
+  ln -> deep/x (symlink)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md

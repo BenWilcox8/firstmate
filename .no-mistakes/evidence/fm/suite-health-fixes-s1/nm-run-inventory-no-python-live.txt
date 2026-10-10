@@ -1,0 +1,13 @@
+python3 on PATH: none
+--- overview (truncated: 1 of 3 runs shown) ---
+count: 1 of 3 total
+runs[1]{id,branch,status,head,pr}:
+  01ABCDEF,fm/x,running,abcdef1234567,"" 
+
+$ fm_nm_select_run fm/x "$overview" <worktree>   (head commit)
+unknown|complete same-branch run inventory reader unavailable (python3 is not installed); run ids: 01ABCDEF
+[exit 0]
+
+$ same call, base commit library
+unknown|complete same-branch run inventory reader unavailable; run ids: 01ABCDEF
+[exit 0]

@@ -1,0 +1,169 @@
+python3 on PATH: none; node: v24.18.0
+
+== 1. CLAUDE.md -> missing/../AGENTS.md (middle component missing). Python: dir/AGENTS.md -> migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p1
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p1
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 2. absolute dangling form CLAUDE.md -> <tmp>/p2/missing/../AGENTS.md. Python: migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p2
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p2
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 3. regression: CLAUDE.md -> sub/../AGENTS.md through an existing dir. Python: migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p3
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p3
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  sub/ (dir)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 4. round-2 parity probe A: two-hop chain CLAUDE.md -> hop -> missing/../AGENTS.md. Python: follows hop -> dir/AGENTS.md -> migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p4
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p4
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  hop -> missing/../AGENTS.md (symlink)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 5. round-2 parity probe B: CLAUDE.md -> ln/missing/../../AGENTS.md, ln -> deep/x. Python: ln resolves first -> dir/deep/AGENTS.md -> refuse
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p5
+conflict: CLAUDE.md is a symlink in <tmp>/p5 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> ln/missing/../../AGENTS.md (symlink)
+  deep/ (dir)
+  ln -> deep/x (symlink)
+
+== 6. three-hop chain with an absolute middle hop: CLAUDE.md -> h1 -> <tmp>/p6/h2 -> ./AGENTS.md. Python: migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p6
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p6
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  h1 -> /tmp/fm-ensure-r3.gPbFwk/p6/h2 (symlink)
+  h2 -> ./AGENTS.md (symlink)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 7. symlinked project dir: real dir reached through an alias; CLAUDE.md -> ../alias7/AGENTS.md. Python: both resolve to real/AGENTS.md -> migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/alias7   (run through the alias)
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/real7
+[exit 0] expected exit 0 -> MATCH
+  AGENTS.md (file)
+  CLAUDE.md (file)
+
+== 8. adversarial: symlink loop CLAUDE.md -> loopa -> loopb -> loopa. Python: loop kept as path -> refuse (no hang)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p8
+conflict: CLAUDE.md is a symlink in <tmp>/p8 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> loopa (symlink)
+  loopa -> loopb (symlink)
+  loopb -> loopa (symlink)
+
+== 9. adversarial: self loop CLAUDE.md -> CLAUDE.md. Python: refuse
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p9
+conflict: CLAUDE.md is a symlink in <tmp>/p9 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> CLAUDE.md (symlink)
+
+== 10. adversarial: CLAUDE.md -> missing/../OTHER.md (wrong existing file). Python: refuse
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p10
+conflict: CLAUDE.md is a symlink in <tmp>/p10 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/../OTHER.md (symlink)
+  OTHER.md (file)
+
+== 11. adversarial: CLAUDE.md -> missing/AGENTS.md (missing dir, no ..). Python: dir/missing/AGENTS.md -> refuse
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p11
+conflict: CLAUDE.md is a symlink in <tmp>/p11 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> missing/AGENTS.md (symlink)
+
+== 12. adversarial: CLAUDE.md -> ../elsewhere/AGENTS.md (another dir's AGENTS.md). Python: refuse
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p12
+conflict: CLAUDE.md is a symlink in <tmp>/p12 but does not point to AGENTS.md
+[exit 1] expected exit 1 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md -> ../elsewhere/AGENTS.md (symlink)
+
+== 13. adversarial: a file used as a directory: CLAUDE.md -> AGENTS.md/../AGENTS.md. Python non-strict: lexical .. -> dir/AGENTS.md -> migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p13
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p13
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 14. adversarial: hop chain ending at a loop before ..: CLAUDE.md -> la/../AGENTS.md, la -> la. Python 3.13: loop kept as dir/la, .. -> dir -> migrate
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p14
+updated: added ## Maintaining this file to AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p14
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  la -> la (symlink)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md
+
+== 15. AGENTS.md absent, CLAUDE.md -> AGENTS.md dangling (literal name: short-circuits before the realpath port; base 2812e3cb also creates AGENTS.md, exit 0)
+
+$ bin/fm-ensure-agents-md.sh <tmp>/p15
+created: AGENTS.md and wrote CLAUDE.md @AGENTS.md pointer in <tmp>/p15
+[exit 0] expected exit 0 -> MATCH
+after:
+  AGENTS.md (file)
+  CLAUDE.md (file)
+  CLAUDE.md content:
+    <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->
+    @AGENTS.md

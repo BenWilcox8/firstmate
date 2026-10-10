@@ -1,0 +1,12 @@
+lsof on PATH: none
+=== base 2812e3cb: fm-teardown-endpoint-safety.test.sh, full run ===
+suite exit: 1; case lines: 10; not ok: 1
+not ok - teardown reported success after a close that failed: ●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LEFT ALIVE pid=1803719 comm=sleep cmd=sleep 30 
+LEFT ALIVE pid=1821067 comm=tmux: server cmd=/etc/profiles/per-user/ben/bin/tmux -S dedicated.sock new-session -d -s close failure -n control 
+LEFT ALIVE pid=1821083 comm=bash cmd=-bash 
+fixture processes left alive: 3
+
+=== head: fm-teardown-endpoint-safety.test.sh, full run ===
+suite exit: 0; case lines: 26; not ok: 0
+fixture processes left alive: 0

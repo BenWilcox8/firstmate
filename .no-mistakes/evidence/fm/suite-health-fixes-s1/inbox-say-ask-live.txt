@@ -1,0 +1,48 @@
+node on caller PATH: none; HOME/.local/bin/node -> /run/current-system/sw/bin/node
+== note --json finds node through ~/.local/bin
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh note --json -- via local bin
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1791596708-8NcJeT","request_id":null,"saved":true,"announced":true,"acknowledged":false,"path":"/tmp/fm-inbox-say.C16ck9/state/inbox/1791596708-8NcJeT.note"}
+[exit 0]
+== say with 1 s of raw 16 kHz s16le PCM (32000 bytes + 1 odd byte)
+fm-inbox: input looked like raw PCM, wrapped as 16kHz mono WAV
+fm-inbox: 1.0s of audio, transcribing with stt-model in us-test-1
+fm-inbox: heard: hello from the fake model
+queued 1791596708-nWDNoY
+  hello from the fake model
+  firstmate will pick this up at its next check.
+[exit 0]
+request body (audio bytes elided):
+wav bytes: 32044 riff: RIFF datalen: 32000 rate: 16000
+[{"role":"user","content":[{"audio":{"format":"wav","source":{"bytes":"<32044 bytes>"}}},{"text":"Transcribe the speech exactly. Output only the transcript, nothing else."}]}]
+raw separators in request file: [{"role": "user", "content": [{"audio": {"format": "wav", "s
+saved voice note:
+id=1791596708-nWDNoY
+at=2026-10-10T01:45:08Z
+source=voice
+announce_marker=1
+transcript_model=stt-model
+audio_seconds=1.0
+--
+hello from the fake model
+== say with a real WAV of 2.5 s at 8 kHz
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh say /tmp/fm-inbox-say.C16ck9/a.wav
+fm-inbox: input is WAV, passing through
+fm-inbox: 2.5s of audio, transcribing with stt-model in us-test-1
+fm-inbox: heard: hello from the fake model
+queued 1791596708-TCLQMa
+  hello from the fake model
+  firstmate will pick this up at its next check.
+[exit 0]
+== say refuses Ogg
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh say /tmp/fm-inbox-say.C16ck9/x.ogg
+fm-inbox: got Ogg/FLAC/MP3; re-encode to WAV first
+[exit 1]
+== ask with a non-ASCII question
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-inbox.sh ask what does ünïcode → do?
+hello from the fake model
+[exit 0]
+ask request body: [{"role": "user", "content": [{"text": "what does \u00fcn\u00efcode \u2192 do?"}]}]

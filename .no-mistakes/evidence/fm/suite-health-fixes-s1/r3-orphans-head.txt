@@ -1,0 +1,16 @@
+=== head 6ad37c7: fm-control-park.test.sh, full run (lsof on PATH: none)
+suite exit: 0; case lines: 20; not ok: 0
+fixture processes left alive: 0
+
+=== head 6ad37c7: fm-backend-herdr-codex-attribution.test.sh, full run (lsof on PATH: none)
+suite exit: 0; case lines: 4; not ok: 0
+fixture processes left alive: 0
+
+=== head 6ad37c7: fm-teardown-endpoint-safety.test.sh, full run (lsof on PATH: none)
+suite exit: 0; case lines: 26; not ok: 0
+fixture processes left alive: 0
+
+=== head: fm-control-park.test.sh, SIGTERM after 25 s
+sending SIGTERM to the suite (pid 325285) after 25s
+suite exit: 143; case lines: 10; not ok: 0
+fixture processes left alive: 0

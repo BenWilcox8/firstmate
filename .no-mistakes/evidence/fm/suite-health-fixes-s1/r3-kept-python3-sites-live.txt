@@ -1,0 +1,16 @@
+python3 on PATH: none
+
+$ env HOME=<home> /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-kimi-turnend-hook.sh install
+fm-kimi-turnend-hook: refused: python3 with tomllib is required to validate config.toml.
+[exit 1]
+config.toml unchanged after the refused install: yes
+
+(placeholder FM_MAIL_* values in the throwaway <home>/.env; .invalid hosts, never contacted)
+
+$ env HOME=<home> FM_HOME=<home> /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-mail.sh status
+fm-mail: python3 required
+[exit 1]
+
+$ /home/ben/.no-mistakes/worktrees/3665d600861c/01M4H5WW15SZSW08R0855VX1BY/bin/fm-herdr-lab.sh viewer start fm-lab-never-provisioned
+fm-herdr-lab: python3 is required for the lab viewer
+[exit 1]

@@ -1,0 +1,7 @@
+== HEAD tests/fm-ensure-agents-md.test.sh against the round-2 script (cfb989f bin/fm-ensure-agents-md.sh, lexical-only fallback)
+not ok - a CLAUDE.md symlink to hop: expected exit 0, got 1
+[suite stops at the first failing case]
+
+== same, with the first new case's call removed so the suite reaches test_symlinked_dir_before_parent_is_refused
+not ok - a CLAUDE.md symlink through a symlinked dir before ..: expected exit 1, got 0
+[suite exit 1]
