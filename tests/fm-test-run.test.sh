@@ -1727,9 +1727,9 @@ puts JSON.generate(
 )
 ' "$ROOT/.github/workflows/ci.yml") \
     || fail "could not parse tests-herdr timeouts from ci.yml"
-  job_timeout=$(jq -er '.job_timeout' <<<"$json") \
+  job_timeout=$(jq -ers "$FM_TEST_ONE_JSON"' | .job_timeout' <<<"$json") \
     || fail "could not read job timeout from parsed workflow"
-  step_timeout=$(jq -er '.step_timeout' <<<"$json") \
+  step_timeout=$(jq -ers "$FM_TEST_ONE_JSON"' | .step_timeout' <<<"$json") \
     || fail "could not read step timeout from parsed workflow"
   [ "$job_timeout" = 75 ] \
     || fail "tests-herdr job backstop must stay 75 minutes, got $job_timeout"
@@ -1796,7 +1796,7 @@ JSON
   "$RUNNER" --aggregate-json "$tmp/out.json" "$tmp/lanes//./a.json" >"$tmp/out" 2>&1 \
     || { cat "$tmp/out"; rm -rf "$tmp"; fail "a well-formed lane must aggregate"; }
   assert_contains "$(cat "$tmp/out")" "FM_TEST_AGGREGATE lanes=1 total=2 failed=0" "an integer string counts as int() reads it"
-  assert_equals "$(cd "$tmp/lanes" && pwd -L)/a.json" "$(jq -r '.lanes[0].path' "$tmp/out.json")" \
+  assert_equals "$(cd "$tmp/lanes" && pwd -L)/a.json" "$(jq -rs "$FM_TEST_ONE_JSON"' | .lanes[0].path' "$tmp/out.json")" \
     "the lane path is normalized as str(Path) did"
   # The record is written twice, under scripts and under slowest.
   assert_equals "! 10 2 ! 10 2" "$(grep -oE '^ +"(!|10|2)":' "$tmp/out.json" | tr -d ' ":' | paste -sd' ' -)" \

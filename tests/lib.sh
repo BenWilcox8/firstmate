@@ -705,6 +705,12 @@ assert_not_contains() {
   esac
 }
 
+# FM_TEST_ONE_JSON: the first step of a `jq -s` filter that reads product JSON.
+# It gives the one JSON document of the input. If the input is not exactly one
+# JSON document, for example because text follows the document, it fails with
+# no output, as Python json.load did.
+FM_TEST_ONE_JSON='if length == 1 then .[0] else error("the input is not exactly one JSON document") end'
+
 # expect_code <expected> <actual> <label>
 expect_code() {
   local expected=$1 actual=$2 label=$3
