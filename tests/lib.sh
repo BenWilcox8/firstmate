@@ -203,17 +203,17 @@ fm_test_track_pid() {
   printf '%s\t%s\t%s\n' "$pid" "$scope" "$start" >> "$FM_TEST_PROCESS_REGISTRY"
 }
 
-fm_test_reap_pids() {  # [registry]: this suite's own by default
-  local registry=${1:-$FM_TEST_PROCESS_REGISTRY} pid scope start entry i
+fm_test_reap_pids() {
+  local pid scope start entry i
   local -a fm_reap_pending=() fm_reap_remaining=()
-  [ -f "$registry" ] || return 0
+  [ -f "$FM_TEST_PROCESS_REGISTRY" ] || return 0
   while IFS=$'\t' read -r pid scope start; do
     [ -n "$pid" ] || continue
     [ "$(fm_test_process_start "$pid" 2>/dev/null)" = "$start" ] || continue
     [ "$scope" = group ] && kill -TERM -- "-$pid" 2>/dev/null || true
     kill -TERM "$pid" 2>/dev/null || true
     fm_reap_pending+=("$pid:$scope:$start")
-  done < <(cat -- "$registry" 2>/dev/null)
+  done < "$FM_TEST_PROCESS_REGISTRY"
   i=0
   while [ "${#fm_reap_pending[@]}" -gt 0 ] && [ "$i" -lt 30 ]; do
     fm_reap_remaining=()
@@ -234,7 +234,7 @@ fm_test_reap_pids() {  # [registry]: this suite's own by default
     [ "$scope" = group ] && kill -KILL -- "-$pid" 2>/dev/null || true
     kill -KILL "$pid" 2>/dev/null || true
   done
-  rm -f -- "$registry"
+  rm -f "$FM_TEST_PROCESS_REGISTRY"
   return 0
 }
 
@@ -318,30 +318,11 @@ fm_test_reap_orphans() {
   done
 }
 
-# fm_test_reap_orphan_process_registries: a suite that replaces the EXIT trap
-# above without calling fm_test_cleanup leaves its process registry behind.
-# Once the suite PID in a registry's name no longer runs, this reaps each process
-# that registry lists with fm_test_reap_pids (so only a process that still has
-# its recorded start time is signaled) and removes the registry. It never reads
-# the registry of a suite that still runs.
-fm_test_reap_orphan_process_registries() {
-  local registry owner
-  for registry in "${TMPDIR:-/tmp}"/.fm-test-processes.*.*; do
-    [ -f "$registry" ] || continue
-    owner=${registry##*/.fm-test-processes.}
-    owner=${owner%%.*}
-    case "$owner" in '' | *[!0-9]*) continue ;; esac
-    kill -0 "$owner" 2>/dev/null && continue
-    fm_test_reap_pids "$registry"
-  done
-}
-
 # A parent coordinator can reap once before it starts isolated child sections.
 # Those children use their own EXIT cleanup and must not spend their bounded
 # execution window repeating the same global stale-fixture scan.
 if [ "${FM_TEST_SKIP_ORPHAN_REAP:-0}" != 1 ]; then
   fm_test_reap_orphans
-  fm_test_reap_orphan_process_registries
 fi
 
 # --- live-capability gate ---------------------------------------------------
