@@ -179,7 +179,7 @@ function readText(file) {
 }
 
 function gitTracked(root, patterns) {
-  const proc = spawnSync('git', ['-C', root, 'ls-files', '-z', '--', ...patterns], { encoding: 'buffer' });
+  const proc = spawnSync('git', ['-C', root, 'ls-files', '-z', '--', ...patterns], { encoding: 'buffer', maxBuffer: Infinity });
   if (proc.error) fail(`git ls-files failed: ${proc.error.message}`);
   if (proc.status !== 0) {
     const detail = proc.stderr.toString('utf8').trim();

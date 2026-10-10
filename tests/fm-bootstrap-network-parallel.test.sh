@@ -52,8 +52,10 @@ entry=${2:-}
 shift 2 || true
 [ "$entry" = fm-remote-entrypoint.sh ] || exit 92
 argv_b64=${4:-}
+decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D; }
+decode "$argv_b64" >/dev/null 2>&1 || exit 93
 # The payload is NUL-separated argv; keep the first three non-empty parts, one per line.
-cmd=$(printf '%s' "$argv_b64" | base64 -d | tr '\0' '\n' | awk 'length' | head -n 3)
+cmd=$(decode "$argv_b64" | tr '\0' '\n' | awk 'length' | head -n 3)
 command_name=$(printf '%s\n' "$cmd" | sed -n '1p')
 subcommand=$(printf '%s\n' "$cmd" | sed -n '2p')
 slow=0

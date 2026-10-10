@@ -1798,6 +1798,7 @@ test_permission_recovery_surfaces_preserved_status() {
 # CI's stock macOS Bash lane sets FM_TEST_ONLY to run just the bash-3.2
 # churn-deferral regression. The rest of this file is not a 3.2 snapshot suite.
 if [ -n "${FM_TEST_ONLY:-}" ]; then
+  declare -F "$FM_TEST_ONLY" >/dev/null || fail "FM_TEST_ONLY names no case in this file: $FM_TEST_ONLY"
   "$FM_TEST_ONLY"
   exit 0
 fi
