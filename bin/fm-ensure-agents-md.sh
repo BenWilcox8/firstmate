@@ -154,21 +154,47 @@ is_correct_claude_symlink() {
   if command -v node >/dev/null 2>&1; then
     node - "$CLAUDE" "$AGENTS" <<'JS'
 const fs = require('fs');
-const path = require('path');
-// Match non-strict os.path.realpath: when a missing component stops
-// realpathSync, resolve the link target lexically against the link directory.
-function resolveLink(link) {
-  try {
-    return fs.realpathSync(link);
-  } catch (e) {
-    return fs.realpathSync(path.resolve(path.dirname(link), fs.readlinkSync(link)));
+// Port of non-strict os.path.realpath: resolve each component in order and
+// follow each symlink. Keep a missing component as a plain name, and stop at
+// a symlink loop.
+function realpath(file) {
+  const rest = file.split('/').reverse();
+  const seen = new Map();
+  let path = file.startsWith('/') ? '/' : process.cwd();
+  while (rest.length) {
+    const name = rest.pop();
+    if (name === null) {
+      seen.set(rest.pop(), path);
+      continue;
+    }
+    if (name === '' || name === '.') continue;
+    if (name === '..') {
+      path = path.slice(0, path.lastIndexOf('/')) || '/';
+      continue;
+    }
+    const next = path === '/' ? path + name : path + '/' + name;
+    let target;
+    try {
+      if (!fs.lstatSync(next).isSymbolicLink()) {
+        path = next;
+        continue;
+      }
+      if (seen.has(next)) {
+        path = seen.get(next) ?? next;
+        continue;
+      }
+      target = fs.readlinkSync(next);
+    } catch (e) {
+      path = next;
+      continue;
+    }
+    if (target.startsWith('/')) path = '/';
+    seen.set(next, null);
+    rest.push(next, null, ...target.split('/').reverse());
   }
+  return path;
 }
-try {
-  process.exit(resolveLink(process.argv[2]) === fs.realpathSync(process.argv[3]) ? 0 : 1);
-} catch (e) {
-  process.exit(1);
-}
+process.exit(realpath(process.argv[2]) === realpath(process.argv[3]) ? 0 : 1);
 JS
     return $?
   fi
