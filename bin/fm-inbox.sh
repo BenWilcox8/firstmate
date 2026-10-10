@@ -757,7 +757,53 @@ function parseRecord(path) {
   return { meta, body };
 }
 
-const under = (dir, name) => (name.startsWith("/") ? name : dir + "/" + name);
+// File names are bytes. fsName decodes them as Python os.fsdecode does: each
+// byte that is not part of valid UTF-8 becomes U+DC80 to U+DCFF. fsBytes gives
+// the bytes back, so a note with such a name is still read and listed.
+const strictUtf8 = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true });
+function fsName(bytes) {
+  let name = "";
+  for (let i = 0; i < bytes.length;) {
+    const b = bytes[i];
+    const n = b < 0x80 ? 1 : b < 0xc2 ? 0 : b < 0xe0 ? 2 : b < 0xf0 ? 3 : b < 0xf5 ? 4 : 0;
+    let ch = null;
+    if (n > 0 && i + n <= bytes.length) {
+      try {
+        ch = strictUtf8.decode(bytes.subarray(i, i + n));
+      } catch (err) {
+        ch = null;
+      }
+    }
+    if (ch === null) {
+      name += String.fromCharCode(0xdc00 + b);
+      i += 1;
+    } else {
+      name += ch;
+      i += n;
+    }
+  }
+  return name;
+}
+function fsBytes(name) {
+  const parts = [];
+  for (const ch of name) {
+    const c = ch.codePointAt(0);
+    parts.push(c >= 0xdc80 && c <= 0xdcff ? Buffer.from([c - 0xdc00]) : Buffer.from(ch, "utf8"));
+  }
+  return Buffer.concat(parts);
+}
+
+// Note names sort by code point, not by UTF-16 unit.
+function byCodePoint(a, b) {
+  const x = Array.from(a, (c) => c.codePointAt(0));
+  const y = Array.from(b, (c) => c.codePointAt(0));
+  for (let i = 0; i < x.length && i < y.length; i++) {
+    if (x[i] !== y[i]) return x[i] - y[i];
+  }
+  return x.length - y.length;
+}
+
+const under = (dir, name) => (name.startsWith("/") ? fsBytes(name) : Buffer.concat([Buffer.from(dir + "/"), fsBytes(name)]));
 
 function isFile(path) {
   try {
@@ -771,15 +817,15 @@ function listNotes(folder) {
   let names;
   try {
     if (!fs.statSync(folder).isDirectory()) return [];
-    names = fs.readdirSync(folder);
+    names = fs.readdirSync(folder, { encoding: "buffer" }).map(fsName);
   } catch (err) {
     return [];
   }
-  names = names.filter((n) => n.endsWith(".note")).sort().reverse();
+  names = names.filter((n) => n.endsWith(".note")).sort(byCodePoint).reverse();
   const notes = [];
   for (const name of names) {
     if (name.startsWith(".")) continue;
-    const record = parseRecord(folder + "/" + name);
+    const record = parseRecord(under(folder, name));
     if (record === null) continue;
     const { meta, body } = record;
     notes.push({
@@ -886,7 +932,7 @@ if (repliesOmitted) {
 if (malformedReplies.length) {
   omitted.push({
     surface: "malformed replies without a valid sequence: " + malformedReplies.length
-      + " (" + [...malformedReplies].sort().join(", ") + ")",
+      + " (" + [...malformedReplies].sort(byCodePoint).join(", ") + ")",
     reveal: "inspect " + repliesDir,
   });
 }
@@ -999,8 +1045,11 @@ const [lockState, lockPid, liveHarness, consumerState, consumerReason,
   beaconAge, posture, canReceive, observed, home] = process.argv.slice(1, 11);
 const liveVal = liveHarness === "true" ? true : liveHarness === "false" ? false : null;
 const recv = canReceive === "true" ? true : canReceive === "false" ? false : "unknown";
-const pidVal = /^[0-9]+$/.test(lockPid) ? Number(lockPid) : null;
-const ageVal = /^[0-9]+$/.test(beaconAge) ? Number(beaconAge) : null;
+// The pid and the age are exact integers, written from their digits. The NUL
+// placeholders cannot come from argv, so no other value can match them.
+const exactInt = (digits) => (/^[0-9]+$/.test(digits) ? BigInt(digits).toString() : "null");
+const pidVal = "\0pid";
+const ageVal = "\0age";
 process.stdout.write(jsonAscii({
   schema: "fm-primary-ready.v1",
   home: homeLabel(home),
@@ -1017,7 +1066,8 @@ process.stdout.write(jsonAscii({
   },
   posture: { state: posture },
   can_receive: recv,
-}) + "\n");
+}).replace("\"\\u0000pid\"", () => exactInt(lockPid))
+  .replace("\"\\u0000age\"", () => exactInt(beaconAge)) + "\n");
 ' "$lock_state" "$lock_pid" "$live_harness" \
     "$consumer_state" "$consumer_reason" "$beacon_age" \
     "$posture" "$can_receive" "$observed" "$FM_HOME"

@@ -581,6 +581,7 @@ try {
     stdio: ["ignore", "ignore", writeFd],
     env: process.env,
     timeout: 7000,
+    killSignal: "SIGKILL",
   });
 } finally {
   fs.closeSync(writeFd);

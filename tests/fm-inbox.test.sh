@@ -400,6 +400,35 @@ assert_equals "2" "$(printf '%s' "$binary" | json_len pending)" \
   "the undecodable note and the readable note are both listed"
 pass "a non-UTF-8 note does not break the receipts view"
 
+# Note names are bytes. Receipts list them newest name first in code point
+# order, and a name that is not valid UTF-8 is still read and listed. Without
+# an id header its id keeps each undecodable byte as U+DC80 to U+DCFF.
+home=$(make_home note-names)
+mkdir -p "$home/state/inbox"
+printf 'id=1700000000-ok\nat=2026-01-01T00:00:00Z\nsource=text\n--\nascii name\n' \
+  > "$home/state/inbox/1700000000-ok.note"
+printf 'id=private-use\nat=2026-01-01T00:00:00Z\nsource=text\n--\nU+E000 name\n' \
+  > "$home/state/inbox/$(printf '\356\200\200').note"
+printf 'id=emoji\nat=2026-01-01T00:00:00Z\nsource=text\n--\nU+1F600 name\n' \
+  > "$home/state/inbox/$(printf '\360\237\230\200').note"
+named=$(run_inbox "$home" receipts) || fail "receipts with unusual note names should succeed"
+assert_equals "emoji private-use 1700000000-ok" \
+  "$(printf '%s' "$named" | jq -rs "$FM_TEST_ONE_JSON"' | [.pending[].id] | join(" ")')" \
+  "note names sort by code point, so U+1F600 is above U+E000"
+if { printf 'at=2026-01-01T00:00:00Z\nsource=text\n--\nno id header\n' \
+  > "$home/state/inbox/$(printf 'bad\377').note"; } 2>/dev/null; then
+  named=$(run_inbox "$home" receipts) || fail "receipts with a non-UTF-8 note name should succeed"
+  assert_equals "4" "$(printf '%s' "$named" | json_len pending)" \
+    "a note whose name is not valid UTF-8 is listed"
+  assert_contains "$named" '"id":"bad\udcff"' \
+    "the id from a non-UTF-8 name keeps the byte as U+DCFF"
+  assert_equals "1700000000-ok" "$(printf '%s' "$named" | json_get pending 3 id)" \
+    "the non-UTF-8 name sorts by its code points"
+else
+  printf '# skip: this file system refuses a note name that is not valid UTF-8\n'
+fi
+pass "receipts list note names by code point and keep names that are not UTF-8"
+
 # --- readiness projection, including unknown -------------------------------
 
 home=$(make_home ready-free)
@@ -438,6 +467,14 @@ assert_equals "stale" "$(printf '%s' "$ready" | json_get lock state)" \
   "a dead recorded pid is stale"
 assert_equals "false" "$(printf '%s' "$ready" | json_get can_receive)" \
   "a stale lock cannot receive work"
+
+# A corrupt lock file can hold any digits. ready reports them as the exact
+# integer, never a rounded or exponent form.
+home=$(make_home ready-huge-pid)
+printf '%s\n' "0099999999999999999999" > "$home/state/.lock"
+ready=$(run_inbox "$home" ready) || fail "ready should succeed for a corrupt lock pid"
+assert_contains "$ready" '"pid":99999999999999999999,' \
+  "a lock pid beyond the exact range of a JS number is written exactly"
 
 # Existence of a pane-like leftover must not become liveness: unreadable lock.
 home=$(make_home ready-unreadable)
@@ -583,7 +620,9 @@ run_say() {  # <audio-file> - stdout and stderr merged
 
 # The audio the fake aws received, decoded from the request body.
 sent_audio() {
-  json_get 0 content 0 audio source bytes <"$home/messages.json" | base64 -d
+  local encoded
+  encoded=$(json_get 0 content 0 audio source bytes <"$home/messages.json")
+  printf '%s' "$encoded" | base64 --decode 2>/dev/null || printf '%s' "$encoded" | base64 -D
 }
 
 hex_head() {  # <file> - the first 44 bytes as hex
