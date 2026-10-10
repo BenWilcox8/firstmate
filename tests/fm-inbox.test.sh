@@ -816,6 +816,8 @@ else
   run_nodeless() {
     HOME="$home" PATH="$core_path" run_inbox "$home" "$@"
   }
+  # shellcheck disable=SC2088 # Literal text from the error message.
+  link_hint="~/.local/bin/node"
   set +e
   nodeless_out=$(run_nodeless note --json "needs node" 2>&1)
   nodeless_code=$?
@@ -823,7 +825,7 @@ else
   expect_code 1 "$nodeless_code" "note --json without node fails"
   assert_contains "$nodeless_out" "PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin" \
     "the error names where fm-inbox.sh looks for node"
-  assert_contains "$nodeless_out" "~/.local/bin/node" "the error tells how to link a node"
+  assert_contains "$nodeless_out" "$link_hint" "the error tells how to link a node"
   assert_equals "0" "$(count_notes "$home")" "note --json without node must not save a note"
   assert_equals "0" "$(count_wakes "$home")" "note --json without node must not append a wake"
 
@@ -837,7 +839,7 @@ else
   nodeless_code=$?
   set -e
   expect_code 1 "$nodeless_code" "announce --json without node fails"
-  assert_contains "$nodeless_out" "~/.local/bin/node" "the announce error tells how to link a node"
+  assert_contains "$nodeless_out" "$link_hint" "the announce error tells how to link a node"
   assert_equals "$wakes" "$(count_wakes "$home")" "announce --json without node must not append a wake"
   [ ! -e "$home/state/inbox/.announced/$nid" ] \
     || fail "announce --json without node must not mark the note announced"
@@ -847,7 +849,7 @@ else
   nodeless_code=$?
   set -e
   expect_code 1 "$nodeless_code" "reply --json without node fails"
-  assert_contains "$nodeless_out" "~/.local/bin/node" "the reply error tells how to link a node"
+  assert_contains "$nodeless_out" "$link_hint" "the reply error tells how to link a node"
   [ ! -e "$home/state/inbox/.replies/$nid" ] || fail "reply --json without node must not record a reply"
   pass "without node, note, announce and reply --json stop before they write anything"
 fi
