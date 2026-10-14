@@ -46,8 +46,11 @@
 #                          neither absorb class
 #                          applies does the log's latest recognized status event decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
-#                          both surfaced at once. A FINISHED line (done/failed)
-#                          already surfaced once (its mark_surfaced record
+#                          both surfaced once the pane hash has stayed unchanged
+#                          for FM_STALE_FIRST_WAKE_SECS (default 240s), so two
+#                          identical polls alone do not surface either one. A
+#                          FINISHED line (done/failed) already surfaced once
+#                          (its mark_surfaced record
 #                          matches) is absorbed instead of re-fired while the
 #                          pane idles, so a parked crew escalates stale at most
 #                          once per distinct status line; an open needs-decision
@@ -1778,16 +1781,18 @@ stale_floor_waiting() {  # <key> <hash> <hash-file>
 # may have finished through an interactive menu that wrote no status, be waiting on
 # a decision, or be wedged. pause_state_class deliberately answers `none` for a
 # still-LIVE agent even under a declared wait, so a worker genuinely waiting on a
-# decision is never silenced - which routes every parked-but-live worker here, on
-# first sight of each distinct stale hash.
+# decision is never silenced - which routes every parked-but-live worker here once
+# each distinct stale hash has stayed unchanged past the STALE_FIRST_WAKE_SECS
+# floor.
 #
 # So a legitimate wait bounds this path to the same once-per-PAUSE_RESURFACE_SECS
 # cadence resurface_absorbed owns for the absorbed paths, throttled by this
 # window's own .paused-resurfaced-<key> marker: an idle parked pane still churns
 # its hash (a clock, a token counter), and each new hash re-enters this path, so
 # without that bound one wait re-alarms firstmate for its whole duration.
-# The FIRST sight still wakes, keeping the inspect-an-inconclusive-state intent,
-# and the throttle is read BEFORE anything is queued and advanced only by a wake
+# The FIRST sight that reaches this path still wakes, keeping the
+# inspect-an-inconclusive-state intent, and the throttle is read BEFORE anything
+# is queued and advanced only by a wake
 # that really fires - a throttle written by the wake it should have prevented, or
 # read after that wake was already appended, bounds nothing.
 # Both records of an ordinary crew wait bound it (see task_captain_call_open
@@ -3019,8 +3024,9 @@ EOF
           # unmodified terminal-status behavior).
         else
           # Non-terminal stale: a crew gone quiet without a captain-relevant status.
-          # Decided once per distinct stale hash (the costly state reads run only
-          # on first sight, never every poll) via pause_state_class, which returns:
+          # Decided once per distinct stale hash (the costly state reads run on
+          # first sight and once more when the STALE_FIRST_WAKE_SECS floor
+          # passes, never every poll) via pause_state_class, which returns:
           #   - working: an actively-running pipeline legitimately sits on a static
           #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
           #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
@@ -3123,9 +3129,10 @@ EOF
           # DECLARATION, not the pane hash: an idle parked pane whose display
           # ticks (a clock, a token counter) changes hash without changing what
           # is being waited on, and clearing the throttle here would hand that
-          # same wait a fresh window on every tick - the first sight of each new
-          # hash reaches surface_nonterminal_stale below, so the whole declared
-          # wait would re-alarm far inside PAUSE_RESURFACE_SECS.
+          # same wait a fresh window on every tick - each new hash that stays
+          # unchanged past the STALE_FIRST_WAKE_SECS floor reaches
+          # surface_nonterminal_stale below, so the whole declared wait would
+          # re-alarm far inside PAUSE_RESURFACE_SECS.
           none)   clear_stale_hash_tracking "$key" ;;
           *)      clear_pause_tracking "$key" ;;
         esac
