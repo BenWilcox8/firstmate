@@ -2168,8 +2168,8 @@ test_stale_first_wake_floor_defers_a_fresh_quiet_pane() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor: $(cat "$out")"; return; }
-  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor on a later poll: $(cat "$out")"; return; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor: $(cat "$out")"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor on a later poll: $(cat "$out")"; }
   reap "$pid"
   [ ! -s "$out" ] || fail "a pane quiet less than the floor printed a wake: $(cat "$out")"
   [ ! -s "$state/.wake-queue" ] || fail "a pane quiet less than the floor queued a wake"
@@ -2184,8 +2184,8 @@ test_stale_first_wake_floor_defers_a_fresh_quiet_pane() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor: $(cat "$out")"; return; }
-  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor on a later poll: $(cat "$out")"; return; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor: $(cat "$out")"; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor on a later poll: $(cat "$out")"; }
   reap "$pid"
   [ ! -s "$out" ] || fail "a terminal-status pane quiet less than the floor printed a wake: $(cat "$out")"
   [ ! -s "$state/.wake-queue" ] || fail "a terminal-status pane quiet less than the floor queued a wake"
@@ -2207,7 +2207,7 @@ test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 100 || { reap "$pid"; fail "watcher did not wake for a pane quiet past the floor"; return; }
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "watcher did not wake for a pane quiet past the floor"; }
   grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the stale wake past the floor: $(cat "$out")"
   FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the past-floor stale failed"
   grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "past-floor stale wake was not queued"
@@ -2238,7 +2238,6 @@ test_stale_first_wake_floor_spans_idle_repaints() {
   if ! wait_for_exit "$pid" 400; then
     reap "$pid"; reap "$painter"
     fail "an idle pane that repaints faster than the floor never woke firstmate"
-    return
   fi
   reap "$painter"
   grep -Fx "stale: $window" "$out" >/dev/null || fail "repainting idle pane did not print a stale wake: $(cat "$out")"
@@ -2260,10 +2259,52 @@ test_stale_first_wake_floor_keeps_wedge_escalation_timing() {
     FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
     FM_STALE_ESCALATE_SECS=2 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  wait_for_exit "$pid" 150 || { reap "$pid"; fail "the floor held back a provably-working wedge escalation"; return; }
+  wait_for_exit "$pid" 150 || { reap "$pid"; fail "the floor held back a provably-working wedge escalation"; }
   grep -F "stale: $window" "$out" >/dev/null || fail "wedge escalation did not print a stale wake: $(cat "$out")"
   grep -F "possible wedge" "$out" >/dev/null || fail "wedge escalation under the floor lost its possible-wedge reason: $(cat "$out")"
   pass "the first-wake floor leaves provably-working wedge escalation timing unchanged"
+}
+
+# A Codex-style pane never shows a busy verdict, so a busy pane cannot end its
+# quiet episode. The delivered stale wake must end it: after the first wake, the
+# worker renders new output for its next turn and goes quiet again, and that new
+# quiet interval waits the whole floor before the next stale wake.
+test_stale_first_wake_floor_restarts_after_a_delivered_wake() {
+  local dir state fakebin out capture_file window key pid turn_two elapsed
+  dir=$(make_case stale-floor-next-turn); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-codex"
+  printf 'turn one finished' > "$capture_file"
+  floor_case "$state" "$window" codex 'turn one finished' 'working: implementing'
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  set_mtime $(( $(date +%s) - 60 )) "$state/.hash-$key"
+  export FM_FAKE_CREW_STATE='state: unknown · source: pane · harness state unavailable (unknown codex-unverified)'
+
+  # Turn one has been quiet past the floor, so its first stale wake fires.
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS=10 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "watcher did not wake for turn one quiet past the floor"; }
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "turn one did not print its stale wake: $(cat "$out")"
+  ack_stopped_cycle "$state" || fail "could not acknowledge the turn-one stale wake"
+
+  # Turn two renders new output with no busy verdict, then goes quiet.
+  turn_two=$(date +%s)
+  printf 'turn two working' > "$capture_file"
+  : > "$out"
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS=10 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke while turn two rendered new output: $(cat "$out")"; }
+  printf 'turn two finished' > "$capture_file"
+  wait_for_exit "$pid" 300 || { reap "$pid"; fail "watcher never woke for the quiet pane after turn two"; }
+  elapsed=$(( $(date +%s) - turn_two ))
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "turn two did not print its stale wake: $(cat "$out")"
+  [ "$elapsed" -ge 10 ] || fail "turn two woke ${elapsed}s after it started, before its own 10s floor"
+  unset FM_FAKE_CREW_STATE
+  pass "a pane with no busy verdict waits the floor again before the stale wake after its next turn"
 }
 
 # --- non-terminal stale, crew DECLARED a pause: absorbed, re-surfaced on a long
@@ -6239,6 +6280,7 @@ test_stale_first_wake_floor_defers_a_fresh_quiet_pane
 test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it
 test_stale_first_wake_floor_spans_idle_repaints
 test_stale_first_wake_floor_keeps_wedge_escalation_timing
+test_stale_first_wake_floor_restarts_after_a_delivered_wake
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_absorbed_replacement_wait_does_not_inherit_the_old_throttle

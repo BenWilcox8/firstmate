@@ -216,7 +216,8 @@ if declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-init re-ri
 # shellcheck source=bin/fm-ping-lib.sh
 . "$SCRIPT_DIR/fm-ping-lib.sh"
 # The .hash-<key> marker's single derivation, shared by the stale path that
-# writes it and the turn-end churn proof that reads it back.
+# writes it and the turn-end churn proof that reads it back, and the window_key
+# derivation of every per-window marker key.
 # shellcheck source=bin/fm-pane-hash-lib.sh
 . "$SCRIPT_DIR/fm-pane-hash-lib.sh"
 # The away-posture record (state/.afk-contract) is the posture in both the
@@ -306,9 +307,10 @@ TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
 # Two identical polls alone are not enough to wake firstmate for a stale pane:
 # most such panes are only between turns. STALE_FIRST_WAKE_SECS is the quiet time
-# a pane needs before its FIRST stale wake (stale_floor_defer below owns the
-# episode it measures). It delays only the surfacing outcomes; absorb paths and
-# the wedge timer keep their timing. Zero turns the floor off.
+# a pane needs before the first stale wake of each quiet interval
+# (stale_floor_defer below owns the episode it measures). It delays only the
+# surfacing outcomes; absorb paths and the wedge timer keep their timing. Zero
+# turns the floor off.
 STALE_FIRST_WAKE_SECS=${FM_STALE_FIRST_WAKE_SECS:-}
 case "$STALE_FIRST_WAKE_SECS" in ''|*[!0-9]*) STALE_FIRST_WAKE_SECS=240 ;; esac
 # A busy pane is unconditional proof of liveness with no built-in duration bound,
@@ -442,19 +444,9 @@ window_label() {
   [ -n "$task" ] && printf 'fm-%s' "$task"
 }
 
-# The ONE derivation of a window's per-window marker key: `:`, `/` and `.` become
-# `_` so a window name is usable as a filename suffix. Every per-window file the
-# watcher keeps is named by it (.hash-, .count-, .stale-, .stale-since-,
-# .wedge-escalations-, .paused-*, .writing-*, .waiting-*), and live homes hold those markers on
-# disk under the current format, so the format lives here alone: a second copy is
-# how a future change to it silently orphans a window's markers instead of clearing
-# them. The helpers below take the derived key rather than re-deriving it, so one
-# poll of one window derives it once.
-window_key() {  # <window>
-  local key=${1//:/_}
-  key=${key//\//_}
-  printf '%s' "${key//./_}"
-}
+# window_key (bin/fm-pane-hash-lib.sh) derives the key that names every
+# per-window marker. The helpers below take the derived key rather than
+# re-deriving it, so one poll of one window derives it once.
 
 inbox_steer_escalate_unavailable() {  # <window> <task> <record>
   local w=$1 task=$2 rec=$3 reason
@@ -582,10 +574,11 @@ inbox_steer_check() {  # <window> <task>
 # deferred here forever with no fallback path left to surface it. Churn and
 # staleness read the same pane, so neither can be the other's only backstop.
 # Within the bound, an ordinary crew that stops renders nothing more, its pane
-# hash stops moving, and the staleness backbone surfaces it within a couple of
-# polls; any captain-relevant status verb still surfaces immediately through
-# signal_files_actionable. That is why this widens the proof instead of
-# bounding the wake rate, which would have suppressed genuinely stopped workers.
+# hash stops moving, and the staleness backbone surfaces it once the
+# FM_STALE_FIRST_WAKE_SECS floor has passed; any captain-relevant status verb
+# still surfaces immediately through signal_files_actionable. That is why this
+# widens the proof instead of bounding the wake rate, which would have
+# suppressed genuinely stopped workers.
 #
 # Every negative outcome returns 1, so absence of evidence surfaces exactly as
 # before: any batch that references a secondmate, an unresolvable task, a task
@@ -598,10 +591,10 @@ inbox_steer_check() {  # <window> <task>
 #
 # NOT a pure read: one bounded pane capture per referenced task that lacks
 # authoritative proof. Once EVERY task passes, each churn-proven pane's prior
-# .stale- classification and wedge-escalation count are cleared because churn
-# begins a new quiet interval; retaining either would make the new interval
-# inherit the prior one. Reached only for a non-afk, no-captain-verb signal, so
-# it never runs on the ordinary per-wake path.
+# .stale- classification, wedge-escalation count, and first-wake floor episode
+# are cleared because churn begins a new quiet interval; retaining any of them
+# would make the new interval inherit the prior one. Reached only for a non-afk,
+# no-captain-verb signal, so it never runs on the ordinary per-wake path.
 signal_turnend_panes_churned() {  # <file> ...
   [ -e "$CONFIG/turnend-churn-absorb" ] || return 1
   local f base task meta kind w key backend label terminal prev now since now_s absorb_secs marker age
@@ -739,7 +732,7 @@ signal_turnend_panes_churned() {  # <file> ...
     return 1
   done
   for key in "${churned_keys[@]}"; do
-    if ! rm -f "$STATE/.stale-$key" "$STATE/.wedge-escalations-$key"; then
+    if ! rm -f "$STATE/.stale-$key" "$STATE/.wedge-escalations-$key" || ! stale_floor_clear "$key"; then
       for created in "${created_keys[@]+"${created_keys[@]}"}"; do
         rm -f "$STATE/.churn-since-$created"
       done
@@ -1746,12 +1739,15 @@ captain_call_stale_bound() {  # <window-key> <task>
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
 }
 
-# The elapsed-time floor before a pane's first stale wake (STALE_FIRST_WAKE_SECS).
-# A quiet episode starts when the pane's current hash was first seen, recorded in
-# .stale-floor-<key> on the first surfacing decision. Only a busy pane ends the
-# episode (stale_floor_clear), so a pane that churns a clock while it sits idle
-# still reaches the floor and wakes firstmate. After the floor the marker stays,
-# so later new-hash stale wakes in the same episode surface as before.
+# The elapsed-time floor before the first stale wake of each quiet interval
+# (STALE_FIRST_WAKE_SECS). A quiet episode starts when the pane's current hash
+# was first seen, recorded in .stale-floor-<key> on the first surfacing decision.
+# A new hash alone does not end the episode, so a pane that churns a clock while
+# it sits idle still reaches the floor and wakes firstmate. stale_floor_clear
+# ends the episode wherever the watcher starts a new quiet interval: an exact
+# busy verdict, turn-end churn, a new status line, and a delivered stale wake.
+# The next quiet interval then waits the floor again. Teardown removes the
+# markers with the task.
 # .stale-deferred-<key> holds the hash whose surfacing waits on the floor, so the
 # costly classification reads run once per hash and once more at the floor,
 # never on every poll.
@@ -1854,6 +1850,7 @@ surface_nonterminal_stale() {  # <window> <hash>
   if [ "$throttled" -ne 0 ]; then
     wake_queue_append stale "$win" "stale: $win" || exit 1
     stale_wait_record "$key"
+    stale_floor_clear "$key"
   fi
   printf '%s' "$h" > "$STATE/.stale-$key"
   rm -f "$STATE/.stale-since-$key"
@@ -2779,10 +2776,18 @@ EOF
     # home_summary_refresh_detached for why publication stays off the beacon's
     # path. Publication failure stays side-band.
     home_summary_refresh_detached
+    # A new status line starts a new quiet interval for its task's pane, so the
+    # pane's next stale wake waits the first-wake floor again (stale_floor_clear).
     files=""
     while IFS=$(printf '\t') read -r sf sig f; do
       [ -n "$sf" ] || continue
       case " $files " in *" $f "*) ;; *) files="$files $f" ;; esac
+      case "$f" in
+        *.status)
+          status_w=$(fm_backend_target_of_meta "${f%.status}.meta" 2>/dev/null) || status_w=
+          [ -z "$status_w" ] || stale_floor_clear "$(window_key "$status_w")"
+          ;;
+      esac
     done <<EOF
 $pending
 EOF
@@ -2894,8 +2899,8 @@ EOF
   # stale hash is surfaced, absorbed, or timed toward escalation once (.stale-*
   # remembers the hash already classified, or the declaration a busy pane's
   # crossed turn bound already handed to the away-mode daemon).
-  # Outside away mode, the first surfacing wake also waits on the
-  # STALE_FIRST_WAKE_SECS floor (stale_floor_defer).
+  # Outside away mode, the first surfacing wake of each quiet interval also
+  # waits on the STALE_FIRST_WAKE_SECS floor (stale_floor_defer).
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
@@ -3017,6 +3022,7 @@ EOF
             else
               wake_queue_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
+              stale_floor_clear "$key"
               printf '%s' "$h" > "$sf"
               rm -f "$ssf"
               clear_write_tracking "$key"
