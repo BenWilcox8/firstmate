@@ -247,7 +247,10 @@
 #   the same isolation test screens every read: a pane still showing the project
 #   or the repository primary while `treehouse get` prepares the slot is waited
 #   out as a transient rather than adopted and then refused, so a home that is
-#   itself a linked worktree of the project repository still launches. A pane
+#   itself a linked worktree of the project repository still launches. A
+#   Treehouse slot the pane was already in before `treehouse get` was typed is
+#   never adopted: a pane left behind by a refused attempt still sits in that
+#   attempt's slot, and a retry handed that pane back enters a different one. A pane
 #   that never reaches an isolated worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
 #   That placement is proven only at launch. Every ship or scout pane therefore
@@ -4117,6 +4120,21 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
+  # A spawn refused after `treehouse get` leaves its pane behind, still inside
+  # the Treehouse subshell of the slot that attempt entered, and a retry can be
+  # handed that same pane back. The retry's `treehouse get` then fetches before
+  # it moves, so the pane keeps reporting the old slot for as long as the fetch
+  # takes, and it finally enters a different slot: Treehouse never hands out the
+  # slot its caller is already inside. Adopting the old slot records it and
+  # installs the hooks there while the worker runs in the new one. So the slot
+  # the pane is already in is read before `treehouse get` is typed, and is never
+  # adopted.
+  pre_get_real=""
+  pre_get_path=$(spawn_current_path "$WT_TARGET" || true)
+  if [ -n "$pre_get_path" ] && spawn_worktree_isolated "$pre_get_path" &&
+    fm_treehouse_pool_slot "$PROJ_ABS" "$pre_get_path"; then
+    pre_get_real=$(real_path_or_raw "$pre_get_path")
+  fi
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
@@ -4159,12 +4177,17 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     [ -z "$p" ] || last_seen="$p"
     if [ -n "$p" ] && spawn_worktree_isolated "$p"; then
       p_real=$(real_path_or_raw "$p")
-      last_reason="it is an isolated worktree, but no second read agreed with it"
-      if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
-        WT="$p"
-        break
+      if [ "$p_real" = "$pre_get_real" ]; then
+        candidate=""
+        last_reason="the pane was already in this Treehouse slot before treehouse get, so it is not the slot treehouse get entered"
+      else
+        last_reason="it is an isolated worktree, but no second read agreed with it"
+        if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
+          WT="$p"
+          break
+        fi
+        candidate="$p_real"
       fi
-      candidate="$p_real"
     else
       candidate=""
       [ -z "$p" ] || last_reason=$SPAWN_WT_REASON

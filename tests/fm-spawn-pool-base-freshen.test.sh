@@ -841,6 +841,68 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   pass "a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort"
 }
 
+# A spawn refused after `treehouse get` leaves its pane behind, still inside the
+# Treehouse slot that attempt entered, and a retry can be handed that same pane
+# back. The retry's own `treehouse get` then has to fetch before it moves
+# anywhere, so the pane keeps reporting the old slot for several reads and only
+# then enters another slot. The fake terminal plays exactly that: the old slot
+# before and for three reads after `treehouse get` is typed, then the slot it
+# entered.
+use_leftover_pane_terminal() { # <copy-before> <copy-after>
+  local state="$CASE_DIR/leftover-pane"
+  mkdir -p "$state"
+  printf '%s\n' "$1" > "$state/before"
+  printf '%s\n' "$2" > "$state/after"
+  mv "$FAKEBIN_DIR/tmux" "$FAKEBIN_DIR/tmux-base"
+  cat > "$FAKEBIN_DIR/tmux" <<SH
+#!/usr/bin/env bash
+set -u
+state='$state'
+case "\$*" in
+  *"#{pane_current_path}"*)
+    if [ ! -e "\$state/get-sent" ]; then cat "\$state/before"; exit 0; fi
+    n=\$(( \$(cat "\$state/reads" 2>/dev/null || echo 0) + 1 ))
+    printf '%s\n' "\$n" > "\$state/reads"
+    if [ "\$n" -le 3 ]; then cat "\$state/before"; else cat "\$state/after"; fi
+    exit 0 ;;
+  *"treehouse get"*) : > "\$state/get-sent" ;;
+esac
+exec '$FAKEBIN_DIR/tmux-base' "\$@"
+SH
+  chmod +x "$FAKEBIN_DIR/tmux"
+}
+
+test_retry_in_a_leftover_pane_records_the_copy_the_worker_runs_in() {
+  local rec id out status leftover entered
+  id='pool-retry-leftover-pane-r1'
+  rec=$(make_case retry-leftover-pane "$id")
+  read_case_record "$rec"
+  printf 'claude\n' > "$HOME_DIR/config/crew-harness"
+  lay_out_as_pool_slot
+  leftover=$POOL_DIR
+  entered="$CASE_DIR/slots/2/project"
+  mkdir -p "$CASE_DIR/slots/2"
+  git -C "$PROJECT_DIR" worktree add --quiet --detach "$entered" "$INITIAL_SHA"
+  use_leftover_pane_terminal "$leftover" "$entered"
+  fm_test_fake_sleep_noop "$FAKEBIN_DIR"
+
+  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
+  status=$?
+  expect_code 0 "$status" "a retry in a leftover pane should launch in the copy treehouse get entered"$'\n'"$out"
+  assert_grep "worktree=$entered" "$HOME_DIR/state/$id.meta" \
+    "the retry recorded the copy the leftover pane was already in, not the copy the worker runs in"
+  [ -f "$entered/.claude/settings.local.json" ] \
+    || fail "the retry did not install the worker's hooks in the copy the worker runs in"
+  [ ! -e "$leftover/.claude/settings.local.json" ] \
+    || fail "the retry installed the worker's hooks in the copy the leftover pane was already in"
+  [ "$(git -C "$entered" rev-parse HEAD)" = "$(git -C "$entered" rev-parse origin/main)" ] \
+    || fail "the retry did not refresh the copy the worker runs in"
+  [ "$(git -C "$leftover" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+    || fail "the retry reset the copy the leftover pane was already in"
+  pass "a retry in a pane left inside an earlier copy records, hooks, and refreshes the copy treehouse get entered"
+}
+
+test_retry_in_a_leftover_pane_records_the_copy_the_worker_runs_in
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_linked_spawning_home_rejects_primary_before_refresh
