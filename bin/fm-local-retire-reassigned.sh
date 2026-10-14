@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Retire one finished record after Treehouse leased its slot to another live task.
+# Retire one finished record after Treehouse leased its slot to another task.
 # Usage: FM_HOME=<home> fm-local-retire-reassigned.sh <id> --live-task <id>
 #        [--live-home <home>]
+#        FM_HOME=<home> fm-local-retire-reassigned.sh <id> --no-live-owner
 #
 # This explicit repair never returns a slot, changes a worktree, deletes a Git
 # ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
@@ -12,12 +13,24 @@
 # owner_started_at (epoch milliseconds). That process must still run with that
 # start time, and every foreground process of the live endpoint must descend
 # from it. The proof reads /proc, so a host without it refuses.
-# All reads and retirement hold the project and both task locks.
+# --no-live-owner retires a record from a shared slot that has no live owner,
+# such as a slot that several finished records name after their workers exited.
+# The scan covers this home, the local root home, and every local home its
+# secondmate registries reach. Every record whose worktree= or home= names the
+# slot must have a dead or missing endpoint, the Treehouse slot owner process
+# must not be running, and the slot-owner claim must not name the old task.
+# Another record for the slot must carry a newer spawn_gen epoch (s<epoch>.*),
+# so the old task is not the newest claimant; an equal or unreadable epoch
+# refuses. That newer record then owns the slot's working tree, so its
+# uncommitted state is left for that record's own cleanup and is not counted
+# as the old task's work. The landed proof below otherwise applies unchanged.
+# All reads and retirement hold the project lock and each named task's locks.
 # A scout needs its report and the existing captain-call completion gate.
-# A ship also needs a clean shared worktree and its retained fm/<id> branch
-# reachable from a remote, or from local main/master in local-only mode.
-# Missing proof refuses: a done line or a merged PR alone cannot prove that
-# subsequent edits landed. Uncommitted ship work always refuses.
+# A ship needs its retained fm/<id> branch reachable from a remote, or from
+# local main/master in local-only mode, and not checked out in the slot.
+# With --live-task it also needs a clean shared worktree, so uncommitted ship
+# work refuses. Missing proof refuses: a done line or a merged PR alone cannot
+# prove that subsequent edits landed.
 #
 # The command archives the old metadata and status under
 # data/<id>/retired-reassigned before removing either active record. It closes
@@ -68,26 +81,34 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVE
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-local-treehouse-lib.sh
 . "$SCRIPT_DIR/fm-local-treehouse-lib.sh"
+# shellcheck source=bin/fm-secondmate-registry-lib.sh
+. "$SCRIPT_DIR/fm-secondmate-registry-lib.sh"
 ID=${1:-}; [ "$#" -eq 0 ] || shift
 LIVE_ID=''
-LIVE_HOME=$FM_HOME
+LIVE_HOME=
+NO_LIVE_OWNER=0
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --live-task) [ "$#" -ge 2 ] || refuse 'missing live task'; LIVE_ID=$2; shift 2 ;;
     --live-home) [ "$#" -ge 2 ] || refuse 'missing live home'; LIVE_HOME=$2; shift 2 ;;
+    --no-live-owner) NO_LIVE_OWNER=1; shift ;;
     *) refuse "unknown argument: $1" ;;
   esac
 done
 fm_task_id_path_safe "$ID" || refuse 'invalid task identity'
-fm_task_id_path_safe "$LIVE_ID" || refuse 'invalid live task identity'
-[ "$ID" != "$LIVE_ID" ] || refuse 'the two task identities must differ'
-LIVE_HOME=$(cd "$LIVE_HOME" && pwd -P) || refuse 'cannot read the live home'
-[ "$(fm_firstmate_root_home "$LIVE_HOME")" = "$(fm_firstmate_root_home "$FM_HOME")" ] \
-  || refuse 'the homes do not share the project lock authority'
-LIVE_STATE=$LIVE_HOME/state
-[ "$LIVE_HOME" != "$FM_HOME" ] || LIVE_STATE=$STATE
 META=$STATE/$ID.meta
-LIVE_META=$LIVE_STATE/$LIVE_ID.meta
+if [ "$NO_LIVE_OWNER" = 1 ]; then
+  [ -z "$LIVE_ID" ] && [ -z "$LIVE_HOME" ] || refuse '--no-live-owner takes no live task or live home'
+else
+  fm_task_id_path_safe "$LIVE_ID" || refuse 'invalid live task identity'
+  [ "$ID" != "$LIVE_ID" ] || refuse 'the two task identities must differ'
+  LIVE_HOME=$(cd "${LIVE_HOME:-$FM_HOME}" && pwd -P) || refuse 'cannot read the live home'
+  [ "$(fm_firstmate_root_home "$LIVE_HOME")" = "$(fm_firstmate_root_home "$FM_HOME")" ] \
+    || refuse 'the homes do not share the project lock authority'
+  LIVE_STATE=$LIVE_HOME/state
+  [ "$LIVE_HOME" != "$FM_HOME" ] || LIVE_STATE=$STATE
+  LIVE_META=$LIVE_STATE/$LIVE_ID.meta
+fi
 fm_refuse_if_gate_agent
 fm_lease_guard "$ID" 'retire reassigned record'
 LOCKS=()
@@ -107,52 +128,123 @@ record() {
 }
 canonical() { (cd "$1" && pwd -P); }
 lease_owner_live() { fm_local_treehouse_owner_live "$OWNER_PID" "$OWNER_STARTED"; }
+spawn_epoch() {  # <meta>
+  local gen
+  gen=$(fm_meta_get "$1" spawn_gen)
+  [[ "$gen" =~ ^s([0-9]+)\. ]] || return 1
+  printf '%s\n' "${BASH_REMATCH[1]}"
+}
+# Every record in the local Firstmate homes whose worktree= or home= names the
+# slot, as "<id> <spawn_gen> <meta>" lines; any unreadable home refuses.
+slot_claimants() {
+  local root dir seen='' meta other_id field path
+  root=$(fm_firstmate_root_home "$FM_HOME") || refuse 'cannot resolve the root Firstmate home'
+  secondmate_registry_local_state_dirs "$STATE" "$root" || refuse "$SECONDMATE_REGISTRY_ERROR"
+  for dir in "${SECONDMATE_REGISTRY_LOCAL_STATES[@]}"; do
+    [ -d "$dir" ] || continue
+    dir=$(canonical "$dir") || refuse "cannot read state directory $dir"
+    case " $seen " in *" $dir "*) continue ;; esac
+    seen="$seen $dir"
+    for meta in "$dir"/*.meta; do
+      [ -f "$meta" ] && [ ! -L "$meta" ] || continue
+      other_id=$(basename "$meta" .meta)
+      for field in worktree home; do
+        path=$(fm_meta_get "$meta" "$field")
+        [ -n "$path" ] && [ -d "$path" ] || continue
+        [ "$(canonical "$path")" = "$WT" ] || continue
+        printf '%s %s %s\n' "$other_id" "$(fm_meta_get "$meta" spawn_gen)" "$meta"
+        break
+      done
+    done
+  done
+}
+# Prove the slot has no live owner and a newer record than the old one.
+no_live_owner_proof() {
+  local other_id other_meta other_epoch old_epoch newer=0 self=0
+  if [ "$(printf '%s' "$LEASE" | jq -r '(.owner_pid|type)=="number" and (.owner_started_at|type)=="number"')" = true ]; then
+    OWNER_PID=$(printf '%s' "$LEASE" | jq -r '.owner_pid')
+    OWNER_STARTED=$(printf '%s' "$LEASE" | jq -r '.owner_started_at')
+    ! lease_owner_live || refuse 'pool slot owner process is still running; use --live-task'
+  fi
+  fm_treehouse_slot_owner_state "$WT" "$ID"
+  case "$FM_TREEHOUSE_SLOT_OWNER" in
+    other|absent) ;;
+    mine) refuse 'the slot-owner claim still names this task; use normal cleanup' ;;
+    *) refuse 'the slot-owner claim cannot be read' ;;
+  esac
+  old_epoch=$(spawn_epoch "$META") || refuse 'old record has no spawn_gen epoch to order it'
+  CLAIMANTS=$(slot_claimants) || exit 1
+  while IFS=' ' read -r other_id _ other_meta; do
+    [ -n "$other_id" ] || continue
+    fm_backend_validate_task_endpoint "$other_meta" "$other_id" || refuse "invalid endpoint for slot record $other_id"
+    case "$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET")" in
+      dead|missing) ;;
+      *) refuse "slot record $other_id does not have a confidently dead or missing endpoint" ;;
+    esac
+    if [ "$other_meta" -ef "$META" ]; then
+      self=1
+      continue
+    fi
+    other_epoch=$(spawn_epoch "$other_meta") || continue
+    [ "$other_epoch" -le "$old_epoch" ] || newer=1
+  done <<< "$CLAIMANTS"
+  [ "$self" = 1 ] || refuse 'old record does not name the shared slot'
+  [ "$newer" = 1 ] || refuse 'old record is the newest claimant of the slot by spawn_gen'
+}
 record "$META" "$STATE"
 PROJ=$(canonical "$(fm_meta_get "$META" project)") || refuse 'cannot resolve the project'
 lock "$(fm_treehouse_project_lock_path "$PROJ")"
 lock "$STATE/.control-$ID.lock"
-lock "$LIVE_STATE/.control-$LIVE_ID.lock"
+[ "$NO_LIVE_OWNER" = 1 ] || lock "$LIVE_STATE/.control-$LIVE_ID.lock"
 lock "$(fm_meta_lock_path "$META")"
-lock "$(fm_meta_lock_path "$LIVE_META")"
+[ "$NO_LIVE_OWNER" = 1 ] || lock "$(fm_meta_lock_path "$LIVE_META")"
 record "$META" "$STATE"
-record "$LIVE_META" "$LIVE_STATE"
+[ "$NO_LIVE_OWNER" = 1 ] || record "$LIVE_META" "$LIVE_STATE"
 if [ -e "$STATE/$ID.busy-gen" ] || [ -L "$STATE/$ID.busy-gen" ]; then
   fm_backlog_record_present "$STATE/$ID.busy-gen" 'busy generation' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
   BUSY_GEN=$(fm_busy_current_gen "$STATE" "$ID") || refuse 'cannot read the old busy generation'
   [ "$BUSY_GEN" = "$(fm_meta_get "$META" busy_gen)" ] || refuse 'old busy generation no longer matches its record'
 fi
 [ "$(canonical "$(fm_meta_get "$META" project)")" = "$PROJ" ] || refuse 'project identity changed'
-[ "$(canonical "$(fm_meta_get "$LIVE_META" project)")" = "$PROJ" ] || refuse 'live record names another project'
 WT=$(canonical "$(fm_meta_get "$META" worktree)") || refuse 'cannot resolve the shared worktree'
-[ "$(canonical "$(fm_meta_get "$LIVE_META" worktree)")" = "$WT" ] || refuse 'records do not share a worktree'
+if [ "$NO_LIVE_OWNER" = 0 ]; then
+  [ "$(canonical "$(fm_meta_get "$LIVE_META" project)")" = "$PROJ" ] || refuse 'live record names another project'
+  [ "$(canonical "$(fm_meta_get "$LIVE_META" worktree)")" = "$WT" ] || refuse 'records do not share a worktree'
+fi
 [ "$WT" != "$PROJ" ] || refuse 'the recorded worktree is the primary checkout'
 COMMON=$(git -C "$PROJ" rev-parse --path-format=absolute --git-common-dir)
 [ "$(canonical "$COMMON")" = "$(canonical "$(git -C "$WT" rev-parse --path-format=absolute --git-common-dir)")" ] \
   || refuse 'worktree and project have different Git identities'
 POOL=$(dirname "$(dirname "$WT")")/treehouse-state.json
 [ -f "$POOL" ] && [ ! -L "$POOL" ] || refuse 'no regular Treehouse pool record'
-LEASE=$(jq -cer --arg wt "$WT" \
-  '[.worktrees[] | select(.path==$wt)] | select(length==1) | .[0]
-   | select((.owner_pid|type)=="number" and (.owner_started_at|type)=="number")' "$POOL") \
-  || refuse 'pool slot has no recorded owner process'
-OWNER_PID=$(printf '%s' "$LEASE" | jq -r '.owner_pid')
-OWNER_STARTED=$(printf '%s' "$LEASE" | jq -r '.owner_started_at')
-lease_owner_live || refuse 'pool slot owner is not the live process Treehouse recorded'
-fm_backend_validate_task_endpoint "$META" "$ID" || refuse 'invalid old endpoint'
-OLD_BACKEND=$FM_BACKEND_VALIDATED_BACKEND OLD_TARGET=$FM_BACKEND_VALIDATED_TARGET
-case "$(fm_backend_agent_state "$OLD_BACKEND" "$OLD_TARGET")" in
-  dead|missing) ;;
-  *) refuse 'old endpoint is not confidently dead or missing' ;;
-esac
-fm_backend_validate_task_endpoint "$LIVE_META" "$LIVE_ID" || refuse 'invalid live endpoint'
-LIVE_BACKEND=$FM_BACKEND_VALIDATED_BACKEND LIVE_TARGET=$FM_BACKEND_VALIDATED_TARGET
-[ "$OLD_BACKEND:$OLD_TARGET" != "$LIVE_BACKEND:$LIVE_TARGET" ] || refuse 'records share an endpoint'
-[ "$(fm_backend_agent_state "$LIVE_BACKEND" "$LIVE_TARGET")" = alive ] || refuse 'lease owner is not confidently live'
-LIVE_PIDS=$(fm_backend_foreground_pids "$LIVE_BACKEND" "$LIVE_TARGET") || LIVE_PIDS=
-[ -n "$LIVE_PIDS" ] || refuse 'cannot read the live endpoint processes'
-for pid in $LIVE_PIDS; do
-  fm_local_descends_from "$pid" "$OWNER_PID" || refuse 'pool slot owner does not belong to the named live task'
-done
+if [ "$NO_LIVE_OWNER" = 1 ]; then
+  LEASE=$(jq -cer --arg wt "$WT" '[.worktrees[] | select(.path==$wt)] | select(length==1) | .[0]' "$POOL") \
+    || refuse 'pool record does not name the slot exactly once'
+  no_live_owner_proof
+else
+  LEASE=$(jq -cer --arg wt "$WT" \
+    '[.worktrees[] | select(.path==$wt)] | select(length==1) | .[0]
+     | select((.owner_pid|type)=="number" and (.owner_started_at|type)=="number")' "$POOL") \
+    || refuse 'pool slot has no recorded owner process'
+  OWNER_PID=$(printf '%s' "$LEASE" | jq -r '.owner_pid')
+  OWNER_STARTED=$(printf '%s' "$LEASE" | jq -r '.owner_started_at')
+  lease_owner_live || refuse 'pool slot owner is not the live process Treehouse recorded'
+  fm_backend_validate_task_endpoint "$META" "$ID" || refuse 'invalid old endpoint'
+  OLD_BACKEND=$FM_BACKEND_VALIDATED_BACKEND OLD_TARGET=$FM_BACKEND_VALIDATED_TARGET
+  case "$(fm_backend_agent_state "$OLD_BACKEND" "$OLD_TARGET")" in
+    dead|missing) ;;
+    *) refuse 'old endpoint is not confidently dead or missing' ;;
+  esac
+  fm_backend_validate_task_endpoint "$LIVE_META" "$LIVE_ID" || refuse 'invalid live endpoint'
+  LIVE_BACKEND=$FM_BACKEND_VALIDATED_BACKEND LIVE_TARGET=$FM_BACKEND_VALIDATED_TARGET
+  [ "$OLD_BACKEND:$OLD_TARGET" != "$LIVE_BACKEND:$LIVE_TARGET" ] || refuse 'records share an endpoint'
+  [ "$(fm_backend_agent_state "$LIVE_BACKEND" "$LIVE_TARGET")" = alive ] || refuse 'lease owner is not confidently live'
+  LIVE_PIDS=$(fm_backend_foreground_pids "$LIVE_BACKEND" "$LIVE_TARGET") || LIVE_PIDS=
+  [ -n "$LIVE_PIDS" ] || refuse 'cannot read the live endpoint processes'
+  for pid in $LIVE_PIDS; do
+    fm_local_descends_from "$pid" "$OWNER_PID" || refuse 'pool slot owner does not belong to the named live task'
+  done
+fi
 fm_backlog_record_present "$STATE/$ID.status" 'task status' "$STATE" || refuse "$FM_BACKLOG_TRANSITION_ERROR"
 case "$(last_status_line "$STATE/$ID.status")" in done:*|done\ \[*\]:*) ;; *) refuse 'old record is not finished' ;; esac
 # A ship or scout fold settles decisions at its terminal line. This repair
@@ -170,8 +262,10 @@ case "$KIND" in
     BACKLOG_ARGS=(--report "$DATA_RELATIVE/$ID/report.md")
     ;;
   ship|'')
-    DIRTY=$(git -C "$WT" status --porcelain --untracked-files=all) || refuse 'cannot inspect shared worktree for uncommitted ship work'
-    [ -z "$DIRTY" ] || refuse 'uncommitted ship work may exist only in the shared worktree'
+    if [ "$NO_LIVE_OWNER" = 0 ]; then
+      DIRTY=$(git -C "$WT" status --porcelain --untracked-files=all) || refuse 'cannot inspect shared worktree for uncommitted ship work'
+      [ -z "$DIRTY" ] || refuse 'uncommitted ship work may exist only in the shared worktree'
+    fi
     BRANCH="refs/heads/fm/$ID"
     HEAD=$(git -C "$PROJ" rev-parse --verify "$BRANCH^{commit}") || refuse 'old task branch is missing; landed work cannot be proved'
     [ "$(git -C "$WT" symbolic-ref -q HEAD || true)" != "$BRANCH" ] || refuse 'old branch is still checked out in the shared worktree'
@@ -252,10 +346,16 @@ archive_evidence() {  # [copy]
   done
 }
 archive_evidence
+if [ "$NO_LIVE_OWNER" = 1 ]; then
+  PRESERVED='Preserved the slot and its newer records.'
+else
+  PRESERVED='Preserved the live task and its slot.'
+fi
 ATLAS_GATE_LINE=
 TICKET=$(fm_meta_get "$META" atlas_ticket)
 if [ -n "$TICKET" ]; then
-  [ "$TICKET" != "$(fm_meta_get "$LIVE_META" atlas_ticket)" ] || refuse 'the live record names the same Atlas ticket'
+  [ "$NO_LIVE_OWNER" = 1 ] || [ "$TICKET" != "$(fm_meta_get "$LIVE_META" atlas_ticket)" ] \
+    || refuse 'the live record names the same Atlas ticket'
   # The hook owns repository resolution and all mutations. This repair also
   # proves the recorded ticket still belongs to the old task before calling it.
   ATLAS_REPO=$("$SCRIPT_DIR/fm-atlas-hook.sh" wired)
@@ -267,7 +367,7 @@ if [ -n "$TICKET" ]; then
     || refuse 'Atlas ticket does not name this finished leg'
   ATLAS_GATE_LINE=$("$SCRIPT_DIR/fm-atlas-hook.sh" land "$ID" --actor fm-local-retire-reassigned --defer-status \
     --evidence "$EVIDENCE" \
-    --summary 'Retired the finished task record after its pool slot was reassigned. Preserved the live task and its slot.')
+    --summary "Retired the finished task record after its pool slot was reassigned. $PRESERVED")
   if [ "$("$SCRIPT_DIR/fm-atlas-hook.sh" state "$ID" --actor fm-local-retire-reassigned)" != completed ]; then
     [ -z "$ATLAS_GATE_LINE" ] || printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status"
     refuse 'Atlas completion refused or unconfirmed; active record retained'
@@ -275,8 +375,15 @@ if [ -n "$TICKET" ]; then
 fi
 archive_evidence copy
 # Recheck the external lease immediately before local retirement.
-if [ "$LEASE" != "$(jq -c --arg wt "$WT" '.worktrees[] | select(.path==$wt)' "$POOL")" ] || ! lease_owner_live; then
+if [ "$LEASE" != "$(jq -c --arg wt "$WT" '.worktrees[] | select(.path==$wt)' "$POOL")" ]; then
   refuse 'pool lease changed during retirement'
+fi
+if [ "$NO_LIVE_OWNER" = 1 ]; then
+  PROVED_CLAIMANTS=$CLAIMANTS
+  no_live_owner_proof
+  [ "$CLAIMANTS" = "$PROVED_CLAIMANTS" ] || refuse 'slot records changed during retirement'
+else
+  lease_owner_live || refuse 'pool lease changed during retirement'
 fi
 if [ "$BACKLOG" = 1 ]; then
   fm_backlog_close_marker_write "$STATE" "$ID" "$DATA" "$FM_BACKLOG_META_SPAWN_GEN" ${BACKLOG_ARGS[@]+"${BACKLOG_ARGS[@]}"} \
@@ -298,4 +405,8 @@ if [ -n "$ATLAS_GATE_LINE" ]; then
   printf '%s\n' "$ATLAS_GATE_LINE" >> "$STATE/$ID.status" \
     || echo "warning: the refused Atlas close-out could not be recorded: $ATLAS_GATE_LINE" >&2
 fi
-printf 'retired %s; live task %s and slot %s unchanged; evidence %s\n' "$ID" "$LIVE_ID" "$WT" "$ARCHIVE"
+if [ "$NO_LIVE_OWNER" = 1 ]; then
+  printf 'retired %s; slot %s and its newer records unchanged; evidence %s\n' "$ID" "$WT" "$ARCHIVE"
+else
+  printf 'retired %s; live task %s and slot %s unchanged; evidence %s\n' "$ID" "$LIVE_ID" "$WT" "$ARCHIVE"
+fi

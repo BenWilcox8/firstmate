@@ -47,9 +47,10 @@
 # replay would reject. The validator pins the data path to this home's configured
 # root before any recovery mutation, then re-runs exactly that close.
 # `tasks-axi done` on an already-closed task backfills links
-# without moving the close date, so replay is idempotent. Spawn needs no marker:
-# it publishes the meta first, so a crash
-# leaves the meta itself as the evidence that the row is owed a start.
+# without moving the close date, so replay is idempotent. A row that retention
+# already moved to the archive counts as closed (fm_backlog_close_transition).
+# Spawn needs no marker: it publishes the meta first, so a crash leaves the
+# meta itself as the evidence that the row is owed a start.
 # A captain-held row uses the same record with a `mode=retain` line: replay then
 # records the deliverable and reopens the row instead of closing it, and never
 # closes a row that reads as an open captain call. An answer that closes the row
@@ -866,11 +867,56 @@ fm_backlog_dispatch_rollback() {
   return 0
 }
 
+# The archive tasks-axi retention moves closed entries to, read from the home's
+# own tasks-axi config so a home that repoints it stays correct, and falling
+# back to the tracked default when the config declares none.
+fm_backlog_archive_path() {  # <data-dir>
+  local data root config value=''
+  data=$(fm_backlog_data_absolute "$1") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  config="$root/.tasks.toml"
+  if [ -f "$config" ]; then
+    value=$(sed -n 's/^[[:space:]]*archive[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
+  fi
+  [ -n "$value" ] || value="$data/done-archive.md"
+  case "$value" in
+    /*) printf '%s\n' "$value" ;;
+    *) printf '%s/%s\n' "$root" "$value" ;;
+  esac
+}
+
+# Whether retention already moved <id>'s closed row out of the live markdown
+# backlog into the archive. tasks-axi addresses the live backlog only, so it
+# answers NOT_FOUND for such a row; a Done entry in the archive is the record
+# that the task was closed. Read-only, and any doubt returns 1.
+fm_backlog_row_archived_done() {  # <data-dir> <id>
+  local data root archive id=$2 id_re
+  case "$id" in ''|.*|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  data=$(fm_backlog_data_absolute "$1") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  [ "$(fm_tasks_axi_backend "$root" 2>/dev/null)" = markdown ] || return 1
+  archive=$(fm_backlog_archive_path "$data") || return 1
+  [ -f "$archive" ] && [ ! -L "$archive" ] || return 1
+  id_re=${id//./\\.}
+  grep -qE "^- \[x\] $id_re -" "$archive" 2>/dev/null
+}
+
+# A row that is absent from the live backlog and Done in the archive is already
+# closed, so the close succeeds without a write; its links are not backfilled,
+# because tasks-axi cannot rewrite an archived entry. Every other failure keeps
+# the original error.
 fm_backlog_close_transition() {
-  local meta=$1 marker=$2 data=$3 id=$4 state=$5
+  local meta=$1 marker=$2 data=$3 id=$4 state=$5 error
   shift 5
   [ -z "$meta" ] || fm_backlog_record_remove "$meta" "task record" "$state" || return 1
-  fm_backlog_done "$data" "$id" "$@" || return 1
+  if ! fm_backlog_done "$data" "$id" "$@"; then
+    error=$FM_BACKLOG_TRANSITION_ERROR
+    if fm_backlog_row_probe "$data" "$id" || [ "$FM_BACKLOG_ROW_RESULT" != not_found ] \
+       || ! fm_backlog_row_archived_done "$data" "$id"; then
+      FM_BACKLOG_TRANSITION_ERROR=$error
+      return 1
+    fi
+  fi
   fm_backlog_record_remove "$marker" "pending-close record" "$state"
 }
 

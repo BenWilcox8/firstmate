@@ -401,22 +401,10 @@ task_show_or_fail() {  # <id> <absence-message>; sets show
   show=$TASK_SHOW_OUTPUT
 }
 
-# The archive tasks-axi retention moves closed entries to, read from the active
-# home's own tasks-axi config so a home that repoints it stays correct, and
-# falling back to the tracked default when the config declares none.
+# The archive tasks-axi retention moves closed entries to; the backlog
+# transition library owns its resolution.
 archive_path() {
-  local data root config value=''
-  data=$(fm_backlog_data_absolute "$DATA") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  config="$root/.tasks.toml"
-  if [ -f "$config" ]; then
-    value=$(sed -n 's/^[[:space:]]*archive[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
-  fi
-  [ -n "$value" ] || value="$data/done-archive.md"
-  case "$value" in
-    /*) printf '%s\n' "$value" ;;
-    *) printf '%s/%s\n' "$root" "$value" ;;
-  esac
+  fm_backlog_archive_path "$DATA"
 }
 
 # One archived entry, in the exact field format task_show returns. The archive
