@@ -7,16 +7,16 @@
 # per-task wiring names, and the copy the worker actually runs in are the same,
 # including on a retry in the pane an earlier attempt left behind.
 #
-# Two sequences leave such a pane, and agent-axi hands it back to the retry in
-# both. In the first, the earlier attempt enters a Treehouse slot whose setup is
+# Three sequences leave such a pane, and agent-axi hands it back to the retry in
+# each. In the first, the earlier attempt enters a Treehouse slot whose setup is
 # slow and transiently dirty, so the clean check refuses it and fm-spawn exits,
 # leaving its pane inside that slot's Treehouse subshell. In the second, the
-# earlier attempt stops while its own `treehouse get` still fetches, so that get
-# enters a slot only after the retry typed its own get behind it. Either way the
-# retry's `treehouse get` fetches a slow origin inside a slot the retry did not
-# acquire, so the pane reports that slot for several reads before it enters a
-# new one. Without the fix, the retry recorded that slot and wired the worker
-# there while the worker ran in the new slot.
+# earlier attempt stops while its own `treehouse get` still fetches. In the
+# third, a second earlier get also waits in the pane's input behind that one.
+# Each way the retry's `treehouse get` fetches a slow origin inside a slot the
+# retry did not acquire, so the pane reports that slot for several reads before
+# it enters a new one. Without the fix, the retry recorded that slot and wired
+# the worker there while the worker ran in the new slot.
 #
 # This drives the REAL bin/fm-spawn.sh, treehouse, and agent-axi, because the
 # defect spans the whole handoff and no adapter primitive holds it alone.
@@ -208,34 +208,42 @@ spawn_attempt 2 || fail "the retry did not launch"$'\n'"$(cat "$TMP_ROOT/spawn2.
 assert_one_copy "leftover slot" "$LEFTOVER_COPY"
 pass "fixed: the retry records, wires, and runs the worker in the copy its treehouse get entered"
 
+# stop_attempt_mid_get <n>: start attempt <n> for $ID and stop its fm-spawn
+# while that attempt's own `treehouse get` still fetches in the project, as a
+# spawn interrupted mid-get leaves its pane. Sets LEFTOVER_PANE and EARLIER_GET.
+stop_attempt_mid_get() {
+  local attempt spawn
+  spawn_attempt "$1" 2>/dev/null &
+  attempt=$!
+  LEFTOVER_PANE=
+  EARLIER_GET=
+  for _ in $(seq 1 120); do
+    [ -n "$LEFTOVER_PANE" ] || LEFTOVER_PANE=$(task_pane)
+    [ -z "$LEFTOVER_PANE" ] || EARLIER_GET=$(pane_treehouse_get "$LEFTOVER_PANE")
+    [ -z "$EARLIER_GET" ] || break
+    sleep 0.25
+  done
+  [ -n "$EARLIER_GET" ] \
+    || fail "repro setup is wrong: Herdr never reported the earlier attempt's own treehouse get in its lab pane '${LEFTOVER_PANE:-none}'"
+  spawn=$(pgrep -P "$attempt" -f 'bin/fm-spawn\.sh' | head -1)
+  [ -n "$spawn" ] \
+    || fail "repro setup is wrong: no fm-spawn started by this test's earlier attempt is still running"
+  kill -TERM "$spawn" 2>/dev/null
+  wait "$attempt" 2>/dev/null
+  [ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the stopped attempt published a task record"
+  [ "$(task_pane)" = "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the stopped attempt left no pane behind"
+  [ "$(real "$(pane_cwd "$LEFTOVER_PANE")")" = "$(real "$PROJ")" ] \
+    || fail "repro setup is wrong: the earlier attempt's treehouse get already left the project"
+}
+
 # --- 3. the earlier attempt stops while its own treehouse get still fetches --
 
 # A slower origin, so the earlier attempt's get still fetches in the project
-# when the retry types its own get into the same pane, behind it.
+# when the retry reaches the same pane.
 git -C "$PROJ" config remote.origin.uploadpack "sleep 15; git-upload-pack"
 ID=inflight1
 write_brief "$ID"
-spawn_attempt 3 2>/dev/null &
-EARLIER_ATTEMPT=$!
-LEFTOVER_PANE=
-EARLIER_GET=
-for _ in $(seq 1 120); do
-  [ -n "$LEFTOVER_PANE" ] || LEFTOVER_PANE=$(task_pane)
-  [ -z "$LEFTOVER_PANE" ] || EARLIER_GET=$(pane_treehouse_get "$LEFTOVER_PANE")
-  [ -z "$EARLIER_GET" ] || break
-  sleep 0.25
-done
-[ -n "$EARLIER_GET" ] \
-  || fail "repro setup is wrong: Herdr never reported the earlier attempt's own treehouse get in its lab pane '${LEFTOVER_PANE:-none}'"
-EARLIER_SPAWN=$(pgrep -P "$EARLIER_ATTEMPT" -f 'bin/fm-spawn\.sh' | head -1)
-[ -n "$EARLIER_SPAWN" ] \
-  || fail "repro setup is wrong: no fm-spawn started by this test's earlier attempt is still running"
-kill -TERM "$EARLIER_SPAWN" 2>/dev/null
-wait "$EARLIER_ATTEMPT" 2>/dev/null
-[ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the stopped attempt published a task record"
-[ "$(task_pane)" = "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the stopped attempt left no pane behind"
-[ "$(real "$(pane_cwd "$LEFTOVER_PANE")")" = "$(real "$PROJ")" ] \
-  || fail "repro setup is wrong: the earlier attempt's treehouse get already left the project"
+stop_attempt_mid_get 3
 pass "setup: the earlier attempt stopped while its own treehouse get still fetches in its pane"
 
 spawn_attempt 4 || fail "the retry behind an in-flight get did not launch"$'\n'"$(cat "$TMP_ROOT/spawn4.err")"
@@ -246,6 +254,30 @@ case "$EARLIER_COPY" in
 esac
 assert_one_copy "in-flight get" "$EARLIER_COPY"
 pass "fixed: a retry behind an in-flight get records, wires, and runs the worker in the copy its own get entered"
+
+# --- 4. a second earlier get waits in the pane's input behind the first -------
+
+# A retry that typed its get behind an earlier get still in flight leaves two
+# earlier gets in the pane: one fetching, and one queued in the pane's input
+# that starts only once the first enters its slot. The test queues that second
+# get by typing it into its own lab pane, as such a retry did.
+git -C "$PROJ" config remote.origin.uploadpack "sleep 10; git-upload-pack"
+ID=queued1
+write_brief "$ID"
+stop_attempt_mid_get 5
+lab pane run "$LEFTOVER_PANE" 'treehouse get' >/dev/null \
+  || fail "repro setup is wrong: could not queue a second treehouse get in the lab pane"
+pass "setup: a second earlier treehouse get waits in the pane's input behind the first"
+
+spawn_attempt 6 || fail "the retry behind two earlier gets did not launch"$'\n'"$(cat "$TMP_ROOT/spawn6.err")"
+QUEUED_GET=$(pgrep -P "$(pgrep -P "$EARLIER_GET" | head -1)" | head -1)
+QUEUED_COPY=$(proc_cwd "$(pgrep -P "$QUEUED_GET" | head -1)")
+case "$QUEUED_COPY" in
+  "$POOL"/.treehouse/*) ;;
+  *) fail "repro setup is wrong: the queued earlier get did not enter a Treehouse slot ('$QUEUED_COPY')" ;;
+esac
+assert_one_copy "two queued gets" "$QUEUED_COPY"
+pass "fixed: a retry behind two earlier gets records, wires, and runs the worker in the copy its own get entered"
 
 cleanup_all || exit 1
 trap - EXIT

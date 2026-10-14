@@ -1394,12 +1394,17 @@ fm_backend_herdr_pid_is_bare_shell() {  # <ps-bin> <pid>
 # samples), so the proof retries strict single samples for a bounded settle
 # window and succeeds on the first fully clean one; a genuinely busy pane
 # fails every sample and still refuses.
+# With the `foreground` scope, the proven shell is the pane's foreground
+# process group leader instead of its root shell, so an idle shell nested in
+# the pane (a Treehouse subshell) qualifies; every other condition holds as
+# stated, applied to that shell.
 # This is the single owner of the idle-shell proof; the session-start
-# projection cleanup and every pane-death close path both rely on it.
-fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
+# projection cleanup, every pane-death close path, and fm-spawn's wait on a
+# pane agent-axi handed back all rely on it.
+fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id> [foreground]
   local attempt=0 max_attempts=${FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS:-10}
   while :; do
-    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2"; then
+    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2" "${3:-}"; then
       return 0
     fi
     attempt=$((attempt + 1))
@@ -1411,7 +1416,7 @@ fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
 # fm_backend_herdr_pane_idle_shell_sample: one strict instantaneous
 # observation for fm_backend_herdr_pane_idle_shell_pid, which owns the proof
 # contract and the settle retry.
-fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
+fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id> [foreground]
   local session=$1 pane=$2 info shell_pid foreground_pgid count
   local process_pid name argv0 shell_name rows stat ps_bin
   info=$(fm_backend_herdr_cli "$session" pane process-info --pane "$pane" 2>/dev/null) || return 1
@@ -1423,6 +1428,7 @@ fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
     '.result.process_info.shell_pid | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_process_group_id | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
+  [ "${3:-}" != foreground ] || shell_pid=$foreground_pgid
   [ "$foreground_pgid" = "$shell_pid" ] || return 1
   count=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_processes | select(type == "array") | length' 2>/dev/null) || return 1

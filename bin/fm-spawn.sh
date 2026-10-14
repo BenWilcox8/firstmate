@@ -248,11 +248,12 @@
 #   or the repository primary while `treehouse get` prepares the slot is waited
 #   out as a transient rather than adopted and then refused, so a home that is
 #   itself a linked worktree of the project repository still launches. When
-#   agent-axi hands back a pane an earlier attempt for the task left behind, a
-#   slot is adopted only when Treehouse records it as held by a process that did
-#   not yet exist when `treehouse get` was typed, and that pane is never closed.
-#   A pane that never reaches such a worktree refuses at the end of that wait,
-#   naming the last path seen and why it was rejected.
+#   agent-axi hands back a pane an earlier attempt for the task left behind,
+#   `treehouse get` is typed only once an idle shell holds that pane's
+#   foreground, a slot is adopted only when Treehouse records it as held by a
+#   process that did not yet exist when `treehouse get` was typed, and that pane
+#   is never closed. A pane that never reaches such a worktree refuses at the end
+#   of that wait, naming the last path seen and why it was rejected.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
@@ -4137,9 +4138,24 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   # not acquire for as long as its own get fetches, and only then enters the
   # slot the worker will run in. A path read cannot tell those slots apart, so
   # on a reused pane a slot is adopted only when Treehouse records it as held by
-  # a process that did not yet exist when `treehouse get` was typed.
+  # a process that did not yet exist when `treehouse get` was typed. That proof
+  # holds only when the get typed here is the only one still to start, so the
+  # get is typed only once an idle shell holds the pane's foreground: until
+  # then an earlier attempt's get may still run, or wait in the pane's input,
+  # and start after the process ids are read.
   get_pids_before=""
   if [ "$SPAWN_ENDPOINT_REUSED" -eq 1 ]; then
+    reused_pane_idle=0
+    for _ in $(seq 1 30); do
+      if fm_backend_herdr_pane_idle_shell_pid "$HERDR_SES" "$HERDR_PANE_ID" foreground >/dev/null; then
+        reused_pane_idle=1
+        break
+      fi
+    done
+    if [ "$reused_pane_idle" -eq 0 ]; then
+      echo "error: pane $T was left behind by an earlier attempt for task $ID, and no idle shell held its foreground within about 30s, so a command an earlier attempt typed may still run or wait there; refusing before typing into it, and leaving that pane as it is; inspect window $T" >&2
+      exit 1
+    fi
     get_pids_before=$(ps -axo pid= 2>/dev/null | tr -d '[:blank:]' || true)
     if [ -z "$get_pids_before" ]; then
       echo "error: pane $T was left behind by an earlier attempt for task $ID, and the process table could not be read to prove which Treehouse slot this attempt acquires there; refusing before typing into it, and leaving that pane as it is; inspect window $T" >&2
