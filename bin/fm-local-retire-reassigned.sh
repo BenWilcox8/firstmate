@@ -130,12 +130,6 @@ record() {
 }
 canonical() { (cd "$1" && pwd -P); }
 lease_owner_live() { fm_local_treehouse_owner_live "$OWNER_PID" "$OWNER_STARTED"; }
-spawn_epoch() {  # <meta>
-  local gen
-  gen=$(fm_meta_get "$1" spawn_gen)
-  [[ "$gen" =~ ^s([0-9]+)\. ]] || return 1
-  printf '%s\n' "${BASH_REMATCH[1]}"
-}
 # Every record in the local Firstmate homes whose worktree= or home= names the
 # slot, one metadata path per line; any unreadable home refuses.
 slot_claimants() {
@@ -178,7 +172,7 @@ no_live_owner_proof() {
     mine) refuse 'the slot-owner claim still names this task; use normal cleanup' ;;
     *) refuse 'the slot-owner claim cannot be read' ;;
   esac
-  old_epoch=$(spawn_epoch "$META") || refuse 'old record has no spawn_gen epoch to order it'
+  old_epoch=$(fm_local_spawn_epoch "$META") || refuse 'old record has no spawn_gen epoch to order it'
   CLAIMANTS=$(slot_claimants) || exit 1
   while IFS= read -r other_meta; do
     [ -n "$other_meta" ] || continue
@@ -192,7 +186,7 @@ no_live_owner_proof() {
       self=1
       continue
     fi
-    other_epoch=$(spawn_epoch "$other_meta") || continue
+    other_epoch=$(fm_local_spawn_epoch "$other_meta") || continue
     [ "$other_epoch" -le "$old_epoch" ] || newer=1
   done <<< "$CLAIMANTS"
   [ "$self" = 1 ] || refuse 'old record does not name the shared slot'

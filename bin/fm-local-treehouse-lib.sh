@@ -1,8 +1,20 @@
 #!/usr/bin/env bash
-# Treehouse slot owner proof: the one owner of the owner-liveness and ancestry
-# rules that bin/fm-local-retire-reassigned.sh and bin/fm-local-worker-restore.sh
-# use. Treehouse records the slot owner as owner_pid and owner_started_at (epoch
-# milliseconds). The proof reads /proc, so a host without it proves nothing.
+# Treehouse slot owner proof: the one owner of the owner-liveness, ancestry, and
+# slot-ordering rules that bin/fm-local-retire-reassigned.sh and
+# bin/fm-local-worker-restore.sh use. Treehouse records the slot owner as
+# owner_pid and owner_started_at (epoch milliseconds). The proof reads /proc, so
+# a host without it proves nothing. Callers source bin/fm-backend.sh first.
+
+# The spawn epoch from spawn_gen=s<epoch>.<pid>.<n>, which orders the records
+# that name one slot. An empty or non-numeric epoch prints nothing and returns 1.
+fm_local_spawn_epoch() {  # <meta>
+  local gen
+  gen=$(fm_meta_get "$1" spawn_gen)
+  gen=${gen#s}
+  gen=${gen%%.*}
+  case "$gen" in ''|*[!0-9]*) return 1 ;; esac
+  printf '%s\n' "$gen"
+}
 
 fm_local_proc_field() {  # <pid> <index after the command name>
   local stat fields
