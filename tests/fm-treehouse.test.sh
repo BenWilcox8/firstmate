@@ -9,6 +9,9 @@ set -u
 # shellcheck source=tests/lib.sh
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
+# A worker pane from bin/fm-spawn.sh inherits its home's TREEHOUSE_ROOT.
+unset TREEHOUSE_ROOT
+
 HELPER="$ROOT/bin/fm-treehouse.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse)
 USER_HOME="$TMP_ROOT/user-home"
@@ -100,8 +103,9 @@ test_real_treehouse_pools_per_home() {
   git_quiet init --bare "$origin" || fail "could not create the origin"
   git_quiet clone "$origin" "$seed" || fail "could not clone the seed"
   printf 'x\n' > "$seed/f"
-  git_quiet -C "$seed" add f && git_quiet -C "$seed" commit -m init \
-    && git_quiet -C "$seed" push origin main || fail "could not seed the origin"
+  git_quiet -C "$seed" add f || fail "could not stage the seed file"
+  git_quiet -C "$seed" commit -m init || fail "could not commit the seed"
+  git_quiet -C "$seed" push origin main || fail "could not seed the origin"
   a=$(make_home live-a)
   b=$(make_home live-b)
   git_quiet clone "$origin" "$a/projects/proj" || fail "could not clone into home A"
@@ -116,6 +120,11 @@ test_real_treehouse_pools_per_home() {
     || fail "home A could not take a slot from its own pool"
   slot_b=$(cd "$b/projects/proj" && HOME="$USER_HOME" TREEHOUSE_ROOT=$root_b treehouse get --lease --no-fetch 2>/dev/null) \
     || fail "home B could not take a slot from its own pool"
+  case "$old" in
+    "$USER_HOME/.treehouse/firstmate-homes/"*) fail "the shared-pool slot '$old' landed in a per-home root" ;;
+    "$USER_HOME/.treehouse/"*) ;;
+    *) fail "the shared-pool slot '$old' is outside the throwaway user store" ;;
+  esac
   case "$slot_a" in "$root_a"/*) ;; *) fail "home A slot '$slot_a' is outside its root '$root_a'" ;; esac
   case "$slot_b" in "$root_b"/*) ;; *) fail "home B slot '$slot_b' is outside its root '$root_b'" ;; esac
   common=$(git -C "$slot_b" rev-parse --path-format=absolute --git-common-dir)
