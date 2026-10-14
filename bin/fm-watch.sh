@@ -304,6 +304,13 @@ TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task
 # daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
 # wake) and never double-triages - and never runs the costly provably-working read.
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
+# Two identical polls alone are not enough to wake firstmate for a stale pane:
+# most such panes are only between turns. STALE_FIRST_WAKE_SECS is the quiet time
+# a pane needs before its FIRST stale wake (stale_floor_defer below owns the
+# episode it measures). It delays only the surfacing outcomes; absorb paths and
+# the wedge timer keep their timing. Zero turns the floor off.
+STALE_FIRST_WAKE_SECS=${FM_STALE_FIRST_WAKE_SECS:-}
+case "$STALE_FIRST_WAKE_SECS" in ''|*[!0-9]*) STALE_FIRST_WAKE_SECS=240 ;; esac
 # A busy pane is unconditional proof of liveness with no built-in duration bound,
 # so a hung foreground call can remain hidden even while its rendered busy
 # footer changes every poll. BUSY_TURN_MAX_SECS bounds how long any busy pane
@@ -1739,6 +1746,56 @@ captain_call_stale_bound() {  # <window-key> <task>
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
 }
 
+# The elapsed-time floor before a pane's first stale wake (STALE_FIRST_WAKE_SECS).
+# A quiet episode starts when the pane's current hash was first seen, recorded in
+# .stale-floor-<key> on the first surfacing decision. Only a busy pane ends the
+# episode (stale_floor_clear), so a pane that churns a clock while it sits idle
+# still reaches the floor and wakes firstmate. After the floor the marker stays,
+# so later new-hash stale wakes in the same episode surface as before.
+# .stale-deferred-<key> holds the hash whose surfacing waits on the floor, so the
+# costly classification reads run once per hash and once more at the floor,
+# never on every poll.
+stale_floor_clear() {  # <key>
+  rm -f "$STATE/.stale-floor-$1" "$STATE/.stale-deferred-$1"
+}
+
+# Returns 0 when the surfacing wake for <hash> must wait on the floor, and records
+# that hash as deferred; returns 1 when the wake may fire now.
+stale_floor_defer() {  # <key> <hash> <hash-file>
+  local key=$1 h=$2 hf=$3 ff start now
+  ff="$STATE/.stale-floor-$key"
+  if [ "$STALE_FIRST_WAKE_SECS" -le 0 ]; then
+    rm -f "$STATE/.stale-deferred-$key"
+    return 1
+  fi
+  start=$(cat "$ff" 2>/dev/null || true)
+  case "$start" in
+    ''|*[!0-9]*)
+      start=$(stat_mtime "$hf")
+      case "$start" in ''|*[!0-9]*) start=$(date +%s) ;; esac
+      printf '%s\n' "$start" > "$ff"
+      ;;
+  esac
+  now=$(date +%s)
+  if [ $((now - start)) -lt "$STALE_FIRST_WAKE_SECS" ]; then
+    printf '%s' "$h" > "$STATE/.stale-deferred-$key"
+    return 0
+  fi
+  rm -f "$STATE/.stale-deferred-$key"
+  return 1
+}
+
+# Returns 0 while <hash> is already deferred and the floor has not passed, so the
+# caller skips the classification reads for this poll.
+stale_floor_waiting() {  # <key> <hash>
+  local key=$1 h=$2 start now
+  [ "$(cat "$STATE/.stale-deferred-$key" 2>/dev/null || true)" = "$h" ] || return 1
+  start=$(cat "$STATE/.stale-floor-$key" 2>/dev/null || true)
+  case "$start" in ''|*[!0-9]*) return 1 ;; esac
+  now=$(date +%s)
+  [ $((now - start)) -lt "$STALE_FIRST_WAKE_SECS" ]
+}
+
 # Surface a stale pane no classifier could resolve, so firstmate inspects it: it
 # may have finished through an interactive menu that wrote no status, be waiting on
 # a decision, or be wedged. pause_state_class deliberately answers `none` for a
@@ -2837,6 +2894,8 @@ EOF
   # stale hash is surfaced, absorbed, or timed toward escalation once (.stale-*
   # remembers the hash already classified, or the declaration a busy pane's
   # crossed turn bound already handed to the away-mode daemon).
+  # Outside away mode, the first surfacing wake also waits on the
+  # STALE_FIRST_WAKE_SECS floor (stale_floor_defer).
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
@@ -2913,7 +2972,9 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            if crew_is_provably_working "$task"; then
+            if stale_floor_waiting "$key" "$h"; then
+              : # this hash's first stale wake already waits on the floor
+            elif crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               clear_write_tracking "$key"
@@ -2951,6 +3012,8 @@ EOF
               rm -f "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (finished status already surfaced): $w"
+            elif stale_floor_defer "$key" "$h" "$hf"; then
+              triage_log "deferred stale (quiet less than ${STALE_FIRST_WAKE_SECS}s): $w"
             else
               wake_queue_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
@@ -2990,14 +3053,21 @@ EOF
           #   - none: no running pipeline, no exact busy verdict, no declared wait -
           #     reachable only without a declaration, since a declared wait always
           #     takes one of the classes above.
-          #     Surface immediately so firstmate inspects the inconclusive state
-          #     (it may be done via an interactive menu that wrote no done: status,
-          #     waiting on a decision, or wedged) instead of leaving the finish to
-          #     wait out the timer.
+          #     Surface once past the first-wake floor so firstmate inspects the
+          #     inconclusive state (it may be done via an interactive menu that
+          #     wrote no done: status, waiting on a decision, or wedged) instead
+          #     of leaving the finish to wait out the timer.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             task=$(window_to_task "$w" "$STATE")
-            pclass=$(pause_state_class "$w" "$task")
+            if stale_floor_waiting "$key" "$h"; then
+              pclass=deferred
+            else
+              pclass=$(pause_state_class "$w" "$task")
+            fi
             case "$pclass" in
+              deferred)
+                ;;
+
               working)
                 clear_pause_tracking "$key"
                 printf '%s' "$h" > "$sf"
@@ -3008,7 +3078,11 @@ EOF
                 handle_paused_stale "$w" "$task" "$h" "$pclass"
                 ;;
               *)
-                surface_nonterminal_stale "$w" "$h"
+                if stale_floor_defer "$key" "$h" "$hf"; then
+                  triage_log "deferred non-terminal stale (quiet less than ${STALE_FIRST_WAKE_SECS}s): $w"
+                else
+                  surface_nonterminal_stale "$w" "$h"
+                fi
                 ;;
             esac
           else
@@ -3035,6 +3109,7 @@ EOF
         # then route it through busy_turn_bound_check, which hands the crossed
         # bound to the same wedge timer unless the crew declared the wait itself.
         paused_bound=1
+        [ "$busy_now" -ne 0 ] || stale_floor_clear "$key"
         if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
           busy_turn_bound_check "$w" "$task" "$h" "$ssf" "$ewf" && paused_bound=0
         else
@@ -3053,6 +3128,7 @@ EOF
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
       paused_bound=1
+      [ "$busy_now" -ne 0 ] || stale_floor_clear "$key"
       if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
         busy_turn_bound_check "$w" "$task" "$h" "$ssf" "$ewf" && paused_bound=0
       else

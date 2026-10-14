@@ -2138,6 +2138,134 @@ test_nonterminal_stale_not_working_surfaced() {
   pass "a not-provably-working non-terminal stale is surfaced immediately (never left to wait out the timer)"
 }
 
+# --- floor before the first stale wake (FM_STALE_FIRST_WAKE_SECS) -------------
+# Two identical polls alone must not wake firstmate: a pane needs the floor's
+# quiet time first. Most such panes are only between turns. These cases leave
+# FM_STALE_FIRST_WAKE_SECS empty, so the watcher uses its own 240s default
+# instead of the suite-wide 0 from tests/lib.sh, unless a case sets a value.
+
+# Seed one ship window whose pane already showed <text> on one poll, and whose
+# status line is <status>. The hash marker's mtime is when the pane went quiet.
+floor_case() {  # <state> <window> <task> <text> <status>
+  local state=$1 window=$2 task=$3 text=$4 status=$5 key
+  printf 'window=%s\nkind=ship\n' "$window" > "$state/$task.meta"
+  printf '%s\n' "$status" > "$state/$task.status"
+  printf '%s' "$(seen_sig "$state/$task.status")" > "$state/.seen-${task}_status"
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  printf '%s' "$(hash_pane_text "$text")" > "$state/.hash-$key"
+  printf '1\n' > "$state/.count-$key"
+}
+
+test_stale_first_wake_floor_defers_a_fresh_quiet_pane() {
+  local dir state fakebin out capture_file window window2 pid
+  dir=$(make_case stale-floor-defers); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-between"
+  printf 'idle prompt, between turns' > "$capture_file"
+  floor_case "$state" "$window" between 'idle prompt, between turns' 'working: implementing'
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor: $(cat "$out")"; return; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a pane quiet less than the default floor on a later poll: $(cat "$out")"; return; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a pane quiet less than the floor printed a wake: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a pane quiet less than the floor queued a wake"
+
+  # The same pane with a captain-relevant status line is also held by the floor.
+  window2="test:fm-finished"
+  dir=$(make_case stale-floor-defers-terminal); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  printf 'finished, awaiting review' > "$capture_file"
+  floor_case "$state" "$window2" finished 'finished, awaiting review' 'done: PR https://example.test/pr/9'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window2" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor: $(cat "$out")"; return; }
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a terminal-status pane quiet less than the floor on a later poll: $(cat "$out")"; return; }
+  reap "$pid"
+  [ ! -s "$out" ] || fail "a terminal-status pane quiet less than the floor printed a wake: $(cat "$out")"
+  [ ! -s "$state/.wake-queue" ] || fail "a terminal-status pane quiet less than the floor queued a wake"
+  pass "a pane quiet for less than the default 240s floor does not wake firstmate on two identical polls"
+}
+
+test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it() {
+  local dir state fakebin out drain_out capture_file window key pid
+  dir=$(make_case stale-floor-past); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; drain_out="$dir/drain.out"; capture_file="$dir/pane.txt"
+  window="test:fm-wedged"
+  printf 'idle prompt, nothing moving' > "$capture_file"
+  floor_case "$state" "$window" wedged 'idle prompt, nothing moving' 'working: implementing'
+  key=$(printf '%s' "$window" | tr ':/.' '___')
+  # The pane has shown the same render for five minutes, past the 240s default.
+  set_mtime $(( $(date +%s) - 300 )) "$state/.hash-$key"
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 100 || { reap "$pid"; fail "watcher did not wake for a pane quiet past the floor"; return; }
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "watcher did not print the stale wake past the floor: $(cat "$out")"
+  FM_STATE_OVERRIDE="$state" "$DRAIN" > "$drain_out" 2>/dev/null || fail "drain after the past-floor stale failed"
+  grep "$(printf '\tstale\t')" "$drain_out" | grep -F "$window" >/dev/null || fail "past-floor stale wake was not queued"
+  pass "a pane quiet past the 240s floor still wakes firstmate"
+}
+
+# An idle pane can repaint a clock or a counter, so its hash changes while
+# nothing moves. The floor measures the whole quiet episode, not one hash, so
+# such a pane still wakes firstmate once the floor passes.
+test_stale_first_wake_floor_spans_idle_repaints() {
+  local dir state fakebin out capture_file window pid painter
+  dir=$(make_case stale-floor-repaint); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-ticking"
+  printf 'idle prompt, tick' > "$capture_file"
+  floor_case "$state" "$window" ticking 'idle prompt, tick' 'working: implementing'
+  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
+  # Repaint every 5s: each render sits for several polls (so it is stale),
+  # but no single render lasts the 8s floor.
+  # Digits are normalized out of the pane hash, so the repaint alternates words.
+  ( i=0; while :; do sleep 5; if [ $((i % 2)) -eq 0 ]; then tick=tock; else tick=tick; fi
+      printf 'idle prompt, %s' "$tick" > "$capture_file.tmp" && mv "$capture_file.tmp" "$capture_file"; i=$((i + 1)); done ) &
+  painter=$!
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS=8 \
+    FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  if ! wait_for_exit "$pid" 400; then
+    reap "$pid"; reap "$painter"
+    fail "an idle pane that repaints faster than the floor never woke firstmate"
+    return
+  fi
+  reap "$painter"
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "repainting idle pane did not print a stale wake: $(cat "$out")"
+  pass "an idle pane that repaints faster than the floor still wakes firstmate after the floor"
+}
+
+# The floor holds back only the first surfacing wake. A provably working pane is
+# absorbed on first sight and its wedge timer escalates on the unchanged
+# FM_STALE_ESCALATE_SECS cadence, even with the default floor in force.
+test_stale_first_wake_floor_keeps_wedge_escalation_timing() {
+  local dir state fakebin out capture_file window pid
+  dir=$(make_case stale-floor-wedge); state="$dir/state"; fakebin="$dir/fakebin"
+  out="$dir/watch.out"; capture_file="$dir/pane.txt"
+  window="test:fm-ci"
+  printf 'waiting on ci' > "$capture_file"
+  floor_case "$state" "$window" ci 'waiting on ci' 'working: validating'
+  export FM_FAKE_CREW_STATE='state: working · source: run-step · ci running'
+  PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS='' \
+    FM_STALE_ESCALATE_SECS=2 FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
+  pid=$!
+  wait_for_exit "$pid" 150 || { reap "$pid"; fail "the floor held back a provably-working wedge escalation"; return; }
+  grep -F "stale: $window" "$out" >/dev/null || fail "wedge escalation did not print a stale wake: $(cat "$out")"
+  grep -F "possible wedge" "$out" >/dev/null || fail "wedge escalation under the floor lost its possible-wedge reason: $(cat "$out")"
+  pass "the first-wake floor leaves provably-working wedge escalation timing unchanged"
+}
+
 # --- non-terminal stale, crew DECLARED a pause: absorbed, re-surfaced on a long
 #     cadence, never wedge-escalated ------------------------------------------
 # The live 2026-07-09/10 case: a crew intentionally held awaiting an upstream tool
@@ -6107,6 +6235,10 @@ test_busy_declared_pause_is_rechecked_not_wedge_escalated
 test_afk_busy_declared_pause_hands_off_plain_stale
 test_afk_busy_declared_pause_ticking_pane_hands_off_once
 test_nonterminal_stale_not_working_surfaced
+test_stale_first_wake_floor_defers_a_fresh_quiet_pane
+test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it
+test_stale_first_wake_floor_spans_idle_repaints
+test_stale_first_wake_floor_keeps_wedge_escalation_timing
 test_nonterminal_stale_paused_absorbed_then_resurfaced
 test_exited_declared_pause_is_bounded_but_live_gate_surfaces
 test_absorbed_replacement_wait_does_not_inherit_the_old_throttle
