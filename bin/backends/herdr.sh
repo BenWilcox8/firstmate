@@ -2655,7 +2655,7 @@ fm_backend_herdr_agent_alive() {  # <target>
 # agent-axi resolves the target workspace from the invoking home exactly as this
 # adapter does (FM_HOME > FM_ROOT_OVERRIDE > FM_ROOT). The create delegate passes
 # the owning home's FM_HOME to agent-axi explicitly - for a --secondmate launch
-# that is the second mate's home, which fm-spawn shadows FM_HOME to - so each
+# that is the secondmate's home, which fm-spawn shadows FM_HOME to - so each
 # home's spawn lands in, and its teardown frees, that home's own ledger.
 #
 # FM_BACKEND_HERDR_AXI_BIN: the executable name/path to delegate to. Unset
