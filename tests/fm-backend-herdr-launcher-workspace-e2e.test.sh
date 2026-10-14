@@ -227,6 +227,8 @@ for id in uniqA uniqB dupC dupD staleF smE presU presD; do
   write_ship_brief "$SM_HOME/data/$id/brief.md" "$id"
   write_ship_brief "$PRES_HOME/data/$id/brief.md" "$id"
 done
+mkdir -p "$SM2_HOME/data/smF"
+write_ship_brief "$SM2_HOME/data/smF/brief.md" smF
 mkdir -p "$PRIMARY_HOME/data/$SM2_ID"
 printf 'trivial secondmate charter brief: nothing to do.\n' > "$PRIMARY_HOME/data/$SM2_ID/brief.md"
 
@@ -450,6 +452,40 @@ SM2_WS=$(workspace_of_pane "$SM2_PANE")
 [ "$(label_of_workspace "$SM2_WS")" = "2ndmate-$SM2_ID" ] \
   || fail "a --secondmate launch should land in '2ndmate-$SM2_ID', got '$(label_of_workspace "$SM2_WS")'"
 pass "real herdr E2E: a --secondmate launch still stands up that secondmate's own workspace instead of inheriting the launcher's"
+
+# --- 7b. a --secondmate relaunch into a RE-CREATED workspace ----------------
+# A reboot loses the secondmate's workspace, while its home's records survive,
+# including agent-axi's ledger binding to the old workspace id. The relaunch
+# must stand up a new workspace and land there, through agent-axi when it is
+# installed, rather than refusing on the stale binding.
+
+lab workspace close "$SM2_WS" >/dev/null 2>&1 || fail "could not close the secondmate's workspace"
+[ -z "$(label_of_workspace "$SM2_WS")" ] || fail "the secondmate's workspace did not actually go away"
+spawn_from_launcher "$LAUNCH_DUP_PANE" "$PRIMARY_HOME" "$SM2_ID" "$SM2_HOME" --secondmate
+[ "$SPAWN_RC" -eq 0 ] || fail "a --secondmate relaunch into a re-created workspace failed"$'\n'"$(cat "$SPAWN_ERR")"
+SM2_PANE=$(grep '^herdr_pane_id=' "$SM2_META" | cut -d= -f2-)
+SM2_NEW_WS=$(workspace_of_pane "$SM2_PANE")
+[ -n "$SM2_NEW_WS" ] && [ "$SM2_NEW_WS" != "$SM2_WS" ] \
+  || fail "the relaunch should land in a new workspace, got '$SM2_NEW_WS' (old $SM2_WS)"
+[ "$(label_of_workspace "$SM2_NEW_WS")" = "2ndmate-$SM2_ID" ] \
+  || fail "the re-created workspace should be labeled '2ndmate-$SM2_ID', got '$(label_of_workspace "$SM2_NEW_WS")'"
+[ "$(grep '^herdr_workspace_id=' "$SM2_META" | cut -d= -f2-)" = "$SM2_NEW_WS" ] \
+  || fail "the relaunch record does not name the re-created workspace"
+# The relaunched secondmate's own worker pins its exact workspace id, which
+# agent-axi accepts only once that home's ledger is bound to the new workspace.
+spawn_from_launcher "$SM2_PANE" "$SM2_HOME" smF "$PROJ" --mode no-mistakes --yolo off
+[ "$SPAWN_RC" -eq 0 ] || fail "the relaunched secondmate could not spawn its own worker"$'\n'"$(cat "$SPAWN_ERR")"
+SMF_META="$SM2_HOME/state/smF.meta"
+record_worktree "$SMF_META"
+SMF_WS=$(workspace_of_pane "$(grep '^herdr_pane_id=' "$SMF_META" | cut -d= -f2-)")
+[ "$SMF_WS" = "$SM2_NEW_WS" ] \
+  || fail "the relaunched secondmate's worker should land in $SM2_NEW_WS, got '$SMF_WS'"
+if command -v "$AXI_BIN" >/dev/null 2>&1; then
+  SM2_PATH="agent-axi"
+else
+  SM2_PATH="native fallback, agent-axi not installed"
+fi
+pass "real herdr E2E: a --secondmate relaunch after its workspace is re-created lands in the new workspace, and its own worker follows ($SM2_PATH)"
 
 # --- 8. teardown closes only the worker's own pane --------------------------
 

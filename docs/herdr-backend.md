@@ -182,6 +182,11 @@ firstmate's herdr adapter delegates the pane lifecycle to it; the adapter now ow
 The returned target string (`"<session>:<pane_id>"`), the `"<tab_id> <pane_id>"` create echo, the `fm-<id>` label, and every meta field stay byte-identical, so `fm-spawn`, `fm-teardown`, the watcher, crew-state, and every existing caller are unaffected.
 The one addition is a trailing ` reused` on the create echo when agent-axi hands back a pane it already held for the task instead of opening one, which `fm-spawn` reads to treat that pane's reported location as unproven.
 `bin/fm-spawn.sh`'s herdr branch no longer has a split path or a `config/herdr-layout` read: it only ensures the home's workspace and calls `create_task`, which delegates placement to agent-axi's ledger.
+The create delegate passes the owning home's `FM_HOME` to agent-axi, so a `--secondmate` launch uses the second mate's own ledger and label.
+A worker or scout spawn pins agent-axi to the launcher's exact workspace with `--workspace-id`.
+A `--secondmate` launch does not, because its workspace was resolved from the home's unique label: after a reboot re-creates that workspace, the home's ledger is still bound to the old id, and agent-axi refuses an exact target that differs from it.
+agent-axi then resolves the same label under its own checks and re-binds its ledger, and the adapter refuses a result outside the verified workspace.
+When agent-axi refuses a spawn, the adapter's error line carries agent-axi's own error message.
 
 ### What was deleted (phase 1, slice s7, 2026-07-20)
 
