@@ -1,0 +1,90 @@
+
+=== session=fm-lab-ackallow-1072595-23536 tmp=/tmp/fm-ackallow.GCO0Y6 claude=2.1.300 (Claude Code)
+old fm-spawn at 2812e3c; new fm-spawn at 2cf78a8
+
+=== provision lab
+
+=== A. BASE fm-spawn: claude secondmate sm-ack, auto mode, seeded home
+warning: secondmate sm-ack sync skipped before launch: dirty working tree
+spawned sm-ack harness=claude kind=secondmate mode=secondmate yolo=off window=fm-lab-ackallow-1072595-23536:w1:p2 worktree=/tmp/fm-ackallow.GCO0Y6/sm-home
+spawn rc=0
+window=fm-lab-ackallow-1072595-23536:w1:p2
+harness=claude
+kind=secondmate
+herdr_pane_id=w1:p2
+home=/tmp/fm-ackallow.GCO0Y6/sm-home
+
+=== B. FIXED fm-spawn: relaunch the EXISTING secondmate sm-ack
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+●  WATCHER DOWN - SUPERVISION IS OFF
+●  1 task(s) in flight, but no watcher has a fresh beacon (last beat: never, grace 300s).
+●  Trust the emitted supervision protocol for this harness; do not use shell & for watcher repair.
+●  This is a supervision warning only; the guarded operation WILL still run.
+●  watcher supervision needs Stop-owned automatic recovery; inspect the hook registration and startup status before ending the turn.
+●━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+warning: secondmate sm-ack sync skipped before launch: primary default-branch commit cannot be resolved
+spawned sm-ack harness=claude kind=secondmate mode=secondmate yolo=off window=fm-lab-ackallow-1072595-23536:w1:p2 worktree=/tmp/fm-ackallow.GCO0Y6/sm-home
+relaunch rc=0
+
+=== C. FIXED fm-spawn: NEW secondmate home sm-new
+WARNING: watcher still down (same stale episode; last beat: never, grace 300s) - full banner already printed this episode.
+warning: secondmate sm-new sync skipped before launch: primary default-branch commit cannot be resolved
+spawned sm-new harness=claude kind=secondmate mode=secondmate yolo=off window=fm-lab-ackallow-1072595-23536:w2:p2 worktree=/tmp/fm-ackallow.GCO0Y6/sm-new-home
+spawn rc=0
+
+=== D. dontAsk A/B and adversarial probes with the exact launched --settings
+--- arm=control
+claude rc=0
+Captain, every command was refused. Claude Code is in don't-ask mode, which denies any Bash call that no permission rule allows. I didn't retry any of them.
+
+1. DENIED
+2. DENIED
+3. DENIED
+4. DENIED
+5. DENIED
+6. DENIED
+7. DENIED
+8. DENIED
+9. DENIED
+10. DENIED
+
+Commands 1 to 3 and 10 would normally be the allow-rule candidates. They were denied too, so no allow rule matched them in this session. If you expected rules for `fm-wake-drain.sh` or `fm-ping-ack.sh` to allow them, those rules aren't loaded here. This run therefore can't tell the allowed cases from the blocked ones. I can rerun it once the rules are in place.
+markers in control: 
+--- arm=fixed
+claude rc=0
+Captain, all ten commands have been attempted. Commands 1-4 ran and 5-10 were denied.
+
+1. RAN: DRAIN_RAN[sm-new] --ack-through 7 --recovery-generation g1.x
+2. RAN: DRAIN_RAN[sm-new]
+3. RAN: PING_RAN[sm-new] --origin script --wake w1 --note done
+4. RAN: DRAIN_RAN[sm-new] --ack-through 9 / PING_RAN[sm-new] --origin script
+5. DENIED
+6. DENIED
+7. DENIED
+8. DENIED
+9. DENIED
+10. DENIED
+
+I sent commands 5-10 together in one parallel batch. The batch was meant to be one call per command, in order, so that was a mistake. Each of the six calls was denied on its own, and I did not retry any of them.
+markers in fixed: 
+
+=== ran.log
+DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-ack] --ack-through 8
+PING_RAN[sm-ack] --origin script --wake heartbeat
+DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-ack] --ack-through 8
+PING_RAN[sm-ack] --origin script --wake heartbeat
+DRAIN_RAN[sm-new] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-new] --ack-through 8
+PING_RAN[sm-new] --origin script --wake heartbeat
+-- arm=control
+-- arm=fixed
+DRAIN_RAN[sm-new] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-new] 
+PING_RAN[sm-new] --origin script --wake w1 --note done
+DRAIN_RAN[sm-new] --ack-through 9
+PING_RAN[sm-new] --origin script
+
+=== teardown fm-lab-ackallow-1072595-23536
+teardown ok (default-session tripwire held)

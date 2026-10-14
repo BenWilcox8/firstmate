@@ -1,0 +1,22 @@
+bash-5.3$ /tmp/fm-ackallow.GCO0Y6/norc-shell -i
+bash-5.3$ export GOTMPDIR=/tmp/fm-sm-ack/gotmp
+bash-5.3$ export COMPACT_ADVISER_DISABLE=1
+bash-5.3$ . '/tmp/fm-sm-ack+fd7f106d60e9e39473c2c7494fb44be769cb21f7b182045744ee4566e7ea598e/launch.s1792012886.1075143.4529.sh'
+[wrapper] launch 1: running real claude with the launched permission flag and --settings
+1. DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+2. DRAIN_RAN[sm-ack] --ack-through 8
+3. PING_RAN[sm-ack] --origin script --wake heartbeat
+
+Captain, all three stub commands ran and none was denied.
+bash-5.3$ export GOTMPDIR=/tmp/fm-sm-ack/gotmp
+bash-5.3$ export COMPACT_ADVISER_DISABLE=1
+bash-5.3$ . '/tmp/fm-sm-ack+fd7f106d60e9e39473c2c7494fb44be769cb21f7b182045744ee4566e7ea598e/launch.s1792012908.1172493.15990.sh'
+[wrapper] launch 2: running real claude with the launched permission flag and --settings
+Captain, all three commands ran and none were refused:
+
+1. DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+2. DRAIN_RAN[sm-ack] --ack-through 8
+3. PING_RAN[sm-ack] --origin script --wake heartbeat
+
+Before running them, I read the scripts with `cat` to confirm they only print and log their arguments. I did not run the extra `bin/fm-wake-drain.sh.evil` file. Commands 2 and 3 went out together in one step rather than strictly one after the other.
+bash-5.3$

@@ -1,0 +1,16 @@
+DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-ack] --ack-through 8
+PING_RAN[sm-ack] --origin script --wake heartbeat
+DRAIN_RAN[sm-ack] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-ack] --ack-through 8
+PING_RAN[sm-ack] --origin script --wake heartbeat
+DRAIN_RAN[sm-new] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-new] --ack-through 8
+PING_RAN[sm-new] --origin script --wake heartbeat
+-- arm=control
+-- arm=fixed
+DRAIN_RAN[sm-new] --ack-through 7 --recovery-generation g1.x
+DRAIN_RAN[sm-new] 
+PING_RAN[sm-new] --origin script --wake w1 --note done
+DRAIN_RAN[sm-new] --ack-through 9
+PING_RAN[sm-new] --origin script

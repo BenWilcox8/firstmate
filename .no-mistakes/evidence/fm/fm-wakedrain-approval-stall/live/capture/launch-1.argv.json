@@ -1,0 +1,11 @@
+[
+  "--permission-mode",
+  "auto",
+  "--settings",
+  "{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}",
+  "--model",
+  "sonnet",
+  "--name",
+  "Secondmate, sm-ack",
+  "⁣FIRSTMATE_OP: v1 launch-brief: # Isolated ack pre-approval secondmate\n\nStay idle."
+]

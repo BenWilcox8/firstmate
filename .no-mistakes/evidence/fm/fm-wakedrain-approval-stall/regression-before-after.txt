@@ -1,0 +1,15 @@
+New regression test test_spawn_secondmate_claude_preapproves_supervision_acks (tests/fm-secondmate-harness.test.sh)
+run in a scratch clone of the target commit, once with the BASE commit's bin/fm-spawn.sh and once with the fixed one.
+
+--- pre-fix bin/fm-spawn.sh (2812e3c):
+jq: error (at <stdin>:0): Cannot iterate over null (null)
+not ok - ack-allow: --settings is not valid JSON with a permissions.allow list: {"feedbackDrafts":"off","attribution":{"commit":"","pr":"","sessionUrl":false}}
+exit=1
+
+--- fixed bin/fm-spawn.sh (2cf78a8):
+ok - C2b spawn: config/claude-permission-mode=auto reaches a Claude secondmate launch
+ok - C2c spawn: a Claude secondmate in a seeded home pre-approves only its own wake-drain and ping-ack commands
+ok - C2d spawn: a home path outside the safe character set keeps only the relative ack rules
+# selected tests passed
+
+Full file on the fixed worktree: bash tests/fm-secondmate-harness.test.sh -> "# all fm-secondmate-harness tests passed" (exit 0).

@@ -1,0 +1,16 @@
+/tmp/fm-ackallow.GCO0Y6/marks:
+total 16
+drwxr-xr-x  4 ben users 4096 Oct 14 16:22 .
+drwx------ 12 ben users 4096 Oct 14 16:21 ..
+drwxr-xr-x  2 ben users 4096 Oct 14 16:22 control
+drwxr-xr-x  2 ben users 4096 Oct 14 16:22 fixed
+
+/tmp/fm-ackallow.GCO0Y6/marks/control:
+total 8
+drwxr-xr-x 2 ben users 4096 Oct 14 16:22 .
+drwxr-xr-x 4 ben users 4096 Oct 14 16:22 ..
+
+/tmp/fm-ackallow.GCO0Y6/marks/fixed:
+total 8
+drwxr-xr-x 2 ben users 4096 Oct 14 16:22 .
+drwxr-xr-x 4 ben users 4096 Oct 14 16:22 ..

@@ -1,0 +1,11 @@
+[
+  "--permission-mode",
+  "auto",
+  "--settings",
+  "{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"permissions\":{\"allow\":[\"Bash(bin/fm-wake-drain.sh)\",\"Bash(bin/fm-wake-drain.sh *)\",\"Bash(bin/fm-ping-ack.sh)\",\"Bash(bin/fm-ping-ack.sh *)\",\"Bash(/tmp/fm-ackallow.GCO0Y6/sm-new-home/bin/fm-wake-drain.sh)\",\"Bash(/tmp/fm-ackallow.GCO0Y6/sm-new-home/bin/fm-wake-drain.sh *)\",\"Bash(/tmp/fm-ackallow.GCO0Y6/sm-new-home/bin/fm-ping-ack.sh)\",\"Bash(/tmp/fm-ackallow.GCO0Y6/sm-new-home/bin/fm-ping-ack.sh *)\"]}}",
+  "--model",
+  "sonnet",
+  "--name",
+  "Secondmate, sm-new",
+  "⁣FIRSTMATE_OP: v1 launch-brief: # Isolated ack pre-approval secondmate\n\nStay idle."
+]

@@ -1,0 +1,20 @@
+ 1.   bin/fm-wake-drain.sh --ack-through 7 --recovery-generation g1.x
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 2.   /tmp/fm-ackallow.GCO0Y6/sm-new-home/bin/fm-wake-drain.sh
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 3.   bin/fm-ping-ack.sh --origin script --wake w1 --note done
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 4.   bin/fm-wake-drain.sh --ack-through 9 && bin/fm-ping-ack.sh --origin script
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 5.   bin/fm-wake-drain.sh --ack-through 1; touch /tmp/fm-ackallow.GCO0Y6/marks/control/pwned-compound
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 6.   bin/fm-wake-drain.sh $(touch /tmp/fm-ackallow.GCO0Y6/marks/control/pwned-subst)
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 7.   bin/fm-wake-drain.sh.evil
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 8.   /tmp/fm-ackallow.GCO0Y6/evil-home/bin/fm-wake-drain.sh --ack-through 1
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+ 9.   touch /tmp/fm-ackallow.GCO0Y6/marks/control/pwned-plain
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
+10.   bash bin/fm-wake-drain.sh --ack-through 1
+      ->   err=true Permission to use Bash has been denied because Claude Code is running in don't ask mode. IMPORTANT: You *may*
