@@ -1,0 +1,45 @@
+lab session: fm-lab-scn-base-3690304-21364   product root: /tmp/fm-base-2812e3c.tezQvd
+primary launcher workspace firstmate=w1 launcher pane=w1:p1
+
+=== S-A/S-B: --secondmate launch, workspace re-created, relaunch, then the second mate spawns its own worker
+$ fm-spawn.sh smA <project> <agent> --backend herdr --secondmate (FM_HOME=primary, launcher pane w1:p1)  -> rc=0
+    stderr: warning: secondmate smA sync skipped before launch: primary default-branch commit cannot be resolved
+  first launch: pane=w2:p2 workspace=w2; workspaces: [{"id":"w1","label":"firstmate"},{"id":"w2","label":"2ndmate-smA"}]
+  smA ledger workspace binding after first launch: {"slots.0.workspaceId":"w2"}
+  closed workspace w2 (simulated reboot); workspaces: [{"id":"w1","label":"firstmate"}]
+$ fm-spawn.sh smA <project> <agent> --backend herdr --secondmate (FM_HOME=primary, launcher pane w1:p1)  -> rc=1
+    stderr: warning: secondmate smA sync skipped before launch: primary default-branch commit cannot be resolved
+    stderr: error: agent-axi spawn failed for fm-smA (session fm-lab-scn-base-3690304-21364)
+  relaunch record: pane=w2:p2 workspace=w2 (live pane workspace: ); workspaces: [{"id":"w1","label":"firstmate"},{"id":"w3","label":"2ndmate-smA"}]
+  smA ledger workspace binding after relaunch: {"slots.0.workspaceId":"w2"}
+  agent-axi spawn argv as received (FM_HOME | argv):
+    FM_HOME=<lab>/smA-home | spawn smA --workspace-id w2 --session fm-lab-scn-base-3690304-21364 --cwd <lab>/smA-home --json -- /run/current-system/sw/bin/bash -l
+    FM_HOME=<lab>/smA-home | spawn smA --workspace-id w3 --session fm-lab-scn-base-3690304-21364 --cwd <lab>/smA-home --json -- /run/current-system/sw/bin/bash -l
+
+=== S-C: real agent-axi refusal is surfaced (primary home re-created; launcher-home pins --workspace-id)
+$ fm-spawn.sh u1 <project> <agent> --backend herdr --mode no-mistakes --yolo off (FM_HOME=primary2, launcher pane w1:p1)  -> rc=0
+    stderr: warning: /tmp/fm-lab-scn-base.1rwtFK/primary2/data/u1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+  u1 in workspace w1; primary2 ledger binding: {"slots.0.workspaceId":"w1"}
+  closed w1, re-created firstmate=w4 with launcher pane w4:p1
+$ fm-spawn.sh u2 <project> <agent> --backend herdr --mode no-mistakes --yolo off (FM_HOME=primary2, launcher pane w4:p1)  -> rc=1
+    stderr: warning: /tmp/fm-lab-scn-base.1rwtFK/primary2/data/u2/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+    stderr: error: agent-axi spawn failed for fm-u2 (session fm-lab-scn-base-3690304-21364)
+  u2 meta published: no; fm-u2 panes in session: 0
+
+=== S-D (adversarial): two workspaces carry the second mate's label
+$ fm-spawn.sh smB <project> <agent> --backend herdr --secondmate (FM_HOME=primary, launcher pane w7:p1)  -> rc=1
+    stderr: warning: secondmate smB sync skipped before launch: primary default-branch commit cannot be resolved
+    stderr: error: 2 herdr workspaces in session 'fm-lab-scn-base-3690304-21364' are labeled '2ndmate-smB' (w5 w6) and this spawn has no herdr parent pane to identify which one is its own; rename or close the extras, or run firstmate inside the workspace its workers belong in
+  smB meta published: no; agent-axi spawn calls: 0
+  workspaces: [{"id":"w3","label":"2ndmate-smA"},{"id":"w4","label":"firstmate"},{"id":"w5","label":"2ndmate-smB"},{"id":"w6","label":"2ndmate-smB"},{"id":"w7","label":"firstmate-launch3"}]
+
+=== S-E (adversarial): agent-axi result lands outside the verified workspace (label moved mid-spawn)
+$ fm-spawn.sh smC <project> <agent> --backend herdr --secondmate (FM_HOME=primary, launcher pane w7:p1)  -> rc=1
+    stderr: warning: secondmate smC sync skipped before launch: primary default-branch commit cannot be resolved
+    stderr: error: agent-axi spawn failed for fm-smC (session fm-lab-scn-base-3690304-21364)
+  RACE: moved label 2ndmate-smC from w8 to new workspace w9
+  smC meta published: no
+  workspaces: [{"id":"w3","label":"2ndmate-smA"},{"id":"w4","label":"firstmate"},{"id":"w5","label":"2ndmate-smB"},{"id":"w6","label":"2ndmate-smB"},{"id":"w7","label":"firstmate-launch3"},{"id":"w8","label":"2ndmate-smC-moved"},{"id":"w9","label":"2ndmate-smC"}]
+  panes labeled fm-smC: []
+--- teardown of fm-lab-scn-base-3690304-21364
+teardown rc=0
