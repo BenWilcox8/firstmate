@@ -10,21 +10,6 @@
 # Every producer and consumer of the marker, tests included, composes it from
 # the two functions here.
 
-# The ONE derivation of a window's per-window marker key: `:`, `/` and `.` become
-# `_` so a window name is usable as a filename suffix. Every per-window file the
-# watcher keeps is named by it (.hash-, .count-, .stale-, .stale-since-,
-# .stale-floor-, .stale-deferred-, .wedge-escalations-, .paused-*, .writing-*,
-# .waiting-*), and live homes hold those markers on disk under the current
-# format, so the format lives here alone: a second copy is how a future change
-# to it silently orphans a window's markers instead of clearing them.
-# bin/fm-teardown.sh uses it too, to remove a retired task's first-wake floor
-# markers.
-window_key() {  # <window>
-  local key=${1//:/_}
-  key=${key//\//_}
-  printf '%s' "${key//./_}"
-}
-
 hash_pane() {
   if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi
 }

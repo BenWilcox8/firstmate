@@ -47,7 +47,7 @@ umask 022
 # strips this to verify real refusal.
 export FM_GATE_REFUSE_BYPASS=1
 
-# Turn off the watcher's floor before a pane's first stale wake
+# Turn off the watcher's floor before a stale wake
 # (bin/fm-watch.sh STALE_FIRST_WAKE_SECS) for the suite, so stale fixtures surface
 # on two identical polls as their assertions expect. Tests of the floor itself set
 # FM_STALE_FIRST_WAKE_SECS on the watcher they launch.

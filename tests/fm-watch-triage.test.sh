@@ -2138,14 +2138,14 @@ test_nonterminal_stale_not_working_surfaced() {
   pass "a not-provably-working non-terminal stale is surfaced immediately (never left to wait out the timer)"
 }
 
-# --- floor before the first stale wake (FM_STALE_FIRST_WAKE_SECS) -------------
-# Two identical polls alone must not wake firstmate: a pane needs the floor's
-# quiet time first. Most such panes are only between turns. These cases leave
-# FM_STALE_FIRST_WAKE_SECS empty, so the watcher uses its own 240s default
-# instead of the suite-wide 0 from tests/lib.sh, unless a case sets a value.
+# --- floor before a stale wake (FM_STALE_FIRST_WAKE_SECS) ---------------------
+# Two identical polls alone must not wake firstmate: the pane hash must stay
+# unchanged for the floor first. Most such panes are only between turns. These
+# cases leave FM_STALE_FIRST_WAKE_SECS empty, so the watcher uses its own 240s
+# default instead of the suite-wide 0 from tests/lib.sh, unless a case sets a value.
 
 # Seed one ship window whose pane already showed <text> on one poll, and whose
-# status line is <status>. The hash marker's mtime is when the pane went quiet.
+# status line is <status>. The hash marker's mtime is the last change of the hash.
 floor_case() {  # <state> <window> <task> <text> <status>
   local state=$1 window=$2 task=$3 text=$4 status=$5 key
   printf 'window=%s\nkind=ship\n' "$window" > "$state/$task.meta"
@@ -2214,37 +2214,36 @@ test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it() {
   pass "a pane quiet past the 240s floor still wakes firstmate"
 }
 
-# An idle pane can repaint a clock or a counter, so its hash changes while
-# nothing moves. The floor measures the whole quiet episode, not one hash, so
-# such a pane still wakes firstmate once the floor passes.
-test_stale_first_wake_floor_spans_idle_repaints() {
-  local dir state fakebin out capture_file window pid painter
-  dir=$(make_case stale-floor-repaint); state="$dir/state"; fakebin="$dir/fakebin"
+# A Codex-style pane never shows a busy verdict, so only its hash shows work.
+# A long command shows a static render that waits on the floor, then prints new
+# output, and then the turn ends and the pane goes quiet. That quiet pane must
+# wait the whole floor from its last hash change, not from the first static render.
+test_stale_first_wake_floor_restarts_on_a_hash_change() {
+  local dir state fakebin out capture_file window pid last_change elapsed
+  dir=$(make_case stale-floor-long-turn); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"
-  window="test:fm-ticking"
-  printf 'idle prompt, tick' > "$capture_file"
-  floor_case "$state" "$window" ticking 'idle prompt, tick' 'working: implementing'
-  export FM_FAKE_CREW_STATE='state: unknown · source: none · no current-state source available'
-  # Repaint every 5s: each render sits for several polls (so it is stale),
-  # but no single render lasts the 8s floor.
-  # Digits are normalized out of the pane hash, so the repaint alternates words.
-  ( i=0; while :; do sleep 5; if [ $((i % 2)) -eq 0 ]; then tick=tock; else tick=tick; fi
-      printf 'idle prompt, %s' "$tick" > "$capture_file.tmp" && mv "$capture_file.tmp" "$capture_file"; i=$((i + 1)); done ) &
-  painter=$!
+  window="test:fm-long-turn"
+  printf 'running a long command' > "$capture_file"
+  floor_case "$state" "$window" longturn 'running a long command' 'working: implementing'
+  export FM_FAKE_CREW_STATE='state: unknown · source: pane · harness state unavailable (unknown codex-unverified)'
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
-    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS=8 \
+    FM_STATE_OVERRIDE="$state" FM_CREW_STATE_BIN="$fakebin/fm-crew-state.sh" FM_STALE_FIRST_WAKE_SECS=15 \
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
-  if ! wait_for_exit "$pid" 400; then
-    reap "$pid"; reap "$painter"
-    fail "an idle pane that repaints faster than the floor never woke firstmate"
-  fi
-  reap "$painter"
-  grep -Fx "stale: $window" "$out" >/dev/null || fail "repainting idle pane did not print a stale wake: $(cat "$out")"
-  pass "an idle pane that repaints faster than the floor still wakes firstmate after the floor"
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke for a static render younger than the floor: $(cat "$out")"; }
+  printf 'the command printed its output' > "$capture_file"
+  wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke while the pane rendered new output: $(cat "$out")"; }
+  last_change=$(date +%s)
+  printf 'turn finished, idle prompt' > "$capture_file"
+  wait_for_exit "$pid" 400 || { reap "$pid"; fail "watcher never woke for the quiet pane after the turn ended"; }
+  elapsed=$(( $(date +%s) - last_change ))
+  grep -Fx "stale: $window" "$out" >/dev/null || fail "the quiet pane did not print its stale wake: $(cat "$out")"
+  [ "$elapsed" -ge 15 ] || fail "the quiet pane woke ${elapsed}s after its last hash change, before the 15s floor"
+  unset FM_FAKE_CREW_STATE
+  pass "a pane with no busy verdict waits the whole floor from its last hash change"
 }
 
-# The floor holds back only the first surfacing wake. A provably working pane is
+# The floor holds back only the surfacing wakes. A provably working pane is
 # absorbed on first sight and its wedge timer escalates on the unchanged
 # FM_STALE_ESCALATE_SECS cadence, even with the default floor in force.
 test_stale_first_wake_floor_keeps_wedge_escalation_timing() {
@@ -2265,10 +2264,9 @@ test_stale_first_wake_floor_keeps_wedge_escalation_timing() {
   pass "the first-wake floor leaves provably-working wedge escalation timing unchanged"
 }
 
-# A Codex-style pane never shows a busy verdict, so a busy pane cannot end its
-# quiet episode. The delivered stale wake must end it: after the first wake, the
-# worker renders new output for its next turn and goes quiet again, and that new
-# quiet interval waits the whole floor before the next stale wake.
+# After a delivered stale wake, a Codex-style pane renders its next turn with no
+# busy verdict and goes quiet again. The watcher that starts after the wake must
+# make that quiet pane wait the whole floor from its own last hash change.
 test_stale_first_wake_floor_restarts_after_a_delivered_wake() {
   local dir state fakebin out capture_file window key pid turn_two elapsed
   dir=$(make_case stale-floor-next-turn); state="$dir/state"; fakebin="$dir/fakebin"
@@ -6278,7 +6276,7 @@ test_afk_busy_declared_pause_ticking_pane_hands_off_once
 test_nonterminal_stale_not_working_surfaced
 test_stale_first_wake_floor_defers_a_fresh_quiet_pane
 test_stale_first_wake_floor_surfaces_a_pane_quiet_past_it
-test_stale_first_wake_floor_spans_idle_repaints
+test_stale_first_wake_floor_restarts_on_a_hash_change
 test_stale_first_wake_floor_keeps_wedge_escalation_timing
 test_stale_first_wake_floor_restarts_after_a_delivered_wake
 test_nonterminal_stale_paused_absorbed_then_resurfaced
