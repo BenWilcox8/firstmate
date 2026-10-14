@@ -1,0 +1,14 @@
+$ bin/fm-install-treehouse.sh <tmp>/install
+fm-install-treehouse.sh: downloading treehouse-v2.3.0-linux-amd64.tar.gz from https://github.com/kunchenguid/treehouse/releases/download/v2.3.0/treehouse-v2.3.0-linux-amd64.tar.gz
+fm-install-treehouse.sh: installed treehouse v2.3.0 to /tmp/fmthp.vNub/install/treehouse
+v2.3.0
+rc=0
+$ <tmp>/install/treehouse --version
+v2.3.0
+$ <tmp>/install/treehouse get --help | grep TREEHOUSE_ROOT
+      --root string   Worktree root directory, overriding TREEHOUSE_ROOT and config; relative paths (e.g. "." for an in-project pool) resolve from the repo root
+Pinned in bin/fm-install-treehouse.sh vs official v2.3.0 checksums.txt:
+linux-amd64   official=94fd2b2c20c35aac1ddc2941317890ad82c9916f5ccecbac4a50cda783eed10f pinned=94fd2b2c20c35aac1ddc2941317890ad82c9916f5ccecbac4a50cda783eed10f MATCH
+linux-arm64   official=408589ba72b58d5e942071ed863a83fd96566cfd1e514945daa59defde528bbb pinned=408589ba72b58d5e942071ed863a83fd96566cfd1e514945daa59defde528bbb MATCH
+darwin-arm64  official=1cb09bcfa830b4eec5e54beeaa71589adb9c5d828573dda0f5150e2d80cf13d5 pinned=1cb09bcfa830b4eec5e54beeaa71589adb9c5d828573dda0f5150e2d80cf13d5 MATCH
+darwin-amd64  official=349afcc13c2beb20d846eb560a11b30e1a5cab8e2dfb22988a36aa7f213b5881 pinned=349afcc13c2beb20d846eb560a11b30e1a5cab8e2dfb22988a36aa7f213b5881 MATCH

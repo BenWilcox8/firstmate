@@ -1,0 +1,12 @@
+$ bash tests/fm-treehouse.test.sh
+ok - fm-treehouse: each home resolves its own stable root outside the home
+ok - fm-treehouse: the run form gives treehouse this home's root from the project directory
+ok - fm-treehouse: real treehouse keeps two homes' clones of one origin in separate pools
+rc=0
+
+$ TREEHOUSE_ROOT=/tmp/fmthp-leak.Mksf bash tests/fm-treehouse.test.sh   # inherited root, as in a worker pane
+ok - fm-treehouse: each home resolves its own stable root outside the home
+ok - fm-treehouse: the run form gives treehouse this home's root from the project directory
+ok - fm-treehouse: real treehouse keeps two homes' clones of one origin in separate pools
+rc=0
+files created under the inherited root: 0

@@ -1,0 +1,28 @@
+$ PATH=<treehouse v3.1.3>:$PATH bash tests/fm-treehouse.test.sh
+ok - fm-treehouse: each home resolves its own stable root outside the home
+ok - fm-treehouse: the run form gives treehouse this home's root from the project directory
+ok - fm-treehouse: real treehouse keeps two homes' clones of one origin in separate pools
+rc=0
+
+## v3.1.3 with NO root: two clones of one origin, both named proj like Firstmate home clones
+clone A lease: /tmp/fmthp.vNub/v3-home2/.treehouse/proj-1710d6/1/proj
+clone B lease: /tmp/fmthp.vNub/v3-home2/.treehouse/proj-1710d6/2/proj
+same pool dir: yes (/tmp/fmthp.vNub/v3-home2/.treehouse/proj-1710d6)
+status from clone B lists:
+base  main  (repository default)
+1     leased       ~/.treehouse/proj-1710d6/1/proj  (detached)
+2     leased       ~/.treehouse/proj-1710d6/2/proj  (detached)
+with clone A's slot idle, clone B leases: /tmp/fmthp.vNub/v3-home2/.treehouse/proj-1710d6/3/proj -> belongs to /tmp/fmthp.vNub/v3b/proj/.git
+status from clone B (shared pool view):
+base  main  (repository default)
+1     available    ~/.treehouse/proj-1710d6/1/proj  (detached)
+2     leased       ~/.treehouse/proj-1710d6/2/proj  (detached)
+3     leased       ~/.treehouse/proj-1710d6/3/proj  (detached)
+
+## v3.1.3 WITH per-home roots (what fm-spawn sends)
+clone A lease: /tmp/fmthp.vNub/v3-home2/.treehouse/firstmate-homes/aaaa/.treehouse/proj-1710d6/1/proj
+clone B lease: /tmp/fmthp.vNub/v3-home2/.treehouse/firstmate-homes/bbbb/.treehouse/proj-1710d6/1/proj
+status for clone B's root:
+base  main  (repository default)
+1     leased       ~/.treehouse/firstmate-homes/bbbb/.treehouse/proj-1710d6/1/proj  (detached)
+return by path with no root (as fm-teardown does): clone A rc=0, clone B rc=0

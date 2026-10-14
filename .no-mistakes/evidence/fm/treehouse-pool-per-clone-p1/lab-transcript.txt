@@ -1,0 +1,170 @@
+# Live Herdr lab: per-home Treehouse pools (session fm-lab-thpool-3851407-22161, throwaway HOME=/tmp/fmthp.vNub/u)
+treehouse v2.3.0, herdr herdr 0.8.2
+lab provisioned: fm-lab-thpool-3851407-22161
+
+## Part A - BEFORE (base 2812e3c): one shared per-origin pool
+base fm-spawn a1 from home A: rc=3
+a1 worktree=
+a1 worktree belongs to clone: /home/ben/.no-mistakes/repos/3665d600861c.git
+base fm-spawn a1 from home A: rc=0
+a1 worktree=/tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj
+a1 worktree belongs to clone: /tmp/fmthp.vNub/home-a/projects/proj/.git
+base fm-teardown a1: rc=0
+shared pool after a1 teardown: 1     available    ~/.treehouse/proj-1710d6/1/proj
+base fm-spawn b1 from home B (its own clone of the same origin): rc=0
+warning: /tmp/fmthp.vNub/home-b/data/b1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+spawned b1 harness=cursor-agent kind=ship mode=no-mistakes yolo=off window=fm-lab-thpool-3851407-22161:w2:p2 worktree=/tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj
+b1 worktree=/tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj
+b1 worktree belongs to clone: /tmp/fmthp.vNub/home-a/projects/proj/.git  (home B clone is /tmp/fmthp.vNub/home-b/projects/proj/.git)
+base fm-teardown b1: rc=0
+🌳 Worktree returned to pool.
+proj: already current
+teardown b1 complete (window fm-lab-thpool-3851407-22161:w2:p2, worktree /tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj)
+Backlog: b1 just finished (this home keeps no markdown backlog at /tmp/fmthp.vNub/home-b/data/backlog.md). Update /tmp/fmthp.vNub/home-b/data/backlog.md - move b1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+
+## Part B - AFTER (target ace5eca): migration with a live old shared-pool slot
+base fm-spawn old1 from home A (taken before the upgrade): rc=0
+old1 worktree=/tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj
+old1 slot holds uncommitted work: ?? work-in-progress.txt 
+fm-treehouse.sh --print-root: home A -> /tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74
+fm-treehouse.sh --print-root: home B -> /tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507
+target fm-spawn a2 from home A: rc=0
+spawned a2 harness=cursor-agent kind=ship mode=no-mistakes yolo=off window=fm-lab-thpool-3851407-22161:w3:p3 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+a2 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+a2 worktree belongs to clone: /tmp/fmthp.vNub/home-a/projects/proj/.git
+CHECK a2 slot is inside home A's own root: PASS
+treehouse process for a2: pid=4042380 argv='treehouse get' cwd=/tmp/fmthp.vNub/home-a/projects/proj
+treehouse process env: 
+process tree under pane shell:
+    PID    PPID COMMAND
+4042220 3872613 /run/current-system/sw/bin/bash
+4042380 4042220  \_ treehouse get
+4042635 4042380      \_ /run/current-system/sw/bin/bash
+4049756 4042635          \_ /tmp/fmthp.vNub/cursor-agent /tmp/fmthp.vNub/agent-fixture.js 900
+herdr recovery agent state for a2 pane w3:p3: live
+CHECK herdr recognizes the worker under the treehouse broker as live: PASS
+pid=4042380 argv=treehouse\ get cwd=/tmp/fmthp.vNub/home-a/projects/proj subshell_cwd=/tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj env: <no TREEHOUSE_ROOT>
+pid=4077006 argv=treehouse\ get cwd=/tmp/fmthp.vNub/home-a/projects/proj subshell_cwd=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj env:TREEHOUSE_ROOT=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74
+a2 process tree (pane shell -> treehouse get -> subshell -> agent):
+    PID    PPID COMMAND
+4076972 3872613 /run/current-system/sw/bin/bash
+4077006 4076972  \_ treehouse get
+4077091 4077006      \_ /run/current-system/sw/bin/bash
+4083495 4077091          \_ /tmp/fmthp.vNub/cursor-agent /tmp/fmthp.vNub/agent-fixture.js 900
+CHECK a2 treehouse argv is exactly 'treehouse get' and carries home A's TREEHOUSE_ROOT: PASS
+CHECK old1's work survived a2's spawn: in-progress work; meta unchanged: PASS
+
+$ FM_HOME=home-a bin/fm-treehouse.sh home-a/projects/proj status
+1     in-use       ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+                   bash (4077091), MainThread (4083495)
+$ (cd home-a/projects/proj && treehouse status)   # old shared per-origin pool
+1     in-use       ~/.treehouse/proj-1710d6/1/proj
+                   bash (4042635), MainThread (4049756)
+
+target fm-teardown a2 (per-home slot): rc=0
+🌳 Worktree returned to pool.
+teardown a2 complete (window fm-lab-thpool-3851407-22161:w3:p3, worktree /tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj)
+home A pool after a2 teardown:
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+setup: base spawn+teardown old2 from home A left an idle home-A slot in the shared pool:
+1     in-use       ~/.treehouse/proj-1710d6/1/proj
+                   bash (4042635), MainThread (4049756)
+2     in-use       ~/.treehouse/proj-1710d6/2/proj
+                   bash (50493), MainThread (59891)
+
+## Adversarial: home B spawns while home A has idle slots in the shared pool AND in home A's own pool
+target fm-spawn b2 from home B: rc=0
+spawned b2 harness=cursor-agent kind=ship mode=no-mistakes yolo=off window=fm-lab-thpool-3851407-22161:w4:p2 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+b2 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+b2 worktree belongs to clone: /tmp/fmthp.vNub/home-b/projects/proj/.git  (home B clone: /tmp/fmthp.vNub/home-b/projects/proj/.git)
+CHECK b2 slot is inside home B's own root (/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507): PASS
+CHECK b2 slot is a worktree of home B's own clone, not home A's: PASS
+home B pool:
+1     in-use       ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+                   bash (71817), MainThread (89125)
+home A pool (its idle slot untouched):
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+shared pool (its idle slot untouched):
+1     in-use       ~/.treehouse/proj-1710d6/1/proj
+                   bash (4042635), MainThread (4049756)
+2     in-use       ~/.treehouse/proj-1710d6/2/proj
+                   bash (50493), MainThread (59891)
+
+## Adversarial (rerun): idle home-A slots now exist in BOTH the shared pool and home A's own pool; home B's only slot is busy
+shared pool:
+1     in-use       ~/.treehouse/proj-1710d6/1/proj
+                   bash (4042635), MainThread (4049756)
+2     available    ~/.treehouse/proj-1710d6/2/proj
+home A pool:
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+target fm-spawn b3 from home B: rc=0
+spawned b3 harness=cursor-agent kind=ship mode=no-mistakes yolo=off window=fm-lab-thpool-3851407-22161:w4:p3 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/2/proj
+CHECK b3 got a new slot in home B's own root, not an idle home-A slot: PASS (/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/2/proj)
+CHECK b3 slot is a worktree of home B's clone: PASS (/tmp/fmthp.vNub/home-b/projects/proj/.git)
+shared pool after b3:
+1     in-use       ~/.treehouse/proj-1710d6/1/proj
+                   bash (4042635), MainThread (4049756)
+2     available    ~/.treehouse/proj-1710d6/2/proj
+home A pool after b3:
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+home B pool after b3:
+1     in-use       ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+                   bash (71817), MainThread (89125)
+2     in-use       ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/2/proj
+                   bash (231677), MainThread (240751)
+target fm-teardown b2: rc=0 teardown b2 complete
+target fm-teardown b3: rc=0 teardown b3 complete
+home B pool after teardowns:
+1     available    ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+2     available    ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/2/proj
+target fm-spawn a3 from home A: rc=0 worktree=/tmp/fmthp.vNub/u/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+CHECK a3 reused home A's own idle slot (not the idle shared slot 2): PASS
+
+## Migration: tear down old1 (slot taken by base code in the shared pool) with target code
+target fm-teardown old1 while its slot holds uncommitted work: rc=1
+old1 work after refused teardown: in-progress work; meta present: yes
+refusal text: REFUSED: worktree /tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj has uncommitted changes.
+CHECK new teardown never discards work in an old shared-pool slot: PASS
+(operator lands/clears the work; slot is now clean)
+target fm-teardown old1 (clean old shared-pool slot): rc=0
+🌳 Worktree returned to pool.
+teardown old1 complete (window fm-lab-thpool-3851407-22161:w3:p2, worktree /tmp/fmthp.vNub/u/.treehouse/proj-1710d6/1/proj)
+shared pool after old1 teardown (returned by path, no TREEHOUSE_ROOT):
+1     available    ~/.treehouse/proj-1710d6/1/proj
+2     available    ~/.treehouse/proj-1710d6/2/proj
+home A pool (a3 untouched):
+1     in-use       ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+                   bash (291952), MainThread (300788)
+
+## Adversarial: root cannot be resolved (HOME unset) -> spawn must refuse before any endpoint or slot
+fm-spawn nohome with HOME unset: rc=1
+error: could not resolve this home's own Treehouse root for /tmp/fmthp.vNub/home-a
+lab panes before=1 after=1; meta written: no
+home A pool unchanged:
+1     in-use       ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+                   bash (291952), MainThread (300788)
+
+## Adversarial: HOME contains a space and a single quote -> TREEHOUSE_ROOT must survive pane quoting
+expected root: /tmp/fmthp.vNub/q h'o/.treehouse/firstmate-homes/2e0b3c055d74
+fm-spawn quote1 (HOME=/tmp/fmthp.vNub/q h'o): rc=0
+spawned quote1 harness=cursor-agent kind=ship mode=no-mistakes yolo=off window=fm-lab-thpool-3851407-22161:w3:p6 worktree=/tmp/fmthp.vNub/q h'o/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+CHECK quote1 slot lands under the quoted root: PASS (/tmp/fmthp.vNub/q h'o/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj)
+eehouse/firstmate-homes/2e0b3c055d74' treehouse get
+A new version of treehouse is available: v2.3.0 → v3.1.3
+quote1 treehouse argv='treehouse get' env: TREEHOUSE_ROOT=/tmp/fmthp.vNub/q h'o/.treehouse/firstmate-homes/2e0b3c055d74
+
+target fm-teardown a3: rc=0 teardown a3 complete
+target fm-teardown quote1: rc=0 teardown quote1 complete
+final pools:
+ home A:
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+ home B:
+1     available    ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/1/proj
+2     available    ~/.treehouse/firstmate-homes/00a4f8dfb507/.treehouse/proj-1710d6/2/proj
+ quoted-HOME root:
+1     available    ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+ old shared pool:
+1     available    ~/.treehouse/proj-1710d6/1/proj
+2     available    ~/.treehouse/proj-1710d6/2/proj
+
+lab teardown fm-lab-thpool-3851407-22161: rc=0 (tripwire verified identical: default session untouched)

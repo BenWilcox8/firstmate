@@ -1,0 +1,25 @@
+
+[ben@nixos:/tmp/fmthp.vNub/home-a/projects/proj]$ TREEHOUSE_ROOT='/tmp/fmthp.vNub/u/.treehouse
+/firstmate-homes/2e0b3c055d74' treehouse get
+A new version of treehouse is available: v2.3.0 → v3.1.3
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Entered worktree at ~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj
+. Type 'exit' to return.
+
+[ben@nixos:~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj]$ export GO
+TMPDIR=/tmp/fm-a3/gotmp
+
+[ben@nixos:~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj]$ export CO
+MPACT_ADVISER_DISABLE=1
+
+[ben@nixos:~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj]$ export FM
+_TASK_ID=a3
+
+[ben@nixos:~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj]$ unset ATL
+AS_REPO SPECS_REPO ATLAS_AXI_BY
+
+[ben@nixos:~/.treehouse/firstmate-homes/2e0b3c055d74/.treehouse/proj-1710d6/1/proj]$ . '/tmp/f
+m-a3+908fac637fc9f537c168957462725eb85ed6cdf636d496cfb8b780e6c75919f4/launch.s1792014180.29003
+4.11359.sh'

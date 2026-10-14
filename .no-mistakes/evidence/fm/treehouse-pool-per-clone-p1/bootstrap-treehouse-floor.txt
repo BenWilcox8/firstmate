@@ -1,0 +1,12 @@
+# bin/fm-bootstrap.sh in a throwaway herdr-backed home (HOME=/tmp/fmthp.vNub/u), real treehouse binaries first on PATH
+
+## real treehouse v2.1.0 (has --lease, does not read TREEHOUSE_ROOT)
+$ PATH=<v2.1.0>:$PATH FM_HOME=<tmp home> bin/fm-bootstrap.sh | grep treehouse
+MISSING: treehouse (install: curl -fsSL https://kunchenguid.github.io/treehouse/install.sh | sh)
+
+## real treehouse v2.3.0 (reads TREEHOUSE_ROOT)
+$ PATH=<v2.3.0>:$PATH FM_HOME=<tmp home> bin/fm-bootstrap.sh | grep treehouse
+<no treehouse line>
+
+## same real v2.1.0 with the BASE (pre-change) bootstrap, for contrast
+<no treehouse line>
