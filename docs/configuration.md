@@ -399,6 +399,7 @@ Any other value, or an unreadable file, refuses every spawn from that home, whic
 `bin/fm-spawn.sh` reads the file on every spawn and relaunch, so a change takes effect at the next launch without a restart.
 The file is a captain-wide safety preference, so it is inherited into secondmate homes under the [`secondmate-provisioning`](../.agents/skills/secondmate-provisioning/SKILL.md) inherited-local-material contract; a secondmate's own Claude crewmates then launch on the same posture.
 The [Claude adapter reference](../.agents/skills/harness-adapters/references/harness/claude.md) records the verified shape of both launches and which once-per-machine dialog each one can meet.
+Under either value, a Claude secondmate launch pre-approves only its own home's wake-drain and ping-ack commands, so auto mode never holds a routine supervision acknowledgement behind an approval prompt.
 
 ## Lavish server address (config/lavish-axi-host)
 
