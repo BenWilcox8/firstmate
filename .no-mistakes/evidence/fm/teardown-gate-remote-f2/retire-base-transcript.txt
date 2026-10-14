@@ -1,0 +1,18 @@
+
+=== [BASE-2812e3c] R1 retire a finished no-mistakes ship whose fm/old reached only the no-mistakes gate
+  ref holding fm/old: refs/remotes/no-mistakes/fm/old
+  $ fm-local-retire-reassigned.sh old --live-task live   -> exit 0
+  after: fm/old branch KEPT
+  after: old record RETIRED (archived)
+  RESULT: RETIRED
+
+=== [BASE-2812e3c] R2 retire a finished no-mistakes ship whose fm/old is on the gate and on origin
+  ref holding fm/old: refs/remotes/no-mistakes/fm/old
+  ref holding fm/old: refs/remotes/origin/fm/old
+  $ fm-local-retire-reassigned.sh old --live-task live   -> exit 0
+  after: fm/old branch KEPT
+  after: old record RETIRED (archived)
+  RESULT: RETIRED
+
+=== [BASE-2812e3c] R3 colocated refusal matrix test_retirement_refusals_preserve_records
+not ok - gate-only-ship unexpectedly allowed retirement

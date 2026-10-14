@@ -1,0 +1,22 @@
+### fixed (b00f879)
+ok - no-mistakes worktree whose commits exist only on the local gate remote is refused
+ok - merged PR does not cover a parent commit found only on the local gate remote
+ok - no-mistakes worktree with HEAD on origin is torn down (no regression)
+ok - no-mistakes worktree with genuinely unlanded work is refused (safety preserved)
+ok - local-only worktree with HEAD on a fork remote is torn down and the home summary is refreshed
+ok - local-only worktree with truly unpushed work is refused (safety preserved)
+ok - local-only worktree with work merged into local main is torn down (no regression)
+ok - local-only worktree with unpushed work is torn down under --force (escape hatch)
+ok - squash-merged + deleted-branch worktree (PR merged) is torn down (the fix)
+ok - squash-merged PR accepts a local HEAD that is an ancestor of the final PR head
+ok - teardown discovers a merged PR by branch name and tears down when no pr= was ever recorded
+ok - squash-merged PR accepts replayed unpushed local patches contained in the PR head
+ok - merged PR does not allow teardown after a later local commit
+ok - squash-merged task whose local branch followed the pipeline rebase is torn down
+ok - squash-merged same-path different content still refuses
+ok - squash-merged rebased local still refuses a genuinely unlanded follow-up commit
+ok - squash-merged stale local still refuses when the forge is unreachable
+
+### base (2812e3c), new regression tests only
+not ok - nm-gate-only: teardown should refuse work found only on the gate remote: expected exit 1, got 0
+not ok - gate-only-parent: teardown should refuse a gate-only parent missing from the merged PR: expected exit 1, got 0

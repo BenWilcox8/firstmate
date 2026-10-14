@@ -1,0 +1,88 @@
+
+=== [BASE-2812e3c] A gate-only: task commit pushed only to the no-mistakes gate
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 1 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/a-gate-only/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/a-gate-only/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] A2 gate-only on nested branch name fm/deep/nested/task-x1
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes/fm/deep/nested/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 1 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/a2-gate-nested/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/a2-gate-nested/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] B gate + origin: same commit on the gate and on origin
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes/fm/task-x1
+      refs/remotes/origin/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 0 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/b-gate-and-origin/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/b-gate-and-origin/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] C1 normal flow: gate holds branch, PR merged (head == local HEAD), origin head branch deleted
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 1 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/c1-merged-pr/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/c1-merged-pr/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] C2 normal flow: gate holds branch, no PR answer, squash content already in origin/main
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 1 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/c2-content-in-main/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/c2-content-in-main/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] D merged PR with a parent commit found only on the gate
+  remote-tracking refs holding HEAD:
+  old check  (git log HEAD --not --remotes):                 1 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 2 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/d-gate-parent/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/d-gate-parent/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] E1 adversarial: commit only on a remote named no-mistakes-mirror (not the gate)
+  remote-tracking refs holding HEAD:
+      refs/remotes/no-mistakes-mirror/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 0 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/e1-lookalike-remote/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/e1-lookalike-remote/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
+
+=== [BASE-2812e3c] E2 adversarial: origin holds the commit under branch name no-mistakes/fm/task-x1
+  remote-tracking refs holding HEAD:
+      refs/remotes/origin/no-mistakes/fm/task-x1
+  old check  (git log HEAD --not --remotes):                 0 unlanded commit(s)
+  new check  (git log HEAD --not --exclude='no-mistakes/*' --remotes): 0 unlanded commit(s)
+  $ fm-teardown.sh task-x1   -> exit 0
+    stdout| Backlog: task-x1 just finished (this home keeps no markdown backlog at /tmp/fm-f2-drive.xyjnGx/e2-origin-branch-named-gate/data/backlog.md). Update /tmp/fm-f2-drive.xyjnGx/e2-origin-branch-named-gate/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+  after: task branch fm/task-x1 DELETED
+  after: task record REMOVED
+  RESULT: ALLOWED
