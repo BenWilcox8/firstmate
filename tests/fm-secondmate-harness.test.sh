@@ -642,6 +642,19 @@ test_spawn_cursor_secondmate_launches_with_its_primary_contract() {
 
 meta_field() { grep "^$2=" "$1" 2>/dev/null | tail -1 | cut -d= -f2-; }
 
+# sm_claude_settings <home> -> the exact shell-quoted --settings argument a
+# Claude secondmate launch in <home> must carry: feedback and attribution off,
+# plus pre-approval of only that home's wake-drain and ping-ack commands.
+sm_claude_settings() {
+  local home=$1 allow='' prefix script
+  for prefix in bin "$home/bin"; do
+    for script in fm-wake-drain.sh fm-ping-ack.sh; do
+      allow+="${allow:+,}\"Bash($prefix/$script)\",\"Bash($prefix/$script *)\""
+    done
+  done
+  printf "'%s'" "{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false},\"permissions\":{\"allow\":[$allow]}}"
+}
+
 # A tmux stub that behaves like make_noop_tmux but also captures the literal
 # `send-keys -l <cmd>` launch command into FM_FAKE_LAUNCH_LOG, mirroring the
 # capture technique in fm-spawn-dispatch-profile.test.sh so the constructed
@@ -793,7 +806,7 @@ test_spawn_secondmate_harness_model_token() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-token: meta model not opus (got '$(meta_field "$meta" model)')"
   [ "$(meta_field "$meta" effort)" = default ] || fail "model-token: meta effort not default (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus'" \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --settings $(sm_claude_settings "$(meta_field "$meta" home)") --model 'opus'" \
     "model-token: launch did not carry --model opus"
   assert_not_contains "$launch" "--effort" "model-token: launch must not carry an --effort flag"
   pass "C3 spawn: config/secondmate-harness's model token threads --model into the launch and meta"
@@ -815,7 +828,7 @@ test_spawn_secondmate_harness_model_and_effort_tokens() {
   [ "$(meta_field "$meta" model)" = opus ] || fail "model-effort-tokens: meta model not opus"
   [ "$(meta_field "$meta" effort)" = high ] || fail "model-effort-tokens: meta effort not high (got '$(meta_field "$meta" effort)')"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus' --effort 'high'" \
+  assert_contains "$launch" "claude --dangerously-skip-permissions --settings $(sm_claude_settings "$(meta_field "$meta" home)") --model 'opus' --effort 'high'" \
     "model-effort-tokens: launch did not carry both --model opus and --effort high"
   pass "C4 spawn: config/secondmate-harness's model+effort tokens thread into the launch and meta"
 }
@@ -1434,10 +1447,70 @@ test_spawn_secondmate_claude_permission_mode_auto() {
   meta="$w/home/state/sm.meta"
   [ "$(meta_field "$meta" harness)" = claude ] || fail "permmode: meta harness not claude"
   launch=$(cat "$launchlog")
-  assert_contains "$launch" "claude --permission-mode auto --settings '{\"feedbackDrafts\":\"off\",\"attribution\":{\"commit\":\"\",\"pr\":\"\",\"sessionUrl\":false}}' --model 'opus'" \
+  assert_contains "$launch" "claude --permission-mode auto --settings $(sm_claude_settings "$(meta_field "$meta" home)") --model 'opus'" \
     "permmode: secondmate launch did not swap the permission flag while keeping --model"
   assert_not_contains "$launch" "--dangerously-skip-permissions" "permmode: secondmate launch must not request bypass mode"
   pass "C2b spawn: config/claude-permission-mode=auto reaches a Claude secondmate launch"
+}
+
+# A Claude secondmate launched into a seeded home pre-approves exactly its own
+# wake-drain and ping-ack commands, so Claude auto mode never holds a routine
+# supervision acknowledgement behind an approval prompt. The list holds no other
+# command, and a home path that could widen a rule keeps only the relative forms.
+launched_settings_json() {  # <launch-log> -> the --settings JSON the launch carried
+  sed -n "s/.* --settings '\\([^']*\\)'.*/\\1/p" "$1" | head -1
+}
+
+test_spawn_secondmate_claude_preapproves_supervision_acks() {
+  local w sm meta launchlog home settings allow expected
+  w="$TMP_ROOT/spawn-claude-ack-allow"
+  sm="$w/sm"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude\n' > "$w/home/config/secondmate-harness"
+  printf 'auto\n' > "$w/home/config/claude-permission-mode"
+  make_seeded_home "$sm" sm
+
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1 \
+    || fail "ack-allow: claude secondmate spawn into a seeded home should succeed"
+  meta="$w/home/state/sm.meta"
+  home=$(meta_field "$meta" home)
+  [ -n "$home" ] || fail "ack-allow: meta recorded no home"
+  settings=$(launched_settings_json "$launchlog")
+  [ -n "$settings" ] || fail "ack-allow: launch carried no --settings JSON: $(cat "$launchlog")"
+  allow=$(printf '%s' "$settings" | jq -r '.permissions.allow | join("\n")') \
+    || fail "ack-allow: --settings is not valid JSON with a permissions.allow list: $settings"
+  expected="Bash(bin/fm-wake-drain.sh)
+Bash(bin/fm-wake-drain.sh *)
+Bash(bin/fm-ping-ack.sh)
+Bash(bin/fm-ping-ack.sh *)
+Bash($home/bin/fm-wake-drain.sh)
+Bash($home/bin/fm-wake-drain.sh *)
+Bash($home/bin/fm-ping-ack.sh)
+Bash($home/bin/fm-ping-ack.sh *)"
+  [ "$allow" = "$expected" ] || fail "ack-allow: allow list was not exactly the home's drain and ping-ack rules:
+$allow"
+  [ "$(printf '%s' "$settings" | jq -c '[.feedbackDrafts, .attribution, (.permissions | keys)]')" = '["off",{"commit":"","pr":"","sessionUrl":false},["allow"]]' ] \
+    || fail "ack-allow: settings lost feedback/attribution policy or gained another permissions key: $settings"
+  pass "C2c spawn: a Claude secondmate in a seeded home pre-approves only its own wake-drain and ping-ack commands"
+
+  # A home path with a space keeps the relative rules but never the absolute ones.
+  w="$TMP_ROOT/spawn-claude-ack-allow-space"
+  sm="$w/sm home"
+  launchlog="$w/launch.log"
+  mkdir -p "$w/home/config"
+  printf 'claude\n' > "$w/home/config/secondmate-harness"
+  make_seeded_home "$sm" sm
+  spawn_secondmate_capture "$w" sm "$sm" "$launchlog" >/dev/null 2>&1 \
+    || fail "ack-allow-space: claude secondmate spawn into a spaced home should succeed"
+  allow=$(launched_settings_json "$launchlog" | jq -r '.permissions.allow | join("\n")') \
+    || fail "ack-allow-space: --settings is not valid JSON: $(cat "$launchlog")"
+  [ "$allow" = "Bash(bin/fm-wake-drain.sh)
+Bash(bin/fm-wake-drain.sh *)
+Bash(bin/fm-ping-ack.sh)
+Bash(bin/fm-ping-ack.sh *)" ] || fail "ack-allow-space: a spaced home path must keep only the relative rules:
+$allow"
+  pass "C2d spawn: a home path outside the safe character set keeps only the relative ack rules"
 }
 
 # The file is a captain-wide safety preference, so it inherits like
@@ -2662,6 +2735,7 @@ test_bootstrap_sweep_defers_dispatch_on_stale_unignored_home
 test_bootstrap_sweep_materializes_and_inherits_memory_default
 test_backend_inheritance_present_and_absent
 test_spawn_secondmate_claude_permission_mode_auto
+test_spawn_secondmate_claude_preapproves_supervision_acks
 test_claude_permission_mode_inheritance_present_and_absent
 test_presentation_inheritance_default_on_and_opt_out
 test_bootstrap_sweep_surfaces_config_propagation_failure
