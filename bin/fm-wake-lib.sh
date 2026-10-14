@@ -1214,6 +1214,9 @@ fm_firstmate_root_home() {
 # derives the identical path. Its identity is the project's resolved origin, so
 # separate clones of one origin share a single lock; an origin-less local-only
 # project falls back to its own worktree top instead of failing to resolve.
+# New slots come from each home's own pool (fm_treehouse_home_root below), but
+# slots taken earlier stay in the shared per-origin pool, so the lock stays
+# shared across homes.
 fm_treehouse_project_lock_path() {  # <project-dir>
   local project=$1 root origin identity hash top
   [ -d "$project" ] || return 1
@@ -1234,6 +1237,36 @@ fm_treehouse_project_lock_path() {  # <project-dir>
   hash=$(printf '%s' "$identity" | git hash-object --stdin 2>/dev/null) || return 1
   [ -d "$root/state" ] || return 1
   printf '%s/.treehouse-project-%s.lock\n' "$root/state" "$hash"
+}
+
+# The private Treehouse root that keeps this home's worktree pools its own.
+#
+# Treehouse names a pool after the project's origin URL, so homes that each
+# hold their own clone of one project would share one pool, and Treehouse
+# (through at least v2.3.0) hands an idle slot to whichever clone asks for one.
+# One home's worker could then land in a worktree of another home's clone, and
+# cleanup refused it or released a slot that was not its own. bin/fm-spawn.sh
+# therefore runs `treehouse get` with TREEHOUSE_ROOT set to this root, which
+# Treehouse reads from v2.2.0 (bin/fm-bootstrap.sh reports an older one).
+#
+# The root is keyed by the home's physical path and sits under the user-level
+# ~/.treehouse store, never inside the home: a worktree nested in a home would
+# make every harness that reads instruction files from parent directories load
+# that home's supervisor contract. Treehouse appends .treehouse to a root, so a
+# slot lives at <root>/.treehouse/<repo>-<hash>/<slot>/<repo>, the same layout
+# every path-derived pool lookup in Firstmate already reads.
+#
+# Nothing moves when a home switches to its own root. A slot taken earlier keeps
+# its recorded path, and `treehouse return <path>` finds a slot's pool from that
+# path, so cleanup releases old and new slots alike. Idle slots left in the old
+# shared pools are only disk space, and `treehouse destroy <pool> --all` removes
+# the disposable ones while it keeps every slot that holds work.
+fm_treehouse_home_root() {  # [home]
+  local home=${1:-$FM_HOME} key
+  [ -n "${HOME:-}" ] || return 1
+  home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
+  key=$(printf '%s' "$home" | git hash-object --stdin 2>/dev/null) || return 1
+  printf '%s/.treehouse/firstmate-homes/%s\n' "$HOME" "${key:0:12}"
 }
 
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.

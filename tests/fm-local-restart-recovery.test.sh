@@ -524,7 +524,7 @@ make_toolchain() {
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
-  printf '%s\n' 'Usage: treehouse get [--lease]'
+  printf '%s\n' 'Usage: treehouse get [--lease] [--root <dir>, overriding TREEHOUSE_ROOT]'
 fi
 exit 0
 SH

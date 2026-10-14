@@ -240,6 +240,9 @@
 #   Before a secondmate launch, the home is fast-forwarded to the primary's
 #   default-branch commit when safe: directly for a local home, or through the
 #   configured host for a remote home. Skipped syncs warn and launch unchanged.
+#   A ship or scout slot comes from this home's own Treehouse pool, never one
+#   shared with another home's clone of the project: `treehouse get` runs with
+#   TREEHOUSE_ROOT from bin/fm-wake-lib.sh fm_treehouse_home_root, which owns why.
 #   Ship/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from both the spawning project and its repository's
 #   primary checkout, including when the spawning project is a linked worktree.
@@ -2960,6 +2963,11 @@ if [ "$RELAUNCH" -eq 0 ] && [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ];
     exit 1
   fi
   SPAWN_TREEHOUSE_PROJECT_LOCK_HELD=1
+  # This home's own pool root; bin/fm-wake-lib.sh fm_treehouse_home_root owns why.
+  SPAWN_TREEHOUSE_ROOT=$(fm_treehouse_home_root "$FM_HOME") || {
+    echo "error: could not resolve this home's own Treehouse root for $FM_HOME" >&2
+    exit 1
+  }
 fi
 [ -f "$BRIEF" ] || {
   echo "error: task $ID has no brief at inaccessible data path $BRIEF" >&2
@@ -4117,7 +4125,11 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  spawn_send_text_line "$WT_TARGET" 'treehouse get'
+  # TREEHOUSE_ROOT keeps the slot in this home's own pool, so a worker never lands
+  # in a worktree of another home's clone of the same project. It is a command
+  # prefix, so the process argv stays the exact `treehouse get` herdr recognizes.
+  spawn_treehouse_root_quoted=${SPAWN_TREEHOUSE_ROOT//\'/\'\\\'\'}
+  spawn_send_text_line "$WT_TARGET" "TREEHOUSE_ROOT='$spawn_treehouse_root_quoted' treehouse get"
 
   # Wait for the treehouse subshell: the pane's cwd moves from the project to the worktree.
   # Target the stable window id, not the name: if the name is ever lost (e.g. an
