@@ -811,7 +811,7 @@ SH
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
-  printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>]'
+  printf '%s\n' 'Usage: treehouse get [--lease] [--lease-holder <holder>] [--root <dir>, overriding TREEHOUSE_ROOT]'
   exit 0
 fi
 exit 0

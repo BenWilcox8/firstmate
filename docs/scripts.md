@@ -143,6 +143,7 @@ The shared no-mistakes gate refusal for fleet lifecycle entrypoints is summarize
 | `fm-parent-channel-lib.sh` | Resolve a secondmate home's parent channel and append a captain-facing outcome line to it at most once |
 | `fm-promote.sh`          | Promote a scout task in place to a protected ship task with an explicit delivery mode, write the ship instructions carrying that mode's definition of done, and supersede the task's brief so a later relaunch cannot revive stale scout delivery text |
 | `fm-teardown.sh`         | Fail-closed teardown: return landed ship worktrees, require completed scout deliverables, retire secondmate homes |
+| `fm-treehouse.sh`        | Run treehouse against this home's own worktree pool, or print that pool's root    |
 | `fm-atlas-hook.sh`       | Record an Atlas ticket lifecycle event as a best-effort side effect of spawn, merge, or teardown - complete or land for proved work, abort for an empty leg; answer `wired` queries that report whether this home has an Atlas pointer |
 | `fm-harness.sh`          | Detect the running harness, resolve crew or secondmate harness, model, and effort, and validate the native-only `ultra` effort |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                      |
