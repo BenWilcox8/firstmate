@@ -99,32 +99,17 @@ fm_test_fake_gh_axi() {
 # carry no -l) is appended there instead, one per line in send order. Optional
 # FM_FAKE_DUPLICATE_WINDOW is printed from list-windows.
 #
-# Like a real terminal, a window made by new-window -c <dir> reports <dir> until
-# `treehouse get` is typed into it, and FM_FAKE_PANE_PATH after that; a pane
-# this fake never created (a relaunch adopting a recorded endpoint) reports
-# FM_FAKE_PANE_PATH throughout. The pane path defaults to empty when
-# FM_FAKE_PANE_PATH is unset. Window cleanup and option operations are no-ops.
-# Launch logging is env-gated, so suites that do not set FM_FAKE_LAUNCH_LOG keep
-# a silent send-keys.
+# The pane path defaults to empty when FM_FAKE_PANE_PATH is unset. Window
+# cleanup and option operations are no-ops. Launch logging is env-gated, so
+# suites that do not set FM_FAKE_LAUNCH_LOG keep a silent send-keys.
 fm_test_fake_tmux_spawn() {
   local fakebin=$1
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
-fresh_window="$(dirname "$0")/.fresh-window-path"
 case "$*" in
-  *"#{pane_current_path}"*)
-    if [ -f "$fresh_window" ]; then cat "$fresh_window"; else printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; fi
-    exit 0 ;;
-  *"treehouse get"*) rm -f "$fresh_window" ;;
+  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
-if [ "${1:-}" = new-window ]; then
-  prev=
-  for a in "$@"; do
-    [ "$prev" != -c ] || printf '%s\n' "$a" > "$fresh_window"
-    prev=$a
-  done
-fi
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
   list-windows)

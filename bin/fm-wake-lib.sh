@@ -1253,6 +1253,23 @@ fm_treehouse_pool_slot() {  # <project-dir> <worktree>
   [ "$project_common" = "$slot_common" ]
 }
 
+# The live process Treehouse records as holding a pool slot. An interactive
+# `treehouse get` records itself as the slot's owner_pid in the pool state when
+# it takes the slot, so this names the get that acquired the slot while that get
+# still runs. Prints nothing and fails when the slot records no live owner.
+fm_treehouse_slot_owner_pid() {  # <project-dir> <worktree>
+  local slot name pid
+  fm_treehouse_pool_slot "$1" "$2" || return 1
+  slot=$(CDPATH='' cd -- "$2" 2>/dev/null && pwd -P) || return 1
+  name=$(basename "$(dirname "$slot")")
+  pid=$(jq -er --arg name "$name" '
+    [.worktrees[]? | select(.name == $name)] | select(length == 1) | .[0].owner_pid
+    | select(type == "number" and . > 1) | floor
+  ' "$(dirname "$(dirname "$slot")")/treehouse-state.json" 2>/dev/null) || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  printf '%s\n' "$pid"
+}
+
 # Slot-owner claim: which task a Treehouse pool slot currently belongs to.
 #
 # Treehouse can record ownership durably: `treehouse get --lease --lease-holder`

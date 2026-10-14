@@ -2681,10 +2681,13 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 
 # fm_backend_herdr_create_task_delegate: create the task's pane through
 # `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
-# fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
-# intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
-# pane as its slot anchor rather than pruning it, so there is nothing to thread
-# through. Session and workspace id come from the verified container. The task
+# fm_backend_herdr_create_task. When agent-axi hands back a pane it already held
+# for this task (its `noop` action) instead of opening one, the echo is followed
+# by " reused"; the native path always opens a new tab. The 4th native arg
+# (seeded_default_tab_id) is intentionally not consulted: agent-axi keeps the
+# workspace's supervisor/seeded pane as its slot anchor rather than pruning it,
+# so there is nothing to thread through. Session and workspace id come from the
+# verified container. The task
 # id is the label with its `fm-` prefix stripped (agent-axi re-derives the
 # identical `fm-<id>` pane label from it).
 fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
@@ -2710,6 +2713,7 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
     return 1
   fi
   printf '%s %s' "$tab_id" "$pane_id"
+  [ "$(printf '%s' "$out" | jq -r '.spawn.action // empty' 2>/dev/null)" != noop ] || printf ' reused'
 }
 
 fm_backend_herdr_single_pane_for_tab() {

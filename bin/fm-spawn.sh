@@ -247,11 +247,11 @@
 #   the same isolation test screens every read: a pane still showing the project
 #   or the repository primary while `treehouse get` prepares the slot is waited
 #   out as a transient rather than adopted and then refused, so a home that is
-#   itself a linked worktree of the project repository still launches. A
-#   Treehouse slot the pane was already in before `treehouse get` was typed is
-#   never adopted: a pane left behind by a refused attempt still sits in that
-#   attempt's slot, and a retry handed that pane back enters a different one. A pane
-#   that never reaches an isolated worktree refuses at the end of that wait,
+#   itself a linked worktree of the project repository still launches. When
+#   agent-axi hands back a pane an earlier attempt for the task left behind, a
+#   slot is adopted only when Treehouse records it as held by a process that did
+#   not yet exist when `treehouse get` was typed, and that pane is never closed.
+#   A pane that never reaches such a worktree refuses at the end of that wait,
 #   naming the last path seen and why it was rejected.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
@@ -3423,6 +3423,7 @@ if [ "$RELAUNCH" -eq 0 ] && ! spawn_prior_endpoint; then
 fi
 
 W="fm-$ID"
+SPAWN_ENDPOINT_REUSED=0
 # A fresh spawn opens its endpoint in the project, where `treehouse get` then
 # allocates the worktree; a resume that must open a new endpoint opens it in
 # the recorded worktree directly.
@@ -3505,7 +3506,7 @@ if [ "$RELAUNCH" -eq 1 ] && [ "$RESUME_NEW_ENDPOINT" -eq 0 ]; then
     HERDR_SES=${CONTAINER%%:*}
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
     HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    read -r HERDR_TAB_ID HERDR_PANE_ID _ <<EOF
 $HERDR_TASK_IDS
 EOF
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
@@ -3690,9 +3691,10 @@ else
       HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$ENDPOINT_DIR" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-      read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+      read -r HERDR_TAB_ID HERDR_PANE_ID HERDR_TASK_ORIGIN <<EOF
 $HERDR_TASK_IDS
 EOF
+      [ "$HERDR_TASK_ORIGIN" != reused ] || SPAWN_ENDPOINT_REUSED=1
     fi
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
       echo "error: herdr did not return a tab/pane id for $W" >&2
@@ -3780,6 +3782,13 @@ spawn_current_path() { # <target>
   zellij) fm_backend_zellij_current_path "$1" "$W" ;;
   cmux) fm_backend_cmux_current_path "$1" "$W" ;;
   esac
+}
+# Treehouse records <worktree> as held by a live process that is not one of
+# <pids-before>, the process ids that existed before `treehouse get` was typed.
+spawn_slot_acquired_after() { # <worktree> <pids-before>
+  local owner
+  owner=$(fm_treehouse_slot_owner_pid "$PROJ_ABS" "$1") || return 1
+  ! printf '%s\n' "$2" | grep -qxF -- "$owner"
 }
 spawn_send_literal() { # <target> <text>
   case "$BACKEND" in
@@ -4120,20 +4129,22 @@ if [ "$RELAUNCH" -eq 1 ]; then
   fi
   [ "$KIND" = secondmate ] || validate_spawn_worktree "relaunch" "$T"
 elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
-  # A spawn refused after `treehouse get` leaves its pane behind, still inside
-  # the Treehouse subshell of the slot that attempt entered, and a retry can be
-  # handed that same pane back. The retry's `treehouse get` then fetches before
-  # it moves, so the pane keeps reporting the old slot for as long as the fetch
-  # takes, and it finally enters a different slot: Treehouse never hands out the
-  # slot its caller is already inside. Adopting the old slot records it and
-  # installs the hooks there while the worker runs in the new one. So the slot
-  # the pane is already in is read before `treehouse get` is typed, and is never
-  # adopted.
-  pre_get_real=""
-  pre_get_path=$(spawn_current_path "$WT_TARGET" || true)
-  if [ -n "$pre_get_path" ] && spawn_worktree_isolated "$pre_get_path" &&
-    fm_treehouse_pool_slot "$PROJ_ABS" "$pre_get_path"; then
-    pre_get_real=$(real_path_or_raw "$pre_get_path")
+  # A spawn that stops after `treehouse get` leaves its pane behind, and
+  # agent-axi hands that same pane back to a retry for the task. The pane may
+  # still sit in the slot the earlier attempt entered, or still run that
+  # attempt's own `treehouse get`, which enters a slot of its own before the get
+  # typed here even starts. Either way the pane reports a slot this attempt did
+  # not acquire for as long as its own get fetches, and only then enters the
+  # slot the worker will run in. A path read cannot tell those slots apart, so
+  # on a reused pane a slot is adopted only when Treehouse records it as held by
+  # a process that did not yet exist when `treehouse get` was typed.
+  get_pids_before=""
+  if [ "$SPAWN_ENDPOINT_REUSED" -eq 1 ]; then
+    get_pids_before=$(ps -axo pid= 2>/dev/null | tr -d '[:blank:]' || true)
+    if [ -z "$get_pids_before" ]; then
+      echo "error: pane $T was left behind by an earlier attempt for task $ID, and the process table could not be read to prove which Treehouse slot this attempt acquires there; refusing before typing into it, and leaving that pane as it is; inspect window $T" >&2
+      exit 1
+    fi
   fi
   spawn_send_text_line "$WT_TARGET" 'treehouse get'
 
@@ -4177,17 +4188,15 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     [ -z "$p" ] || last_seen="$p"
     if [ -n "$p" ] && spawn_worktree_isolated "$p"; then
       p_real=$(real_path_or_raw "$p")
-      if [ "$p_real" = "$pre_get_real" ]; then
-        candidate=""
-        last_reason="the pane was already in this Treehouse slot before treehouse get, so it is not the slot treehouse get entered"
-      else
-        last_reason="it is an isolated worktree, but no second read agreed with it"
-        if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
+      last_reason="it is an isolated worktree, but no second read agreed with it"
+      if [ -n "$candidate" ] && [ "$p_real" = "$candidate" ]; then
+        if [ "$SPAWN_ENDPOINT_REUSED" -eq 0 ] || spawn_slot_acquired_after "$p" "$get_pids_before"; then
           WT="$p"
           break
         fi
-        candidate="$p_real"
+        last_reason="Treehouse does not record it as acquired by the treehouse get this attempt typed"
       fi
+      candidate="$p_real"
     else
       candidate=""
       [ -z "$p" ] || last_reason=$SPAWN_WT_REASON
@@ -4195,7 +4204,11 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
     sleep 1
   done
   if [ -z "$WT" ]; then
-    echo "error: treehouse get did not enter an isolated worktree within 60s (last seen '${last_seen:-none}': $last_reason; spawning project '$PROJ_ABS'); inspect window $T" >&2
+    if [ "$SPAWN_ENDPOINT_REUSED" -eq 1 ]; then
+      echo "error: pane $T was left behind by an earlier attempt for task $ID, and within 60s treehouse get did not enter a slot that Treehouse records as acquired by this attempt (last seen '${last_seen:-none}': $last_reason; spawning project '$PROJ_ABS'); refusing to record a slot the worker may not run in, and leaving that pane as it is; inspect window $T" >&2
+    else
+      echo "error: treehouse get did not enter an isolated worktree within 60s (last seen '${last_seen:-none}': $last_reason; spawning project '$PROJ_ABS'); inspect window $T" >&2
+    fi
     exit 1
   fi
 

@@ -841,68 +841,170 @@ test_pool_slot_claim_follows_the_spawn_outcome() {
   pass "a Treehouse slot claim names the launched task, refuses when unclaimable, and is dropped by a locked abort"
 }
 
-# A spawn refused after `treehouse get` leaves its pane behind, still inside the
-# Treehouse slot that attempt entered, and a retry can be handed that same pane
-# back. The retry's own `treehouse get` then has to fetch before it moves
-# anywhere, so the pane keeps reporting the old slot for several reads and only
-# then enters another slot. The fake terminal plays exactly that: the old slot
-# before and for three reads after `treehouse get` is typed, then the slot it
-# entered.
-use_leftover_pane_terminal() { # <copy-before> <copy-after>
-  local state="$CASE_DIR/leftover-pane"
-  mkdir -p "$state"
-  printf '%s\n' "$1" > "$state/before"
-  printf '%s\n' "$2" > "$state/after"
-  mv "$FAKEBIN_DIR/tmux" "$FAKEBIN_DIR/tmux-base"
-  cat > "$FAKEBIN_DIR/tmux" <<SH
+# A spawn that stops after `treehouse get` leaves its pane behind, and agent-axi
+# hands that same pane back to a retry for the task. This world plays that on a
+# fake Herdr and agent-axi, with real processes as the Treehouse slot owners.
+# The pane reads <before> until `treehouse get` is typed, then <during> for
+# three reads, then <after>. <during> is held by a process that already ran
+# before the retry, as the earlier attempt's own get does. Typing
+# `treehouse get` starts a new process and records it as <after>'s owner, as a
+# real get records itself when it takes a slot; when <after> is <during>, the
+# typed get never takes a slot of its own.
+use_reused_herdr_pane() { # <before> <during> <after>
+  local fake="$CASE_DIR/herdr" real_sleep
+  real_sleep=$(command -v sleep)
+  mkdir -p "$fake"
+  printf '%s\n' "$1" > "$fake/before"
+  printf '%s\n' "$2" > "$fake/during"
+  printf '%s\n' "$3" > "$fake/after"
+  printf 'off\n' > "$HOME_DIR/config/herdr-presentation-spaces"
+  "$real_sleep" "$FM_TEST_STUB_MAX_BLOCK_SECONDS" </dev/null >/dev/null 2>&1 &
+  printf '%s\n' "$!" > "$fake/owners"
+  jq --arg name "$(basename "$(dirname "$2")")" --argjson pid "$!" \
+    '(.worktrees[] | select(.name == $name)).owner_pid = $pid' \
+    "$CASE_DIR/slots/treehouse-state.json" > "$fake/state" &&
+    mv "$fake/state" "$CASE_DIR/slots/treehouse-state.json"
+  cat > "$FAKEBIN_DIR/agent-axi" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> '$fake/axi-calls'
+[ "\${1:-}" != spawn ] || printf '%s\n' '{"spawn":{"action":"noop","paneId":"w1:p7","tabId":"w1:t3"}}'
+SH
+  cat > "$FAKEBIN_DIR/herdr" <<SH
 #!/usr/bin/env bash
 set -u
-state='$state'
-case "\$*" in
-  *"#{pane_current_path}"*)
-    if [ ! -e "\$state/get-sent" ]; then cat "\$state/before"; exit 0; fi
-    n=\$(( \$(cat "\$state/reads" 2>/dev/null || echo 0) + 1 ))
-    printf '%s\n' "\$n" > "\$state/reads"
-    if [ "\$n" -le 3 ]; then cat "\$state/before"; else cat "\$state/after"; fi
-    exit 0 ;;
-  *"treehouse get"*) : > "\$state/get-sent" ;;
+fake='$fake'
+printf '%s\n' "\$*" >> "\$fake/calls"
+case "\${1:-} \${2:-}" in
+  'status --json')
+    printf '%s\n' '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true,"version":"0.9.0","protocol":22}}' ;;
+  'workspace list') printf '%s\n' '{"result":{"workspaces":[]}}' ;;
+  'workspace create') printf '%s\n' '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t1"}}}' ;;
+  'pane get')
+    where=before
+    if [ -e "\$fake/get-sent" ]; then
+      n=\$(( \$(cat "\$fake/reads" 2>/dev/null || echo 0) + 1 ))
+      printf '%s\n' "\$n" > "\$fake/reads"
+      where=after
+      [ "\$n" -gt 3 ] || where=during
+    fi
+    printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "\${3:-}" "\$(cat "\$fake/\$where")" ;;
+  'pane run')
+    if [ "\${4:-}" = 'treehouse get' ] && [ ! -e "\$fake/get-sent" ]; then
+      : > "\$fake/get-sent"
+      if [ "\$(cat "\$fake/after")" != "\$(cat "\$fake/during")" ]; then
+        '$real_sleep' "\$FM_TEST_STUB_MAX_BLOCK_SECONDS" </dev/null >/dev/null 2>&1 &
+        printf '%s\n' "\$!" >> "\$fake/owners"
+        jq --arg name "\$(basename "\$(dirname "\$(cat "\$fake/after")")")" --argjson pid "\$!" \
+          '(.worktrees[] | select(.name == \$name)).owner_pid = \$pid' \
+          '$CASE_DIR/slots/treehouse-state.json' > "\$fake/state" &&
+          mv "\$fake/state" '$CASE_DIR/slots/treehouse-state.json'
+      fi
+    fi ;;
 esac
-exec '$FAKEBIN_DIR/tmux-base' "\$@"
+exit 0
 SH
-  chmod +x "$FAKEBIN_DIR/tmux"
+  chmod +x "$FAKEBIN_DIR/agent-axi" "$FAKEBIN_DIR/herdr"
 }
 
-test_retry_in_a_leftover_pane_records_the_copy_the_worker_runs_in() {
-  local rec id out status leftover entered
-  id='pool-retry-leftover-pane-r1'
-  rec=$(make_case retry-leftover-pane "$id")
+run_herdr_spawn() { # <id>
+  (
+    unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH
+    FM_BACKEND=herdr HERDR_SESSION=fmtest FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+      run_spawn "$1" --mode no-mistakes --yolo off
+  )
+}
+
+stop_reused_pane_owners() {
+  local pid
+  while IFS= read -r pid; do
+    kill "$pid" 2>/dev/null || true
+  done < "$CASE_DIR/herdr/owners"
+}
+
+# Lays out two Treehouse slots of one pool: LEFTOVER, the slot the earlier
+# attempt's get entered, and ENTERED, the slot the retry's own get enters.
+make_reused_pane_case() { # <name> <id>
+  local rec
+  rec=$(make_case "$1" "$2")
   read_case_record "$rec"
   printf 'claude\n' > "$HOME_DIR/config/crew-harness"
   lay_out_as_pool_slot
-  leftover=$POOL_DIR
-  entered="$CASE_DIR/slots/2/project"
+  LEFTOVER=$POOL_DIR
+  ENTERED="$CASE_DIR/slots/2/project"
   mkdir -p "$CASE_DIR/slots/2"
-  git -C "$PROJECT_DIR" worktree add --quiet --detach "$entered" "$INITIAL_SHA"
-  use_leftover_pane_terminal "$leftover" "$entered"
+  git -C "$PROJECT_DIR" worktree add --quiet --detach "$ENTERED" "$INITIAL_SHA"
+  printf '{"worktrees":[{"name":"1","path":"%s"},{"name":"2","path":"%s"}]}\n' "$LEFTOVER" "$ENTERED" \
+    > "$CASE_DIR/slots/treehouse-state.json"
   fm_test_fake_sleep_noop "$FAKEBIN_DIR"
-
-  out=$(run_spawn "$id" --mode no-mistakes --yolo off)
-  status=$?
-  expect_code 0 "$status" "a retry in a leftover pane should launch in the copy treehouse get entered"$'\n'"$out"
-  assert_grep "worktree=$entered" "$HOME_DIR/state/$id.meta" \
-    "the retry recorded the copy the leftover pane was already in, not the copy the worker runs in"
-  [ -f "$entered/.claude/settings.local.json" ] \
-    || fail "the retry did not install the worker's hooks in the copy the worker runs in"
-  [ ! -e "$leftover/.claude/settings.local.json" ] \
-    || fail "the retry installed the worker's hooks in the copy the leftover pane was already in"
-  [ "$(git -C "$entered" rev-parse HEAD)" = "$(git -C "$entered" rev-parse origin/main)" ] \
-    || fail "the retry did not refresh the copy the worker runs in"
-  [ "$(git -C "$leftover" rev-parse HEAD)" = "$INITIAL_SHA" ] \
-    || fail "the retry reset the copy the leftover pane was already in"
-  pass "a retry in a pane left inside an earlier copy records, hooks, and refreshes the copy treehouse get entered"
 }
 
-test_retry_in_a_leftover_pane_records_the_copy_the_worker_runs_in
+# The pane is handed back either still inside the slot the earlier attempt
+# entered, or still running that attempt's own `treehouse get` in the project,
+# which takes its slot before the get typed here even starts. Both read a slot
+# the retry did not acquire before the slot its worker runs in.
+test_retry_in_a_reused_pane_records_the_copy_the_worker_runs_in() {
+  local start id out status
+  for start in leftover-slot in-flight-get; do
+    id="pool-reused-pane-$start-r1"
+    make_reused_pane_case "reused-pane-$start" "$id"
+    case "$start" in
+      leftover-slot) use_reused_herdr_pane "$LEFTOVER" "$LEFTOVER" "$ENTERED" ;;
+      in-flight-get) use_reused_herdr_pane "$PROJECT_DIR" "$LEFTOVER" "$ENTERED" ;;
+    esac
+
+    out=$(run_herdr_spawn "$id")
+    status=$?
+    stop_reused_pane_owners
+    expect_code 0 "$status" "$start: a retry in a reused pane should launch in the copy its own treehouse get entered"$'\n'"$out"
+    assert_grep "worktree=$ENTERED" "$HOME_DIR/state/$id.meta" \
+      "$start: the retry recorded a copy the reused pane reported before its own get entered a slot"
+    assert_grep "herdr_pane_id=w1:p7" "$HOME_DIR/state/$id.meta" \
+      "$start: setup is wrong: the retry did not record the pane agent-axi handed back"
+    [ -f "$ENTERED/.claude/settings.local.json" ] \
+      || fail "$start: the retry did not install the worker's hooks in the copy the worker runs in"
+    [ ! -e "$LEFTOVER/.claude/settings.local.json" ] \
+      || fail "$start: the retry installed the worker's hooks in the copy the earlier get entered"
+    [ "$(git -C "$ENTERED" rev-parse HEAD)" = "$(git -C "$ENTERED" rev-parse origin/main)" ] \
+      || fail "$start: the retry did not refresh the copy the worker runs in"
+    [ "$(git -C "$LEFTOVER" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+      || fail "$start: the retry reset the copy the earlier get entered"
+    pass "$start: a retry in a reused pane records, hooks, and refreshes the copy its own treehouse get entered"
+  done
+}
+
+# When Treehouse never records a slot as taken by the get this attempt typed,
+# the retry refuses, names the pane it was handed, and leaves that pane alone.
+test_retry_in_a_reused_pane_refuses_an_unproven_slot() {
+  local id out status
+  id='pool-reused-pane-unproven-r1'
+  make_reused_pane_case reused-pane-unproven "$id"
+  use_reused_herdr_pane "$PROJECT_DIR" "$LEFTOVER" "$LEFTOVER"
+
+  out=$(run_herdr_spawn "$id")
+  status=$?
+  stop_reused_pane_owners
+  [ "$status" -ne 0 ] || fail "a retry adopted a slot Treehouse does not record as its own"$'\n'"$out"
+  assert_contains "$out" "pane fmtest:w1:p7 was left behind by an earlier attempt for task $id" \
+    "the refusal did not name the reused pane"
+  assert_contains "$out" "$LEFTOVER" "the refusal did not name the slot the pane reported"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "the refused retry published a task record"
+  [ ! -e "$LEFTOVER/.claude/settings.local.json" ] \
+    || fail "the refused retry installed hooks in a slot it did not acquire"
+  [ "$(git -C "$LEFTOVER" rev-parse HEAD)" = "$INITIAL_SHA" ] \
+    || fail "the refused retry reset a slot it did not acquire"
+  ! grep -q 'pane close' "$CASE_DIR/herdr/calls" \
+    || fail "the refused retry closed the reused pane"
+  ! grep -q '^teardown' "$CASE_DIR/herdr/axi-calls" \
+    || fail "the refused retry tore down the reused pane through agent-axi"
+  pass "a retry in a reused pane refuses a slot Treehouse does not record as its own, names the pane, and leaves it open"
+}
+
+if command -v jq >/dev/null 2>&1; then
+  test_retry_in_a_reused_pane_records_the_copy_the_worker_runs_in
+  test_retry_in_a_reused_pane_refuses_an_unproven_slot
+else
+  echo "skip: jq not found (the Herdr reused-pane cases)"
+fi
 test_remote_seeded_home_spawns_from_treehouse_pool
 test_pool_slot_claim_follows_the_spawn_outcome
 test_linked_spawning_home_rejects_primary_before_refresh

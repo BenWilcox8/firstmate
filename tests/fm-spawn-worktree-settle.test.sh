@@ -31,19 +31,14 @@ TMP_ROOT=$(fm_test_tmproot fm-spawn-worktree-settle)
 # query returns FM_FAKE_PANE_STALE for the first FM_FAKE_PANE_STALE_READS
 # calls, then FM_FAKE_PANE_PATH forever after - reproducing a pane that
 # transiently reports a stale cwd before settling into the real worktree.
-# Only reads after `treehouse get` is typed are counted and sequenced, because
-# they are the settle loop; before that, a window made by new-window -c <dir>
-# reports <dir>, as a real terminal does.
 make_settle_fakebin() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 set -u
-fresh_window="$(dirname "$0")/.fresh-window-path"
 case "$*" in
   *"#{pane_current_path}"*)
-    if [ -f "$fresh_window" ]; then cat "$fresh_window"; exit 0; fi
     countfile="${FM_FAKE_PANE_COUNTFILE:?FM_FAKE_PANE_COUNTFILE unset}"
     n=0
     [ -f "$countfile" ] && n=$(cat "$countfile")
@@ -56,15 +51,7 @@ case "$*" in
     fi
     exit 0
     ;;
-  *"treehouse get"*) rm -f "$fresh_window" ;;
 esac
-if [ "${1:-}" = new-window ]; then
-  prev=
-  for a in "$@"; do
-    [ "$prev" != -c ] || printf '%s\n' "$a" > "$fresh_window"
-    prev=$a
-  done
-fi
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
   list-windows) exit 0 ;;
