@@ -2653,10 +2653,10 @@ fm_backend_herdr_agent_alive() {  # <target>
 # to the native implementations below.
 #
 # agent-axi resolves the target workspace from the invoking home exactly as this
-# adapter does (FM_HOME > FM_ROOT_OVERRIDE > FM_ROOT); the shim never rewrites
-# FM_HOME, so the home fm-spawn/fm-teardown invoked under is passed through
-# unchanged and each home's spawn lands in - and its teardown frees - that home's
-# own ledger.
+# adapter does (FM_HOME > FM_ROOT_OVERRIDE > FM_ROOT). The create delegate passes
+# the owning home's FM_HOME to agent-axi explicitly - for a --secondmate launch
+# that is the second mate's home, which fm-spawn shadows FM_HOME to - so each
+# home's spawn lands in, and its teardown frees, that home's own ledger.
 #
 # FM_BACKEND_HERDR_AXI_BIN: the executable name/path to delegate to. Unset
 # defaults to "agent-axi" (resolved on PATH); an explicit path pins a specific
@@ -2687,9 +2687,24 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 # through. Session and workspace id come from the verified container. The task
 # id is the label with its `fm-` prefix stripped (agent-axi re-derives the
 # identical `fm-<id>` pane label from it).
-fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
-  local container=$1 label=$2 cwd=$3 session workspace_id task_id out pane_id tab_id
-  local -a launch
+#
+# <launcher-relationship> is the same value fm_backend_herdr_workspace_ensure
+# took. A launcher-home spawn names its exact workspace with --workspace-id,
+# because only the launcher's pane identity can tell same-labeled workspaces
+# apart. An other-home (--secondmate) container was resolved from the owning
+# home's label alone and has exactly one match, so the workspace id adds no
+# identity. Passing it anyway breaks the launch after the home's workspace is
+# re-created (a reboot): agent-axi refuses an exact target that differs from the
+# workspace its ledger is still bound to. An other-home spawn therefore lets
+# agent-axi resolve the workspace from the same label, under its own label and
+# ambiguity checks, so agent-axi re-binds its own ledger. Its result must still
+# name the verified container's workspace.
+#
+# On a refusal, agent-axi's own error text is surfaced, not only this layer's
+# summary line.
+fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd> [<launcher-relationship>]
+  local container=$1 label=$2 cwd=$3 relationship=${4:-launcher-home} session workspace_id task_id out err_file err pane_id tab_id spawned_ws
+  local -a launch workspace_args
   session=${container%%:*}
   workspace_id=${container#*:}
   task_id=${label#fm-}
@@ -2698,15 +2713,30 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
   else
     launch=("${SHELL:-/bin/bash}" -l)
   fi
-  out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --workspace-id "$workspace_id" \
-    --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
-    echo "error: agent-axi spawn failed for $label (session $session)" >&2
+  workspace_args=(--workspace-id "$workspace_id")
+  [ "$relationship" != other-home ] || workspace_args=()
+  err_file=$(mktemp "${TMPDIR:-/tmp}/fm-herdr-axi-spawn.XXXXXX") || {
+    echo "error: agent-axi spawn for $label could not create a temporary error file" >&2
     return 1
   }
+  out=$(FM_HOME="${FM_HOME:-}" "$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" ${workspace_args[@]+"${workspace_args[@]}"} \
+    --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>"$err_file") || {
+    err=$(jq -r '.error.message // empty' "$err_file" 2>/dev/null)
+    [ -n "$err" ] || err=$(tr -s '[:space:]' ' ' < "$err_file")
+    rm -f "$err_file"
+    echo "error: agent-axi spawn failed for $label (session $session)${err:+: $err}" >&2
+    return 1
+  }
+  rm -f "$err_file"
   pane_id=$(printf '%s' "$out" | jq -r '.spawn.paneId // empty' 2>/dev/null)
   tab_id=$(printf '%s' "$out" | jq -r '.spawn.tabId // empty' 2>/dev/null)
   if [ -z "$pane_id" ] || [ -z "$tab_id" ]; then
     echo "error: agent-axi spawn did not return a tab/pane id for $label (session $session)" >&2
+    return 1
+  fi
+  spawned_ws=$(printf '%s' "$out" | jq -r '.spawn.workspaceId // empty' 2>/dev/null)
+  if [ "$relationship" = other-home ] && [ "$spawned_ws" != "$workspace_id" ]; then
+    echo "error: agent-axi spawned $label as pane $pane_id in workspace '${spawned_ws:-unknown}', not this home's workspace $workspace_id (session $session); close that pane before you retry" >&2
     return 1
   fi
   printf '%s %s' "$tab_id" "$pane_id"
@@ -2763,9 +2793,9 @@ fm_backend_herdr_replacement_rollback() {
 # fm_backend_herdr_workspace_prune_seeded_default_tab for the incident and the
 # safety argument). An ADOPTED workspace's caller always passes an empty 4th arg,
 # so this function never even queries for a prune candidate in that case.
-fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id>
+fm_backend_herdr_create_task() {  # <container> <label> <cwd> <seeded_default_tab_id> [<launcher-relationship>]
   if fm_backend_herdr_axi_available; then
-    fm_backend_herdr_create_task_delegate "$1" "$2" "$3"
+    fm_backend_herdr_create_task_delegate "$1" "$2" "$3" "${5:-launcher-home}"
     return
   fi
   local container=$1 label=$2 cwd=$3 seeded_tab_id=${4:-} session wsid list dup_tabs dup dup_pane dup_bindings out tab_id pane_id remaining_dup_tabs state
