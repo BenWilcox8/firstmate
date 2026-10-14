@@ -1498,7 +1498,8 @@ content_in_default() {
 }
 
 # Has the worktree's committed work actually LANDED, though its commits are not
-# reachable from any remote-tracking branch? True when a merged PR proves the
+# reachable from any landed remote ref (FM_LANDED_REMOTE_REFS, which excludes the
+# local no-mistakes gate)? True when a merged PR proves the
 # current local work is contained in the PR head, OR the content is already in the
 # default branch (fallback, which also covers the no-PR and gh-error paths). False
 # only for genuinely unlanded work.
