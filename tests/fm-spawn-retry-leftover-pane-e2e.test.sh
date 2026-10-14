@@ -147,7 +147,13 @@ proc_cwd() {  # <pid>
   readlink "/proc/$1/cwd" 2>/dev/null || lsof -a -p "$1" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p'
 }
 
-treehouse_gets() { pgrep -fx 'treehouse get' | sort; }
+# The `treehouse get` Herdr reports in the foreground of <pane-id>, a pane of
+# this test's own lab session, so no process outside this test is selected.
+pane_treehouse_get() {  # <pane-id>
+  lab pane process-info --pane "$1" 2>/dev/null | jq -r '
+    .result.process_info.foreground_processes[]? | select(.argv == ["treehouse", "get"]) | .pid
+  ' 2>/dev/null | head -1
+}
 
 # assert_one_copy <label> <slot>: the retry for $ID launched, and the copy it
 # recorded, the copy its wiring names, and the copy its new worker runs in are
@@ -209,23 +215,25 @@ pass "fixed: the retry records, wires, and runs the worker in the copy its treeh
 git -C "$PROJ" config remote.origin.uploadpack "sleep 15; git-upload-pack"
 ID=inflight1
 write_brief "$ID"
-GETS_BEFORE=$(treehouse_gets)
 spawn_attempt 3 2>/dev/null &
 EARLIER_ATTEMPT=$!
+LEFTOVER_PANE=
 EARLIER_GET=
 for _ in $(seq 1 120); do
-  EARLIER_GET=$(comm -13 <(printf '%s\n' "$GETS_BEFORE") <(treehouse_gets) | head -1)
+  [ -n "$LEFTOVER_PANE" ] || LEFTOVER_PANE=$(task_pane)
+  [ -z "$LEFTOVER_PANE" ] || EARLIER_GET=$(pane_treehouse_get "$LEFTOVER_PANE")
   [ -z "$EARLIER_GET" ] || break
   sleep 0.25
 done
-[ -n "$EARLIER_GET" ] || fail "repro setup is wrong: the earlier attempt never started its treehouse get"
-EARLIER_SPAWN=$(pgrep -f "bin/fm-spawn.sh $ID " | head -1)
-[ -n "$EARLIER_SPAWN" ] || fail "repro setup is wrong: the earlier attempt's fm-spawn already exited"
+[ -n "$EARLIER_GET" ] \
+  || fail "repro setup is wrong: Herdr never reported the earlier attempt's own treehouse get in its lab pane '${LEFTOVER_PANE:-none}'"
+EARLIER_SPAWN=$(pgrep -P "$EARLIER_ATTEMPT" -f 'bin/fm-spawn\.sh' | head -1)
+[ -n "$EARLIER_SPAWN" ] \
+  || fail "repro setup is wrong: no fm-spawn started by this test's earlier attempt is still running"
 kill -TERM "$EARLIER_SPAWN" 2>/dev/null
 wait "$EARLIER_ATTEMPT" 2>/dev/null
 [ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the stopped attempt published a task record"
-LEFTOVER_PANE=$(task_pane)
-[ -n "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the stopped attempt left no pane behind"
+[ "$(task_pane)" = "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the stopped attempt left no pane behind"
 [ "$(real "$(pane_cwd "$LEFTOVER_PANE")")" = "$(real "$PROJ")" ] \
   || fail "repro setup is wrong: the earlier attempt's treehouse get already left the project"
 pass "setup: the earlier attempt stopped while its own treehouse get still fetches in its pane"

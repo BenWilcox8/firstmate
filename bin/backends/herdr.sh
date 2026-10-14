@@ -2649,6 +2649,9 @@ fm_backend_herdr_agent_alive() {  # <target>
 # string ("<session>:<pane_id>"), the "<tab_id> <pane_id>" create echo, the
 # `fm-<id>` label, and every meta field stay byte-identical, so fm-spawn,
 # fm-teardown, the watcher, crew-state, and every existing test are unaffected.
+# The one addition is a trailing " reused" on the create echo when agent-axi
+# hands back a pane it already held for the task instead of opening one, so a
+# caller reading the echo must read a third field rather than only tab and pane.
 # When agent-axi is NOT resolvable the two functions fall back, byte-identically,
 # to the native implementations below.
 #
@@ -2737,7 +2740,8 @@ fm_backend_herdr_replacement_rollback() {
 }
 
 # fm_backend_herdr_create_task: create the task's pane in <container>
-# ("session:workspace_id") and echo "<tab_id> <pane_id>".
+# ("session:workspace_id") and echo "<tab_id> <pane_id>", followed by " reused"
+# only when the agent-axi delegate below hands back a pane it already held.
 #
 # The primary path DELEGATES to agent-axi (phase-0 shim above): agent-axi owns
 # the durable per-home slot ledger, counts occupancy by live agent, reaps husks,
