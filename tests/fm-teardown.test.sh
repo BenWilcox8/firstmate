@@ -852,6 +852,72 @@ test_no_mistakes_truly_unpushed_refuses() {
   pass "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)"
 }
 
+# Register a bare repo as the project's local validation gate remote, named the
+# way `no-mistakes init` names it, push <rev> to it as the task branch, and fetch
+# so the worktree sees refs/remotes/no-mistakes/fm/task-x1. Args: case_dir rev
+add_gate_remote_with_pushed_rev() {
+  local case_dir=$1 rev=$2
+  git init -q --bare "$case_dir/gate.git"
+  git -C "$case_dir/project" remote add no-mistakes "$case_dir/gate.git"
+  git -C "$case_dir/wt" push -q no-mistakes "$rev:refs/heads/fm/task-x1"
+  git -C "$case_dir/project" fetch -q no-mistakes
+}
+
+test_no_mistakes_gate_only_commit_refuses() {
+  local case_dir rc head
+  case_dir=$(make_case nm-gate-only)
+  write_meta "$case_dir" no-mistakes ship
+  # The commit reached only the local validation gate: on no forge, no merged
+  # PR, and not in origin/main. That is unlanded work and must still refuse.
+  wt_commit_file "$case_dir" feature.txt hello "gate-only work"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gate_remote_with_pushed_rev "$case_dir" "$head"
+  [ -z "$(git -C "$case_dir/wt" log --oneline HEAD --not --remotes --)" ] \
+    || fail "nm-gate-only: test setup bug, the gate remote does not hold HEAD"
+  [ -n "$(git -C "$case_dir/wt" log --oneline HEAD --not origin/main --)" ] \
+    || fail "nm-gate-only: test setup bug, origin already holds HEAD"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "nm-gate-only: teardown should refuse work found only on the gate remote"
+  assert_grep 'has work not on any remote (the local no-mistakes gate does not count)' "$case_dir/stderr" \
+    "nm-gate-only: no unlanded-work refusal in stderr"
+  assert_refusal_retained_task_state "$case_dir" nm-gate-only "$head"
+  git -C "$case_dir/project" show-ref --verify --quiet refs/heads/fm/task-x1 \
+    || fail "nm-gate-only: refusal deleted the task branch"
+  pass "no-mistakes worktree whose commits exist only on the local gate remote is refused"
+}
+
+test_merged_pr_with_gate_only_parent_refuses() {
+  local case_dir rc parent_head head pr_head
+  case_dir=$(make_case gate-only-parent)
+  write_meta "$case_dir" no-mistakes ship
+  # The parent commit reached only the local gate. The merged PR head carries an
+  # equivalent of the later commit but not the parent, so the parent's work is
+  # unlanded even though the PR merged.
+  wt_commit_file "$case_dir" local-parent.txt parent "gate-only parent"
+  parent_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gate_remote_with_pushed_rev "$case_dir" "$parent_head"
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  append_pr_meta_url "$case_dir"
+  pr_head=$(land_equivalent_patch_on_origin_branch "$case_dir" pr-head feature.txt hello "add feature")
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gate-only-parent: teardown should refuse a gate-only parent missing from the merged PR"
+  grep -q REFUSED "$case_dir/stderr" || fail "gate-only-parent: no REFUSED line in stderr"
+  assert_refusal_retained_task_state "$case_dir" gate-only-parent "$head"
+  pass "merged PR does not cover a parent commit found only on the local gate remote"
+}
+
 test_squash_merged_branch_deleted_allows() {
   local case_dir rc pr_head
   case_dir=$(make_case squash-merged)
@@ -4072,6 +4138,8 @@ test_local_only_truly_unpushed_refuses
 test_local_only_merged_to_local_main_allows
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
+test_no_mistakes_gate_only_commit_refuses
+test_merged_pr_with_gate_only_parent_refuses
 test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_home_teardown_delivers_final_line_or_refuses

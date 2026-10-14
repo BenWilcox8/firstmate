@@ -15,7 +15,8 @@
 # All reads and retirement hold the project and both task locks.
 # A scout needs its report and the existing captain-call completion gate.
 # A ship also needs a clean shared worktree and its retained fm/<id> branch
-# reachable from a remote, or from local main/master in local-only mode.
+# reachable from a remote other than the local no-mistakes gate
+# (bin/fm-landed-remote-lib.sh), or from local main/master in local-only mode.
 # Missing proof refuses: a done line or a merged PR alone cannot prove that
 # subsequent edits landed. Uncommitted ship work always refuses.
 #
@@ -56,6 +57,8 @@ export FM_HOME FM_STATE_OVERRIDE="$STATE" FM_DATA_OVERRIDE="$DATA" FM_CONFIG_OVE
 . "$SCRIPT_DIR/fm-gate-refuse-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
+# shellcheck source=bin/fm-landed-remote-lib.sh
+. "$SCRIPT_DIR/fm-landed-remote-lib.sh"
 # shellcheck source=bin/fm-tasks-axi-lib.sh
 . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
 # shellcheck source=bin/fm-backlog-transition-lib.sh
@@ -175,7 +178,7 @@ case "$KIND" in
     BRANCH="refs/heads/fm/$ID"
     HEAD=$(git -C "$PROJ" rev-parse --verify "$BRANCH^{commit}") || refuse 'old task branch is missing; landed work cannot be proved'
     [ "$(git -C "$WT" symbolic-ref -q HEAD || true)" != "$BRANCH" ] || refuse 'old branch is still checked out in the shared worktree'
-    UNLANDED=$(git -C "$PROJ" rev-list "$HEAD" --not --remotes --) || refuse 'cannot inspect old commits'
+    UNLANDED=$(git -C "$PROJ" rev-list "$HEAD" --not "${FM_LANDED_REMOTE_REFS[@]}" --) || refuse 'cannot inspect old commits'
     if [ -n "$UNLANDED" ] && [ "$(fm_meta_get "$META" mode)" = local-only ]; then
       DEFAULT=$(git -C "$PROJ" symbolic-ref -q refs/remotes/origin/HEAD || true)
       DEFAULT=${DEFAULT#refs/remotes/origin/}

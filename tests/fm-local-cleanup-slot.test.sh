@@ -381,7 +381,7 @@ test_retire_finished_scout_preserves_live_task() {
 
 test_retirement_refusals_preserve_records() {
   local scenario stranger
-  for scenario in unfinished missing-report open-decision unowned-slot stranger-owner stale-owner old-alive dirty-ship unlanded-ship unreadable-ship busy-drift; do
+  for scenario in unfinished missing-report open-decision unowned-slot stranger-owner stale-owner old-alive dirty-ship unlanded-ship gate-only-ship unreadable-ship busy-drift; do
     make_collision "$scenario"
     case "$scenario" in
       unfinished) printf 'working: still working\n' > "$CASE/home/state/old.status" ;;
@@ -407,6 +407,18 @@ test_retirement_refusals_preserve_records() {
         git -C "$WT" commit -qm unlanded --allow-empty
         git -C "$WT" checkout -q fm/live
         ;;
+      gate-only-ship)
+        # A commit that reached only the local no-mistakes gate is not landed.
+        perl -pi -e 's/kind=scout/kind=ship/; s/mode=local-only/mode=no-mistakes/' "$CASE/home/state/old.meta"
+        rm "$WT/sentinel"
+        git -C "$WT" checkout -q fm/old
+        git -C "$WT" commit -qm gate-only --allow-empty
+        git init -q --bare "$CASE/gate.git"
+        git -C "$CASE/project" remote add no-mistakes "$CASE/gate.git"
+        git -C "$WT" push -q no-mistakes fm/old
+        git -C "$CASE/project" fetch -q no-mistakes
+        git -C "$WT" checkout -q fm/live
+        ;;
       unreadable-ship)
         perl -pi -e 's/kind=scout/kind=ship/' "$CASE/home/state/old.meta"
         rm "$WT/sentinel"
@@ -420,11 +432,13 @@ test_retirement_refusals_preserve_records() {
     cp "$CASE/home/state/old.meta" "$CASE/old.before"
     cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
     if run_retire > "$CASE/out" 2> "$CASE/err"; then fail "$scenario unexpectedly allowed retirement"; fi
+    [ "$scenario" != gate-only-ship ] || grep -qF 'old task branch has unlanded work' "$CASE/err" \
+      || fail "gate-only-ship refused for another reason: $(cat "$CASE/err")"
     cmp -s "$CASE/old.before" "$CASE/home/state/old.meta" || fail "$scenario changed the old record"
     cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$scenario changed the lease"
     assert_absent "$CASE/runtime.log" "$scenario touched an endpoint or slot"
   done
-  pass 'unfinished, unowned, ambiguous, decision-held, and unlanded records refuse retirement'
+  pass 'unfinished, unowned, ambiguous, decision-held, unlanded, and gate-only records refuse retirement'
 }
 
 make_atlas() {
