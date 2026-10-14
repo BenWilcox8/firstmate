@@ -407,35 +407,11 @@ archive_path() {
   fm_backlog_archive_path "$DATA"
 }
 
-# One archived entry, in the exact field format task_show returns. The archive
-# groups entries under `## Archived <date>` headings the backlog parser does not
-# read, so a disposable normalized copy is handed to tasks-axi instead of
-# parsing the entry here: the entry format keeps its single owner. Read-only by
-# construction - `--file` names only the copy, so no archive write is reachable -
-# and any failure returns nonzero, which leaves the caller with the
-# backlog-only answer it had before.
+# One archived entry, in the exact field format task_show returns; the backlog
+# transition library owns the archive read. Any failure returns nonzero, which
+# leaves the caller with the backlog-only answer it had before.
 archive_show() {  # <id>
-  local id=$1 archive tmp out id_re data root
-  data=$(fm_backlog_data_absolute "$DATA") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 1
-  # The id is interpolated into the entry pattern below, and one caller reads
-  # its entries from task metadata rather than a validated argument, so a
-  # non-slug id resolves to the live-backlog-only answer it had before.
-  case "$id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
-  archive=$(archive_path)
-  [ -f "$archive" ] && [ ! -L "$archive" ] || return 1
-  # A slug may carry a dot, which is a pattern metacharacter in this probe.
-  id_re=${id//./\\.}
-  grep -qE "^- \[[ x]\] $id_re -" "$archive" 2>/dev/null || return 1
-  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-captain-archive.XXXXXX") || return 1
-  if ! { printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n'; sed '/^#/d' "$archive"; } > "$tmp"; then
-    rm -f -- "$tmp"
-    return 1
-  fi
-  out=$(cd "$root" && tasks-axi show "$id" --full --file "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
-  rm -f -- "$tmp"
-  printf '%s\n' "$out"
+  fm_backlog_archive_show "$DATA" "$1"
 }
 
 # The one archive-aware captain-call lookup. Retention carries a closed task out

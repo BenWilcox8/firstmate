@@ -17,11 +17,13 @@
 # such as a slot that several finished records name after their workers exited.
 # The scan covers this home, the local root home, and every local home its
 # secondmate registries reach. Every record whose worktree= or home= names the
-# slot must have a dead or missing endpoint, the Treehouse slot owner process
-# must not be running, and the slot-owner claim must not name the old task.
+# slot must have a dead or missing endpoint. A recorded Treehouse slot owner
+# process must read as stopped from /proc, so a host without it refuses. The
+# slot-owner claim must not name the old task.
 # Another record for the slot must carry a newer spawn_gen epoch (s<epoch>.*),
-# so the old task is not the newest claimant; an equal or unreadable epoch
-# refuses. That newer record then owns the slot's working tree, so its
+# so the old task is not the newest claimant. An equal epoch or an unreadable
+# old epoch refuses, and a record with an unreadable epoch does not count as
+# newer. That newer record then owns the slot's working tree, so its
 # uncommitted state is left for that record's own cleanup and is not counted
 # as the old task's work. The landed proof below otherwise applies unchanged.
 # All reads and retirement hold the project lock and each named task's locks.
@@ -135,9 +137,9 @@ spawn_epoch() {  # <meta>
   printf '%s\n' "${BASH_REMATCH[1]}"
 }
 # Every record in the local Firstmate homes whose worktree= or home= names the
-# slot, as "<id> <spawn_gen> <meta>" lines; any unreadable home refuses.
+# slot, one metadata path per line; any unreadable home refuses.
 slot_claimants() {
-  local root dir seen='' meta other_id field path
+  local root dir seen='' meta field path
   root=$(fm_firstmate_root_home "$FM_HOME") || refuse 'cannot resolve the root Firstmate home'
   secondmate_registry_local_state_dirs "$STATE" "$root" || refuse "$SECONDMATE_REGISTRY_ERROR"
   for dir in "${SECONDMATE_REGISTRY_LOCAL_STATES[@]}"; do
@@ -147,12 +149,11 @@ slot_claimants() {
     seen="$seen $dir"
     for meta in "$dir"/*.meta; do
       [ -f "$meta" ] && [ ! -L "$meta" ] || continue
-      other_id=$(basename "$meta" .meta)
       for field in worktree home; do
         path=$(fm_meta_get "$meta" "$field")
         [ -n "$path" ] && [ -d "$path" ] || continue
         [ "$(canonical "$path")" = "$WT" ] || continue
-        printf '%s %s %s\n' "$other_id" "$(fm_meta_get "$meta" spawn_gen)" "$meta"
+        printf '%s\n' "$meta"
         break
       done
     done
@@ -160,11 +161,16 @@ slot_claimants() {
 }
 # Prove the slot has no live owner and a newer record than the old one.
 no_live_owner_proof() {
-  local other_id other_meta other_epoch old_epoch newer=0 self=0
+  local other_id other_meta other_epoch old_epoch newer=0 self=0 owner_rc=0
   if [ "$(printf '%s' "$LEASE" | jq -r '(.owner_pid|type)=="number" and (.owner_started_at|type)=="number"')" = true ]; then
     OWNER_PID=$(printf '%s' "$LEASE" | jq -r '.owner_pid')
     OWNER_STARTED=$(printf '%s' "$LEASE" | jq -r '.owner_started_at')
-    ! lease_owner_live || refuse 'pool slot owner process is still running; use --live-task'
+    lease_owner_live || owner_rc=$?
+    case "$owner_rc" in
+      1) ;;
+      0) refuse 'pool slot owner process is still running; use --live-task' ;;
+      *) refuse 'cannot prove the pool slot owner process stopped' ;;
+    esac
   fi
   fm_treehouse_slot_owner_state "$WT" "$ID"
   case "$FM_TREEHOUSE_SLOT_OWNER" in
@@ -174,8 +180,9 @@ no_live_owner_proof() {
   esac
   old_epoch=$(spawn_epoch "$META") || refuse 'old record has no spawn_gen epoch to order it'
   CLAIMANTS=$(slot_claimants) || exit 1
-  while IFS=' ' read -r other_id _ other_meta; do
-    [ -n "$other_id" ] || continue
+  while IFS= read -r other_meta; do
+    [ -n "$other_meta" ] || continue
+    other_id=$(basename "$other_meta" .meta)
     fm_backend_validate_task_endpoint "$other_meta" "$other_id" || refuse "invalid endpoint for slot record $other_id"
     case "$(fm_backend_agent_state "$FM_BACKEND_VALIDATED_BACKEND" "$FM_BACKEND_VALIDATED_TARGET")" in
       dead|missing) ;;

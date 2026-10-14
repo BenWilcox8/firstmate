@@ -885,20 +885,44 @@ fm_backlog_archive_path() {  # <data-dir>
   esac
 }
 
+# One archived entry of a markdown backlog, in the field format `tasks-axi show
+# --full` returns. The archive groups entries under `## Archived <date>` headings
+# the backlog parser does not read, so a disposable normalized copy is handed to
+# tasks-axi instead of parsing the entry here: the entry format keeps its single
+# owner. Read-only by construction - `--file` names only the copy, so no archive
+# write is reachable - and any failure returns nonzero.
+fm_backlog_archive_show() {  # <data-dir> <id>
+  local id=$2 archive tmp out id_re data root
+  data=$(fm_backlog_data_absolute "$1") || return 1
+  root=$(fm_backlog_root "$data") || return 1
+  [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 1
+  # The id is interpolated into the entry pattern below, and one caller reads
+  # its entries from task metadata rather than a validated argument, so a
+  # non-slug id is never looked up.
+  case "$id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+  archive=$(fm_backlog_archive_path "$data") || return 1
+  [ -f "$archive" ] && [ ! -L "$archive" ] || return 1
+  # A slug may carry a dot, which is a pattern metacharacter in this probe.
+  id_re=${id//./\\.}
+  grep -qE "^- \[[ x]\] $id_re -" "$archive" 2>/dev/null || return 1
+  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-backlog-archive.XXXXXX") || return 1
+  if ! { printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n'; sed '/^#/d' "$archive"; } > "$tmp"; then
+    rm -f -- "$tmp"
+    return 1
+  fi
+  out=$(cd "$root" && tasks-axi show "$id" --full --file "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
+  rm -f -- "$tmp"
+  printf '%s\n' "$out"
+}
+
 # Whether retention already moved <id>'s closed row out of the live markdown
 # backlog into the archive. tasks-axi addresses the live backlog only, so it
 # answers NOT_FOUND for such a row; a Done entry in the archive is the record
 # that the task was closed. Read-only, and any doubt returns 1.
 fm_backlog_row_archived_done() {  # <data-dir> <id>
-  local data root archive id=$2 id_re
-  case "$id" in ''|.*|*[!A-Za-z0-9._-]*) return 1 ;; esac
-  data=$(fm_backlog_data_absolute "$1") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  [ "$(fm_tasks_axi_backend "$root" 2>/dev/null)" = markdown ] || return 1
-  archive=$(fm_backlog_archive_path "$data") || return 1
-  [ -f "$archive" ] && [ ! -L "$archive" ] || return 1
-  id_re=${id//./\\.}
-  grep -qE "^- \[x\] $id_re -" "$archive" 2>/dev/null
+  local out
+  out=$(fm_backlog_archive_show "$1" "$2" 2>/dev/null) || return 1
+  [ "$(printf '%s\n' "$out" | sed -n 's/^  state: *//p' | head -1)" = 'done' ]
 }
 
 # A row that is absent from the live backlog and Done in the archive is already

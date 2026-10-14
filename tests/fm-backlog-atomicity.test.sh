@@ -1828,19 +1828,19 @@ test_completion_treats_an_archived_done_row_as_closed() {
   pass "completion treats a row already in the done archive as closed"
 }
 
-test_completion_still_fails_for_a_row_absent_from_backlog_and_archive() {
+test_completion_still_fails_for_a_row_not_done_in_backlog_or_archive() {
   local case_dir home id out rc=0
   id=atomic-close-absent-b10
   case_dir=$(make_home close-absent)
   home=$(home_of "$case_dir")
-  printf '\n## Archived 2026-10-14\n- [x] other-%s - unrelated (done 2026-10-14)\n' "$id" > "$home/data/done-archive.md"
+  printf '\n## Archived 2026-10-14\n- [x] other-%s - unrelated (done 2026-10-14)\n- [ ] %s - never finished\n' "$id" "$id" > "$home/data/done-archive.md"
   write_task_meta "$case_dir" "$id" ship local-only "spawn_gen=spawn-close-absent"
 
   out=$(run_teardown "$case_dir" "$id") || rc=$?
-  [ "$rc" -ne 0 ] || fail "teardown reported a close for a row in neither backlog nor archive"
+  [ "$rc" -ne 0 ] || fail "teardown reported a close for a row that is not Done in the backlog or the archive"
   assert_contains "$out" "not found" "teardown hid the missing row"
   assert_present "$home/state/$id.backlog-close" "teardown lost the close it still owes"
-  pass "completion still refuses a row that is in neither the backlog nor the done archive"
+  pass "completion still refuses a row that is absent from the backlog and not Done in the archive"
 }
 
 test_interrupted_destructive_cleanup_leaves_a_recoverable_close() {
@@ -3081,7 +3081,7 @@ test_control_character_data_path_is_refused_before_cleanup
 test_completion_preserves_records_when_meta_removal_fails
 test_completion_fails_loudly_and_records_the_close_it_still_owes
 test_completion_treats_an_archived_done_row_as_closed
-test_completion_still_fails_for_a_row_absent_from_backlog_and_archive
+test_completion_still_fails_for_a_row_not_done_in_backlog_or_archive
 test_interrupted_destructive_cleanup_leaves_a_recoverable_close
 test_completion_refuses_a_close_target_symlinked_to_a_directory
 test_completion_fails_when_its_close_marker_cannot_be_removed

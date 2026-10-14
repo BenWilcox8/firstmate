@@ -629,6 +629,31 @@ test_unowned_slot_retires_older_record() {
   pass 'a finished record in a slot with no live owner retires without touching the slot, branch, or newer record'
 }
 
+# A legacy record without spawn_gen that still names the slot.
+add_legacy_claimant() {
+  fm_write_meta "$CASE/home/state/legacy.meta" "window=fixture:fm-legacy" "endpoint_task_id=legacy" \
+    "worktree=$WT" "project=$CASE/project" "kind=ship"
+}
+
+test_unowned_slot_skips_a_legacy_claimant_for_ordering() {
+  make_shared_slot unowned-legacy
+  add_legacy_claimant
+  assert_unowned_retired 'legacy claimant'
+  pass 'a dead legacy claimant without spawn_gen does not block retirement'
+}
+
+test_unowned_slot_proves_the_recorded_owner_stopped() {
+  local exited
+  make_shared_slot unowned-exited-owner
+  exited=$(sh -c 'printf "%s\n" "$$"')
+  set_slot_owner "$exited" 1
+  assert_unowned_retired 'exited owner'
+  make_shared_slot unowned-reused-owner
+  set_slot_owner "$$" "$(($(started_ms "$$") + 10))"
+  assert_unowned_retired 'reused owner pid'
+  pass 'a recorded slot owner that /proc shows exited or reused does not block retirement'
+}
+
 test_unowned_slot_scans_registered_local_homes() {
   make_shared_slot unowned-mate "$TMP_ROOT/unowned-mate/mate/state"
   printf -- '- mate - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)\n' "$CASE/mate" \
@@ -663,7 +688,7 @@ test_unowned_slot_closes_an_archived_backlog_row() {
 
 test_unowned_slot_refusals_preserve_records() {
   local scenario
-  for scenario in newest same-epoch sole-record legacy-gen newer-alive old-alive running-owner claim-mine unreadable-claim unlanded-ship with-live-task; do
+  for scenario in newest same-epoch sole-record legacy-gen legacy-only legacy-alive newer-alive old-alive running-owner unprovable-owner claim-mine unreadable-claim unlanded-ship with-live-task; do
     make_shared_slot "unowned-$scenario"
     local extra=() expect=
     case "$scenario" in
@@ -673,7 +698,15 @@ test_unowned_slot_refusals_preserve_records() {
       legacy-gen) expect='no spawn_gen epoch'; perl -pi -e 's/^spawn_gen=.*/spawn_gen=old-generation/' "$CASE/home/state/old.meta" ;;
       newer-alive) expect='slot record newer does not have'; printf 'fm-newer\n' > "$CASE/live-windows" ;;
       old-alive) expect='slot record old does not have'; printf 'fm-old\n' > "$CASE/live-windows" ;;
+      legacy-only) expect='newest claimant'; rm "$NEWER_META"; add_legacy_claimant ;;
+      legacy-alive) expect='slot record legacy does not have'; add_legacy_claimant; printf 'fm-legacy\n' > "$CASE/live-windows" ;;
       running-owner) expect='owner process is still running'; set_slot_owner "$$" ;;
+      unprovable-owner)
+        expect='cannot prove the pool slot owner process stopped'
+        set_slot_owner "$$"
+        printf '#!/usr/bin/env bash\nexit 1\n' > "$CASE/fakebin/getconf"
+        chmod +x "$CASE/fakebin/getconf"
+        ;;
       claim-mine) expect='claim still names this task'; printf 'task=old\nhome=%s\n' "$CASE/home" > "$(dirname "$WT")/.fm-slot-owner" ;;
       unreadable-claim) expect='claim cannot be read'; mkdir "$(dirname "$WT")/.fm-slot-owner" ;;
       unlanded-ship)
@@ -695,12 +728,14 @@ test_unowned_slot_refusals_preserve_records() {
     [ "$(cat "$WT/scratch")" = 'newer scratch' ] || fail "$scenario changed the slot"
     assert_absent "$CASE/runtime.log" "$scenario touched an endpoint or slot"
   done
-  pass 'unowned-slot retirement refuses the newest, unordered, live, owned, claimed, and unlanded cases'
+  pass 'unowned-slot retirement refuses the newest, unordered, live, owned, unprovable, claimed, and unlanded cases'
 }
 
 test_unsafe_merge_marker_refusal_preserves_slot
 test_retirement_checks_atlas_task_identity
 test_unowned_slot_retires_older_record
+test_unowned_slot_skips_a_legacy_claimant_for_ordering
+test_unowned_slot_proves_the_recorded_owner_stopped
 test_unowned_slot_scans_registered_local_homes
 test_unowned_slot_closes_an_archived_backlog_row
 test_unowned_slot_refusals_preserve_records

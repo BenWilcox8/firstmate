@@ -14,13 +14,19 @@ fm_local_proc_field() {  # <pid> <index after the command name>
 }
 
 # The owner still runs with the start time Treehouse recorded, so a reused pid
-# never reads as the owner.
+# never reads as the owner. Returns 0 when it runs, 1 when a readable /proc
+# shows the pid absent or started at another time, and 2 when /proc cannot
+# prove either.
 fm_local_treehouse_owner_live() {  # <pid> <started-ms>
   local ticks btime hz
-  ticks=$(fm_local_proc_field "$1" 19) || return 1
-  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 1
-  hz=$(getconf CLK_TCK 2>/dev/null) || return 1
-  [ -n "$btime" ] && [ -n "$hz" ] || return 1
+  case "$1" in ''|*[!0-9]*) return 2 ;; esac
+  btime=$(awk '$1 == "btime" {print $2}' /proc/stat 2>/dev/null) || return 2
+  hz=$(getconf CLK_TCK 2>/dev/null) || return 2
+  [ -n "$btime" ] && [ -n "$hz" ] || return 2
+  if ! ticks=$(fm_local_proc_field "$1" 19); then
+    [ ! -e "/proc/$1" ] || return 2
+    return 1
+  fi
   [ "$((btime * 1000 + ticks * 1000 / hz))" = "$2" ]
 }
 
