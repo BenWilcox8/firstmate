@@ -46,8 +46,11 @@
 #                          neither absorb class
 #                          applies does the log's latest recognized status event decide:
 #                          terminal (captain-relevant) or non-terminal (no verb),
-#                          both surfaced at once. A FINISHED line (done/failed)
-#                          already surfaced once (its mark_surfaced record
+#                          both surfaced once the pane hash has stayed unchanged
+#                          for FM_STALE_FIRST_WAKE_SECS (default 240s), so two
+#                          identical polls alone do not surface either one. A
+#                          FINISHED line (done/failed) already surfaced once
+#                          (its mark_surfaced record
 #                          matches) is absorbed instead of re-fired while the
 #                          pane idles, so a parked crew escalates stale at most
 #                          once per distinct status line; an open needs-decision
@@ -304,6 +307,13 @@ TURNEND_CHURN_ABSORB_SECS=${FM_TURNEND_CHURN_ABSORB_SECS:-900}  # longest a task
 # daemon owns triage, so this watcher reverts to one-shot (enqueue + exit on every
 # wake) and never double-triages - and never runs the costly provably-working read.
 STALE_ESCALATE_SECS=${FM_STALE_ESCALATE_SECS:-240}  # idle secs before a provably-working stale escalates as a possible wedge
+# Two identical polls alone are not enough to wake firstmate for a stale pane:
+# most such panes are only between turns. STALE_FIRST_WAKE_SECS is how long the
+# pane hash must stay unchanged before a stale wake surfaces (stale_floor_defer
+# below). It delays only the surfacing outcomes; absorb paths and the wedge timer
+# keep their timing. Zero turns the floor off.
+STALE_FIRST_WAKE_SECS=${FM_STALE_FIRST_WAKE_SECS:-}
+case "$STALE_FIRST_WAKE_SECS" in ''|*[!0-9]*) STALE_FIRST_WAKE_SECS=240 ;; esac
 # A busy pane is unconditional proof of liveness with no built-in duration bound,
 # so a hung foreground call can remain hidden even while its rendered busy
 # footer changes every poll. BUSY_TURN_MAX_SECS bounds how long any busy pane
@@ -575,10 +585,11 @@ inbox_steer_check() {  # <window> <task>
 # deferred here forever with no fallback path left to surface it. Churn and
 # staleness read the same pane, so neither can be the other's only backstop.
 # Within the bound, an ordinary crew that stops renders nothing more, its pane
-# hash stops moving, and the staleness backbone surfaces it within a couple of
-# polls; any captain-relevant status verb still surfaces immediately through
-# signal_files_actionable. That is why this widens the proof instead of
-# bounding the wake rate, which would have suppressed genuinely stopped workers.
+# hash stops moving, and the staleness backbone surfaces it once the
+# FM_STALE_FIRST_WAKE_SECS floor has passed; any captain-relevant status verb
+# still surfaces immediately through signal_files_actionable. That is why this
+# widens the proof instead of bounding the wake rate, which would have
+# suppressed genuinely stopped workers.
 #
 # Every negative outcome returns 1, so absence of evidence surfaces exactly as
 # before: any batch that references a secondmate, an unresolvable task, a task
@@ -1739,20 +1750,49 @@ captain_call_stale_bound() {  # <window-key> <task>
   stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION"
 }
 
+# The elapsed-time floor before a stale wake surfaces (STALE_FIRST_WAKE_SECS),
+# measured from the last change of the pane hash. The stale loop rewrites
+# .hash-<key> only when the hash changes, so the age of that marker is how long
+# the pane has stayed unchanged, and any hash change restarts the clock exactly
+# as it restarts the two-identical-polls count. .stale-deferred-<key> holds the
+# hash whose surfacing waits on the floor, so the costly classification reads run
+# once per hash and once more at the floor, never on every poll; a hash change
+# removes it.
+
+# Returns 0 when the surfacing wake for <hash> must wait on the floor, and records
+# that hash as deferred; returns 1 when the wake may fire now.
+stale_floor_defer() {  # <key> <hash> <hash-file>
+  if [ "$(age_of "$3")" -lt "$STALE_FIRST_WAKE_SECS" ]; then
+    printf '%s' "$2" > "$STATE/.stale-deferred-$1"
+    return 0
+  fi
+  rm -f "$STATE/.stale-deferred-$1"
+  return 1
+}
+
+# Returns 0 while <hash> is already deferred and the floor has not passed, so the
+# caller skips the classification reads for this poll.
+stale_floor_waiting() {  # <key> <hash> <hash-file>
+  [ "$(cat "$STATE/.stale-deferred-$1" 2>/dev/null || true)" = "$2" ] \
+    && [ "$(age_of "$3")" -lt "$STALE_FIRST_WAKE_SECS" ]
+}
+
 # Surface a stale pane no classifier could resolve, so firstmate inspects it: it
 # may have finished through an interactive menu that wrote no status, be waiting on
 # a decision, or be wedged. pause_state_class deliberately answers `none` for a
 # still-LIVE agent even under a declared wait, so a worker genuinely waiting on a
-# decision is never silenced - which routes every parked-but-live worker here, on
-# first sight of each distinct stale hash.
+# decision is never silenced - which routes every parked-but-live worker here once
+# each distinct stale hash has stayed unchanged past the STALE_FIRST_WAKE_SECS
+# floor.
 #
 # So a legitimate wait bounds this path to the same once-per-PAUSE_RESURFACE_SECS
 # cadence resurface_absorbed owns for the absorbed paths, throttled by this
 # window's own .paused-resurfaced-<key> marker: an idle parked pane still churns
 # its hash (a clock, a token counter), and each new hash re-enters this path, so
 # without that bound one wait re-alarms firstmate for its whole duration.
-# The FIRST sight still wakes, keeping the inspect-an-inconclusive-state intent,
-# and the throttle is read BEFORE anything is queued and advanced only by a wake
+# The FIRST sight that reaches this path still wakes, keeping the
+# inspect-an-inconclusive-state intent, and the throttle is read BEFORE anything
+# is queued and advanced only by a wake
 # that really fires - a throttle written by the wake it should have prevented, or
 # read after that wake was already appended, bounds nothing.
 # Both records of an ordinary crew wait bound it (see task_captain_call_open
@@ -2837,6 +2877,8 @@ EOF
   # stale hash is surfaced, absorbed, or timed toward escalation once (.stale-*
   # remembers the hash already classified, or the declaration a busy pane's
   # crossed turn bound already handed to the away-mode daemon).
+  # Outside away mode, a surfacing wake also waits until the pane hash has been
+  # unchanged for STALE_FIRST_WAKE_SECS (stale_floor_defer).
   while IFS= read -r w; do
     kind=$(window_kind "$w")
     task=$(window_to_task "$w" "$STATE")
@@ -2913,7 +2955,9 @@ EOF
           # authoritative source fm-crew-state.sh itself already prioritizes
           # over the log) a chance to override before trusting the log.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
-            if crew_is_provably_working "$task"; then
+            if stale_floor_waiting "$key" "$h" "$hf"; then
+              : # this hash's stale wake already waits on the floor
+            elif crew_is_provably_working "$task"; then
               printf '%s' "$h" > "$sf"
               date +%s > "$ssf"
               clear_write_tracking "$key"
@@ -2951,6 +2995,8 @@ EOF
               rm -f "$ssf"
               clear_write_tracking "$key"
               triage_log "absorbed stale (finished status already surfaced): $w"
+            elif stale_floor_defer "$key" "$h" "$hf"; then
+              triage_log "deferred stale (unchanged less than ${STALE_FIRST_WAKE_SECS}s): $w"
             else
               wake_queue_append stale "$w" "stale: $w" || exit 1
               stale_wait_record "$key"
@@ -2978,8 +3024,9 @@ EOF
           # unmodified terminal-status behavior).
         else
           # Non-terminal stale: a crew gone quiet without a captain-relevant status.
-          # Decided once per distinct stale hash (the costly state reads run only
-          # on first sight, never every poll) via pause_state_class, which returns:
+          # Decided once per distinct stale hash (the costly state reads run on
+          # first sight and once more when the STALE_FIRST_WAKE_SECS floor
+          # passes, never every poll) via pause_state_class, which returns:
           #   - working: an actively-running pipeline legitimately sits on a static
           #     pane (e.g. waiting on CI), so absorb and start the wedge timer so a
           #     genuinely frozen run still escalates past STALE_ESCALATE_SECS;
@@ -2990,14 +3037,22 @@ EOF
           #   - none: no running pipeline, no exact busy verdict, no declared wait -
           #     reachable only without a declaration, since a declared wait always
           #     takes one of the classes above.
-          #     Surface immediately so firstmate inspects the inconclusive state
-          #     (it may be done via an interactive menu that wrote no done: status,
-          #     waiting on a decision, or wedged) instead of leaving the finish to
-          #     wait out the timer.
+          #     Surface once past the STALE_FIRST_WAKE_SECS floor so firstmate
+          #     inspects the inconclusive state (it may be done via an
+          #     interactive menu that wrote no done: status, waiting on a
+          #     decision, or wedged) instead of leaving the finish to wait out
+          #     the timer.
           if [ "$(cat "$sf" 2>/dev/null || true)" != "$h" ]; then
             task=$(window_to_task "$w" "$STATE")
-            pclass=$(pause_state_class "$w" "$task")
+            if stale_floor_waiting "$key" "$h" "$hf"; then
+              pclass=deferred
+            else
+              pclass=$(pause_state_class "$w" "$task")
+            fi
             case "$pclass" in
+              deferred)
+                ;;
+
               working)
                 clear_pause_tracking "$key"
                 printf '%s' "$h" > "$sf"
@@ -3008,7 +3063,11 @@ EOF
                 handle_paused_stale "$w" "$task" "$h" "$pclass"
                 ;;
               *)
-                surface_nonterminal_stale "$w" "$h"
+                if stale_floor_defer "$key" "$h" "$hf"; then
+                  triage_log "deferred non-terminal stale (unchanged less than ${STALE_FIRST_WAKE_SECS}s): $w"
+                else
+                  surface_nonterminal_stale "$w" "$h"
+                fi
                 ;;
             esac
           else
@@ -3052,6 +3111,7 @@ EOF
     else
       printf '%s' "$h" > "$hf"
       echo 0 > "$cf"
+      rm -f "$STATE/.stale-deferred-$key"
       paused_bound=1
       if [ "$busy_now" -eq 0 ] && busy_turn_over_age "$task"; then
         busy_turn_bound_check "$w" "$task" "$h" "$ssf" "$ewf" && paused_bound=0
@@ -3069,9 +3129,10 @@ EOF
           # DECLARATION, not the pane hash: an idle parked pane whose display
           # ticks (a clock, a token counter) changes hash without changing what
           # is being waited on, and clearing the throttle here would hand that
-          # same wait a fresh window on every tick - the first sight of each new
-          # hash reaches surface_nonterminal_stale below, so the whole declared
-          # wait would re-alarm far inside PAUSE_RESURFACE_SECS.
+          # same wait a fresh window on every tick - each new hash that stays
+          # unchanged past the STALE_FIRST_WAKE_SECS floor reaches
+          # surface_nonterminal_stale below, so the whole declared wait would
+          # re-alarm far inside PAUSE_RESURFACE_SECS.
           none)   clear_stale_hash_tracking "$key" ;;
           *)      clear_pause_tracking "$key" ;;
         esac
