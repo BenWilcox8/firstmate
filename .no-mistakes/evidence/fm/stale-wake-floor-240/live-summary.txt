@@ -1,0 +1,17 @@
+Live validation: stale-wake floor (FM_STALE_FIRST_WAKE_SECS)
+Real bin/fm-watch.sh (target cde67c0) and the base-commit watcher (2812e3cb),
+each against a real static pane in Herdr lab session fm-lab-stalefloor-118976-22704
+(provisioned and torn down with bin/fm-herdr-lab.sh; default-session tripwire held).
+Default FM_POLL (15s). Scratch FM_HOME per case. Per-case logs: case-<name>.log.
+
+case        watcher  knob    pane behavior                 result
+----------  -------  ------  ----------------------------  ---------------------------------------------
+baseline    base     n/a     static                        stale wake 31s after first sight (two polls)
+knob-zero   new      0       static                        stale wake 31s after first sight (floor off)
+default     new      unset   static                        deferred at 2 polls; stale wake 248s after last hash change
+garbage     new      abc     static                        deferred "less than 240s"; stale wake 248s after last change
+change      new      60      new output printed 40s in     deferred twice; stale wake 63s after the LAST change (110s total)
+terminal    new      unset   needs-decision status, static signal wake at once; after ack, stale wake 250s after last change
+afk         new      unset   static, state/.afk present    daemon handoff stale wake 31s (unchanged away-mode timing)
+escalate    new      unset   static, crew-state=working    absorbed at 2 polls; "possible wedge" after 62s
+                             (stubbed crew-state verdict)  with FM_STALE_ESCALATE_SECS=60 (not held by the floor)

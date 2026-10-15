@@ -1,0 +1,34 @@
+== case terminal
+watcher: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4Y4B6EVRB772CYCH2EDT1ZA/bin/fm-watch.sh
+lab session: fm-lab-stalefloor-118976-22704  pane: w6:p1  window: fm-lab-stalefloor-118976-22704:w6:p1
+FM_STALE_FIRST_WAKE_SECS: UNSET   extra env: 
+pane now shows: terminal worker: turn ended, idle at prompt|
+start: 20:38:30 epoch=1792028310
+exit: 20:39:01 epoch=1792028341 rc=0  watcher ran 31s
+.hash marker mtime (last hash change): none  -> wake came 0s after the last hash change
+watcher stdout (the wake reason):
+  | signal: /tmp/fm-floor-live/terminal/home/state/terminal.status
+triage log:
+wake queue:
+  | 1792028341	1	signal	terminal.status	needs-decision: /tmp/fm-floor-live/terminal/home/state/terminal.status %%dash-ping: agent%%
+  | 1792028341	2	signal	terminal.status	needs-decision: /tmp/fm-floor-live/terminal/home/state/terminal.status %%dash-ping: agent%%
+watcher stderr (tail):
+
+firstmate drained and acked the signal wake (seq=2) at 20:39:02; restarting the watcher
+
+== case terminal
+watcher: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4Y4B6EVRB772CYCH2EDT1ZA/bin/fm-watch.sh
+lab session: fm-lab-stalefloor-118976-22704  pane: w6:p1  window: fm-lab-stalefloor-118976-22704:w6:p1
+FM_STALE_FIRST_WAKE_SECS: UNSET   extra env: 
+pane now shows: terminal worker: turn ended, idle at prompt|
+start: 20:39:02 epoch=1792028342
+exit: 20:43:13 epoch=1792028593 rc=0  watcher ran 250s
+.hash marker mtime (last hash change): 1792028343  -> wake came 250s after the last hash change
+watcher stdout (the wake reason):
+  | stale: fm-lab-stalefloor-118976-22704:w6:p1
+triage log:
+  | [2026-10-14T20:39:35-0500] deferred stale (unchanged less than 240s): fm-lab-stalefloor-118976-22704:w6:p1
+wake queue:
+  | 1792028593	3	stale	fm-lab-stalefloor-118976-22704:w6:p1	stale: fm-lab-stalefloor-118976-22704:w6:p1
+watcher stderr (tail):
+

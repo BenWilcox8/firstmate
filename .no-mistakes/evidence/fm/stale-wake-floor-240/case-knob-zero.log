@@ -1,0 +1,15 @@
+== case knob-zero
+watcher: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4Y4B6EVRB772CYCH2EDT1ZA/bin/fm-watch.sh
+lab session: fm-lab-stalefloor-118976-22704  pane: w1:p1  window: fm-lab-stalefloor-118976-22704:w1:p1
+FM_STALE_FIRST_WAKE_SECS: 0   extra env: 
+pane now shows: probe worker: idle at prompt, nothing moving|
+start: 20:36:45 epoch=1792028205
+exit: 20:37:17 epoch=1792028237 rc=0  watcher ran 32s
+.hash marker mtime (last hash change): 1792028206  -> wake came 31s after the last hash change
+watcher stdout (the wake reason):
+  | stale: fm-lab-stalefloor-118976-22704:w1:p1
+triage log:
+wake queue:
+  | 1792028237	1	stale	fm-lab-stalefloor-118976-22704:w1:p1	stale: fm-lab-stalefloor-118976-22704:w1:p1
+watcher stderr (tail):
+

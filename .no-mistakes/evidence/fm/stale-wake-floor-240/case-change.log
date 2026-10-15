@@ -1,0 +1,18 @@
+== case change
+watcher: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4Y4B6EVRB772CYCH2EDT1ZA/bin/fm-watch.sh
+lab session: fm-lab-stalefloor-118976-22704  pane: w5:p1  window: fm-lab-stalefloor-118976-22704:w5:p1
+FM_STALE_FIRST_WAKE_SECS: 60   extra env: 
+pane now shows: codex worker: long command running, static render|
+start: 20:38:30 epoch=1792028310
+pane changed (new output printed) at 20:39:10 epoch=1792028350
+exit: 20:40:20 epoch=1792028420 rc=0  watcher ran 110s
+.hash marker mtime (last hash change): 1792028357  -> wake came 63s after the last hash change
+watcher stdout (the wake reason):
+  | stale: fm-lab-stalefloor-118976-22704:w5:p1
+triage log:
+  | [2026-10-14T20:39:02-0500] deferred non-terminal stale (unchanged less than 60s): fm-lab-stalefloor-118976-22704:w5:p1
+  | [2026-10-14T20:39:48-0500] deferred non-terminal stale (unchanged less than 60s): fm-lab-stalefloor-118976-22704:w5:p1
+wake queue:
+  | 1792028419	1	stale	fm-lab-stalefloor-118976-22704:w5:p1	stale: fm-lab-stalefloor-118976-22704:w5:p1
+watcher stderr (tail):
+

@@ -1,0 +1,16 @@
+== case default
+watcher: /home/ben/.no-mistakes/worktrees/3665d600861c/01M4Y4B6EVRB772CYCH2EDT1ZA/bin/fm-watch.sh
+lab session: fm-lab-stalefloor-118976-22704  pane: w2:p1  window: fm-lab-stalefloor-118976-22704:w2:p1
+FM_STALE_FIRST_WAKE_SECS: UNSET   extra env: 
+pane now shows: default worker: turn ended, idle at prompt|
+start: 20:38:30 epoch=1792028310
+exit: 20:42:39 epoch=1792028559 rc=0  watcher ran 249s
+.hash marker mtime (last hash change): 1792028311  -> wake came 248s after the last hash change
+watcher stdout (the wake reason):
+  | stale: fm-lab-stalefloor-118976-22704:w2:p1
+triage log:
+  | [2026-10-14T20:39:02-0500] deferred non-terminal stale (unchanged less than 240s): fm-lab-stalefloor-118976-22704:w2:p1
+wake queue:
+  | 1792028559	1	stale	fm-lab-stalefloor-118976-22704:w2:p1	stale: fm-lab-stalefloor-118976-22704:w2:p1
+watcher stderr (tail):
+
