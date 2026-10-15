@@ -1,0 +1,13 @@
+  [attempt 1 stderr] error: pooled worktree '/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj' is not clean; refusing to discard uncommitted work while refreshing its base
+ok - setup: the first attempt refused its dirty slot and left its pane inside that slot
+  [leftover slot] meta worktree=/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj
+  [leftover slot] hook wiring workspace_root=/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj
+  [leftover slot] worker cwd=/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/2/proj
+  [leftover slot] slot the retry did not acquire=/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj
+not ok - leftover slot: the retry recorded '/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj' but the worker runs in '/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/2/proj'
+  [spawn1.err]
+warning: /tmp/fm-spawn-retry-leftover.r0DunP/home/data/retry1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: pooled worktree '/tmp/fm-spawn-retry-leftover.r0DunP/pool/.treehouse/proj-8d37ed/1/proj' is not clean; refusing to discard uncommitted work while refreshing its base
+  [spawn2.err]
+warning: /tmp/fm-spawn-retry-leftover.r0DunP/home/data/retry1/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+exit=1 elapsed=35s (base commit 2812e3c, before the fix)

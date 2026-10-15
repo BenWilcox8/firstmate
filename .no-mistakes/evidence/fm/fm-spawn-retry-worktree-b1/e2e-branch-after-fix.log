@@ -1,0 +1,20 @@
+  [attempt 1 stderr] error: pooled worktree '/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/1/proj' is not clean; refusing to discard uncommitted work while refreshing its base
+ok - setup: the first attempt refused its dirty slot and left its pane inside that slot
+  [leftover slot] meta worktree=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/2/proj
+  [leftover slot] hook wiring workspace_root=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/2/proj
+  [leftover slot] worker cwd=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/2/proj
+  [leftover slot] slot the retry did not acquire=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/1/proj
+ok - fixed: the retry records, wires, and runs the worker in the copy its treehouse get entered
+ok - setup: the earlier attempt stopped while its own treehouse get still fetches in its pane
+  [in-flight get] meta worktree=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/4/proj
+  [in-flight get] hook wiring workspace_root=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/4/proj
+  [in-flight get] worker cwd=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/4/proj
+  [in-flight get] slot the retry did not acquire=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/3/proj
+ok - fixed: a retry behind an in-flight get records, wires, and runs the worker in the copy its own get entered
+ok - setup: a second earlier treehouse get waits in the pane's input behind the first
+  [two queued gets] meta worktree=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/7/proj
+  [two queued gets] hook wiring workspace_root=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/7/proj
+  [two queued gets] worker cwd=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/7/proj
+  [two queued gets] slot the retry did not acquire=/tmp/fm-spawn-retry-leftover.fUoN4B/pool/.treehouse/proj-38f212/6/proj
+ok - fixed: a retry behind two earlier gets records, wires, and runs the worker in the copy its own get entered
+exit=0 elapsed=194s (branch ac642f3, with the fix)

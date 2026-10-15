@@ -1,0 +1,8 @@
+  [attempt 1 stderr] error: pooled worktree '/tmp/fm-spawn-retry-leftover.FIaXGl/pool/.treehouse/proj-6efc09/1/proj' is not clean; refusing to discard uncommitted work while refreshing its base
+ok - setup: the first attempt refused its dirty slot and left its pane inside that slot
+  [leftover slot] meta worktree=/tmp/fm-spawn-retry-leftover.FIaXGl/pool/.treehouse/proj-6efc09/2/proj
+  [leftover slot] claude hooks (.claude/settings.local.json) installed in=/tmp/fm-spawn-retry-leftover.FIaXGl/pool/.treehouse/proj-6efc09/2/proj
+  [leftover slot] worker cwd=/tmp/fm-spawn-retry-leftover.FIaXGl/pool/.treehouse/proj-6efc09/2/proj
+  [leftover slot] slot the retry did not acquire=/tmp/fm-spawn-retry-leftover.FIaXGl/pool/.treehouse/proj-6efc09/1/proj
+ok - fixed: the retry records, wires, and runs the worker in the copy its treehouse get entered
+exit=0 elapsed=39s (branch ac642f3, with the fix, claude harness)

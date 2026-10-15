@@ -1,0 +1,7 @@
+ok - setup: the first attempt refused its dirty slot and left its pane inside that slot
+ok - fixed: the retry records, wires, and runs the worker in the copy its treehouse get entered
+ok - setup: the earlier attempt stopped while its own treehouse get still fetches in its pane
+ok - fixed: a retry behind an in-flight get records, wires, and runs the worker in the copy its own get entered
+ok - setup: a second earlier treehouse get waits in the pane's input behind the first
+ok - fixed: a retry behind two earlier gets records, wires, and runs the worker in the copy its own get entered
+exit=0 elapsed=194s

@@ -1,0 +1,13 @@
+/run/current-system/sw/bin/bash -l
+
+[ben@nixos:/tmp/fm-spawn-retry-leftover.V12he8/proj]$ /run/current-system/sw/bin/bash -l
+
+[ben@nixos:/tmp/fm-spawn-retry-leftover.V12he8/proj]$ treehouse get
+A new version of treehouse is available: v2.3.0 → v3.1.3
+Run "treehouse update" to update
+
+🌳 Setting up worktree...
+🌳 Entered worktree at /tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/1/proj.
+ Type 'exit' to return.
+
+[ben@nixos:/tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/1/proj]$ sleep 917

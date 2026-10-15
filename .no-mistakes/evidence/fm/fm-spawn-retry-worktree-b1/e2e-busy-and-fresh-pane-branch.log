@@ -1,0 +1,17 @@
+  [attempt 1 stderr] error: pooled worktree '/tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/1/proj' is not clean; refusing to discard uncommitted work while refreshing its base
+ok - setup: the first attempt refused its dirty slot and left its pane inside that slot
+  [busy pane] leftover pane w1:p2 foreground: [["sleep","917"]]
+  [busy pane] retry exited non-zero after 38s
+  [busy pane] retry stderr: error: pane fm-lab-fm-spawn-retry-2342395-16684:w1:p2 was left behind by an earlier attempt for task retry1, and no idle shell held its foreground within about 30s, so a command an earlier attempt typed may still run or wait there; refusing before typing into it, and leaving that pane as it is; inspect window fm-lab-fm-spawn-retry-2342395-16684:w1:p2
+  [busy pane] leftover pane still open after refusal: w1:p2
+  [busy pane] pool slots before retry: /tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/1/proj 
+  [busy pane] pool slots after retry and sleep end: /tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/1/proj 
+  [busy pane] typed treehouse get lines on the pane screen: before retry 1, after refusal 1
+ok - busy pane: the retry refused within its bound, named the leftover pane, typed nothing, and left the pane open
+  [fresh pane] spawn launched in 19s
+  [fresh pane] meta worktree=/tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/2/proj
+  [fresh pane] hook wiring workspace_root=/tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/2/proj
+  [fresh pane] worker cwd=/tmp/fm-spawn-retry-leftover.V12he8/pool/.treehouse/proj-5d18af/2/proj
+  [fresh pane] slot the retry did not acquire=/nonexistent
+ok - fresh pane: a first spawn in a new pane records, wires, and runs the worker in one copy
+exit=0 elapsed=82s (branch ac642f3)
