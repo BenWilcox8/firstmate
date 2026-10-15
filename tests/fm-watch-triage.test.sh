@@ -2268,7 +2268,7 @@ test_stale_first_wake_floor_keeps_wedge_escalation_timing() {
 # busy verdict and goes quiet again. The watcher that starts after the wake must
 # make that quiet pane wait the whole floor from its own last hash change.
 test_stale_first_wake_floor_restarts_after_a_delivered_wake() {
-  local dir state fakebin out capture_file window key pid turn_two elapsed
+  local dir state fakebin out capture_file window key pid last_change elapsed
   dir=$(make_case stale-floor-next-turn); state="$dir/state"; fakebin="$dir/fakebin"
   out="$dir/watch.out"; capture_file="$dir/pane.txt"
   window="test:fm-codex"
@@ -2288,7 +2288,6 @@ test_stale_first_wake_floor_restarts_after_a_delivered_wake() {
   ack_stopped_cycle "$state" || fail "could not acknowledge the turn-one stale wake"
 
   # Turn two renders new output with no busy verdict, then goes quiet.
-  turn_two=$(date +%s)
   printf 'turn two working' > "$capture_file"
   : > "$out"
   PATH="$fakebin:$PATH" FM_FAKE_TMUX_WINDOW="$window" FM_FAKE_TMUX_CAPTURE="$capture_file" \
@@ -2296,11 +2295,12 @@ test_stale_first_wake_floor_restarts_after_a_delivered_wake() {
     FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   wait_poll_cycle "$state" "$pid" || { reap "$pid"; fail "watcher woke while turn two rendered new output: $(cat "$out")"; }
+  last_change=$(date +%s)
   printf 'turn two finished' > "$capture_file"
   wait_for_exit "$pid" 300 || { reap "$pid"; fail "watcher never woke for the quiet pane after turn two"; }
-  elapsed=$(( $(date +%s) - turn_two ))
+  elapsed=$(( $(date +%s) - last_change ))
   grep -Fx "stale: $window" "$out" >/dev/null || fail "turn two did not print its stale wake: $(cat "$out")"
-  [ "$elapsed" -ge 10 ] || fail "turn two woke ${elapsed}s after it started, before its own 10s floor"
+  [ "$elapsed" -ge 10 ] || fail "turn two woke ${elapsed}s after its last hash change, before the 10s floor"
   unset FM_FAKE_CREW_STATE
   pass "a pane with no busy verdict waits the floor again before the stale wake after its next turn"
 }
