@@ -10,7 +10,7 @@ firstmate's supervisor contract and routing index for conditional procedures is 
 
 A zero-token bash watcher (`bin/fm-watch.sh`) sleeps on the fleet, classifies detected wakes in bash, and wakes the first mate only when something is actionable.
 Actionable wakes include captain-relevant status signals, no-verb signals without positive execution evidence, authenticated check output, stale panes, bounded wait rechecks, and heartbeat backstop hits.
-A stale pane wakes the first mate only after its pane hash has stayed unchanged for `FM_STALE_FIRST_WAKE_SECS` (default 240 seconds), because most panes that are still for two polls are only between turns.
+A stale pane wakes the first mate only after its pane hash has stayed unchanged for `FM_STALE_FIRST_WAKE_SECS` ([`configuration.md`](configuration.md) owns its default), because most panes that stay unchanged for two polls are only between turns.
 Any change of the pane hash starts that count again, in the same way that it restarts the two-poll count.
 A provably working stale pane can defer escalation for its worker's declared wait or current worktree writes.
 An armed `config/wedge-defer-parked-gate` also permits deferral for that worker's unanswered supervisor decision at a validation gate.
