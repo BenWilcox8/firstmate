@@ -8,11 +8,11 @@
 # ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
 # The old endpoint must be dead or missing, its last outcome must be done, and
 # it must have no open decision. Its final outcome must reach the parent channel
-# first; an undelivered outcome refuses. The pool slot, live record, and live
-# endpoint must agree: Treehouse records the slot owner as owner_pid and
-# owner_started_at (epoch milliseconds). That process must still run with that
-# start time, and every foreground process of the live endpoint must descend
-# from it. The proof reads /proc, so a host without it refuses.
+# first; an undelivered outcome refuses. With --live-task, the pool slot, live
+# record, and live endpoint must agree: Treehouse records the slot owner as
+# owner_pid and owner_started_at (epoch milliseconds). That process must still
+# run with that start time, and every foreground process of the live endpoint
+# must descend from it. The proof reads /proc, so a host without it refuses.
 # --no-live-owner retires a record from a shared slot that has no live owner,
 # such as a slot that several finished records name after their workers exited.
 # The scan covers this home, the local root home, and every local home its

@@ -1176,8 +1176,9 @@ fm_task_set_lock_path() {  # <state-dir>
 # nor be observed by a lock taken here, and a remote-seeded home is itself the
 # top of the local tree that bin/fm-secondmate-registry-lib.sh's
 # secondmate_registry_local_state_dirs enumerates (that walk already skips
-# remote registry entries for the same reason). Refusing a remote binding instead made every operation anchored here
-# fail closed inside a remote secondmate home and its local descendants.
+# remote registry entries for the same reason). Refusing a remote binding
+# instead made every operation anchored here fail closed inside a remote
+# secondmate home and its local descendants.
 #
 # Everything else still fails closed: an unreadable or malformed binding, an
 # unreachable local parent, a cycle, and a chain deeper than the bound.
