@@ -572,8 +572,173 @@ test_retirement_serializes_with_live_task_lifecycle() {
   pass 'retirement refuses while another lifecycle action owns the live task'
 }
 
+# A shared slot whose workers all exited: Treehouse records no running owner,
+# the old record is a landed local-only ship, and a newer finished scout record
+# names the same slot with its own branch and scratch files checked out there.
+make_shared_slot() {  # <name> [newer-state-dir]
+  local newer_state=${2:-}
+  make_case "$1"
+  [ -n "$newer_state" ] || newer_state=$CASE/home/state
+  mkdir -p "$newer_state"
+  jq '.worktrees[0] |= del(.owner_pid, .owner_started_at)' "$CASE/pool/treehouse-state.json" > "$CASE/pool/new.json"
+  mv "$CASE/pool/new.json" "$CASE/pool/treehouse-state.json"
+  perl -pi -e 's/^spawn_gen=.*/spawn_gen=s1000.1.1/' "$CASE/home/state/old.meta"
+  git -C "$WT" checkout -qb fm/newer
+  printf 'newer scratch\n' > "$WT/scratch"
+  NEWER_META=$newer_state/newer.meta
+  fm_write_meta "$NEWER_META" "window=fixture:fm-newer" "endpoint_task_id=newer" \
+    "worktree=$WT" "project=$CASE/project" "kind=scout" "spawn_gen=s2000.2.2"
+  printf 'done: newer finished\n' > "$newer_state/newer.status"
+  cat > "$CASE/fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  list-windows) [ ! -e "$CASE/live-windows" ] || cat "$CASE/live-windows" ;;
+  display-message) printf '/dev/pts/fixture\n' ;;
+  *) printf 'unexpected tmux mutation: %s\n' "$*" >> "$CASE/runtime.log"; exit 1 ;;
+esac
+SH
+  chmod +x "$CASE/fakebin/tmux"
+}
+
+run_retire_unowned() {
+  env FM_HOME="$CASE/home" FM_ROOT_OVERRIDE="$ROOT" FM_STATE_OVERRIDE="$CASE/home/state" \
+    FM_DATA_OVERRIDE="$CASE/home/data" FM_CONFIG_OVERRIDE="$CASE/home/config" \
+    PATH="$CASE/fakebin:$PATH" "$ROOT/bin/fm-local-retire-reassigned.sh" old --no-live-owner "$@"
+}
+
+assert_unowned_retired() {  # <label>
+  local old_head
+  old_head=$(git -C "$CASE/project" rev-parse fm/old)
+  cp "$CASE/home/state/old.meta" "$CASE/old.before"
+  cp "$NEWER_META" "$CASE/newer.before"
+  cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
+  run_retire_unowned > "$CASE/out" 2> "$CASE/err" || fail "$1: retirement failed: $(cat "$CASE/err")"
+  assert_absent "$CASE/home/state/old.meta" "$1: finished record still active"
+  cmp -s "$CASE/old.before" "$CASE/home/data/old/retired-reassigned/old.meta" || fail "$1: old record was not archived intact"
+  cmp -s "$CASE/newer.before" "$NEWER_META" || fail "$1: newer record changed"
+  cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$1: pool record changed"
+  [ "$(git -C "$CASE/project" rev-parse fm/old)" = "$old_head" ] || fail "$1: old branch changed or was deleted"
+  [ "$(git -C "$WT" branch --show-current)" = fm/newer ] || fail "$1: slot checkout changed"
+  [ "$(cat "$WT/scratch")" = 'newer scratch' ] || fail "$1: slot scratch changed"
+  assert_absent "$CASE/runtime.log" "$1: retirement called process or pool cleanup"
+}
+
+test_unowned_slot_retires_older_record() {
+  make_shared_slot unowned-retire
+  assert_unowned_retired 'same-home claimant'
+  pass 'a finished record in a slot with no live owner retires without touching the slot, branch, or newer record'
+}
+
+# A legacy record without spawn_gen that still names the slot.
+add_legacy_claimant() {
+  fm_write_meta "$CASE/home/state/legacy.meta" "window=fixture:fm-legacy" "endpoint_task_id=legacy" \
+    "worktree=$WT" "project=$CASE/project" "kind=ship"
+}
+
+test_unowned_slot_skips_a_legacy_claimant_for_ordering() {
+  make_shared_slot unowned-legacy
+  add_legacy_claimant
+  assert_unowned_retired 'legacy claimant'
+  pass 'a dead legacy claimant without spawn_gen does not block retirement'
+}
+
+test_unowned_slot_proves_the_recorded_owner_stopped() {
+  local exited
+  make_shared_slot unowned-exited-owner
+  exited=$(sh -c 'printf "%s\n" "$$"')
+  set_slot_owner "$exited" 1
+  assert_unowned_retired 'exited owner'
+  make_shared_slot unowned-reused-owner
+  set_slot_owner "$$" "$(($(started_ms "$$") + 10))"
+  assert_unowned_retired 'reused owner pid'
+  pass 'a recorded slot owner that /proc shows exited or reused does not block retirement'
+}
+
+test_unowned_slot_scans_registered_local_homes() {
+  make_shared_slot unowned-mate "$TMP_ROOT/unowned-mate/mate/state"
+  printf -- '- mate - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)\n' "$CASE/mate" \
+    > "$CASE/home/data/secondmates.md"
+  assert_unowned_retired 'secondmate-home claimant'
+  make_shared_slot unowned-mate-live "$TMP_ROOT/unowned-mate-live/mate/state"
+  printf -- '- mate - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)\n' "$CASE/mate" \
+    > "$CASE/home/data/secondmates.md"
+  printf 'fm-newer\n' > "$CASE/live-windows"
+  cp "$CASE/home/state/old.meta" "$CASE/old.before"
+  if run_retire_unowned > "$CASE/out" 2> "$CASE/err"; then fail 'a live claimant in a registered home allowed retirement'; fi
+  cmp -s "$CASE/old.before" "$CASE/home/state/old.meta" || fail 'refused retirement changed the old record'
+  pass 'the unowned-slot scan includes records in registered local secondmate homes'
+}
+
+test_unowned_slot_closes_an_archived_backlog_row() {
+  make_shared_slot unowned-archived
+  printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\narchive = "data/done-archive.md"\n' > "$CASE/home/.tasks.toml"
+  printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n' > "$CASE/home/data/backlog.md"
+  (
+    cd "$CASE/home" || exit 1
+    tasks-axi add old 'Finished ship' --file "$CASE/home/data/backlog.md" >/dev/null
+    tasks-axi start old --file "$CASE/home/data/backlog.md" >/dev/null
+    tasks-axi "done" old --keep 0 --file "$CASE/home/data/backlog.md" >/dev/null
+  )
+  assert_grep '- [x] old -' "$CASE/home/data/done-archive.md" 'fixture did not archive the row'
+  assert_unowned_retired 'archived backlog row'
+  assert_absent "$CASE/home/state/old.backlog-close" 'retirement kept a close it no longer owes'
+  assert_no_grep '- [x] old -' "$CASE/home/data/backlog.md" 'retirement restored the archived row'
+  pass 'unowned-slot retirement treats a row already in the done archive as closed'
+}
+
+test_unowned_slot_refusals_preserve_records() {
+  local scenario
+  for scenario in newest same-epoch sole-record legacy-gen legacy-only legacy-alive newer-alive old-alive running-owner unprovable-owner claim-mine unreadable-claim unlanded-ship with-live-task; do
+    make_shared_slot "unowned-$scenario"
+    local extra=() expect=
+    case "$scenario" in
+      newest) expect='newest claimant'; perl -pi -e 's/^spawn_gen=.*/spawn_gen=s3000.1.1/' "$CASE/home/state/old.meta" ;;
+      same-epoch) expect='newest claimant'; perl -pi -e 's/^spawn_gen=.*/spawn_gen=s2000.9.9/' "$CASE/home/state/old.meta" ;;
+      sole-record) expect='newest claimant'; rm "$NEWER_META" ;;
+      legacy-gen) expect='no spawn_gen epoch'; perl -pi -e 's/^spawn_gen=.*/spawn_gen=old-generation/' "$CASE/home/state/old.meta" ;;
+      newer-alive) expect='slot record newer does not have'; printf 'fm-newer\n' > "$CASE/live-windows" ;;
+      old-alive) expect='slot record old does not have'; printf 'fm-old\n' > "$CASE/live-windows" ;;
+      legacy-only) expect='newest claimant'; rm "$NEWER_META"; add_legacy_claimant ;;
+      legacy-alive) expect='slot record legacy does not have'; add_legacy_claimant; printf 'fm-legacy\n' > "$CASE/live-windows" ;;
+      running-owner) expect='owner process is still running'; set_slot_owner "$$" ;;
+      unprovable-owner)
+        expect='cannot prove the pool slot owner process stopped'
+        set_slot_owner "$$"
+        printf '#!/usr/bin/env bash\nexit 1\n' > "$CASE/fakebin/getconf"
+        chmod +x "$CASE/fakebin/getconf"
+        ;;
+      claim-mine) expect='claim still names this task'; printf 'task=old\nhome=%s\n' "$CASE/home" > "$(dirname "$WT")/.fm-slot-owner" ;;
+      unreadable-claim) expect='claim cannot be read'; mkdir "$(dirname "$WT")/.fm-slot-owner" ;;
+      unlanded-ship)
+        expect='unlanded work'
+        git -C "$CASE/project" commit -q --allow-empty -m drift
+        git -C "$CASE/project" branch -f fm/old HEAD
+        git -C "$CASE/project" reset -q --hard HEAD~1
+        ;;
+      with-live-task) expect='takes no live task'; extra=(--live-task newer) ;;
+    esac
+    cp "$CASE/home/state/old.meta" "$CASE/old.before"
+    cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
+    if run_retire_unowned ${extra[@]+"${extra[@]}"} > "$CASE/out" 2> "$CASE/err"; then
+      fail "$scenario unexpectedly allowed retirement"
+    fi
+    assert_contains "$(cat "$CASE/err")" "$expect" "$scenario refused for another reason"
+    cmp -s "$CASE/old.before" "$CASE/home/state/old.meta" || fail "$scenario changed the old record"
+    cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$scenario changed the pool record"
+    [ "$(cat "$WT/scratch")" = 'newer scratch' ] || fail "$scenario changed the slot"
+    assert_absent "$CASE/runtime.log" "$scenario touched an endpoint or slot"
+  done
+  pass 'unowned-slot retirement refuses the newest, unordered, live, owned, unprovable, claimed, and unlanded cases'
+}
+
 test_unsafe_merge_marker_refusal_preserves_slot
 test_retirement_checks_atlas_task_identity
+test_unowned_slot_retires_older_record
+test_unowned_slot_skips_a_legacy_claimant_for_ordering
+test_unowned_slot_proves_the_recorded_owner_stopped
+test_unowned_slot_scans_registered_local_homes
+test_unowned_slot_closes_an_archived_backlog_row
+test_unowned_slot_refusals_preserve_records
 test_parent_gate_preserves_slot
 test_late_outcome_reaches_parent_before_record_retires
 test_undelivered_late_outcome_completes_after_owner_exits
