@@ -1,0 +1,10 @@
+ok - classify names working, parked, finished, captain-waiting, and slot-reused workers
+ok - classify checks captain-held first, finished before captain-waiting, and only an active run overrides an open decision
+ok - a recorded pane that now runs other work is not the worker's endpoint
+ok - lease-check counts a live agent whose pane location cannot be read
+ok - run relaunches only working workers, one summary, once per restart
+ok - run reports a failed relaunch with its reason and continues
+ok - lease-check reports a worktree Treehouse leased to another live process
+ok - lease-check finds a newer record for the worktree in a second mate's home
+ok - fm-spawn --relaunch refuses a worktree leased to other work (worktree-lease seam)
+ok - record starts worker restore once for a detected restart (restart-record seam)

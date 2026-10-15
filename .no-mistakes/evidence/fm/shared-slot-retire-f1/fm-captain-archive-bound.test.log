@@ -1,0 +1,3 @@
+ok - the live backlog carries the captain answer
+ok - the archive carries an idempotent answer replay
+ok - a live read timeout cannot accept a stale archive answer

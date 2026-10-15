@@ -1,0 +1,23 @@
+# Base commit 2812e3c, registry refusal parity (teardown message must match the change)
+
+=== shared scan: an unavailable registered local home refuses teardown and --no-live-owner alike
+$ FM_HOME=missing-mate/home bin/fm-teardown.sh old
+  | REFUSED: registered local Firstmate home is unavailable: gone-mate/mate; nothing was changed
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: registered local Firstmate home is unavailable
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+$ FM_HOME=missing-mate/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: unknown argument: --no-live-owner
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK FAILED: refusal does not name: registered local Firstmate home is unavailable
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+SUMMARY: 11 checks ok, 1 checks failed

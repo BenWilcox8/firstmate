@@ -1,0 +1,121 @@
+
+=== help: the retire command documents --no-live-owner
+$ FM_HOME=/tmp/fm-live-f1f3.94g6dr bin/fm-local-retire-reassigned.sh --help
+  | Retire one finished record after Treehouse leased its slot to another live task.
+  | Usage: FM_HOME=<home> fm-local-retire-reassigned.sh <id> --live-task <id>
+  |        [--live-home <home>]
+  | 
+  | This explicit repair never returns a slot, changes a worktree, deletes a Git
+  | ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
+  | The old endpoint must be dead or missing, its last outcome must be done, and
+  | it must have no open decision. Its final outcome must reach the parent channel
+  | first; an undelivered outcome refuses. The pool slot, live record, and live
+  | endpoint must agree: Treehouse records the slot owner as owner_pid and
+  | owner_started_at (epoch milliseconds). That process must still run with that
+  | start time, and every foreground process of the live endpoint must descend
+  | from it. The proof reads /proc, so a host without it refuses.
+  | All reads and retirement hold the project and both task locks.
+  | A scout needs its report and the existing captain-call completion gate.
+  | A ship also needs a clean shared worktree and its retained fm/<id> branch
+  | reachable from a remote, or from local main/master in local-only mode.
+  | Missing proof refuses: a done line or a merged PR alone cannot prove that
+  | subsequent edits landed. Uncommitted ship work always refuses.
+  | 
+  | The command archives the old metadata and status under
+  | data/<id>/retired-reassigned before removing either active record. It closes
+  | the backlog through the existing recovery marker. Before retirement it closes
+  | only the old Atlas ticket through bin/fm-atlas-hook.sh land, the teardown
+  | discharge: complete the ticket, release its node, and land the node when no
+  | other open ticket remains on it. The hook state must then read completed.
+  | A refused completion takes the hook's keyed blocker line in the old status log
+  | and retains the active record. A refused node landing is written to a fresh
+  | status log after retirement, as teardown does. No approval is inferred from a
+  | done line.
+  | Task check files and other volatile records move into the same archive.
+  | Global hook registrations and tasktmp remain untouched for manual inspection.
+  | Legacy records without spawn_gen refuse when automatic backlog closure applies.
+  | FM_HOME must be explicit. FM_*_OVERRIDE paths follow the normal teardown seam.
+  exit=0
+  CHECK FAILED: help lacks --no-live-owner
+
+=== F1 same-home: teardown refuses the shared slot and points at the retire tool
+  endpoint states: old=missing newer=dead
+$ FM_HOME=same-home/home bin/fm-teardown.sh old
+  | REFUSED: task old's recorded worktree same-home/treehouse/project-1a2b3c/16/project is also task newer's recorded worktree.
+  | Returning that pool slot would kill newer's processes and reset its copy, so nothing was changed - not even with --force.
+  | Reconcile whichever record is wrong (bin/fm-crew-state.sh old; bin/fm-crew-state.sh newer), then re-run teardown.
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: is also task newer's recorded worktree
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK FAILED: teardown refusal has no retire hint
+$ FM_HOME=same-home/home bin/fm-teardown.sh old --force
+  | REFUSED: task old's recorded worktree same-home/treehouse/project-1a2b3c/16/project is also task newer's recorded worktree.
+  | Returning that pool slot would kill newer's processes and reset its copy, so nothing was changed - not even with --force.
+  | Reconcile whichever record is wrong (bin/fm-crew-state.sh old; bin/fm-crew-state.sh newer), then re-run teardown.
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: not even with --force
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 same-home: --no-live-owner retires the older finished record and closes its row
+$ FM_HOME=same-home/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: unknown argument: --no-live-owner
+  exit=1
+  CHECK FAILED: retire exited 0
+  CHECK FAILED: old record no longer active
+  CHECK FAILED: old record archived under data/old/retired-reassigned
+  CHECK FAILED: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta 6ed3f8cd612fad9efaed764c3674179307a7f5d607556d0e5664cd12a2503d83  -;pool 141cca0ca378edb1c880f61ed9e77edf686ba5d6ca73e1c9c2ecc17fbc2254a3  -;fm/old b8f9dd6e9021d31811fe3fc8f0e19943551e31ac;fm/newer e3b908044f83dc8d7dc6d911ee915d968aab68ca;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+  CHECK FAILED: unexpected success line
+  CHECK FAILED: backlog row closed (state=in_flight)
+  CHECK ok: newer record still active
+
+=== F1 same-home: the newer record still refuses retirement (it is now the newest claimant)
+$ FM_HOME=same-home/home bin/fm-local-retire-reassigned.sh newer --no-live-owner
+  | REFUSED: unknown argument: --no-live-owner
+  exit=1
+  CHECK ok: newer retire refused
+  CHECK FAILED: newer refused for unexpected reason
+
+=== F1+F3: --no-live-owner retirement of a record whose row retention already archived
+  archive before: - [x] old - Ship the feature (kind: ship) (done 2026-10-14)
+  live backlog show: error: "Task \"old\" not found in this backlog" code: NOT_FOUND 
+$ FM_HOME=archived-row/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: unknown argument: --no-live-owner
+  exit=1
+  CHECK FAILED: retire exited 0
+  CHECK FAILED: old record no longer active
+  CHECK FAILED: old record archived under data/old/retired-reassigned
+  CHECK FAILED: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta 6b973bcf4f0f915a0f5852dad8977c8080bc78901aa2c75c55aa224e209ce99c  -;pool a01a67a665a9bc33c6c8898608617b5b1805aa0087cb3cd78186e59dd378185f  -;fm/old afb689f4ad355a4b8d46d08c401be8606e8c9226;fm/newer cbb36af1e66e4beffb919c65a7be9f416a804911;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+  CHECK ok: archived entry still present
+  CHECK ok: row not restored into the live backlog
+
+=== F3 teardown: a row already in the done archive counts as closed
+  archive: - [x] arch - Archived ship (kind: ship) (done 2026-10-14)
+  tasks-axi show (live backlog): error: "Task \"arch\" not found in this backlog" code: NOT_FOUND 
+$ FM_HOME=teardown-archived/home bin/fm-teardown.sh arch
+  | teardown: reaping leaked worktree process group for arch: 1069216
+  | teardown: force-killing leaked worktree process group for arch: 1069216
+  | error: arch's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically (error: "Task \"arch\" not found in this backlog"); the pending close is recorded and the next session start retries it
+  exit=1
+  CHECK FAILED: teardown exited 0
+  CHECK ok: task record removed
+  CHECK FAILED: no backlog-close marker owed
+  CHECK ok: archived entry intact
+  CHECK ok: row not restored into the live backlog
+
+SUMMARY: 25 checks ok, 15 checks failed

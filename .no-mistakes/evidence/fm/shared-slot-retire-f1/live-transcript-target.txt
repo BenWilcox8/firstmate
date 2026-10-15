@@ -1,0 +1,361 @@
+
+=== help: the retire command documents --no-live-owner
+$ FM_HOME=/tmp/fm-live-f1f3.qIDTLd bin/fm-local-retire-reassigned.sh --help
+  | Retire one finished record after Treehouse leased its slot to another task.
+  | Usage: FM_HOME=<home> fm-local-retire-reassigned.sh <id> --live-task <id>
+  |        [--live-home <home>]
+  |        FM_HOME=<home> fm-local-retire-reassigned.sh <id> --no-live-owner
+  | 
+  | This explicit repair never returns a slot, changes a worktree, deletes a Git
+  | ref, stops an endpoint, or reaps a process. Normal teardown stays unchanged.
+  | The old endpoint must be dead or missing, its last outcome must be done, and
+  | it must have no open decision. Its final outcome must reach the parent channel
+  | first; an undelivered outcome refuses. The pool slot, live record, and live
+  | endpoint must agree: Treehouse records the slot owner as owner_pid and
+  | owner_started_at (epoch milliseconds). That process must still run with that
+  | start time, and every foreground process of the live endpoint must descend
+  | from it. The proof reads /proc, so a host without it refuses.
+  | --no-live-owner retires a record from a shared slot that has no live owner,
+  | such as a slot that several finished records name after their workers exited.
+  | The scan covers this home, the local root home, and every local home its
+  | secondmate registries reach. Every record whose worktree= or home= names the
+  | slot must have a dead or missing endpoint. A recorded Treehouse slot owner
+  | process must read as stopped from /proc, so a host without it refuses. The
+  | slot-owner claim must not name the old task.
+  | Another record for the slot must carry a newer spawn_gen epoch (s<epoch>.*),
+  | so the old task is not the newest claimant. An equal epoch or an unreadable
+  | old epoch refuses, and a record with an unreadable epoch does not count as
+  | newer. That newer record then owns the slot's working tree, so its
+  | uncommitted state is left for that record's own cleanup and is not counted
+  | as the old task's work. The landed proof below otherwise applies unchanged.
+  | All reads and retirement hold the project lock and each named task's locks.
+  | A scout needs its report and the existing captain-call completion gate.
+  | A ship needs its retained fm/<id> branch reachable from a remote, or from
+  | local main/master in local-only mode, and not checked out in the slot.
+  | With --live-task it also needs a clean shared worktree, so uncommitted ship
+  | work refuses. Missing proof refuses: a done line or a merged PR alone cannot
+  | prove that subsequent edits landed.
+  | 
+  | The command archives the old metadata and status under
+  | data/<id>/retired-reassigned before removing either active record. It closes
+  | the backlog through the existing recovery marker. Before retirement it closes
+  | only the old Atlas ticket through bin/fm-atlas-hook.sh land, the teardown
+  | discharge: complete the ticket, release its node, and land the node when no
+  | other open ticket remains on it. The hook state must then read completed.
+  | A refused completion takes the hook's keyed blocker line in the old status log
+  | and retains the active record. A refused node landing is written to a fresh
+  | status log after retirement, as teardown does. No approval is inferred from a
+  | done line.
+  | Task check files and other volatile records move into the same archive.
+  | Global hook registrations and tasktmp remain untouched for manual inspection.
+  | Legacy records without spawn_gen refuse when automatic backlog closure applies.
+  | FM_HOME must be explicit. FM_*_OVERRIDE paths follow the normal teardown seam.
+  exit=0
+  CHECK ok: help names --no-live-owner
+
+=== F1 same-home: teardown refuses the shared slot and points at the retire tool
+  endpoint states: old=missing newer=dead
+$ FM_HOME=same-home/home bin/fm-teardown.sh old
+  | REFUSED: task old's recorded worktree same-home/treehouse/project-1a2b3c/16/project is also task newer's recorded worktree.
+  | Returning that pool slot would kill newer's processes and reset its copy, so nothing was changed - not even with --force.
+  | Reconcile whichever record is wrong (bin/fm-crew-state.sh old; bin/fm-crew-state.sh newer), then re-run teardown.
+  | A finished stale record can be retired without touching the slot through bin/fm-local-retire-reassigned.sh (see its --help).
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: is also task newer's recorded worktree
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: teardown refusal hints at fm-local-retire-reassigned.sh
+$ FM_HOME=same-home/home bin/fm-teardown.sh old --force
+  | REFUSED: task old's recorded worktree same-home/treehouse/project-1a2b3c/16/project is also task newer's recorded worktree.
+  | Returning that pool slot would kill newer's processes and reset its copy, so nothing was changed - not even with --force.
+  | Reconcile whichever record is wrong (bin/fm-crew-state.sh old; bin/fm-crew-state.sh newer), then re-run teardown.
+  | A finished stale record can be retired without touching the slot through bin/fm-local-retire-reassigned.sh (see its --help).
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: not even with --force
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 same-home: --no-live-owner retires the older finished record and closes its row
+$ FM_HOME=same-home/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | retired old; slot same-home/treehouse/project-1a2b3c/16/project and its newer records unchanged; evidence same-home/home/data/old/retired-reassigned
+  exit=0
+  CHECK ok: retire exited 0
+  CHECK ok: old record no longer active
+  CHECK ok: old record archived under data/old/retired-reassigned
+  CHECK ok: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta a8f484cbc204da3b0ff058e267b14212324125ded988f78c7daf62d17b20926f  -;pool a43162b8be7cc88389bd11cc598c0a8edeeb8de70a3488f2f9b46a7cf49a64c6  -;fm/old 1b9d4b96aae1b1e023f370034090c20598294d5c;fm/newer 11a6b1e900b715cb63727667f90fa44fa38448ba;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+  CHECK ok: success line names the preserved slot
+  CHECK ok: backlog row closed (state=done)
+  CHECK ok: newer record still active
+
+=== F1 same-home: the newer record still refuses retirement (it is now the newest claimant)
+$ FM_HOME=same-home/home bin/fm-local-retire-reassigned.sh newer --no-live-owner
+  | REFUSED: old record is the newest claimant of the slot by spawn_gen
+  exit=1
+  CHECK ok: newer retire refused
+  CHECK ok: newer refused: REFUSED: old record is the newest claimant of the slot by spawn_gen
+
+=== F1 cross-home: the newer claimant lives in a registered local secondmate home
+  endpoint states: old=missing newer=dead
+$ FM_HOME=secondmate-home/home bin/fm-teardown.sh old
+  | REFUSED: task old's recorded worktree secondmate-home/treehouse/project-1a2b3c/16/project is also task newer's recorded worktree.
+  | Returning that pool slot would kill newer's processes and reset its copy, so nothing was changed - not even with --force.
+  | Reconcile whichever record is wrong (bin/fm-crew-state.sh old; bin/fm-crew-state.sh newer), then re-run teardown.
+  | A finished stale record can be retired without touching the slot through bin/fm-local-retire-reassigned.sh (see its --help).
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: is also task newer's recorded worktree
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+$ FM_HOME=secondmate-home/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | retired old; slot secondmate-home/treehouse/project-1a2b3c/16/project and its newer records unchanged; evidence secondmate-home/home/data/old/retired-reassigned
+  exit=0
+  CHECK ok: retire exited 0
+  CHECK ok: old record no longer active
+  CHECK ok: old record archived under data/old/retired-reassigned
+  CHECK ok: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta 62b033e5ff8a2f2e07067b0aa329cd681cfe73d1fe8614c8231747169d40cd8b  -;pool 53bcd2ed152c82ca1a648da5d9acd608a9dae7a47fd554992dbd60af45218699  -;fm/old 1438317e442b6d6ab8a2b2b7627679bf755612ed;fm/newer e4e4163ff86f0da61ff74a9da9761d3d1e92cdf6;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+
+=== F1+F3: --no-live-owner retirement of a record whose row retention already archived
+  archive before: - [x] old - Ship the feature (kind: ship) (done 2026-10-14)
+  live backlog show: error: "Task \"old\" not found in this backlog" code: NOT_FOUND 
+$ FM_HOME=archived-row/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | retired old; slot archived-row/treehouse/project-1a2b3c/16/project and its newer records unchanged; evidence archived-row/home/data/old/retired-reassigned
+  exit=0
+  CHECK ok: retire exited 0
+  CHECK ok: old record no longer active
+  CHECK ok: old record archived under data/old/retired-reassigned
+  CHECK ok: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta a40908a2d3bff5e1745295756e38393b816c858b24e83472f19b5b65bb34ff5b  -;pool 6099e27b09622dac42c167806022b84814aef0f0906ca249ceff0647af40efbe  -;fm/old b693b0d796de923ef7f39177215522a91127df2e;fm/newer 2cff2830001c58e9af0e6dccd782ecdda445b505;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+  CHECK ok: archived entry still present
+  CHECK ok: row not restored into the live backlog
+
+=== F1: a dead legacy claimant with an empty spawn_gen is skipped for ordering
+$ FM_HOME=legacy-claimant/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | retired old; slot legacy-claimant/treehouse/project-1a2b3c/16/project and its newer records unchanged; evidence legacy-claimant/home/data/old/retired-reassigned
+  exit=0
+  CHECK ok: retire exited 0
+  CHECK ok: old record no longer active
+  CHECK ok: old record archived under data/old/retired-reassigned
+  CHECK ok: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta 17993bd3ed6d2c06652bb528f8555864d5ca196f357b8c9e31a7e28a934c67f1  -;pool 584241f490e838056608eb0ec5881ece62dd0a6bedee4d5bdc7d37d97afaa3cc  -;fm/old 3e231917e1669630412aaddba418e45c38f8b9ca;fm/newer 84bda02f9d63b3cb8a96a6cd011d2fceb053aefc;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+
+=== F1: a recorded pool owner pid 1219402 that /proc shows exited does not block retirement
+$ FM_HOME=exited-owner/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | retired old; slot exited-owner/treehouse/project-1a2b3c/16/project and its newer records unchanged; evidence exited-owner/home/data/old/retired-reassigned
+  exit=0
+  CHECK ok: retire exited 0
+  CHECK ok: old record no longer active
+  CHECK ok: old record archived under data/old/retired-reassigned
+  CHECK ok: old status archived
+  CHECK ok: slot, pool lease, branches, newer record, scratch file, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+  CHECK ok: no backlog-close marker left
+  after: newer.meta eee589921bdf354faae2d67352fb3b2e63d15bc04847f9779e00734090616b23  -;pool e5d928f6f0d8e36fc9050b9c5ed5211a4b2d70bf380d5e7b4ce26fc86169ec4c  -;fm/old cd90ffaa9930f72085d3b2de3d377c8c0f57645c;fm/newer bd0d1fcad4f8709e23a5b765222dda2f73b05e08;slot-branch fm/newer;slot-status ?? scratch-notes.md ;scratch scout scratch notes;windows keep fm-newer ;
+
+=== F1 guard: the newer claimant endpoint is a live agent
+  endpoint states: old=missing newer=alive
+$ FM_HOME=live-newer/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: slot record newer does not have a confidently dead or missing endpoint
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: slot record newer does not have a confidently dead or missing endpoint
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the old record endpoint is still a live agent
+  endpoint states: old=alive newer=dead
+$ FM_HOME=live-old/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: slot record old does not have a confidently dead or missing endpoint
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: slot record old does not have a confidently dead or missing endpoint
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the newer claimant in a registered secondmate home is a live agent
+  endpoint states: old=missing newer=alive
+$ FM_HOME=live-mate/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: slot record newer does not have a confidently dead or missing endpoint
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: slot record newer does not have a confidently dead or missing endpoint
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the old record is the newest claimant by spawn_gen
+  endpoint states: old=missing newer=dead
+$ FM_HOME=newest/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: old record is the newest claimant of the slot by spawn_gen
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: newest claimant
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the old and newer records share a spawn_gen epoch
+  endpoint states: old=missing newer=dead
+$ FM_HOME=same-epoch/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: old record is the newest claimant of the slot by spawn_gen
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: newest claimant
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: no other record names the slot
+  endpoint states: old=missing newer=dead
+$ FM_HOME=sole/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: old record is the newest claimant of the slot by spawn_gen
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: newest claimant
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the recorded Treehouse pool owner process is still running
+  endpoint states: old=missing newer=dead
+$ FM_HOME=running-owner/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: pool slot owner process is still running; use --live-task
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: pool slot owner process is still running
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the old ship branch has a commit that is not on local main
+  endpoint states: old=missing newer=dead
+$ FM_HOME=unlanded/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: old task branch has unlanded work
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: old task branch has unlanded work
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: the slot-owner claim still names the old task
+  endpoint states: old=missing newer=dead
+$ FM_HOME=claim-mine/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: the slot-owner claim still names this task; use normal cleanup
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: claim still names this task
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F1 guard: --no-live-owner combined with --live-task
+  endpoint states: old=missing newer=dead
+$ FM_HOME=with-live-task/home bin/fm-local-retire-reassigned.sh old --no-live-owner --live-task newer
+  | REFUSED: --no-live-owner takes no live task or live home
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: takes no live task
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== shared scan: a malformed registry entry refuses teardown and --no-live-owner alike
+$ FM_HOME=malformed-registry/home bin/fm-teardown.sh old
+  | REFUSED: malformed local Firstmate registry entry in malformed-registry/home/data/secondmates.md; nothing was changed
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: malformed local Firstmate registry entry
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+$ FM_HOME=malformed-registry/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: malformed local Firstmate registry entry in malformed-registry/home/data/secondmates.md
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: malformed local Firstmate registry entry
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== shared scan: an unavailable registered local home refuses teardown and --no-live-owner alike
+$ FM_HOME=missing-mate/home bin/fm-teardown.sh old
+  | REFUSED: registered local Firstmate home is unavailable: gone-mate/mate; nothing was changed
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: registered local Firstmate home is unavailable
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+$ FM_HOME=missing-mate/home bin/fm-local-retire-reassigned.sh old --no-live-owner
+  | REFUSED: registered local Firstmate home is unavailable: gone-mate/mate
+  exit=1
+  CHECK ok: command refused (nonzero exit)
+  CHECK ok: refusal names: registered local Firstmate home is unavailable
+  CHECK ok: old record still active and unchanged
+  CHECK ok: nothing archived
+  CHECK ok: slot, pool lease, branches, newer record, and tmux windows unchanged
+  CHECK ok: guard treehouse never invoked
+
+=== F3 teardown: a row already in the done archive counts as closed
+  archive: - [x] arch - Archived ship (kind: ship) (done 2026-10-14)
+  tasks-axi show (live backlog): error: "Task \"arch\" not found in this backlog" code: NOT_FOUND 
+$ FM_HOME=teardown-archived/home bin/fm-teardown.sh arch
+  | teardown: reaping leaked worktree process group for arch: 1271918
+  | teardown: force-killing leaked worktree process group for arch: 1271918
+  | teardown arch complete (window s-teardown-archived:fm-arch, worktree teardown-archived/absent-worktree)
+  | Backlog: arch is closed in teardown-archived/home/data/backlog.md. Run bin/fm-tasks-axi.sh ready for dependency-cleared candidates, check date gates, and dispatch only work whose blockers are gone and date is due.
+  exit=0
+  CHECK ok: teardown exited 0
+  CHECK ok: task record removed
+  CHECK ok: no backlog-close marker owed
+  CHECK ok: archived entry intact
+  CHECK ok: row not restored into the live backlog
+
+=== F3 guard: a row absent from the backlog and not Done in the archive still fails loudly
+$ FM_HOME=teardown-open-archive/home bin/fm-teardown.sh opn
+  | teardown: reaping leaked worktree process group for opn: 1287037
+  | teardown: force-killing leaked worktree process group for opn: 1287037
+  | error: opn's endpoint and local copy are cleaned up, but its backlog item could not be closed atomically (error: "Task \"opn\" not found in this backlog"); the pending close is recorded and the next session start retries it
+  exit=1
+  CHECK ok: teardown refused (nonzero exit)
+  CHECK ok: error still names the missing row
+  CHECK ok: backlog-close marker retained for replay
+
+SUMMARY: 154 checks ok, 0 checks failed
