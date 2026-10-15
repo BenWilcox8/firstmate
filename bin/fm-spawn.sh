@@ -249,11 +249,12 @@
 #   out as a transient rather than adopted and then refused, so a home that is
 #   itself a linked worktree of the project repository still launches. When
 #   agent-axi hands back a pane an earlier attempt for the task left behind,
-#   `treehouse get` is typed only once an idle shell holds that pane's
-#   foreground, a slot is adopted only when Treehouse records it as held by a
-#   process that did not yet exist when `treehouse get` was typed, and that pane
-#   is never closed. A pane that never reaches such a worktree refuses at the end
-#   of that wait, naming the last path seen and why it was rejected.
+#   that pane is never closed. `treehouse get` is typed there only once an idle
+#   shell holds the pane's foreground, and the spawn refuses when none does
+#   within a bounded wait. A slot is adopted there only when Treehouse records
+#   it as held by a process that did not yet exist when `treehouse get` was
+#   typed. A pane that never reaches such a worktree refuses when the transient
+#   wait ends, naming the last path seen and why it was rejected.
 #   That placement is proven only at launch. Every ship or scout pane therefore
 #   also receives `export FM_TASK_ID=<task-id>` before the launch command, on
 #   the same channel as GOTMPDIR, and bin/fm-test-run.sh refuses to execute the
