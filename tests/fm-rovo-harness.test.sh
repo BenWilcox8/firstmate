@@ -172,10 +172,21 @@ SH
 #!/usr/bin/env bash
 set -u
 case "$*" in *'#{pane_current_path}'*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;; esac
+window_file="$(dirname "$0")/.spawn-window"
 case "${1:-}" in
   display-message) printf 'firstmate\n' ;;
-  list-windows) ;;
-  has-session|new-session|new-window|kill-window|set-window-option) ;;
+  list-windows) [ ! -s "$window_file" ] || cat "$window_file" ;;
+  new-window)
+    name=
+    previous=
+    for arg in "$@"; do
+      [ "$previous" = -n ] && name=$arg
+      previous=$arg
+    done
+    printf '%s\n' "$name" > "$window_file"
+    ;;
+  kill-window) : > "$window_file" ;;
+  has-session|new-session|set-window-option) ;;
   send-keys)
     payload=
     prev=

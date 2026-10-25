@@ -20,7 +20,8 @@
 # It skips cleanly when Herdr, jq, or the helper is missing.
 set -u
 
-ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck source=tests/lib.sh
+. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
 fail() { printf 'not ok - %s\n' "$1" >&2; exit 1; }
 pass() { printf 'ok - %s\n' "$1"; }
@@ -43,6 +44,23 @@ SESSION=$FM_LOCAL_LAB_SESSION
 LAB_HELPER=$FM_LOCAL_LAB_HELPER
 SCRATCH=$FM_LOCAL_LAB_ROOT
 HOME_DIR=$FM_HOME
+# A relaunch installs a read-only state/<id>.git-hooks directory, so restore
+# write permission before the fixture removes the scratch tree. Also reap what
+# tests/lib.sh registered, because the fixture's EXIT trap replaced its own.
+smoke_cleanup() {
+  local rc=$?
+  trap - EXIT
+  if [ -d "${FM_LOCAL_LAB_ROOT:-}/home/state/hsmoke.git-hooks" ]; then
+    chmod u+w "$FM_LOCAL_LAB_ROOT/home/state/hsmoke.git-hooks" || {
+      echo "not ok - could not restore write permission on test git hooks" >&2
+      rc=1
+    }
+  fi
+  fm_test_cleanup
+  (exit "$rc")
+  fm_local_lab_finish
+}
+trap smoke_cleanup EXIT
 mkdir -p "$HOME_DIR/data/hsmoke"
 cat > "$HOME_DIR/data/hsmoke/brief.md" <<'EOF'
 # Task
@@ -321,9 +339,16 @@ if OUT=$(run_control hsmoke exit 2>&1); then
   fail "exit should fail closed when the agent's composer is not proven empty: $OUT"
 fi
 case "$OUT" in
-  *"not proven empty"*) : ;;
-  *) fail "the exit failure should say the composer is not proven empty, got: $OUT" ;;
+  *"composer visibly holds pending text; refusing to type the /quit exit command"*|*"not proven empty; refusing to type the /quit exit command"*) : ;;
+  *) fail "the exit failure should refuse to type the /quit command for an unproven or pending composer, got: $OUT" ;;
 esac
-pass "real herdr: an agent behind an unproven composer fails closed instead of typing an exit command into it"
+[ "$(fm_backend_agent_state herdr "$SESSION:$PANE_ID")" = alive ] \
+  || fail "the exit refusal did not preserve the fake foreground agent"
+SCREEN_AFTER=$(fm_backend_herdr_visible_capture "$SESSION:$PANE_ID") \
+  || fail "could not read the pane after the exit refusal"
+case "$SCREEN_AFTER" in
+  *'/quit'*) fail "the refused /quit command appeared on the agent pane" ;;
+esac
+pass "real herdr: exit refuses an unproven or pending composer without typing an exit command"
 
 fm_backend_herdr_kill "$SESSION:$PANE_ID" 2>/dev/null || true

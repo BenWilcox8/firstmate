@@ -64,17 +64,35 @@ fm_afk_start_usage() {
 # here and by bin/fm-afk-launch.sh's rollback backup and restore. Every artifact
 # the daemon's delivery path writes belongs in it, so a new away session never
 # inherits a prior session's buffer, wedge marker, continuously-busy clock, last
-# delivery classification, or durable-fallback fingerprint.
+# delivery classification, durable-fallback fingerprint, or unknown-wake
+# acknowledgements. The .subsuper-reported-stale-<key> family is not in the
+# list: only the markers for warnings still in the discarded buffer are
+# re-armed (below), and the launcher backs up and restores the whole family.
 FM_AFK_DELIVERY_ARTIFACTS="\
 .subsuper-escalations
 .subsuper-escalations.since
 .subsuper-inject-wedged
 .subsuper-inject-busy-since
 .subsuper-inject-verdict
-.subsuper-inject-fallback"
+.subsuper-inject-fallback
+.subsuper-unknown-acked"
 
 fm_afk_clear_stale_artifacts() {  # <state-dir>
-  local state=$1 artifact
+  local state=$1 artifact line win key
+  # Unknown-state warnings suppress repeats even after delivery. Re-arm only
+  # warnings still in the buffer being discarded, preserving delivered ones.
+  if [ -s "$state/.subsuper-escalations" ] && compgen -G "$state/.subsuper-reported-stale-*" >/dev/null; then
+    _fm_wake_require_classify || return 1
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        stale\ persisted\ *s\ \(possible\ wedge\):\ *)
+          win=${line#* (possible wedge): }
+          key=$(window_to_task "$win" "$state" | tr ':/.' '___')
+          rm -f "$state/.subsuper-reported-stale-$key" || return 1
+          ;;
+      esac
+    done < "$state/.subsuper-escalations"
+  fi
   while IFS= read -r artifact; do
     [ -n "$artifact" ] || continue
     rm -f "$state/$artifact" 2>/dev/null

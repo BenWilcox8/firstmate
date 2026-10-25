@@ -1,9 +1,7 @@
 ---
 name: filesystem-map
 description: >-
-  The machine's authoritative map of where agent material lives and where a new file goes.
-  Use before creating any skill, config, or agent-instruction file, and before moving, consolidating, or wiring up skills across the user level, firstmate, or a project.
-  Covers the canonical layout of ~/AGENTS.md, ~/.agents/skills, the firstmate hub, and project-embedded skills, plus a where-does-it-go decision tree and the harness-agnosticism rule.
+  Load before creating any skill, config, or agent-instruction file anywhere on this machine, and before moving, consolidating, or wiring up skills across the user level, firstmate, or a project.
 user-invocable: false
 metadata:
   internal: true
@@ -48,7 +46,7 @@ Given a new skill, config, or instruction file, place it at the first tier that 
    `~/.agents/skills/<skill>/`.
    Claude reaches it automatically through the `~/.claude/skills` symlink; never author a second Claude-only copy.
 2. Firstmate operating knowledge - something the fleet needs while running firstmate?
-   The primary firstmate home's `.agents/skills/<skill>/` with `metadata.internal=true`, plus a one-line load trigger in `AGENTS.md` section 13.
+   The primary firstmate home's `.agents/skills/<skill>/` with `metadata.internal=true`, its load trigger stated in its description (the always-loaded trigger index), and a matching line in `agent-skill-trigger-index`.
 3. A skill that is a specific project's deliverable (installed or gated per-home)?
    In that project at `.agents/skills/<skill>/` with the `.claude/skills -> ../.agents/skills` wiring, shipped through the project's own PR.
 4. Per-harness-only content?

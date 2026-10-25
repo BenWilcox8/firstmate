@@ -1,9 +1,7 @@
 ---
 name: atlas-firstmate-bridge
 description: >-
-  Agent-only reference for composing the Atlas ticket doctrine with the AGENTS.md contract.
-  Load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
-  Owns the dispatch order, the merge-kind mapping, the captain-word recording, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, the park act for worker-gone work, and the ledger that names one owner for every known contradiction between the two surfaces.
+  Load in an Atlas-wired home before dispatching, parking, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
 user-invocable: false
 metadata:
   internal: true
@@ -137,7 +135,7 @@ One node holds one crewmate, so two tickets on one node serialize even when the 
 
 ## The heartbeat headroom duty
 
-`atlas-supervising` adds a dispatch decision to every heartbeat, and AGENTS.md section 8's heartbeat contract does not mention it.
+`atlas-supervising` adds a dispatch decision to every heartbeat, and AGENTS.md section 8 states it only as one line: run `atlas-axi dispositions` and dispatch each ready node.
 Both hold, in this order.
 Run the heartbeat as AGENTS.md states it: review the whole fleet, reconcile suspicious tasks and PR state, and update the backlog.
 Then, if there is room and ready tickets are queued, dispatch the next ready one by the dispatch order above, with no captain prompt.
