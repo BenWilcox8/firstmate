@@ -83,13 +83,16 @@ case "${1:-} ${2:-}" in
     if [ -n "$gone" ] && [ "${3:-}" = "$gone" ]; then
       printf '{"error":{"code":"pane_not_found","message":"pane %s not found"}}\n' "$3"; exit 1
     fi
+    [ "${2:-}" != send-text ] || : > "$FM_HERDR_LOG.typed"
     : ;;
   "agent get")
     if [ -n "$gone" ] && [ "${3:-}" = "$gone" ]; then
       printf '{"error":{"code":"agent_not_found","message":"agent target %s not found"}}\n' "$3"; exit 1
     fi
-    # First read is the pre-Enter baseline (idle); every later read shows the
+    # The identity read before typing sees an idle agent. After typing, the
+    # first read is the pre-Enter baseline (idle); every later read shows the
     # turn the Enter started, exactly like a real submit.
+    [ -e "$FM_HERDR_LOG.typed" ] || { printf '{"result":{"agent":{"agent_status":"idle"}}}\n'; exit 0; }
     n=$(cat "$FM_HERDR_LOG.agent-reads" 2>/dev/null || printf 0)
     n=$((n + 1)); printf '%s\n' "$n" > "$FM_HERDR_LOG.agent-reads"
     if [ "$n" -le 1 ]; then
