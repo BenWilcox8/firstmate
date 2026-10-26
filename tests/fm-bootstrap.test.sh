@@ -646,8 +646,10 @@ SH
 }
 
 test_orca_backend_reports_unsupported_without_install_request() {
-  local case_dir fakebin out unsupported_orca
-  unsupported_orca="BACKEND_INVALID: orca (unsupported for new tasks; choose: tmux herdr zellij cmux)"
+  local case_dir fakebin out unsupported_orca choices
+  # The choice list is the current spawn-capable set, which grows as backends
+  # are added, so pin its form and its key members, not its exact contents.
+  unsupported_orca="BACKEND_INVALID: orca (unsupported for new tasks; choose: "
 
   case_dir="$TMP_ROOT/orca-backend-selected"
   mkdir -p "$case_dir/home/config"
@@ -656,7 +658,16 @@ test_orca_backend_reports_unsupported_without_install_request() {
   fakebin=$(make_fake_toolchain "$case_dir")
   out=$(PATH="$fakebin:$(fm_test_base_path_sans "$BASE_PATH" orca)" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$case_dir/home" \
     FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
-  [ "$out" = "$unsupported_orca" ] || fail "backend=orca should report unsupported selection, got: $out"
+  case "$out" in
+    *$'\n'*) fail "backend=orca should report only the unsupported selection, got: $out" ;;
+    "$unsupported_orca"*")") ;;
+    *) fail "backend=orca should report unsupported selection, got: $out" ;;
+  esac
+  choices=${out#"$unsupported_orca"}
+  choices=" ${choices%)} "
+  case "$choices" in *" orca "*) fail "backend=orca must not offer orca as a choice, got: $out" ;; esac
+  case "$choices" in *" tmux "*) ;; *) fail "backend=orca must offer tmux, got: $out" ;; esac
+  case "$choices" in *" herdr "*) ;; *) fail "backend=orca must offer herdr, got: $out" ;; esac
 
   case_dir="$TMP_ROOT/orca-backend-not-selected"
   mkdir -p "$case_dir/home/config"

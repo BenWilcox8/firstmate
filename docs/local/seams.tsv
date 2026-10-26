@@ -221,10 +221,10 @@ tests/fm-backlog-read-bound.test.sh	2	nixos-test-portability	tests/fm-backlog-re
 tests/fm-bearings-snapshot.test.sh	54	nixos-test-portability	tests/fm-bearings-snapshot.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-bearings-snapshot.test.sh	54	park-resume	tests/fm-bearings-snapshot.test.sh	personal: native session park and resume	retain
 tests/fm-bootstrap-network-parallel.test.sh	5	nixos-test-portability	tests/fm-bootstrap-network-parallel.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
-tests/fm-bootstrap.test.sh	95	herdr-layout	tests/fm-bootstrap.test.sh	personal: agent-axi Herdr layout repair sweep	retain
-tests/fm-bootstrap.test.sh	95	nixos-test-portability	tests/fm-bootstrap.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
-tests/fm-bootstrap.test.sh	95	orca-retired	tests/fm-bootstrap.test.sh	personal: new Orca tasks retired	retain
-tests/fm-bootstrap.test.sh	95	startup-memory-budget	tests/fm-bootstrap.test.sh	personal: startup memory budget diagnostic	retain
+tests/fm-bootstrap.test.sh	106	herdr-layout	tests/fm-bootstrap.test.sh	personal: agent-axi Herdr layout repair sweep	retain
+tests/fm-bootstrap.test.sh	106	nixos-test-portability	tests/fm-bootstrap.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-bootstrap.test.sh	106	orca-retired	tests/fm-bootstrap.test.sh	personal: new Orca tasks retired	retain
+tests/fm-bootstrap.test.sh	106	startup-memory-budget	tests/fm-bootstrap.test.sh	personal: startup memory budget diagnostic	retain
 tests/fm-branch-supervision.test.sh	15	merge-authority-guard	tests/fm-branch-supervision.test.sh	personal: away posture never authorizes a merge	retain
 tests/fm-brief.test.sh	62	brief-intent	tests/fm-brief.test.sh	personal: complete accepted intent and shared worker rules	retain
 tests/fm-brief.test.sh	62	dashboard-signals	tests/fm-brief.test.sh	personal: secondmate charter names the signalling owner	retain

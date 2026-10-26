@@ -176,7 +176,11 @@ case "${1:-}" in
       printf '%s\n' "${1:-}" >> "${FM_FAKE_KEYS:?}"
     fi
     exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows)
+    # Upstream checks exact window membership before it types, so the named
+    # window of the explicit target sess:win must be listed.
+    for a in "$@"; do case "$a" in *window_name*) printf 'win\n' ;; esac; done
+    exit 0 ;;
 esac
 exit 0
 SH
