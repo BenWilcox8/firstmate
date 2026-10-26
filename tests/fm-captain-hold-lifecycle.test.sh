@@ -2615,9 +2615,6 @@ test_archived_call_stays_resolvable() {
   pass "an archived captain call still verifies and completes"
 }
 
-# A failed inventory resolution must abort with the diagnostic that names the
-# unresolved entry, never continue into the next guard with an empty task id and
-# report a task that was never asked about.
 test_archived_call_stays_resolvable_from_a_relocated_backlog() {
   local home root data call answer
   home=$(make_home archived-relocated-call)
@@ -2665,6 +2662,9 @@ EOF
   pass "an archived relocated captain call remains replayable"
 }
 
+# A failed inventory resolution must abort with the diagnostic that names the
+# unresolved entry, never continue into the next guard with an empty task id and
+# report a task that was never asked about.
 test_unresolvable_entry_aborts_with_its_own_diagnostic() {
   local home id
   home=$(make_home unresolved-entry)

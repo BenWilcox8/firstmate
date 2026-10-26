@@ -316,7 +316,6 @@ start_daemon() {
   FM_INJECT_CONFIRM_SLEEP=0.5 \
   FM_INJECT_CONFIRM_RETRIES=6 \
   FM_STALE_ESCALATE_SECS=999999 \
-  FM_DAEMON_PRIMARY_HARNESS=unknown \
   nohup "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
   DAEMON_PID=$!
   wait_daemon_started daemon "$log_start"
@@ -530,7 +529,6 @@ test_scenario_d_max_defer() {
   FM_INJECT_CONFIRM_SLEEP=0.3 \
   FM_INJECT_CONFIRM_RETRIES=2 \
   FM_STALE_ESCALATE_SECS=999999 \
-  FM_DAEMON_PRIMARY_HARNESS=unknown \
   nohup "$DAEMON" >"$STATE_DIR/daemon.out" 2>"$STATE_DIR/daemon.err" &
   DAEMON_PID=$!
   wait_daemon_started "Scenario D daemon" "$log_start"

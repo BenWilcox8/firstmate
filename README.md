@@ -88,12 +88,6 @@ cd firstmate
 
 Then launch one of the co-primary harnesses; AGENTS.md takes over from there:
 
-**Pi**
-
-```sh
-pi
-```
-
 **Claude Code**
 
 ```sh

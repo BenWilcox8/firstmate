@@ -545,7 +545,6 @@ Legacy tmux metadata remains cleanup-compatible when its exact window name is `f
 
 `FM_HOME` determines Herdr's home label: the primary home uses `firstmate`, and a secondmate home marked by `.fm-secondmate-home` uses `2ndmate-<secondmate-id>`.
 [`herdr-backend.md`](herdr-backend.md#watching-and-task-containers) owns launcher-bound workspace placement, the label-only fallback, collision handling, and recovery behavior.
-The default-container spawn, list-live, and recovery paths read that label from the active home, so a secondmate's own crewmates stay inside that secondmate home's herdr space.
 Pane placement inside that default container - tab vs split, the slot plan, overflow, and husk reaping - is owned by `agent-axi`, not firstmate config: firstmate's herdr adapter delegates the pane lifecycle to it and keeps only a minimal fallback for hosts without agent-axi (see [`docs/herdr-backend.md`](herdr-backend.md) "Delegation architecture").
 There is no `config/herdr-layout` knob; the old bash split-mode config and its `FM_HERDR_*` overrides were removed in phase 1 of the agent-axi migration (spec agent-axi/v1).
 

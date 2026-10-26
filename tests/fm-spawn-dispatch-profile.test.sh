@@ -2141,7 +2141,6 @@ test_active_dispatch_profile_does_not_block_secondmate_launch() {
   pass "active crew-dispatch profile does not block secondmate launches"
 }
 
-
 # --- claude account pinning through cswap -----------------------------------
 #
 # The account pin is resolved through a fake cswap selected with FM_CSWAP_BIN,
@@ -2293,7 +2292,6 @@ test_unpinned_claude_spawn_records_no_account() {
     "an unpinned spawn should launch claude directly on whatever account is active"
   pass "an unpinned claude spawn rides the active account and records no account"
 }
-test_retired_mode_flag_refuses_before_spawn_side_effects
 # Execute the actual emitted command in a synthetic pane environment: the
 # fake backend records delivery, while real shells exercise the env boundary.
 # No developer environment or credential values are inspected by these probes.
@@ -2516,6 +2514,7 @@ SH
   done
 }
 
+test_retired_mode_flag_refuses_before_spawn_side_effects
 test_launch_environment_allowlist
 test_launch_environment_invalid_config_refuses
 test_launch_environment_inaccessible_config_refuses
