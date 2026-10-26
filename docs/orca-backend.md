@@ -69,4 +69,6 @@ tests/fm-bootstrap.test.sh
 tests/fm-teardown-endpoint-safety.test.sh
 ```
 
+`tests/fm-spawn-orca-worktree.test.sh` skips its whole file while new Orca spawns are refused, so it covers nothing until Orca dispatch is supported again.
+
 [`verification/runtime-backends.md`](verification/runtime-backends.md#orca) records the current refusal and existing-record verification boundary.

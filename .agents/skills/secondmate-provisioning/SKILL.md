@@ -242,6 +242,10 @@ A secondmate is persistent by default.
 An empty queue is healthy and does not trigger teardown.
 Run `bin/fm-teardown.sh <id>` for `kind=secondmate` only when the captain or main firstmate explicitly decides to retire that persistent second mate.
 
+To keep a second mate down without retiring it, run `bin/fm-local-dormant.sh set <id> --reason "<order>"` before `bin/fm-control.sh <id> exit`.
+Without that marker, the watcher relaunches the exited mate within `FM_SECONDMATE_LIVENESS_SECS` (60 seconds by default).
+Clear the marker with `bin/fm-local-dormant.sh clear <id>` when the captain authorizes the mate again.
+
 The safety check is the secondmate's own home.
 Teardown refuses while its `state/*.meta` contains in-flight work.
 Non-forced retirement also refuses while any parent pending-reply for that id is still unresolved.

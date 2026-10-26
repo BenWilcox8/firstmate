@@ -1310,10 +1310,13 @@ An unqualified model, an undeclared provider, or a raw Pi launch command, which 
 
 When a file is present, supported command-line launches of that runner from this home use it: ships, scouts, local secondmate agents, raw Claude launch commands, and relaunches.
 A local secondmate can override this default with its own [per-secondmate account pin](#per-secondmate-account-pins).
+Park and resume look for a parked Claude session in the store that the pin selects (`fm_worker_account_claude_store` in [`bin/fm-worker-account-lib.sh`](../bin/fm-worker-account-lib.sh)).
+An unreadable pin refuses both, and a pin changed while a task is parked makes its resume refuse.
 T3 Code selects the account through its provider instance instead, so `backend=t3code` refuses a worker account pin before mutation; [`t3code-backend.md`](t3code-backend.md#active-limits) owns that backend limit.
 A per-spawn `--account` ([cswap](#claude-accounts-cswap)) pin and a configured worker account pin refuse together, because each selects the worker's Claude account, and `backend=t3code` also refuses `--account`.
 A raw Claude launch command refuses if its leading assignments set `CLAUDE_CONFIG_DIR` or a credential that a pinned launch unsets, such as `ANTHROPIC_API_KEY`.
 The assignment would override the pin.
+A raw command that clears `CLAUDE_CONFIG_DIR` with `env -u CLAUDE_CONFIG_DIR` or `env -i` refuses too.
 The refusal names the variable; remove that assignment from the raw command, or change or remove `config/claude-account`.
 
 Before any worker endpoint, local copy, or task record exists, and before a relaunch stops the running worker, Firstmate asks the runner itself whether the pinned account is signed in: `claude auth status` for Claude, and `pi auth check --provider <provider> --json --no-refresh` for Pi, falling back to `pi --list-models <provider>` for a provider an extension registers.
@@ -1500,7 +1503,8 @@ The command is reconstructed with quoted argv before pane delivery; this compati
 The filter runs at the worker command boundary, after the terminal daemon and pane shell have started; it does not scrub either of those processes.
 This is not a sandbox: it cannot revoke same-user access to credential files, prevent tools or later shells from loading credentials again, or isolate processes from the same user's other processes.
 
-Regression coverage executes emitted launch commands with synthetic nonsecret values in [`tests/fm-spawn-dispatch-profile.test.sh`](../tests/fm-spawn-dispatch-profile.test.sh), and the Orca environment source in [`tests/fm-spawn-orca-worktree.test.sh`](../tests/fm-spawn-orca-worktree.test.sh).
+Regression coverage executes emitted launch commands with synthetic nonsecret values in [`tests/fm-spawn-dispatch-profile.test.sh`](../tests/fm-spawn-dispatch-profile.test.sh).
+The Orca environment source has no active coverage while it is dormant, because [`tests/fm-spawn-orca-worktree.test.sh`](../tests/fm-spawn-orca-worktree.test.sh) skips its whole file when new Orca spawns are refused.
 
 ### Compact adviser setting
 
@@ -1529,7 +1533,8 @@ Per-machine Cursor `cli-config.json` attribution-off is not this contract: it do
 ## Project capacity (config/project-capacity)
 
 The optional local, gitignored `config/project-capacity` tells Firstmate how many workers a project can run at once on this machine, for a project whose machine-local resource - a heavy test suite, a local editor stack, a device - only serves a few workers at a time.
-Without it, dispatch stays uncapped as `AGENTS.md` section 7 describes, and a surplus worker is launched only to spend full-context turns waiting for the resource.
+Without it, project capacity adds no per-project cap, and dispatch is bounded only by the [concurrent agent limit](#concurrent-agent-limit-configagent-limit) on Herdr, as `AGENTS.md` section 7 describes.
+With no cap, a surplus worker is launched only to spend full-context turns waiting for the resource.
 The file lives in the machine's root Firstmate home, so every local secondmate home reads the same limit, and it holds one line per project:
 
 ```text
@@ -1729,8 +1734,9 @@ If a pin does not resolve, the spawn stops before any worker, local copy, or rec
 A spawn never starts on an unknown subscription.
 The resolved account is recorded as `account=<name>` in the durable record of that task, and it is named on the success line of the spawn.
 
-Without `--account`, a claude spawn uses the account that cswap has active, the same as a plain `claude` command.
-Then no `account=` line is written.
+Without `--account`, a claude spawn uses this home's [worker account pin](#worker-account-pin-configclaude-account-configpi-account) when one is configured, and records the declared name of that pin as `account=`.
+With neither pin, a claude spawn uses the account that cswap has active, the same as a plain `claude` command, and writes no `account=` line.
+So an `account=` line can come from either pin.
 The header of `bin/fm-cswap-lib.sh` owns how firstmate calls cswap.
 The header of `bin/fm-spawn.sh` owns the flag.
 

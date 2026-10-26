@@ -327,7 +327,9 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for session-provider-only backends, while existing Orca records retain their separately managed worktrees.
-A fresh ship or scout starts only when its clean task worktree matches the fetched tip of origin's resolved default branch, or the primary checkout's own default-branch tip when the repo has no origin remote; any unsafe or unverifiable base stops the spawn.
+A fresh ship or scout starts only when its clean task worktree matches the fetched tip of its base on origin, or the primary checkout's own default-branch tip when the repo has no origin remote.
+That base is the task's `--base-branch` when one is given, else origin's resolved default branch.
+A repo with no origin remote refuses `--base-branch`, and any unsafe or unverifiable base stops the spawn.
 The [`fm-spawn.sh` header](../bin/fm-spawn.sh) owns ship/scout worktree isolation and fresh-base refusal rules, including spawns from linked homes.
 Portable regressions live in [`tests/fm-spawn-pool-base-freshen.test.sh`](../tests/fm-spawn-pool-base-freshen.test.sh) for spawn isolation and base freshness, and [`tests/fm-control-relaunch.test.sh`](../tests/fm-control-relaunch.test.sh) for preserving the recorded copy on relaunch.
 

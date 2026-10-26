@@ -248,10 +248,14 @@ A missing task label is not proof of absence while the recorded pane still exist
 The recorded pane counts as gone when it is absent or when it carries another `fm-` pane or tab label or runs outside the task worktree, because a restart can reuse its id.
 
 `fm-control exit` closes the stopped worker pane through the existing agent-axi teardown operation, or the native fallback when delegation is unavailable.
+Teardown stops a worker that still runs through `fm-control exit` as its direct child, so every exit safety rule applies.
+That exit leaves the pane open, and teardown closes it under its own session presentation lock.
 The task record, worktree, and uncommitted changes remain.
 `relaunch` creates a fresh pane in the previous agent-axi slot and recorded worktree after normal launch preflight succeeds.
 It refuses an occupied slot.
 Before `relaunch` stops the old agent, it reserves the home's task set and waits up to two minutes for another spawn or teardown.
+It does not hold the home-wide lease command lock during that wait: it releases the lock, waits, and then takes the lease guard again.
+The guard refuses the relaunch if the other supervision actor leased the task in the meantime.
 If the reservation is not available, `relaunch` refuses and the old agent continues to run.
 The native fallback creates a fresh task tab because it has no slot ledger.
 A failed launch closes its replacement shell only when the same classifier proves the agent gone.
@@ -1111,6 +1115,9 @@ So a **relaunch** preserves the binding instead of fighting it: before the Pi-fa
 The replacement therefore starts on the exact identity the authority is bound to, and its `working`/`idle`/`blocked` reports land again.
 The reference is the endpoint's own record, never a guess about which session is recent, and only a `pi` label may supply it: a registration belonging to another adapter is ignored, as is an unreadable, missing, or malformed one, in which case the relaunch is the ordinary fresh session it always was.
 A relaunch that changes harness AWAY from Pi is not repaired by this and keeps the pre-existing behavior; only the adapter the authority belongs to can resume its session.
+A flat-layout ship or scout relaunch on a running server with this home's labeled workspace does not adopt the old pane: it takes the fresh-pane path in [Ended worker panes](#ended-worker-panes).
+That new pane has nothing bound, so the relaunch passes no session reference and Pi starts a fresh session, the same as a fresh spawn.
+Only a relaunch that adopts the recorded pane passes the reference, for example a secondmate, a task with a projection, or a task on a stopped server.
 
 The session file may not exist any more: Pi creates it at exactly that path, so the identity survives either way.
 The read grants no send, close, or lifecycle authority of its own - it is a read of Herdr's record.

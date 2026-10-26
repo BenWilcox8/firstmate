@@ -2051,7 +2051,11 @@ ok - real herdr: no control verb removed the endpoint or the task's local copy
 ok - real herdr: an agent behind an unproven composer fails closed instead of typing an exit command into it
 ```
 
-The registry read through `herdr pane report-agent` is the same source `fm_backend_herdr_agent_state` classifies, and since 2026-09-10 that registration counts as an agent only while `pane process-info` shows a harness process behind it, so the guard backs the registration with a real process named like a harness (using `fm_agent_standin` from [`tests/lib.sh`](../../tests/lib.sh)) and then stops that process, with no real harness launched.
+The registry read through `herdr pane report-agent` is the same source that `fm_backend_herdr_agent_state` classifies.
+Since 2026-09-10, that registration counts as an agent only while `pane process-info` shows a harness process behind it.
+For the stale-registration cases, the guard registers a lifecycle-hook `pi` record over a shell-only pane, with no process behind it.
+For the live interrupt and exit cases, the guard runs a copy of `bash` named `pi` as the exact foreground process of the pane, and it closes that pane at the end.
+The guard launches no real harness.
 That command is the guard that refreshes this record; run it after every Herdr upgrade rather than trusting the version above.
 
 The Codex wrapper path was verified on 2026-09-12 with Herdr 0.8.2 and Codex CLI 0.154.0 on Linux x86_64:
@@ -2240,7 +2244,7 @@ Two repair paths were measured and do not work, so the reference is preserved ra
 - `herdr pane report-agent-session` / `report-agent` from another process are accepted (rc=0) and never applied, for `--source herdr:pi`; the same source's reports are accepted when the reporting process is the registered pane agent (Pi's own extension) and when a custom source is used, which is how the smoke fixtures register one.
 - `herdr pane release-agent --source herdr:pi --agent pi` on that stale registration is accepted (rc=0) and changes nothing, matching its documented guard that it only ends authority when the agent process exits.
 
-Resuming the bound session instead makes the replacement's reports land, which is what `bin/fm-spawn.sh` now does for a relaunch:
+Resuming the bound session instead makes the replacement's reports land, which is what `bin/fm-spawn.sh` now does for a relaunch that adopts the recorded pane:
 
 ```text
 # C: quit the fresh second pi, then pi --session <the bound path> with a slow turn
@@ -2248,6 +2252,8 @@ poll 8: {"agent_status":"working","session":".../2026-09-21T14-10-08-776Z_01a0c4
 ```
 
 The read that supplies the reference is `bin/backends/herdr.sh`'s `fm_backend_herdr_pane_agent_session_ref`, the per-harness rule is `bin/fm-control-lib.sh`'s `fm_control_relaunch_resume_flag`, and the launch argument is composed by `relaunch_resume_args` in `bin/fm-spawn.sh`; `docs/herdr-backend.md` "Agent status authority and relaunch" owns the contract. Nothing here changes `resume` as a control verb, and only a relaunch asks for it.
+A flat-layout ship or scout relaunch on a running server opens a new pane with nothing bound, so it passes no session reference and stays a fresh session.
+That same contract owns this exception.
 
 ### Concurrent agent count
 
@@ -2344,6 +2350,10 @@ Prior live readiness observations do not certify support for new Orca tasks.
 No live Orca compatibility test is required for this dormant disposition.
 
 ### Orca environment source
+
+Upstream measured the evidence below on its own code, which still accepts new Orca spawns.
+Here `tests/fm-spawn-orca-worktree.test.sh` skips its whole file, because every spawn it drives is refused, so the commands below run no case.
+The environment source stays only for existing records, and this evidence does not certify new Orca tasks.
 
 The environment source was verified on 2026-10-14 on macOS 15.6.1 with tmux 3.6a, Bash 5.3.20, Bash 3.2.57, and zsh 5.9.
 

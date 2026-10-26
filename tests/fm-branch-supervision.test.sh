@@ -72,6 +72,20 @@ test_branch_prompt_is_byte_stable_and_above_cache_floor() {
   pass "branch prompt is byte-stable across homes, cwd, timezone, and time, above the cache floor"
 }
 
+# Fork: the safe-mode engine reads these away merge mechanics only from the
+# emitted prompt, so the prompt must name both merge-authority flags.
+test_branch_prompt_names_the_away_merge_flags() {
+  local prompt
+  prompt=$(bash "$ROOT/bin/fm-branch-prompt.sh") || fail "branch prompt generator failed"
+  assert_contains "$prompt" \
+    "Pass \`--captain-authorized\` only for such words, and never for a merge the words do not name." \
+    "branch prompt omits when an away merge passes --captain-authorized"
+  assert_contains "$prompt" \
+    "\`--captain-word \"<the away sentence that names the merge>\"\`" \
+    "branch prompt omits the --captain-word form for a ticketed away merge"
+  pass "branch prompt names both away merge-authority flags"
+}
+
 test_branch_prompt_routes_completed_scouts_through_guarded_cleanup() {
   local prompt skill
   prompt=$(bash "$ROOT/bin/fm-branch-prompt.sh") || fail "branch prompt generator failed"
@@ -1612,6 +1626,7 @@ WRAPPER
 }
 
 test_branch_prompt_is_byte_stable_and_above_cache_floor
+test_branch_prompt_names_the_away_merge_flags
 test_branch_prompt_routes_completed_scouts_through_guarded_cleanup
 test_outcome_store_is_append_only_with_cursor_reads
 test_outcome_append_keeps_a_bounded_display_tail

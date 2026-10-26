@@ -32,6 +32,10 @@ A recorded `harness=` is not always an exact adapter name: a task launched from 
 
 Herdr ship and scout tasks in the home's workspace use the [ended-pane cleanup contract](herdr-backend.md#ended-worker-panes).
 For those tasks, while the recorded session server runs, `exit` closes the stopped pane and `relaunch` creates a fresh pane in its previous slot and recorded worktree.
+When one of those tasks still has a running worker, teardown stops that worker through `exit`, so every exit safety rule below applies to it too.
+That `exit` runs as the direct child of the teardown, which already holds the task's lease guard, control lock, and task-record lock.
+Only that child uses those locks without taking them again, and it leaves the pane and the busy record for the teardown to remove.
+Before `relaunch` stops the old agent of one of those tasks, it reserves the home's task set, and it never holds the home-wide lease command lock while it waits for that reservation.
 The endpoint-preserving descriptions below apply to the other task and backend combinations.
 
 | Verb | Effect | Postcondition |
@@ -88,7 +92,11 @@ A park proves the session before it changes anything, because a wrong id is wors
 Each proof comes from evidence the harness itself keeps for the exact running process, never from a guess such as the newest session file in the directory.
 A session that cannot be proven refuses the park, and the worker keeps running.
 The park also confirms that the resume will find the session where it looks for it.
-For example, a Claude worker that uses another account profile's configuration refuses the park, because the resume launches with the configuration of the firstmate home.
+A Claude resume launches with the Claude store that a launch from this home uses.
+That is the root of the home's [worker account pin](configuration.md#worker-account-pin-configclaude-account-configpi-account) when `config/claude-account` sets one, the ordinary `~/.claude` for an `ordinary` pin, and otherwise the configuration of the firstmate home.
+So a Claude worker that keeps its session in another store refuses the park, for example a worker started on another account profile.
+A pin that cannot be read refuses the park and the resume.
+A pin that changes while a task is parked makes the resume refuse, because the session is not in the new store.
 
 The park then runs in this order:
 
@@ -262,7 +270,8 @@ Its rules:
   A labelled close reaches Herdr's `agent-axi teardown`, which resolves a pane from the slot ledger by task id, and a replacement has already pointed that slot at its new pane, so a labelled close would tear down the replacement instead of the endpoint it is retiring.
   Freeing a ledger slot stays with teardown and the layout repair sweep, which own it.
 
-An endpoint the retire cannot close is named in the spawn's own report and in the liveness sweep's `SECONDMATE_LIVENESS:` line.
+An endpoint the retire cannot close is named in the spawn's own report, in the liveness sweep's `SECONDMATE_LIVENESS:` line, and in the watcher liveness tick's `check: secondmate <id> auto-relaunched ...` wake and triage log.
+A relaunch that fails keeps that name in the watcher triage log only.
 The replacement still lands there, because its agent is already running and the endpoint it strands is one the captain can close, while unwinding a live replacement is not.
 An endpoint the replacement resolved to the same target was reused, so it is left alone.
 
@@ -286,11 +295,14 @@ The close uses the adapter's ordinary unserialized primitive, the same one every
 - A backend that cannot deliver the harness's interrupt key, or the composer clear that key needs, is refused rather than sent a different key.
   Orca's terminal API exposes only an interrupt and an Enter, so it can deliver neither Escape nor Ctrl+U.
   T3 Code has no composer, so Escape and Ctrl+C are both a turn interrupt and Ctrl+U is refused.
-- `exit`, `relaunch`, `park`, and `resume` require a backend with a recovery-grade agent-state classifier - tmux, herdr, rex, and t3code - because without one the "the agent stopped" postcondition cannot be proven.
+- `exit` and `relaunch` require a backend with a recovery-grade agent-state classifier - tmux, herdr, rex, and t3code - because without one the "the agent stopped" postcondition cannot be proven.
   zellij, orca, cmux, and paseo are refused rather than reported as successful blind.
 - On t3code, `exit` refuses before anything is sent: a T3 thread has no composer for a typed exit command, and T3's `/mcp` tools offer no session stop.
-- `relaunch`, `park`, and `resume` additionally require a backend that can host a replacement agent - tmux, herdr, and rex.
+- `relaunch` additionally requires a backend that can host a replacement agent - tmux, herdr, and rex.
   t3code is refused before anything is stopped: a T3 thread keeps its conversation, so a new turn or a provider change on it continues the same agent rather than launching a fresh one.
+- `park` and `resume` run on tmux and herdr only.
+  They read the worker's processes and current directory and close its endpoint with proof, and only those two backends can do that.
+  Every other backend, Rex included, refuses them before anything changes.
 - An ambiguous or unreadable endpoint state refuses.
   Only a positively classified state acts; a Rex `unreadable` acts only once the absence proof above settles it.
 - `exit`'s composer-empty check, above, is itself a fail-closed boundary that `relaunch` inherits by stopping the old agent through `exit`.

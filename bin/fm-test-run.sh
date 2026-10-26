@@ -1577,6 +1577,8 @@ families_for_changed_path() {
     bin/fm-watch*|bin/fm-classify-lib.sh)
       printf '%s\n' watcher-wake-lock
       printf '%s\n' "__script__:fm-backend-t3code.test.sh"
+      # Fork: the watcher starts bin/fm-browser-reap.sh on its cadence.
+      printf '%s\n' browser-reap
       ;;
     bin/fm-wake*|bin/fm-inactive-reconcile.sh|\
     bin/fm-daemon*|bin/fm-turnend-guard*|bin/fm-guard.sh)

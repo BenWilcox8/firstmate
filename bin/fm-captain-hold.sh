@@ -922,9 +922,10 @@ refuse_self_inventory() {
 #
 # Done retention moves closed markdown rows into the configured archive, which
 # tasks-axi show never reads, so an answered call a scout attested would read as
-# absent once retention ran. Only the completion gate consults the archive: an
-# archived row is closed, so it can satisfy the gate solely through a recorded
-# resolution, and every mutating path keeps seeing it as absent.
+# absent once retention ran. `complete` and `verify` count an archived row only
+# through a recorded resolution, because it is closed. `hold`'s closed-call
+# check, `answer`, and `answers` read the archive as well (see "TWO LEDGERS, ONE
+# CALL" in the header). No mutation ever writes an archived row.
 
 # The [markdown] archive key tasks-axi would honour, resolved with tasks-axi's
 # own source precedence: the backlog root's .tasks.toml first, then the

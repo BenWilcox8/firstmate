@@ -1517,6 +1517,34 @@ test_changed_t3_sources_select_their_readers() {
   pass "a changed T3 fake or adapter selects the suites that read it beyond backend-dispatch"
 }
 
+# Fork: the watcher starts bin/fm-browser-reap.sh on its cadence, and the
+# browser-reap suite runs a real watcher to prove that cadence. So a change to
+# the watcher or its classifier selects the browser-reap suite too.
+test_changed_watcher_sources_select_browser_reap() {
+  local tmp repo listed path
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-browser-reap.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/fm-browser-reap.test.sh"
+  chmod +x "$repo/tests/fm-browser-reap.test.sh"
+  : >"$repo/bin/fm-watch.sh"
+  : >"$repo/bin/fm-classify-lib.sh"
+  : >"$repo/bin/fm-wake-lib.sh"
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm browser-reap
+
+  for path in bin/fm-watch.sh bin/fm-classify-lib.sh bin/fm-wake-lib.sh; do
+    printf '\n' >>"$repo/$path"
+    listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+    assert_contains "$listed" "tests/fm-browser-reap.test.sh" \
+      "a changed $path must select the browser-reap suite"
+    git -C "$repo" checkout -q -- "$path"
+  done
+
+  rm -rf "$tmp"
+  pass "a changed watcher, classifier, or wake source selects the browser-reap suite"
+}
+
 # Workers are handed scripts in order, so the slowest script must start first or
 # it runs alone at the tail and throws away most of the concurrency.
 test_concurrent_runs_are_ordered_longest_first() {
@@ -1973,6 +2001,7 @@ test_jobs_admits_a_concurrent_safe_family
 test_unmapped_new_test_never_inherits_family_concurrency
 test_changed_shared_fixture_selects_its_readers
 test_changed_t3_sources_select_their_readers
+test_changed_watcher_sources_select_browser_reap
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
 test_changed_bound_gives_slow_watcher_suites_headroom

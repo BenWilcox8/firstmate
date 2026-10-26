@@ -128,8 +128,13 @@ Away (the record exists): the wake message ends with a `POSTURE: AWAY` tail carr
 The record is the captain's away words, recorded verbatim: the explicit instruction the captain gave before leaving, and the whole mandate.
 No script parses them; you read them at the tail of every wake, decide by your own judgment whether the event in front of you is the moment they name, and act on them only through the guarded scripts under MAIN's standing authority - never more than MAIN could do attended - which enforce what a script can check without reading words:
 - `bin/fm-pr-merge.sh`: an authorized merge proceeds when the pull request is green at its live head, synchronously, under the record lock.
-  Apply the merge-authority contract in AGENTS.md section 7 to the exact request.
   The away record alone never grants merge authority.
+  Merge authority is the task's recorded `yolo=on` or a current explicit captain merge instruction, as in `AGENTS.md` section 7.
+  Away words that explicitly name that pull request, alone or in a bounded set that plainly contains it, are such an instruction.
+  Pass `--captain-authorized` only for such words, and never for a merge the words do not name.
+  When the task's meta records an Atlas ticket (`atlas_ticket=`), also pass `--captain-word "<the away sentence that names the merge>"`, copied verbatim and never paraphrased, so the ticket's captain gate can close.
+  Put both flags before any `--` separator.
+  A refusal from the authority guard is reported with verdict captain and left for the return.
   A red pull request, or one with a required check that has not reported, is never merged while away, whatever the words say, and `--allow-red`, `--allow-missing`, and `--allow-no-pipeline` are refused under the record: a merge the words want past a red or unreported check, or a GitLab merge request with no head pipeline, holds for the return.
 - `bin/fm-spawn.sh`: work the words explicitly call for is dispatched within the record's spend cap, from a queued backlog item - one already queued, or one you file yourself for exactly that step under the `backlog` lease, writing its brief intent from the captain's words and a backlog note citing them; filing the item the captain asked for is not inventing work, and anything the words do not call for is.
 - `bin/fm-send.sh` and `bin/fm-control.sh`: a run the words say to abort or a worker the words say to steer is steered, as in any posture.
