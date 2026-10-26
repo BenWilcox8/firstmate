@@ -82,6 +82,10 @@ cp "$FIXTURE_NODE" "$FIXTURE_AGENT" || {
 # teardown submits before it closes the pane.
 cat > "$FIXTURE_SCRIPT" <<'JS'
 setTimeout(() => process.exit(0), Number(process.argv[2]) * 1000)
+// Fork: teardown types the exit command only into a composer it proves empty,
+// so draw an empty composer box with the cursor inside it.
+const w = Math.max(20, (process.stdout.columns || 80) - 2)
+process.stdout.write(`\x1b[2J\x1b[H╭${'─'.repeat(w)}╮\n│${' '.repeat(w)}│\n╰${'─'.repeat(w)}╯\x1b[2;3H`)
 require('readline').createInterface({ input: process.stdin })
   .on('line', (line) => { if (line.trim() === '/exit') process.exit(0) })
 JS

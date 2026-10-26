@@ -26,9 +26,9 @@ docs/herdr-backend.md	304	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.t
 docs/verification/runtime-backends.md	243	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
 tests/fm-control-herdr-smoke.test.sh	350	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
 tests/fm-teardown.test.sh	517	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
-tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	44	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
-tests/fm-backend-herdr-presentation-e2e.test.sh	51	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
-tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	53	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	48	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-presentation-e2e.test.sh	55	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	57	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 bin/fm-teardown.sh	494	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream; endpoint-close refusals after the slot return are an accepted divergence	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
