@@ -2740,7 +2740,7 @@ test_max_defer_busy_pane_with_empty_composer_delivers() {
     FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 FM_INJECT_CONFIRM_SLEEP=0.05 \
     housekeeping "$state"
 
-  grep -F 'compact at 400k context' "$sent" >/dev/null \
+  delivered_digest "$sent" | grep -F 'compact at 400k context' >/dev/null \
     || fail "a digest held only by a stale busy footer was never delivered: $(cat "$sent")"
   [ "$(grep -c '\[ENTER\]' "$sent")" -eq 1 ] || fail "expected exactly one submitted Enter"
   [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after the recovered delivery"
@@ -2931,7 +2931,7 @@ test_max_defer_busy_override_delivers_on_herdr_backend() {
     FM_SUPERVISOR_BACKEND=herdr FM_SUPERVISOR_TARGET="default:w1:p2" \
       FM_ESCALATE_BATCH_SECS=99999 FM_MAX_DEFER_SECS=60 housekeeping "$state"
   ) || fail "herdr housekeeping subshell failed"
-  grep -F 'compact at 400k context' "$submitted" >/dev/null 2>&1 \
+  delivered_digest "$submitted" 2>/dev/null | grep -F 'compact at 400k context' >/dev/null \
     || fail "the herdr override never delivered the digest"
   [ ! -s "$state/.subsuper-escalations" ] || fail "buffer not cleared after the herdr delivery"
   pass "max-defer override delivers through the herdr supervisor backend too"

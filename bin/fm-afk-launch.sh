@@ -116,6 +116,9 @@
 # with it unset, a daemon start/refresh uses the record's mode.
 # FM_TEST_HARNESS pins the primary harness this launch path judges, through
 # fm_supervision_host_primary (bin/fm-supervision-engine-lib.sh owns the seam).
+# Fork: a non-empty FM_DAEMON_PRIMARY_HARNESS wins over FM_TEST_HARNESS and
+# over detection, and it needs no FM_TEST_SEAM. It is the harness identity this
+# script hands to the detached daemon terminal (fm_afk_launch_primary_harness).
 set -u
 
 FM_AFK_LAUNCH_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
