@@ -50,6 +50,11 @@ Earlier upstream measurements from successful script records in [35279383618](ht
 A cancelled workflow supplies only its completed exit-0 records, not a green workflow verdict.
 An exit-0 capability skip measures only that skip path.
 Fork-local measurements for endpoint retirement and Herdr layout remain lower bounds.
+The 22 fork-only serial scripts that had no hint after the 2026-10-26 upstream merge carry provisional local measurements.
+Each value is the slowest successful sample on the NixOS host, from scrubbed `env -i` runs in an FHS sandbox under shared load.
+The fork has no recent Ubuntu timing artifacts, because its Actions runs are blocked.
+Replace these values with Ubuntu timing-artifact maxima when fork CI runs again.
+An exit-0 capability skip of a Herdr live guard in those runs measures only the skip path.
 No previous workflow proves the merged partition green.
 
 ## Parallel lanes
