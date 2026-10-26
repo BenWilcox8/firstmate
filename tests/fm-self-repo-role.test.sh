@@ -591,7 +591,7 @@ run_spawn() {  # <home> <spawn-args...>
     FM_SPAWN_NO_GUARD=1 FM_BACKEND=tmux PATH="$SPAWN_FAKEBIN:$BASE_PATH" \
     "$SPAWN" "$@" 2>&1
 }
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 
 test_spawn_gate_on_self_repo() {
   local home out rc

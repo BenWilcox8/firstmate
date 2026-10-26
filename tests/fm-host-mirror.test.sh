@@ -19,7 +19,7 @@ command -v jq >/dev/null 2>&1 || { printf 'skip: jq absent\n'; exit 0; }
 
 TMP_ROOT=$(fm_test_tmproot fm-host-mirror)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fakebin")
-ln -s /bin/bash "$FAKEBIN/claude"
+ln -s "$(fm_test_tool bash)" "$FAKEBIN/claude"
 FAKE_CLAUDE="$FAKEBIN/claude"
 trap fm_test_cleanup EXIT
 unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_CONFIG_OVERRIDE CLAUDE_PROJECT_DIR CURSOR_PROJECT_DIR
