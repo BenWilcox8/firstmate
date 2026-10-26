@@ -45,7 +45,7 @@ park_cleanup() {
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
-  rm -rf "$TMP_ROOT"
+  fm_test_remove_tree "$TMP_ROOT"
   fm_test_cleanup
 }
 trap park_cleanup EXIT

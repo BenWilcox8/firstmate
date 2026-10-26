@@ -1747,6 +1747,9 @@ do_resume() {
     # way (the watcher re-rings an unhandled one), so the wait is bounded and
     # the note is sent when it ends.
     resume_wait_composer_ready || true
+    # fm-send takes the same non-reentrant lease command lock this command
+    # holds, so release it first; the resume's own mutation is complete.
+    fm_lease_guard_release || true
     "$SCRIPT_DIR/fm-send.sh" "$ID" "$NOTE" >/dev/null \
       || echo "warning: task $ID resumed, but its note could not be delivered as a steer; send it again with bin/fm-send.sh $ID" >&2
   fi
