@@ -214,6 +214,38 @@ test_classify_orders_finished_first_and_an_active_run_over_a_decision() {
   pass "classify checks captain-held first, finished before captain-waiting, and only an active run overrides an open decision"
 }
 
+# A no-mistakes run that only monitors a PR no CI check verified reads working
+# in bin/fm-crew-state.sh, and a cancelled run reads unknown. A worker whose
+# newest line already reports its result has nothing left to do, so a restart
+# must not bring it back. Only the whole crew-state component counts.
+test_a_pr_with_no_ci_checks_or_a_cancelled_run_stays_down() {
+  local w out
+  w=$(new_world nochecks)
+  add_worker "$w" w-nochecks 'done: PR https://example.invalid/pull/5 ready for review'
+  printf 'state: working · source: run-step · no CI checks reported (or repository declares no CI): nothing has verified the PR (still monitoring for merge/close) · ci: no-checks · run: r5\n' > "$w/crew-state/w-nochecks"
+  add_worker "$w" w-nochecks-busy 'working: answering review notes'
+  printf 'state: working · source: run-step · no CI checks reported (or repository declares no CI): nothing has verified the PR (still monitoring for merge/close) · ci: no-checks · run: r6\n' > "$w/crew-state/w-nochecks-busy"
+  add_worker "$w" w-nochecks-text 'done: PR https://example.invalid/pull/7 ready for review'
+  printf 'state: working · source: run-step · ci running: ci: no-checks\n' > "$w/crew-state/w-nochecks-text"
+  add_worker "$w" w-cancelled-done 'done: PR https://example.invalid/pull/8 ready for review'
+  printf 'state: unknown · source: run-step · run cancelled: no verdict · run: r8\n' > "$w/crew-state/w-cancelled-done"
+  add_worker "$w" w-cancelled-failed 'failed: the build breaks on main'
+  printf 'state: unknown · source: run-step · run cancelled: no verdict · run: r9\n' > "$w/crew-state/w-cancelled-failed"
+  add_worker "$w" w-cancelled-busy 'working: restarting validation'
+  printf 'state: unknown · source: run-step · run cancelled: no verdict · run: r10\n' > "$w/crew-state/w-cancelled-busy"
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-nochecks)" = finished ] || fail "a done worker whose PR no CI check verified must classify finished: $out"
+  [ "$(class_of "$out" w-nochecks-busy)" = working ] || fail "a no-checks run must not hide a worker whose newest line is working: $out"
+  [ "$(class_of "$out" w-nochecks-text)" = working ] || fail "only the whole ci: no-checks component may count, not free text: $out"
+  [ "$(class_of "$out" w-cancelled-done)" = finished ] || fail "a cancelled run after a done line must classify finished: $out"
+  [ "$(class_of "$out" w-cancelled-failed)" = finished ] || fail "a cancelled run after a failed line must classify finished: $out"
+  [ "$(class_of "$out" w-cancelled-busy)" = working ] || fail "a cancelled run after a working line must classify working: $out"
+  out=$(wr "$w" run --key nochecks-1 --restart 'a Herdr restart' 2>&1) || fail "run failed: $out"
+  [ "$(awk '{ print $1 }' "$w/fake/control.log" | sort | tr '\n' ' ')" = "w-cancelled-busy w-nochecks-busy w-nochecks-text " ] \
+    || fail "a worker with a ready PR and no CI checks, or a cancelled run after its result, must not come back: $(cat "$w/fake/control.log")"
+  pass "a PR with no CI checks, or a cancelled run, after a done or failed line stays down"
+}
+
 # A live agent at another record's endpoint counts as occupying the worktree
 # unless its pane is proven to sit elsewhere.
 test_lease_check_counts_a_live_agent_whose_location_cannot_be_read() {
@@ -375,6 +407,7 @@ test_record_starts_worker_restore_once_for_a_restart() {
 
 test_classify_names_each_worker_class
 test_classify_orders_finished_first_and_an_active_run_over_a_decision
+test_a_pr_with_no_ci_checks_or_a_cancelled_run_stays_down
 test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own
 test_lease_check_counts_a_live_agent_whose_location_cannot_be_read
 test_run_relaunches_only_working_workers_once_per_restart

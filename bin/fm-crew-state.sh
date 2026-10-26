@@ -1317,6 +1317,12 @@ if [ "$HAVE_RUN" = 1 ]; then
       ;;
   esac
 
+  # Fork: its own ${SEP} component says that no CI check verified the PR, so
+  # a consumer (bin/fm-local-worker-restore.sh) compares a whole component
+  # and does not match the free text of the detail.
+  if [ "$RUN_STATE" = working ] && [ "$CI_LOG_STATE" = no-checks ]; then
+    RUN_DETAIL="$RUN_DETAIL${SEP}ci: no-checks"
+  fi
   [ -z "$SELECTED_RUN_ID" ] || RUN_DETAIL="$RUN_DETAIL${SEP}run: $SELECTED_RUN_ID"
   emit "$RUN_STATE" run-step "$RUN_DETAIL"
 fi

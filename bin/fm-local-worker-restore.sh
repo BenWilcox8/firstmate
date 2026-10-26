@@ -29,7 +29,11 @@
 #                  finished         its validation run (attributed by
 #                                   bin/fm-crew-state.sh) passed or failed, or,
 #                                   with no run, its newest state line is done
-#                                   or failed
+#                                   or failed; also a run that only monitors a
+#                                   PR no CI check verified (ci: no-checks)
+#                                   when its newest state line is done, and a
+#                                   cancelled run when that line is done or
+#                                   failed
 #                  captain-waiting  it has an open decision or blocker, or its
 #                                   newest state line is captain-held
 #                  slot-reused      lease-check finds its worktree leased to
@@ -251,6 +255,13 @@ wr_last_state_line() {
   printf '%s' "$found"
 }
 
+# wr_has_part <crew-line> <component>: 0 when the bin/fm-crew-state.sh line
+# has that whole " · "-separated component.
+wr_has_part() {
+  case " · $1 · " in *" · $2 · "*) return 0 ;; esac
+  return 1
+}
+
 # wr_classify <id> <meta>: set WR_CLASS and WR_REASON (contract in the header).
 wr_classify() {
   local id=$1 meta=$2 wt crew source run open line verb
@@ -289,7 +300,18 @@ wr_classify() {
     case "$run" in
       done) WR_CLASS=finished; WR_REASON="its validation run passed"; return 0 ;;
       failed) WR_CLASS=finished; WR_REASON="its validation run failed"; return 0 ;;
-      working) open= ;;
+      working)
+        if wr_has_part "$crew" 'ci: no-checks' && [ "$verb" = "done" ]; then
+          WR_CLASS=finished; WR_REASON="its PR is ready and waits on merge (no CI checks)"; return 0
+        fi
+        open= ;;
+      unknown)
+        case "$verb" in
+          done|failed)
+            if wr_has_part "$crew" 'run cancelled: no verdict'; then
+              WR_CLASS=finished; WR_REASON="its validation run was cancelled after it reported $verb"; return 0
+            fi ;;
+        esac ;;
     esac
   else
     case "$verb" in

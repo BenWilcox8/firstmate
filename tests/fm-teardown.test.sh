@@ -1369,6 +1369,48 @@ SH
   pass "the content-landed fallback checks a task's recorded base branch, not the default branch"
 }
 
+# Fork: the Atlas close-out names the branch the content fallback proved, so a
+# task that landed on its recorded base branch never records a default-branch
+# landing in the Atlas log.
+test_atlas_landing_names_the_recorded_base_branch() {
+  local case_dir rc tmp
+  case_dir=$(make_case atlas-base-landed)
+  write_meta "$case_dir" direct-PR ship
+  printf 'base_branch=feature/hub\natlas_ticket=c7\n' >> "$case_dir/state/task-x1.meta"
+  mkdir -p "$case_dir/specs/atlas"
+  printf '%s\n' "$case_dir/specs" > "$case_dir/config/specs"
+  cat > "$case_dir/fakebin/atlas-axi" <<SH
+#!/usr/bin/env bash
+printf '%s\n' "\$*" >> "$case_dir/atlas.log"
+case "\$*" in
+  *'ticket show c7 --json') printf '{"change":{"id":"c7","state":"started","node":"n42"}}\n' ;;
+  *'ticket list n42 --json') printf '[]\n' ;;
+esac
+exit 0
+SH
+  chmod +x "$case_dir/fakebin/atlas-axi"
+  tmp="$case_dir/_hub"
+  git clone -q "$case_dir/origin.git" "$tmp"
+  git -C "$tmp" push -q origin HEAD:refs/heads/feature/hub
+  printf 'hello\n' > "$tmp/feature.txt"
+  git -C "$tmp" add feature.txt
+  git -C "$tmp" -c user.email=t@t -c user.name=t commit -q -m "squash feature.txt"
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  git -C "$tmp" push -q origin HEAD:feature/hub
+  rm -rf "$tmp"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+  expect_code 0 "$rc" "atlas-base: content squashed into the recorded base branch should count as landed: $(cat "$case_dir/stderr")"
+  grep -Fq "land n42 --evidence task task-x1 landed on the project's feature/hub branch" "$case_dir/atlas.log" \
+    || fail "atlas-base: the landing evidence must name the recorded base branch: $(cat "$case_dir/atlas.log" 2>&1)"
+  ! grep -Fq 'default branch' "$case_dir/atlas.log" \
+    || fail "atlas-base: a base-branch landing must not be recorded on the default branch: $(cat "$case_dir/atlas.log")"
+  pass "the Atlas landing evidence names a task's recorded base branch"
+}
+
 test_content_fallback_refreshes_stale_origin_ref() {
   local case_dir rc
   case_dir=$(make_case content-stale-ref)
@@ -6102,6 +6144,7 @@ test_pr_check_does_not_refresh_stale_pr_head
 test_pr_check_records_remote_head_when_local_lags
 test_content_in_default_fallback_allows
 test_content_fallback_uses_recorded_base_branch
+test_atlas_landing_names_the_recorded_base_branch
 test_content_fallback_refreshes_stale_origin_ref
 test_dirty_worktree_refuses
 test_untracked_only_refusal_diagnostic

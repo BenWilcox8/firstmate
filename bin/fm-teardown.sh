@@ -2211,6 +2211,8 @@ teardown_leg_produced_work() {  # 0 = work, 1 = provably nothing
     [ ! -f "$DATA/$ID/report.md" ] || return 0
     return 1
   fi
+  # Fork: a reassigned slot is another task's copy, so it says nothing here.
+  teardown_owns_worktree || return 0
   [ -d "$WT" ] || return 0
   git -C "$WT" rev-parse --git-dir >/dev/null 2>&1 || return 0
   dirty_raw=$(git -C "$WT" status --porcelain 2>/dev/null) || return 0
@@ -3784,8 +3786,9 @@ if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-teardown-stop ||
 # A step that refuses before the pool slot is returned keeps the slot leased to
 # this task. The unforced close of a local Herdr worker pane (the
 # pane-teardown-close hook) and the T3 thread stop are such steps. Every other
-# endpoint-close refusal comes after the return; a rerun then goes through the
-# reassigned-slot retire path (bin/fm-local-retire-reassigned.sh).
+# endpoint-close refusal comes after the return; once another task takes the
+# slot, a rerun is records-only (a ship then records no Atlas close-out), and
+# bin/fm-local-retire-reassigned.sh is the guarded retire path that proves one.
 # A parent-delivery refusal must also come before the reap: an interactive
 # Treehouse slot owner exits with its reaped subshell. Delivery runs again once
 # the endpoint has stopped, and its receipts make that idempotent. A late outcome
@@ -3836,7 +3839,17 @@ atlas_hook() {  # <hook args...>
 
 ATLAS_GATE_LINE=
 atlas_unproved=0
-if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
+atlas_records_only=0
+# Fork: a records-only ship teardown of a reassigned slot proved no landing and
+# can read no work, because the slot is now another task's copy. So it records
+# no landing and no abort, and it warns. A scout's proof is its report and its
+# decision gate, not the slot, so a scout keeps the close-out below. The
+# guarded repair bin/fm-local-retire-reassigned.sh is the path that proves a
+# ship's landing and closes its ticket; it needs the record, so it runs instead
+# of a teardown.
+if [ "$KIND" != secondmate ] && [ "$KIND" != scout ] && ! teardown_owns_worktree; then
+  atlas_records_only=1
+elif [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
   # A ticket a crewmate or a merge already discharged is never re-queued as a
   # dead dispatch. Every other answer - started, queued, or a state cleanup
   # could not read - takes the abort, because abort claims nothing about work
@@ -3847,7 +3860,12 @@ if [ "$KIND" != secondmate ] && ! teardown_leg_produced_work; then
   esac
 fi
 
-if [ "$atlas_unproved" = 1 ]; then
+if [ "$atlas_records_only" = 1 ]; then
+  atlas_ticket=$(meta_value "$META" atlas_ticket)
+  if [ -n "$atlas_ticket" ] && [ -n "$(atlas_hook wired)" ]; then
+    echo "warning: task $ID's pool slot now belongs to task $TEARDOWN_SLOT_REASSIGNED_TO, so cleanup cannot prove where $ID's work went; its Atlas ticket $atlas_ticket stays as it is, with no landing and no abort recorded. Close that ticket by hand when you know where the work went." >&2
+  fi
+elif [ "$atlas_unproved" = 1 ]; then
   if [ "$KIND" = scout ]; then
     atlas_reason="Scout task $ID was cleaned up with no work produced: no report was written."
   else
@@ -3863,8 +3881,10 @@ elif [ "$FORCE" != "--force" ] && [ "$KIND" != secondmate ]; then
     atlas_evidence="$PR_URL"
     atlas_summary="Task $ID landed; cleanup verified the merged PR before removing the isolated copy."
   else
-    atlas_evidence="task $ID landed on the project's default branch"
-    atlas_summary="Task $ID landed; cleanup verified the work is on the default branch before removing the isolated copy."
+    atlas_branch="default branch"
+    [ -z "${BASE_BRANCH:-}" ] || atlas_branch="$BASE_BRANCH branch"
+    atlas_evidence="task $ID landed on the project's $atlas_branch"
+    atlas_summary="Task $ID landed; cleanup verified the work is on the $atlas_branch before removing the isolated copy."
   fi
   # A refused close-out's status line is held here rather than written, because
   # the status log it belongs in is retired below; it is written after that.

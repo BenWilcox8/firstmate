@@ -1263,6 +1263,7 @@ test_top_level_ci_checks_green_surfaces_done() {
   assert_contains "$out" "source: run-step" "top-level ci green -> run-step source"
   assert_contains "$out" "checks green" "top-level ci green detail mentions checks green"
   assert_not_contains "$out" "state: working" "top-level ci green must not stay working"
+  assert_not_contains "$out" " · ci: no-checks" "a green PR does not carry the no-checks component"
   pass "top-level ci status uses ci log green marker"
 }
 
@@ -1278,6 +1279,7 @@ test_ci_monitoring_no_checks_stays_working() {
   assert_contains "$out" "state: working" "a PR with no CI checks -> working"
   assert_not_contains "$out" "checks green" "a PR with no CI checks is not checks green"
   assert_contains "$out" "no CI checks" "the detail names the real condition"
+  assert_contains "$out" " · ci: no-checks" "the no-checks reading carries its own component"
   pass "a PR with no CI checks reported is not read as checks green"
 }
 
@@ -1364,6 +1366,7 @@ test_ci_monitoring_no_ci_declared_stays_working() {
   local out; out=$(run_crew_state "$d" feat-cinoci)
   assert_contains "$out" "state: working" "a no_ci repository -> working"
   assert_contains "$out" "repository declares no CI" "the detail names the no_ci condition"
+  assert_contains "$out" " · ci: no-checks" "the no_ci reading carries the no-checks component"
   assert_not_contains "$out" "validating (running)" "a parked no_ci run is not validating"
   assert_not_contains "$out" "checks green" "a no_ci repository is not checks green"
   pass "a no_ci ci-monitor marker reads as unverified, not validating"
@@ -1397,6 +1400,7 @@ test_ci_no_ci_then_red_marker_is_not_ready() {
   assert_contains "$out" "state: working" "a red marker after the no_ci sentence -> working"
   assert_not_contains "$out" "state: done" "a red marker after the no_ci sentence is not done"
   assert_not_contains "$out" "repository declares no CI" "the last marker wins over the no_ci sentence"
+  assert_not_contains "$out" " · ci: no-checks" "a red marker after the no_ci sentence drops the no-checks component"
   pass "a red marker after the no_ci sentence reads not ready"
 }
 

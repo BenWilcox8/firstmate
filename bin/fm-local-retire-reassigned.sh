@@ -30,6 +30,8 @@
 # status log after retirement, as teardown does. No approval is inferred from a
 # done line.
 # Task check files and other volatile records move into the same archive.
+# The task's spawn-owned hook, push-guard, and plugin paths are removed, as
+# teardown removes them.
 # Global hook registrations and tasktmp remain untouched for manual inspection.
 # Legacy records without spawn_gen refuse when automatic backlog closure applies.
 # FM_HOME must be explicit. FM_*_OVERRIDE paths follow the normal teardown seam.
@@ -221,7 +223,8 @@ mkdir -p "$ARCHIVE"
 ARTIFACTS=(".$ID.branch-outcome-index")
 for suffix in turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement \
   pr-poll-merge-notified merge-authority progress busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
-  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json herdr-presentation \
+  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json devin-config.json \
+  polytoken-busy.sh herdr-presentation \
   control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox; do
   ARTIFACTS+=("$ID.$suffix")
 done
@@ -292,6 +295,14 @@ for name in "${ARTIFACTS[@]}"; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   mv "$source" "$ARCHIVE/"
 done
+# Spawn-owned hook, push-guard, and plugin paths are not evidence. Remove them
+# as bin/fm-teardown.sh does. The hooks directory is read-only, so give write
+# permission back first.
+HOOKS_DIR=$STATE/$ID.git-hooks
+[ -L "$HOOKS_DIR" ] || [ ! -d "$HOOKS_DIR" ] || chmod u+w "$HOOKS_DIR" 2>/dev/null || true
+rm -rf "$HOOKS_DIR" "$STATE/$ID.push-guard" "$STATE/$ID.cortex-plugin" "$STATE/$ID.polytoken-config" \
+  "$STATE/$ID.polytoken-sessions" "$STATE/$ID.polytoken-sessions-v1" \
+  || echo "warning: retired $ID, but its hook or plugin paths in $STATE could not all be removed" >&2
 # The retired log is gone, so a refused node landing starts a fresh one that the
 # watcher surfaces until the supervisor resolves its key.
 if [ -n "$ATLAS_GATE_LINE" ]; then
