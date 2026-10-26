@@ -414,6 +414,7 @@ test_partial_resolve_write_blocks_firing() {
     # shellcheck disable=SC2329
     recovery_hook() { printf '%s\n' sent >> "$hook_log"; }
     eval "_orig_$(declare -f fm_pending_reply_set)"
+    # shellcheck disable=SC2329 # the sourced pending-reply library invokes this override
     fm_pending_reply_set() {
       [ "$2" != resolved_epoch ] || [ "${FAIL_RESOLVED_EPOCH:-0}" != 1 ] || return 1
       _orig_fm_pending_reply_set "$@"
@@ -1502,11 +1503,13 @@ test_tick_leaves_settled_records_alone() {
   lib="$ROOT/bin/fm-wake-lib.sh"
   bash -c '. "$1"; fm_lock_acquire_wait "$2" && : > "$3"; exec sleep 300' _ \
     "$lib" "$state/.pending-reply-00005e7700000000.lock" "$home/held" &
+  # shellcheck disable=SC2031 # $! names the holder launched just above, not an earlier subshell job
   holder=$!
   for _ in $(seq 1 100); do [ -e "$home/held" ] && break; sleep 0.1; done
   [ -e "$home/held" ] || { kill "$holder" 2>/dev/null; fail "foreign holder never took the lock"; }
 
   fm_pending_reply_tick "$state" &
+  # shellcheck disable=SC2031 # $! names the tick launched just above, not an earlier subshell job
   tick_pid=$!
   for _ in $(seq 1 600); do
     case "$(ps -p "$tick_pid" -o stat= 2>/dev/null)" in ''|Z*) ticked=1; break ;; esac

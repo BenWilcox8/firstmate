@@ -904,7 +904,7 @@ test_dispatch_busy_state_routes_tern() {
 # --- agent_state ------------------------------------------------------------------------------------
 
 test_agent_state_classifies_the_foreground_process() {
-  local dir out
+  local dir out argv
   dir=$(new_case agent-alive)
   ls_with_block "$dir" 1
   process_response "$dir" 2 omp
@@ -919,7 +919,11 @@ test_agent_state_classifies_the_foreground_process() {
 
   dir=$(new_case agent-dead-shell-rcfile)
   ls_with_block "$dir" 1
-  process_response "$dir" 2 bash '["/bin/bash","--rcfile","/home/u/.cache/stencil-term/shell-integration/bash/kitty.bash"]'
+  # The argv is the data Tern reports for the pane, never a command this test runs.
+  IFS= read -r argv <<'JSON'
+["/bin/bash","--rcfile","/home/u/.cache/stencil-term/shell-integration/bash/kitty.bash"]
+JSON
+  process_response "$dir" 2 bash "$argv"
   out=$( run_tern "$dir" 'fm_backend_tern_agent_state "$1"' "$TARGET" )
   [ "$out" = dead ] || fail "an interactive shell started with Tern's --rcfile shell integration should read dead, got '$out'"
 
@@ -1470,7 +1474,7 @@ test_smoke_test_skips_cleanly_without_a_window() {
   # tern on PATH it must report a skip and exit 0 rather than fail.
   local dir out status
   dir="$TMP_ROOT/smoke-skip-no-tern"; mkdir -p "$dir/empty-bin"
-  out=$( PATH="$dir/empty-bin:/usr/bin:/bin" "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
+  out=$( PATH="$dir/empty-bin:$(fm_test_core_path):/usr/bin:/bin" "$ROOT/tests/fm-backend-tern-smoke.test.sh" 2>&1 )
   status=$?
   case "$out" in
     skip:*) : ;;

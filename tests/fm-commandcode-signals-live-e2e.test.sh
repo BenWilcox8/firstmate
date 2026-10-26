@@ -74,7 +74,7 @@ export PATH="$LAB/bin:$PATH" FM_HOME="$H"
 unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
 TARGET="firstmate:fm-$ID"
 "$REAL_TMUX" -S "$SOCKET" new-session -d -s firstmate -n "fm-$ID" -x 120 -y 40 -c "$WT" \
-  "HOME='$H/user-home' /bin/sh '$LAB/launch.sh'; HOME='$H/user-home' exec /bin/bash --noprofile --norc" || fail 'could not start pane'
+  "HOME='$H/user-home' /bin/sh '$LAB/launch.sh'; HOME='$H/user-home' exec '$(fm_test_tool bash)' --noprofile --norc" || fail 'could not start pane'
 capture() { "$REAL_TMUX" -S "$SOCKET" capture-pane -p -e -t "$TARGET"; }
 screen_text() { "$REAL_TMUX" -S "$SOCKET" capture-pane -p -t "$TARGET"; }
 wait_file() {

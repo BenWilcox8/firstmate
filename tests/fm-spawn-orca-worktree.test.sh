@@ -26,6 +26,15 @@ set -u
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
+# Fork: new Orca tasks are retired, so fm_backend_validate_spawn refuses every
+# spawn and relaunch this suite drives (tests/fm-backend-orca.test.sh keeps the
+# existing-record coverage).
+# shellcheck source=/dev/null
+if (. "$ROOT/bin/fm-backend.sh" && fm_backend_validate_spawn orca) 2>&1 | grep -q 'Orca is unsupported for new tasks'; then
+  echo "skip: fork retired new Orca tasks; fm_backend_validate_spawn refuses orca"
+  exit 0
+fi
+
 SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-orca-worktree)
 
@@ -703,7 +712,7 @@ SH
     for ((i = 0; i < 300; i++)); do
       [ ! -s "$case_dir/published" ] || break
       kill -0 "$pid" 2>/dev/null || break
-      /bin/sleep 0.1
+      sleep 0.1
     done
     staged=$(cat "$case_dir/published" 2>/dev/null)
     if [ -z "$staged" ] || [ ! -f "$staged" ] || ! kill -0 "$pid" 2>/dev/null; then

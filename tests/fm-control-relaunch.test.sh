@@ -2530,7 +2530,7 @@ case "${1:-} ${2:-}" in
     # its previous session; a registered agent is the claude process 4243 under
     # shell 4242; and a pane holding no agent is the idle shell 100.
     if [ -f "$D/herdr-agent-registration" ]; then
-      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_process_group_id":4242,"foreground_processes":[]}}}\n' \
+      printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_process_group_id":4242,"foreground_processes":[{"pid":4242,"name":"bash","argv":["bash"]}]}}}\n' \
         "$(cat "$D/herdr-pane")"
     elif [ -f "$D/herdr-agent-live" ]; then
       printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":4242,"foreground_process_group_id":4243,"foreground_processes":[{"pid":4243,"name":"claude","argv":["claude"],"cmdline":"claude"}]}}}\n' \
@@ -2650,7 +2650,9 @@ test_herdr_relaunch_resumes_only_the_registered_pi_session() {
       return 0
     }
     dir=$HERDR_CASE_DIR
-    rm -f "$dir/fake/herdr-stopped"
+    # Fork: the server stays stopped, so the relaunch adopts the recorded pane
+    # through the absence proof. A running server takes the fresh-pane path,
+    # which resumes no session.
     sed -i 's/^harness=claude$/harness=pi/' "$dir/home/state/resume-$registered.meta"
     # Keep the pane's status authority registered to an existing Pi session,
     # while process-info proves that its previous agent has exited.

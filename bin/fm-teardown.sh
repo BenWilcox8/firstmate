@@ -414,7 +414,6 @@ for _teardown_source in \
   fm-secondmate-parent-lib.sh \
   fm-pending-reply-lib.sh \
   fm-operational-input.sh \
-  fm-marker-lib.sh \
   fm-tmux-lib.sh \
   fm-composer-lib.sh \
   fm-cursor-lib.sh \

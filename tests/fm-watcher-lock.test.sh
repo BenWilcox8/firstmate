@@ -1537,7 +1537,7 @@ test_stale_watch_reclaim_publishes_before_clear() {
   mkdir -p "$lockdir"
   printf '99999999\n' > "$lockdir/pid"
 
-  FM_STATE_OVERRIDE="$state" bash -c '
+  FM_STATE_OVERRIDE="$state" STATE="$state" bash -c '
     . "$1"
     fm_lock_remove_path() {
       if [ "$1" = "$STATE/.watch.lock" ]; then

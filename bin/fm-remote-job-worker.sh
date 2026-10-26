@@ -112,12 +112,26 @@ worker_write_heartbeat() { # <owner-pid>
   mv -f -- "$tmp" "$ready"
 }
 
+# The heartbeat takes its ps and sleep from the system tool directories before
+# PATH, so its once-a-second wait never shows up as a serving-loop poll through
+# a PATH sleep. Those directories include the NixOS system profile, where a host
+# with no FHS tools keeps them.
+worker_system_tool() { # <tool>
+  local directory
+  for directory in $FM_REMOTE_JOB_SYSTEM_TOOL_DIRS; do
+    [ -x "$directory/$1" ] && { printf '%s\n' "$directory/$1"; return 0; }
+  done
+  fm_remote_job_resolve_tool "$1"
+}
+
 worker_heartbeat_loop() { # <account-home> <owner-pid>
-  local account_home=$1 owner=$2 ready owner_state
+  local account_home=$1 owner=$2 ready owner_state ps_bin sleep_bin
   ready=$(fm_remote_job_worker_ready_path)
   trap 'exit 0' HUP INT TERM
+  ps_bin=$(worker_system_tool ps) || exit 1
+  sleep_bin=$(worker_system_tool sleep) || exit 1
   while kill -0 "$owner" 2>/dev/null &&
-    owner_state=$(/bin/ps -p "$owner" -o state= 2>/dev/null) &&
+    owner_state=$("$ps_bin" -p "$owner" -o state= 2>/dev/null) &&
     [ -n "$owner_state" ] && [[ "$owner_state" != *Z* ]] &&
     fm_remote_job_lock_owner_matches_process "$account_home" &&
     [ "$FM_REMOTE_JOB_OWNER_PID" = "$owner" ]; do
@@ -126,7 +140,7 @@ worker_heartbeat_loop() { # <account-home> <owner-pid>
     else
       touch -c -- "$ready" || exit 1
     fi
-    /bin/sleep 1
+    "$sleep_bin" 1
   done
 }
 

@@ -586,8 +586,10 @@ test_batch_reports_a_deferred_pair() {
 # even from an uncapped clone of a capped origin whose worker would still hold a
 # place: it refuses while another holder has it, and defers at capacity before
 # asking Orca for anything but its runtime status.
+# Fork: new Orca tasks are retired, so every such spawn refuses before it takes
+# the project lock, asks Orca for anything, or publishes a record.
 test_orca_spawn_is_admitted_under_the_shared_project_lock() {
-  local case_dir home out out2 rc=0 rc2 holder i
+  local case_dir home out out2 rc=0 rc2 holder i lock
   command -v node >/dev/null 2>&1 || {
     printf 'ok - skipped the Orca capacity case (node, which the Orca status check needs, is not installed)\n'
     return 0
@@ -631,11 +633,11 @@ SH
   : > "$case_dir/holder.release"
   wait "$holder" || true
   expect_code 1 "$rc" "an Orca spawn ignored a held project lock: $out"
-  assert_contains "$out" "another spawn or cleanup holds the shared project lock for $case_dir/project; refusing to race its capacity admission" \
-    "the Orca spawn did not refuse on the shared project lock"
+  assert_contains "$out" "Orca is unsupported for new tasks" \
+    "the Orca spawn did not refuse as a retired backend"
   expect_code 1 "$rc2" "an Orca spawn from an uncapped same-origin clone ignored the held project lock: $out2"
-  assert_contains "$out2" "another spawn or cleanup holds the shared project lock for $case_dir/project-2" \
-    "the uncapped same-origin clone's Orca spawn did not refuse on the shared project lock"
+  assert_contains "$out2" "Orca is unsupported for new tasks" \
+    "the uncapped same-origin clone's Orca spawn did not refuse as a retired backend"
   assert_absent "$home/state/task-o.meta" "the uncapped clone's Orca spawn published a record while the lock was held"
   assert_no_grep "orca " "$case_dir/calls.log" "the Orca spawn asked Orca for more than its runtime status"
 
@@ -643,10 +645,15 @@ SH
   rc=0
   out=$(run_spawn "$case_dir" "$home" "$case_dir/unused" task-o "$case_dir/project" \
     --backend orca --mode no-mistakes --yolo off) || rc=$?
-  expect_code "$DEFER_EXIT" "$rc" "an Orca spawn beyond capacity was not deferred: $out"
+  expect_code 1 "$rc" "an Orca spawn beyond capacity was not refused: $out"
+  assert_contains "$out" "Orca is unsupported for new tasks" "the Orca spawn beyond capacity did not refuse as a retired backend"
+  # shellcheck disable=SC2016 # expanded by the probe's own shell
+  lock=$(FM_HOME="$home" FM_STATE_OVERRIDE='' bash -c '. "$1/bin/fm-wake-lib.sh"; fm_treehouse_project_lock_path "$2"' _ "$ROOT" "$case_dir/project") ||
+    fail "could not resolve the shared project lock path"
+  [ ! -e "$lock" ] && [ ! -L "$lock" ] || fail "the refused Orca spawn left the shared project lock at $lock"
   assert_absent "$home/state/task-o.meta" "the deferred Orca spawn published a record"
   assert_no_grep "orca " "$case_dir/calls.log" "the deferred Orca spawn created an Orca worktree"
-  pass "an Orca spawn takes the shared project lock whenever a same-origin clone is capped and defers before creating anything"
+  pass "a new Orca spawn refuses as retired before it takes the shared project lock or creates anything"
 }
 
 test_undeclared_capacity_keeps_dispatch_uncapped

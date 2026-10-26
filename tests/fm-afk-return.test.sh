@@ -490,7 +490,7 @@ test_return_brief_points_at_the_drain_on_a_host_home_only() {
     : > "$dir/home/config/supervision-host"
     fakebin="$dir/fakebin"
     mkdir -p "$fakebin"
-    ln -s /bin/bash "$fakebin/$harness"
+    ln -s "$(fm_test_tool bash)" "$fakebin/$harness"
     contract_in "$dir" enter --words 'watch the fleet' >/dev/null 2>&1 || fail "could not record the away posture"
     for n in 1 2 3 4 5 6; do
       outcome_in "$dir" append --task demo --verdict routine --summary "routine $n" >/dev/null || fail "could not seed routine $n"
@@ -527,7 +527,7 @@ test_return_brief_all_silent_window_does_not_point_at_drain() {
   : > "$dir/home/config/supervision-host"
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  ln -s /bin/bash "$fakebin/claude"
+  ln -s "$(fm_test_tool bash)" "$fakebin/claude"
   contract_in "$dir" enter --words 'watch the fleet' >/dev/null 2>&1 || fail "could not record the away posture"
   outcome_in "$dir" append --task demo --verdict routine --summary 'still building; nothing new has happened; no action was taken' --silent true >/dev/null \
     || fail "could not seed the silent routine outcome"
@@ -562,7 +562,7 @@ test_return_keeps_catchup_gated_when_the_drain_cannot_record_outcomes() {
   : > "$dir/home/config/supervision-host"
   fakebin="$dir/fakebin"
   mkdir -p "$fakebin"
-  ln -s /bin/bash "$fakebin/claude"
+  ln -s "$(fm_test_tool bash)" "$fakebin/claude"
   contract_in "$dir" enter --words 'watch the fleet' >/dev/null 2>&1 || fail "could not record the away posture"
   outcome_in "$dir" append --task demo --verdict routine --summary 'rebased while away' >/dev/null || fail "could not seed the routine row"
   outcome_in "$dir" append --task demo --verdict captain --summary 'PR ready for review' >/dev/null || fail "could not seed the captain row"

@@ -3,9 +3,10 @@
 #
 # A dormant second mate is one the captain has ordered to stay down. Its home,
 # records, and registry route stay, but no automatic relaunch may start it:
-# bin/fm-bootstrap.sh's startup liveness sweep (through the
-# secondmate-liveness-skip hook) and bin/fm-local-restart-recovery.sh's restart
-# recovery pass both read this marker and leave it down.
+# bin/fm-bootstrap.sh's startup liveness sweep and bin/fm-watch.sh's
+# secondmate_liveness_tick (both through the secondmate-liveness-skip hook) and
+# bin/fm-local-restart-recovery.sh's restart recovery pass all read this marker
+# and leave it down.
 # A deliberate `bin/fm-spawn.sh <id> --secondmate` or `bin/fm-control.sh <id>
 # relaunch` does not read it: a relaunch by hand is the captain's own call, so
 # clear the marker when the captain authorizes the domain again.

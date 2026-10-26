@@ -191,6 +191,8 @@ fm_local_hook() {
       echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close recorded task panes that pane cleanup kept: $closes"
       ;;
     # Restart recovery (bin/fm-local-restart-recovery.sh owns both contracts).
+    # secondmate-liveness-skip is read by the startup liveness sweep in
+    # bin/fm-bootstrap.sh and by secondmate_liveness_tick in bin/fm-watch.sh.
     restart-record)
       FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" record
       ;;

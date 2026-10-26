@@ -226,7 +226,7 @@ tmux new-window -d -t "$SESSION:" -n fm-t1 \
 tmux kill-window -t "=$SESSION:=fm-t1" \
   || fail "real tmux: could not remove the gone-prefix window"
 tmux send-keys -t "$SESSION:fm-t10" \
-  "bash -c 'printf \"prefix-neighbor-ready\\n\"; read -r -n 1 key; printf \"%s\" \"\$key\" > \"$SHIM_DIR/key-capture\"'" Enter
+  "bash -c 'printf \"prefix-neighbor-ready\\n\"; read -r -n 1 key; printf \"%s\" \"\$key\" > \"\$1\"' _ \"$SHIM_DIR/key-capture\"" Enter
 wait_for_capture_text "$SESSION:fm-t10" prefix-neighbor-ready \
   || fail "real tmux: prefix-neighbor reader did not become ready"
 if fm_backend_tmux_send_key "$SESSION:fm-t1" X; then

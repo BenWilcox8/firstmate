@@ -28,7 +28,7 @@ FM="$LAB/fm"
 # The session-lock holder must look like a Claude harness to the ancestry walk
 # without shadowing the real claude the engine resolves from PATH.
 mkdir -p "$LAB/harness"
-ln -s /bin/bash "$LAB/harness/claude"
+ln -s "$(fm_test_tool bash)" "$LAB/harness/claude"
 FAKE_CLAUDE="$LAB/harness/claude"
 HOST_TIMEOUT_POLLS=${FM_SUPERVISION_HOST_LIVE_POLLS:-3000}
 

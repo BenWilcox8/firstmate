@@ -5245,7 +5245,7 @@ test_send_text_submit_accepts_marked_payloads_whose_read_back_drops_u2063() {
   for kind in digest steer; do
     dir="$TMP_ROOT/submit-u2063-$kind"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
     if [ "$kind" = digest ]; then
-      text=$(bash -c '. "$0/bin/fm-operational-input.sh"; fm_operational_input_encode away-supervisor "$1" out; printf "%s" "$out"' \
+      text=$(bash -c '. "$0/bin/fm-operational-input.sh"; fm_operational_input_encode away-supervisor "$1" encoded; printf "%s" "$encoded"' \
         "$ROOT" "$(herdr_long_payload 1492)")
     else
       text=$(bash -c '. "$0/bin/fm-operational-input.sh"; printf "%s %s" "$FM_FROMFIRST_MARK" "$1"' "$ROOT" "please rebase onto main")
@@ -5271,7 +5271,7 @@ test_send_text_submit_accepts_marked_payloads_whose_read_back_drops_u2063() {
 test_send_text_submit_refuses_marked_digest_missing_its_head() {
   local dir log resp fb out enter_count text shown
   dir="$TMP_ROOT/submit-u2063-suffix"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
-  text=$(bash -c '. "$0/bin/fm-operational-input.sh"; fm_operational_input_encode away-supervisor "$1" out; printf "%s" "$out"' \
+  text=$(bash -c '. "$0/bin/fm-operational-input.sh"; fm_operational_input_encode away-supervisor "$1" encoded; printf "%s" "$encoded"' \
     "$ROOT" "$(herdr_long_payload 1492)")
   shown=${text//$'\xe2\x81\xa3'/}
   herdr_submit_claude_prefix "$resp" "$text"

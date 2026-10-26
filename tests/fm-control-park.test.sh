@@ -116,7 +116,7 @@ case "${1:-}" in
   list-windows)
     ses=''
     while [ $# -gt 0 ]; do
-      case "$1" in -t) ses=$2; shift 2 ;; *) shift ;; esac
+      case "$1" in -t) ses=${2#=}; shift 2 ;; *) shift ;; esac
     done
     [ -f "$D/windows" ] && sed -n "s/^$ses://p" "$D/windows"
     exit 0 ;;

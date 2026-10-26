@@ -391,6 +391,12 @@ hash_pane_text() {  # <pane-capture>
   pane_hash_content "$1" | hash_pane
 }
 
+# Upstream's name for the same fixture hash, kept so upstream suites that seed
+# a .hash-<key> marker (tests/fm-watch-wedge-cap*.test.sh) get the watcher's value.
+hash_text() {  # <pane-capture>
+  hash_pane_text "$1"
+}
+
 dead_pid() {
   local p=999999
   while kill -0 "$p" 2>/dev/null; do

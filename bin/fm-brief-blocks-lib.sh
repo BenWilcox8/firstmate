@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Single owner of the scaffold blocks bin/fm-brief.sh renders into more than one
-# brief kind: the worker status protocol (ship and scout rules 4-7), the shared
-# States line every kind carries, the shared no-mistakes daemon rule, and the
-# subagent model-tier block every kind carries.
+# brief kind: the worker status protocol (ship and scout rules 4-8, composed
+# around the rule strings bin/fm-brief.sh passes in), the shared States line
+# every kind carries, and the subagent model-tier block every kind carries.
 # Before this owner existed the status protocol was written three times and the
 # daemon rule twice, so one wording fix had to be applied in every copy or the
 # scaffolds silently drifted apart.
@@ -19,21 +19,35 @@ fm_brief_states_line() {  # <paused-verb>
   echo "States: working, needs-decision, blocked, $paused_verb, done, failed."
 }
 
-# fm_brief_worker_rules <ship|scout> <paused-verb> <shell-quoted status file> [ask-user-block]
-# prints rules 4 through 7 of a crewmate brief on stdout with no trailing blank
+# fm_brief_worker_rules <ship|scout> <paused-verb> <status-append-command>
+#   <ask-user-block> <pause-instructions> <shared-infra-rule> <shared-no-cd-rule>
+# prints rules 4 through 8 of a crewmate brief on stdout with no trailing blank
 # line. A secondmate charter has its own escalation contract and does not use it.
-fm_brief_worker_rules() {  # <kind> <paused-verb> <status-file> [ask-user-block]
-  local kind=$1 paused_verb=$2 status_file=$3 ask_user_block=${4:-}
+# bin/fm-brief.sh owns the status append command (the plain append plus the
+# opt-in fleet ledger), the pause instructions, the shared infrastructure rule 7,
+# and the leading-cd rule 8, and passes each in verbatim, so upstream wording
+# changes to them land in bin/fm-brief.sh and need no fork copy here.
+# The ask-user block is empty for a scout.
+fm_brief_worker_rules() {  # <kind> <paused-verb> <status-append> <ask-user-block> <pause-instructions> <infra-rule> <no-cd-rule>
+  local kind=$1 paused_verb=$2 status_append=$3 ask_user_block=${4:-}
+  local pause_instructions=${5:-} infra_rule=${6:-} no_cd_rule=${7:-}
   case "$kind" in
     ship|scout) ;;
     *)
       echo "error: fm_brief_worker_rules: unknown brief kind '$kind'" >&2
       return 1 ;;
   esac
+  if [ -z "$status_append" ] || [ -z "$pause_instructions" ] || [ -z "$infra_rule" ] || [ -z "$no_cd_rule" ]; then
+    echo "error: fm_brief_worker_rules: the status append command, pause instructions, shared infrastructure rule, and leading-cd rule are required" >&2
+    return 1
+  fi
+  pause_instructions=${pause_instructions%$'\n'}
+  infra_rule=${infra_rule%$'\n'}
+  no_cd_rule=${no_cd_rule%$'\n'}
 
   cat <<EOF
 4. Report status by appending one line:
-   \`echo "{state} [at=<epoch>]: {one short line}" >> $status_file\`
+   \`$status_append\`
    $(fm_brief_states_line "$paused_verb")
    Replace \`<epoch>\` with the current Unix time in seconds from \`date +%s\`.
    A stamp that is not plain digits records no time.
@@ -56,13 +70,8 @@ EOF
 EOF
   fi
 
+  printf '%s\n' "$pause_instructions"
   cat <<EOF
-   Use \`$paused_verb [at=<epoch>]: {why}\` only for a known wait that can clear on its own.
-   Examples include an upstream release, a rate-limit reset, a scheduled window, or your own validation round.
-   Firstmate rechecks the idle pane on a long cadence instead of treating it as a possible wedge.
-   When you know the clearing time, include \`until <YYYY-MM-DDTHH:MMZ>\` (UTC) in the line.
-   Firstmate can then recheck at that time, within its maximum recheck interval.
-   Use \`blocked:\` when you are stuck and need help.
    Whenever you mention a PR, write its full https:// URL exactly as the forge printed it.
    Use that URL, never a bare number such as "PR 108".
    Firstmate copies that URL rather than assembling one from a bare number.
@@ -79,22 +88,15 @@ EOF
 EOF
   fi
 
-  cat <<EOF
-   append \`needs-decision [at=<epoch>]: {summary of options}\` and stop. Firstmate will reply with the decision.
-$ask_user_block
-   A decision or blocker you opened stays open until a \`resolved\` line carrying its exact key lands; a later \`done:\` or \`working:\` line never closes it, even when the answer is what started that work.
-   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append \`resolved [at=<epoch>]: {how it cleared}\` yourself (same \`[key=<slug>]\` if you opened it with one) as you resume.
-7. Never stop, restart, or update the shared \`no-mistakes\` daemon - it is one instance serving
-   every lane/home, so restarting it kills other lanes' in-flight pipeline runs. Only firstmate manages the daemon.
-   Before reporting a pipeline blocker, run \`no-mistakes daemon status\` and \`no-mistakes axi status\`.
-   If the daemon socket refuses connections or is missing, append \`blocked [at=<epoch>]: {the daemon error}\` and stop.
-   A local record that still says running or fixing can be stale after the daemon exits.
-   A failed run record with a daemon error is also a real blocker.
-   After ruling out socket refusal, reattach and continue if the run is running or fixing.
-   A drive-call timeout, slow read, or generic unreachability alone does not prove a daemon error.
-   The daemon accepts \`respond\` immediately and runs the round in the background.
-   A killed or timed-out drive call can stop waiting while the run continues.
+  cat <<'EOF'
+   append `needs-decision [at=<epoch>]: {summary of options}` and stop. Firstmate will reply with the decision.
 EOF
+  [ -z "$ask_user_block" ] || printf '%s\n' "$ask_user_block"
+  cat <<'EOF'
+   A decision or blocker you opened stays open until a `resolved` line carrying its exact key lands; a later `done:` or `working:` line never closes it, even when the answer is what started that work.
+   Firstmate's reply normally writes that closing line at answer time; when a blocker or wait clears WITHOUT a firstmate reply, append `resolved [at=<epoch>]: {how it cleared}` yourself (same `[key=<slug>]` if you opened it with one) as you resume.
+EOF
+  printf '%s\n%s\n' "$infra_rule" "$no_cd_rule"
 }
 
 # fm_brief_subagent_tier_block <fm-root> prints the "# Subagent model tier"

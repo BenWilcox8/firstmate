@@ -16,7 +16,7 @@ set -u
 
 WARNER="$ROOT/bin/fm-usage-warner.sh"
 TMP_ROOT=$(fm_test_tmproot fm-usage-warner)
-BASE_PATH=${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}
+BASE_PATH=${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}
 
 # arm is macOS-only. Its threshold gate runs before any platform-specific file
 # handling, so that refusal case uses a uname stub reporting Darwin and stays

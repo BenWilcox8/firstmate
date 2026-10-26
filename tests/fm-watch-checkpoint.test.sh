@@ -329,7 +329,7 @@ test_real_host_checkpoint_ends_quietly_at_its_bound() {
   : > "$home/config/supervision-host"
   fakebin="$TMP_ROOT/host-real-bin"
   mkdir -p "$fakebin"
-  ln -s /bin/bash "$fakebin/codex"
+  ln -s "$(fm_test_tool bash)" "$fakebin/codex"
   status=0
   FM_HOME="$home" FM_POLL=1 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$fakebin/codex" -c '
     printf "%s\n" "$$" > "$FM_HOME/state/.lock"

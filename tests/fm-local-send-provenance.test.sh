@@ -212,6 +212,7 @@ for backend in herdr zellij cmux orca; do
     typed_mock() { printf '%s' "$2" > "$FM_HOME/typed"; }
     eval "fm_backend_${backend}_send_literal() { typed_mock \"\$@\"; }"
     eval "fm_backend_${backend}_send_key() { return 1; }"
+    fm_backend_herdr_agent_identity_raw() { return 1; }
     fm_backend_herdr_agent_status_raw() { printf working; }
     fm_backend_herdr_rendered_busy_state() { printf busy; }
     fm_backend_zellij_composer_content() { printf ''; }

@@ -3134,6 +3134,29 @@ SH
   pass "herdr flat teardown refuses before returning the isolated copy under lock contention and the retry completes cleanly"
 }
 
+test_herdr_flat_teardown_refuses_records_on_unparseable_presence() {
+  local case_dir log closed rc
+  case_dir=$(make_case herdr-garbage-presence)
+  write_meta "$case_dir" local-only ship
+  configure_flat_herdr_locked_teardown_case "$case_dir"
+  log="$case_dir/herdr.log"; : > "$log"
+  closed="$case_dir/closed"
+  : > "$case_dir/state/task-x1.status"
+  rc=0
+  FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_PANE_GET_GARBAGE=1 \
+    FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  [ "$rc" -ne 0 ] \
+    || fail "herdr-garbage-presence: teardown erased records on an unparseable pane presence"
+  [ -e "$case_dir/state/task-x1.meta" ] \
+    || fail "herdr-garbage-presence: ambiguous presence erased the durable endpoint metadata"
+  [ -e "$case_dir/state/task-x1.status" ] \
+    || fail "herdr-garbage-presence: ambiguous presence erased the task status record"
+  assert_grep "ambiguous structured presence" "$case_dir/stderr" \
+    "herdr-garbage-presence: the ambiguity refusal was not explained visibly"
+  pass "herdr flat teardown never erases records when pane presence is unparseable"
+}
+
 assert_herdr_teardown_preflight_refuses_before_changes() {
   local mode=$1 case_dir log closed rc thlog teardown_bin
   case_dir=$(make_case "herdr-preflight-$mode")
@@ -3264,7 +3287,7 @@ new_herdr_lock_ns_case() {  # <name>
   local case_dir
   case_dir=$(make_case "$1")
   write_meta "$case_dir" local-only ship
-  configure_flat_herdr_teardown_case "$case_dir"
+  configure_flat_herdr_locked_teardown_case "$case_dir"
   configure_herdr_lock_ns_shims "$case_dir"
   : > "$case_dir/herdr.log"
   : > "$case_dir/state/task-x1.status"
@@ -6040,6 +6063,7 @@ test_teardown_preserves_ignored_project_polytoken_layer
 test_teardown_leaves_polytoken_layer_for_other_harnesses
 test_herdr_teardown_clears_escalation_marker
 test_herdr_flat_teardown_refuses_orphaning_records_then_retry_completes
+test_herdr_flat_teardown_refuses_records_on_unparseable_presence
 test_herdr_flat_teardown_preflight_refuses_before_changes
 test_herdr_teardown_presentation_lock_namespace_is_per_account
 test_forced_secondmate_herdr_child_preflight_refuses_before_changes

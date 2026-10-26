@@ -276,9 +276,12 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 # On t3code a close that cannot be proven stops there: the thread and its
 # metadata stay as recorded, the verdict becomes skipped, and nothing is
 # spawned, because a second thread beside a live one is the duplicate
-# supervisor recovery must never create. Other backends keep their existing
-# best-effort kill. FM_SM_LIVE_RESUME instead sends the endpoint's backend
-# resume turn and spawns nothing.
+# supervisor recovery must never create. Rex keeps its best-effort kill. Every
+# other backend retires the exact endpoint through fm_backend_endpoint_retire
+# and still runs the guarded spawn when that close cannot be proven; then
+# FM_SM_LIVE_RETIRE_NOTE names the leftover endpoint for the caller to report
+# (reset to empty at entry). FM_SM_LIVE_RESUME instead sends the endpoint's
+# backend resume turn and spawns nothing.
 # The header owns the lock-wait bounds. A positive timeout separately
 # wraps the spawn in fm_run_timed so a watcher poll stays bounded; 124/137 mean
 # the bound fired. Returns the spawn exit status; combined spawn output is in
@@ -289,7 +292,7 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 # Caller holds the liveness lock and owns reporting.
 fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
   local meta=$1 id=$2 timeout=${3:-} relaunch_lock wait_seconds rc=0
-  FM_SM_LIVE_OUT='' FM_SM_LIVE_RC=0
+  FM_SM_LIVE_OUT='' FM_SM_LIVE_RC=0 FM_SM_LIVE_RETIRE_NOTE=''
   if ! fm_secondmate_liveness_recent_attempts "$id" 0 >/dev/null; then
     FM_SM_LIVE_STATUS=skipped
     FM_SM_LIVE_REASON="relaunch ledger $STATE/.secondmate-relaunch-$id is unreadable; endpoint left $FM_SM_LIVE_STATE"
@@ -328,7 +331,8 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
           [ -n "$home" ] || home=$(fm_meta_get "$meta" worktree)
           ( unset FM_ROOT_OVERRIDE; FM_HOME="$home" FM_ROOT="$home" STATE="$home/state" fm_backend_kill "$backend" "$target" ) 2>/dev/null || true
         else
-          fm_backend_kill "$backend" "$target" 2>/dev/null || true
+          fm_backend_endpoint_retire "$backend" "$target" \
+            || FM_SM_LIVE_RETIRE_NOTE="previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
         fi
       fi
     elif [ -n "$target" ] && ! fm_backend_kill "$backend" "$target" 2>/dev/null; then

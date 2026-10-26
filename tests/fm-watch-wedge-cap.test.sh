@@ -1272,10 +1272,13 @@ test_wedge_cap_releases_after_declared_wait() {
     FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_WEDGE_MAX_ESCALATIONS=$max \
     "$WATCH" > "$out" &
   pid=$!
-  if ! wait_poll_cycle "$state" "$pid"; then
-    reap "$pid"; fail "declared-wait poll failed: $(cat "$out")"
+  # The first sighting of a live agent's declared wait owes one recheck, so
+  # this poll ends on that recheck wake instead of absorbing silently.
+  if ! wait_for_exit "$pid" 300; then
+    reap "$pid"; fail "declared-wait poll did not deliver its owed recheck: $(cat "$out")"
   fi
-  reap "$pid"
+  grep -F "awaiting external" "$out" >/dev/null \
+    || fail "the declared-wait recheck did not name the wait: $(cat "$out")"
   ack_stopped_cycle "$state" || fail "declared-wait ack failed"
   [ -e "$state/.paused-$key" ] || fail "the declared wait was not absorbed on the pause cadence"
   [ ! -e "$state/.wedge-permanent-$key" ] \

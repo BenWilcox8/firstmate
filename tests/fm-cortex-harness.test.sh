@@ -17,7 +17,7 @@ HARNESS="$ROOT/bin/fm-harness.sh"
 unset CLAUDECODE PI_CODING_AGENT GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS GEMINI_CLI FM_OMP_HARNESS ATLASSIAN_AGENT_TYPE ROVODEV_CLI HERDR_ENV HERDR_PANE_ID HERDR_BIN_PATH
 
 mkdir -p "$TMP_ROOT/names"
-for name in cortex cortex-helper; do ln -s /bin/bash "$TMP_ROOT/names/$name"; done
+for name in cortex cortex-helper; do ln -s "$(fm_test_tool bash)" "$TMP_ROOT/names/$name"; done
 # shellcheck disable=SC2016
 out=$(CLAUDECODE=1 "$TMP_ROOT/names/cortex" -c '"$1"; :' _ "$HARNESS")
 [ "$out" = cortex ] || fail "native Cortex ancestry must beat foreign CLAUDECODE: $out"
@@ -231,7 +231,10 @@ for backend in zellij cmux orca; do
   if out=$(FM_FAKE_LAUNCH_LOG="$case_dir/cortex-$backend.launch" fm_test_run_spawn "$home" "$wt" "$fakebin" "cortex-$backend" "$proj" \
     --scout --harness cortex --backend "$backend" 2>&1)
   then fail "Cortex launch accepted on backend=$backend"; fi
-  assert_contains "$out" "cortex is verified on the tmux and herdr backends only; backend=$backend" "wrong refusal on $backend: $out"
+  want="cortex is verified on the tmux and herdr backends only; backend=$backend"
+  # Fork: new Orca tasks are retired, so orca is refused before the harness check.
+  [ "$backend" != orca ] || want="Orca is unsupported for new tasks"
+  assert_contains "$out" "$want" "wrong refusal on $backend: $out"
   assert_absent "$case_dir/cortex-$backend.launch" "Cortex launched on $backend"
   assert_absent "$home/state/cortex-$backend.meta" "refused $backend spawn left a task record"
   assert_absent "$home/state/cortex-$backend.busy-gen" "refused $backend spawn armed busy state"

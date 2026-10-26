@@ -17,7 +17,7 @@ HARNESS="$ROOT/bin/fm-harness.sh"
 unset CLAUDECODE PI_CODING_AGENT GROK_AGENT CURSOR_AGENT CURSOR_INVOKED_AS GEMINI_CLI FM_OMP_HARNESS ATLASSIAN_AGENT_TYPE ROVODEV_CLI
 
 mkdir -p "$TMP_ROOT/names"
-for name in devin devin-helper; do ln -s /bin/bash "$TMP_ROOT/names/$name"; done
+for name in devin devin-helper; do ln -s "$(fm_test_tool bash)" "$TMP_ROOT/names/$name"; done
 # shellcheck disable=SC2016
 out=$(CLAUDECODE=1 "$TMP_ROOT/names/devin" -c '"$1"; :' _ "$HARNESS")
 [ "$out" = devin ] || fail "native Devin ancestry must beat foreign CLAUDECODE: $out"

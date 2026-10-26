@@ -31,7 +31,7 @@ git -C "$REMOTE_ROOT" commit -qm 'launchagent fixture'
 # the test releases it, far beyond the probe's freshness bound and wait.
 REAL_RMDIR=$(command -v rmdir)
 cat > "$STUB_BIN/rmdir" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 last=${!#}
 case "$last" in
   */.seq-claims/[0-9]*)
@@ -39,7 +39,7 @@ case "$last" in
       : > "$FM_TEST_SWEEP_GATE"
       for _ in $(seq 1 1200); do
         [ -f "$FM_TEST_SWEEP_GATE.release" ] && break
-        /bin/sleep 0.05
+        sleep 0.05
       done
     fi
     ;;
@@ -50,7 +50,7 @@ SH
 # refresh, so ensure must handle a genuinely stale live owner's readiness.
 REAL_TOUCH=$(command -v touch)
 cat > "$STUB_BIN/touch" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_TEST_STATE/worker.ready" ] && [ -f "$FM_TEST_STALE_GATE" ]; then
   : > "$FM_TEST_STALE_GATE.observed"
@@ -62,20 +62,20 @@ SH
 # the replacement has recorded ownership or published its code identity.
 REAL_MV=$(command -v mv)
 cat > "$STUB_BIN/mv" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 last=${!#}
 if [ "$last" = "$FM_TEST_STATE/worker.lock/pid" ] && [ -f "$FM_TEST_OWNER_GATE" ]; then
   : > "$FM_TEST_OWNER_GATE.observed"
   for _ in $(seq 1 400); do
     [ -f "$FM_TEST_OWNER_GATE.release" ] && break
-    /bin/sleep 0.05
+    sleep 0.05
   done
   [ -f "$FM_TEST_OWNER_GATE.release" ] || exit 1
 fi
 exec "$FM_TEST_REAL_MV" "$@"
 SH
 cat > "$STUB_BIN/launchctl" <<'SH'
-#!/bin/bash
+#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_TEST_LAUNCH_LOG"
 tracked_pid() {
   local pid
@@ -89,7 +89,7 @@ stop_tracked() {
   kill -TERM "$pid" 2>/dev/null || true
   for _ in $(seq 1 200); do
     kill -0 "$pid" 2>/dev/null || break
-    /bin/sleep 0.05
+    sleep 0.05
   done
   rm -f "$FM_TEST_TRACKED"
 }
@@ -98,7 +98,7 @@ stop_tracked() {
 start_worker() {
   set -m
   (
-    /bin/sleep "${FM_TEST_SPAWN_DELAY:-1}"
+    sleep "${FM_TEST_SPAWN_DELAY:-1}"
     HOME="$FM_TEST_ACCOUNT" FM_ROOT_OVERRIDE="$FM_TEST_ROOT" \
       FM_REMOTE_JOB_STATE_ROOT="$FM_TEST_STATE" FM_REMOTE_JOB_PLATFORM_OVERRIDE=Darwin \
       exec "$FM_TEST_WORKER"
@@ -208,7 +208,7 @@ chmod 600 "$STATE_ROOT/worker.identity" "$STATE_ROOT/worker.ready"
 launchctl bootstrap "gui/$(id -u)" "$FM_TEST_PLIST" || fail 'could not start the replacement'
 for _ in $(seq 1 200); do
   [ -f "$FM_TEST_OWNER_GATE.observed" ] && break
-  /bin/sleep 0.05
+  sleep 0.05
 done
 [ -f "$FM_TEST_OWNER_GATE.observed" ] || fail 'replacement did not reach lock-owner publication'
 fm_remote_job_worker_identity_matches "$REMOTE_ROOT" "$ACCOUNT_HOME" \
@@ -217,7 +217,7 @@ fm_remote_job_worker_identity_matches "$REMOTE_ROOT" "$ACCOUNT_HOME" \
 fm_remote_job_probe "$ACCOUNT_HOME" && fail 'replacement inherited predecessor readiness before recording ownership'
 fm_remote_job_wait_for_probe "$REMOTE_ROOT" "$ACCOUNT_HOME" > "$TMP_ROOT/wait-owner.out" 2>&1 &
 PROBE_WAITER=$!
-/bin/sleep 1
+sleep 1
 kill -0 "$PROBE_WAITER" 2>/dev/null || fail 'startup wait accepted the predecessor heartbeat'
 : > "$FM_TEST_OWNER_GATE.release"
 wait "$PROBE_WAITER" || fail 'replacement did not become ready after ownership publication'
@@ -236,7 +236,7 @@ launchctl bootstrap "gui/$(id -u)" "$FM_TEST_PLIST" || fail 'the stub launchd di
 SWEEP_PID=$(tracked)
 for _ in $(seq 1 200); do
   [ -f "$SWEEP_GATE" ] && break
-  /bin/sleep 0.05
+  sleep 0.05
 done
 [ -f "$SWEEP_GATE" ] || { cat "$FM_TEST_WORKER_LOG"; fail 'the real worker did not enter its sequence-claim sweep'; }
 [ "$(lock_owner)" = "$SWEEP_PID" ] || fail 'the launchd-tracked worker does not own the worker lock'
@@ -245,7 +245,7 @@ done
 rm -f "$STATE_ROOT/worker.ready"
 for _ in $(seq 1 100); do
   [ -f "$STATE_ROOT/worker.ready" ] && break
-  /bin/sleep 0.05
+  sleep 0.05
 done
 [ -f "$STATE_ROOT/worker.ready" ] || fail 'the live worker heartbeat did not recreate missing readiness during its sweep'
 [ "$(fm_remote_job_read_single_line "$STATE_ROOT/worker.ready" 64)" = "$SWEEP_PID" ] \
@@ -255,7 +255,7 @@ done
 fm_remote_job_probe "$ACCOUNT_HOME" || fail 'recreated readiness did not restore probe availability'
 pass 'the live worker recreates missing readiness independently of a blocked sweep'
 # Outlast the probe's 10-second freshness bound while the main loop is blocked.
-/bin/sleep 11
+sleep 11
 : > "$LAUNCH_LOG"
 ensure_darwin > "$TMP_ROOT/ensure-sweep.out" 2>&1 \
   || { cat "$TMP_ROOT/ensure-sweep.out"; fail 'ensure failed while the worker was inside a slow sweep'; }
@@ -295,7 +295,7 @@ fm_remote_job_launchagent_owner_current "$REMOTE_ROOT" "$ACCOUNT_HOME" "$(id -u)
 : > "$FM_TEST_STALE_GATE"
 for _ in $(seq 1 100); do
   [ -f "$FM_TEST_STALE_GATE.observed" ] && break
-  /bin/sleep 0.05
+  sleep 0.05
 done
 [ -f "$FM_TEST_STALE_GATE.observed" ] || fail 'heartbeat refresh fault injection was not reached'
 "$REAL_TOUCH" -t 200001010000 "$STATE_ROOT/worker.ready"
@@ -393,7 +393,7 @@ hold_lock() (
   fm_remote_job_prepare_state "$ACCOUNT_HOME" || exit 1
   fm_remote_job_reload_lock_acquire "$STATE_ROOT/launchagent.repair" || exit 1
   printf 'enter %s\n' "$1" >> "$HOLD_LOG"
-  /bin/sleep 1
+  sleep 1
   printf 'leave %s\n' "$1" >> "$HOLD_LOG"
   fm_remote_job_reload_lock_release "$STATE_ROOT/launchagent.repair"
 )

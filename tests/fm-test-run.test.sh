@@ -1063,12 +1063,11 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
   for script in "${scripts[@]}"; do
     printf '\n' >>"$repo/$script"
   done
-  # Muse and Kimi carry hints above the 27,000 ms default, the three unhinted
+  # Muse and Kimi carry hints above the 45,000 ms default, the three unhinted
   # scripts tie at that default in path order, and operational-input is below it.
   printf '%s\n' \
     tests/fm-kimi-harness.test.sh \
     tests/fm-muse-harness.test.sh \
-    tests/fm-kimi-harness.test.sh \
     tests/fm-brief.test.sh \
     tests/fm-captain-hold-lifecycle.test.sh \
     tests/fm-lint.test.sh \
@@ -1153,7 +1152,7 @@ test_portable_serial_shards_partition_the_serial_lane() {
   local lanes count serial shard listed union dups shard_lane total cap
   lanes=$("$RUNNER" --list-lanes)
   count=$(printf '%s\n' "$lanes" | grep -c '^portable-serial-[0-9]*of[0-9]*$')
-  [ "$count" -eq 9 ] || fail "expected nine portable serial shard lanes, got $count"
+  [ "$count" -eq 11 ] || fail "expected eleven portable serial shard lanes, got $count"
   printf '%s\n' "$lanes" | grep -q "^portable-serial-1of${count}\$" \
     || fail "shard lane names must carry the shard count ${count}: $lanes"
 

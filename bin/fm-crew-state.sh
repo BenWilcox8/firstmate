@@ -441,8 +441,9 @@ forgejo_read_record_bounded() {  # <host> <path> <number>
   merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
+  # The inner shell reads these names from fm-pr-lib.sh, not from this scope.
+  printf -v FM_PR_RECORD_STATE "%s" "$state"
+  printf -v FM_PR_RECORD_MERGED "%s" "$merged"
 }
 
 change_read_record_bounded() {  # <host> <number>
@@ -459,8 +460,9 @@ change_read_record_bounded() {  # <host> <number>
   merged=$(printf '%s\n' "$record" | sed -n 's/^merged=//p' | head -1)
   [ -n "$state" ] || return 1
   [ "$merged" = true ] || [ "$merged" = false ] || return 1
-  FM_PR_RECORD_STATE=$state
-  FM_PR_RECORD_MERGED=$merged
+  # The inner shell reads these names from fm-pr-lib.sh, not from this scope.
+  printf -v FM_PR_RECORD_STATE "%s" "$state"
+  printf -v FM_PR_RECORD_MERGED "%s" "$merged"
 }
 
 passed_pr_detail() {

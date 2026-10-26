@@ -318,8 +318,9 @@ fm_native_session_shell_quote() {  # <value>
 # fm_native_session_resume_launch: turn a harness's verified fresh-launch
 # TEMPLATE (bin/fm-spawn.sh's launch_template, before placeholder substitution)
 # into the launch that reopens exactly <session-id>, keeping every fleet flag.
-# Every verified template ends with the launch-brief argument; the resume
-# replaces exactly that argument, and codex also gains its `resume` subcommand.
+# Every verified template ends with the launch-brief argument or the
+# record-backed __BRIEFDOORBELL__ placeholder; the resume replaces exactly that
+# suffix, and codex also gains its `resume` subcommand.
 # A template of any other shape refuses rather than being guessed at.
 fm_native_session_resume_launch() {  # <harness> <template> <session-id> <file>
   local harness=$1 launch=$2 sid=$3 file=$4 brief args
@@ -327,6 +328,7 @@ fm_native_session_resume_launch() {  # <harness> <template> <session-id> <file>
   brief='"$(__OPINPUT__ encode launch-brief < __BRIEF__)"'
   case "$launch" in
     *"$brief") launch=${launch%"$brief"} ;;
+    *__BRIEFDOORBELL__) launch=${launch%__BRIEFDOORBELL__} ;;
     *) echo "error: the $harness launch does not end with its launch-brief argument, so its resume form cannot be built" >&2; return 1 ;;
   esac
   case "$harness" in

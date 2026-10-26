@@ -331,38 +331,12 @@ test_non_done_lines_are_not_gated() {
 # bin/fm-brief-heading-lib.sh reads headings - outside fenced blocks and never
 # from an indented example - or a fenced `Captain:` sample becomes the ship
 # contract's intent while the real ask is dropped.
+# Fork: no marker extractor exists; a legacy `# Task` body promotes whole as
+# intent, so the real ask survives and a fenced sample stays plain Task text.
 test_fenced_and_indented_captain_lines_are_not_intent() {
-  local home id meta out status words
+  local home id meta out status
   home="$TMP_ROOT/fenced-home"
   mkdir -p "$home/state" "$home/data"
-  words=$(fm_brief_marked_captain_words 'Investigate the promotion gate.
-
-```markdown
-Captain: This fenced example must not become intent.
-[captain] Neither must this one.
-```
-
-~~~
-Captain: Nor this tilde-fenced one.
-~~~
-
-    Captain: An indented example is not the ask either.
-	[captain] Nor a tab-indented one.
-Keep this Firstmate constraint out of captain intent.')
-  assert_equals "" "$words" "fenced or indented Captain lines were extracted as authorized intent"
-
-  words=$(fm_brief_marked_captain_words '```
-Captain: fenced example
-```
-  [captain] Preserve the real ask after the fence closes.
-````
-Captain: a longer fence that a shorter closer must not end
-```
-Captain: still fenced
-````')
-  assert_equals "Preserve the real ask after the fence closes." "$words" \
-    "the marker after a closed fence, or inside a longer fence, was misread"
-
   id=promote-fenced-captain
   meta="$home/state/$id.meta"
   printf 'window=fm-%s\nkind=scout\nworktree=/tmp/wt\n' "$id" > "$meta"
@@ -382,13 +356,11 @@ This is a SCOUT task: the deliverable is a written report, not a PR.
 EOF
   out=$(FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-promote.sh" "$id" --mode direct-PR --yolo off 2>&1)
   status=$?
-  [ "$status" -ne 0 ] || fail "promotion whose only Captain lines are fenced or indented examples should fail"
-  assert_contains "$out" "has no provenance-marked Captain's intent" \
-    "fenced-example promotion did not refuse like an unmarked legacy brief"
-  assert_absent "$home/data/$id/ship-instructions.md" \
-    "fenced-example promotion published a fenced sample as captain intent"
-  assert_grep 'kind=scout' "$meta" "fenced-example promotion changed the task record"
-  pass "fenced and indented Captain lines are not authorized intent"
+  expect_code 0 "$status" "a legacy brief with fenced or indented Captain samples should promote whole"$'\n'"$out"
+  assert_grep 'Investigate the promotion gate.' "$home/data/$id/ship-instructions.md" \
+    "fenced-example promotion dropped the real legacy ask"
+  assert_grep 'kind=ship' "$meta" "fenced-example promotion did not record the ship"
+  pass "fenced and indented Captain lines do not displace the whole legacy Task intent"
 }
 
 # The draft check the DoD hands a worker must be the gh-axi path that rule 3 of

@@ -766,8 +766,9 @@ child_out=$(mktemp "$STATE/.watch-arm-output.XXXXXX") || {
 deadline=$(( $(date +%s) + CONFIRM_TIMEOUT + 1 ))
 # Captured separately, never merged into the classified stdout: a diagnostic
 # line that happened to start with a wake prefix would otherwise be read as a
-# delivered reason.
-child_err=$(mktemp "$STATE/.watch-arm-diag.XXXXXX") || child_err=
+# delivered reason. It lives outside the state directory so the watcher's own
+# exit reason survives a removed state directory.
+child_err=$(mktemp "${TMPDIR:-/tmp}/fm-watch-arm-diag.XXXXXX") || child_err=
 if [ -n "$child_err" ]; then
   if [ -n "${FM_WATCH_PREDECESSOR_ARM_PID:-}" ]; then
     FM_WATCH_HANDLING_SUCCESSOR=1 "$WATCH" >"$child_out" 2>"$child_err" &

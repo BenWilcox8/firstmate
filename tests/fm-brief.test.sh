@@ -967,7 +967,7 @@ test_herdr_lab_contract_applies_to_scouts_but_not_secondmates() {
 }
 
 test_pause_verb_override_renders_all_brief_scaffolds() {
-  local home kind id brief append now epoch templates template line signals
+  local home kind id brief append now epoch templates template line signals pause_use
   home="$TMP_ROOT/pause-verb-home"
   mkdir -p "$home/data"
 
@@ -1039,8 +1039,12 @@ SIGNALS
       || fail "$kind brief instructed only $signals stamped status signals"
     assert_grep "States: working, needs-decision, blocked, awaiting, done, failed." "$brief" \
       "$kind brief did not render the configured pause verb in its states list"
+    # Ship and scout carry upstream's pause wording; the fork's charter keeps its stamped form.
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
-    assert_grep 'Use `awaiting [at=<epoch>]: {why}`' "$brief" \
+    pause_use='Use `awaiting: {why}`'
+    # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
+    [ "$kind" != secondmate ] || pause_use='Use `awaiting [at=<epoch>]: {why}`'
+    assert_grep "$pause_use" "$brief" \
       "$kind brief did not instruct the configured pause status"
     # shellcheck disable=SC2016 # Literal backticks and braces must remain unexpanded.
     assert_no_grep '`paused: {why}`' "$brief" \

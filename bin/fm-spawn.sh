@@ -7256,9 +7256,11 @@ LAUNCH=${LAUNCH//__NAMEFLAG__/"$NAMEFLAG"}
 # known, and substituted only into the Pi-family template's `__PIRESUME__`
 # placeholder; an empty value leaves every other launch byte-identical. A
 # --resume-session launch already carries the parked native session, so it
-# never adds a second session reference.
+# never adds a second session reference. A fork fresh-pane relaunch
+# (FM_LOCAL_PANE_RELAUNCH, bin/fm-local-pane-lib.sh) has no stale registration
+# to keep, so it stays a fresh session.
 RESUME_ARGS=
-if [ "$RELAUNCH" -eq 1 ] && [ "$RESUME_SESSION" -eq 0 ]; then
+if [ "$RELAUNCH" -eq 1 ] && [ "$RESUME_SESSION" -eq 0 ] && [ "${FM_LOCAL_PANE_RELAUNCH:-0}" = 0 ]; then
   RESUME_ARGS=$(relaunch_resume_args "$HARNESS" "$BACKEND" "$T") || RESUME_ARGS=
 fi
 LAUNCH=${LAUNCH//__PIRESUME__/$RESUME_ARGS}

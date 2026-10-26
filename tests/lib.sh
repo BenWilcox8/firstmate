@@ -750,7 +750,7 @@ SH
 fm_eval_launch() {
   local launch=$1 pane=$2 fakebin=$3
   shift 3
-  (cd "$pane" && env "$@" PATH="$fakebin:${FM_TEST_BASE_PATH:-/usr/bin:/bin:/usr/sbin:/sbin}" bash -c "$launch")
+  (cd "$pane" && env "$@" PATH="$fakebin:${FM_TEST_BASE_PATH:-"$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"}" bash -c "$launch")
 }
 
 # --- agent-named process stand-ins ------------------------------------------

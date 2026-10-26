@@ -83,6 +83,8 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
   <id>/status.log <id>/status.<N>.log <id>/children/<child>/...  optional teardown archives; see docs/architecture.md "Task status archives"
   pipeline-spend.jsonl  optional per-task no-mistakes pipeline spend, written only when config/pipeline-spend is present; bin/fm-pipeline-spend.sh owns the schema
+  secondmate-dormant  captain-ordered dormant second mates, one "<id><TAB><date><TAB><reason>" line each, which the bootstrap liveness sweep and restart recovery never relaunch; written only by bin/fm-local-dormant.sh
+  <id>/retired-reassigned/  archived metadata, status, and volatile records of a finished task whose pool slot another live task now holds; written only by bin/fm-local-retire-reassigned.sh
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored
   <id>.status        append-only wake events, not current-state truth; bin/fm-classify-lib.sh owns their syntax
@@ -97,6 +99,7 @@ state/               runtime records and signals; gitignored
   <id>.cortex-plugin/  firstmate-owned per-task Cortex Code plugin directory (mode 700; busy-state hooks and Herdr pane registration) passed through --plugin-dir so no user or project config is edited; bin/fm-cortex-plugin.sh owns it; removed by teardown
   <id>.muse-session  muse busy-source binding (sessions root plus task worktree) written by fm-spawn; removed by teardown
   <id>.cursor-session  cursor busy-source binding (projects root, task worktree, prior conversations) written by fm-spawn; removed by teardown
+  <id>.pi-session    Pi native-session record (session id and file, tagged with the busy generation) written by the fm-spawn Pi worker extension; bin/fm-native-session-lib.sh reads it for park and resume; removed by teardown
   <id>.git-hooks/    per-task git hooksPath that strips AI commit trailers at the commit object unless config/keep-ai-trailers is present; written by fm-spawn, removed by teardown (bin/fm-git-strip-ai-trailers.sh)
   <id>.reconcile-nudged  epoch second of the last inventory-reconcile nudge sent to this secondmate; bin/fm-secondmate-reconcile.sh owns its per-home cooldown window
   <id>.backlog-close  the exact backlog transition a teardown recorded before removing the task's record, so an interrupted cleanup can still be finished at the next session start; bin/fm-backlog-transition-lib.sh owns its format and replay, and a landed transition removes it
@@ -141,6 +144,11 @@ state/               runtime records and signals; gitignored
   .startup-network.*  status, report, per-step elapsed timings, inline-print claim, and lock for the deferred startup stage that runs network checks and the inactive-outcome scan off the digest's blocking path; bin/fm-startup-network.sh
   .wake-queue        durable queued wakes retained until post-handling acknowledgement: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   ping-acks.log      append-only routine-wake close-outs written by bin/fm-ping-ack.sh; bin/fm-ping-lib.sh owns the one-line record format and the origin marker
+  local-send-provenance/  typed-send provenance shards (YYYY-MM-DD.jsonl, no prompt text) and their lock, pruned after seven days; written only by bin/fm-local-send-provenance.pl; docs/local/send-provenance.schema.json owns the fields
+  browser-reap.log .browser-reap.lock  orphaned headless-browser reap ledger and its single-flight lock; written only by bin/fm-browser-reap.sh, which the watcher runs on its browser-reap interval
+  .restart-fingerprint .primary-endpoint  restart fingerprint from the last locked start and the primary home's Herdr endpoint record; written only by bin/fm-local-restart-recovery.sh
+  .restart-recovery.log .restart-recovery.<boot>.lock .restart-recovery.prompt restart-recovery/  restart-recovery pass ledger, per-boot single-flight lock, relaunch first prompt, and newest 20 pass records; bin/fm-local-restart-recovery.sh owns them
+  .worker-restore.log .worker-restore.lock  post-restart worker-restore ledger and single-flight lock; bin/fm-local-worker-restore.sh owns them
   .watcher-down      private generation-bound recovery state coupling watcher downtime, durable wake presentation, and post-handling acknowledgement; never touch
   .<id>.open-decisions-cursor  per-task byte cursor and folded open-decision set bounding the OPEN DECISIONS scan's cost to new status-log appends; written only by fm-classify-lib.sh's status_open_decisions_incremental, removed by teardown, safe to delete (forces one full re-fold)
   .<id>.home-appends  per-task ledger of byte ranges this home itself appended as bookkeeping closes, so a wake scan can tell its own growth from a foreign write instead of waking on it; presentation is unaffected, so both the signal annotation and UNREAD STATUS still print those lines; written only by fm-classify-lib.sh's status_home_appends_record; its sibling .<id>.home-appends.lock serializes that ledger's read-merge-write; both removed by teardown, safe to delete
