@@ -1137,7 +1137,8 @@ esac
 SH
   chmod +x "$fb/no-mistakes"
   hash=$(t3_run 'fm_backend_capture t3code "$1" 40' "$thread")
-  hash=$(printf '%s' "$hash" | { if command -v md5 >/dev/null 2>&1; then md5 -q; else md5sum | cut -d' ' -f1; fi; })
+  # Fork: the watcher hashes the footer-normalized capture (bin/fm-pane-hash-lib.sh).
+  hash=$(. "$ROOT/bin/fm-pane-hash-lib.sh"; pane_hash_content "$hash" | hash_pane)
   printf '%s' "$hash" > "$state/.hash-$key"
   printf '%s' "$hash" > "$state/.stale-$key"
   printf '3\n' > "$state/.count-$key"
