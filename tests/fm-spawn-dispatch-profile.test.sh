@@ -529,8 +529,17 @@ test_launch_preserves_inherited_git_config() {
   local rec id=git-config-append out status launch result pane_shell count launch_file expected prefix
   rec=$(make_spawn_case "$id" codex "$id")
   read_case_record "$rec"
+  # Fork: a raw launch runs one executable with literal arguments only, so the
+  # probe is a script, not a compound shell command.
+  cat > "$FAKEBIN_DIR/git-config-probe" <<'SH'
+#!/usr/bin/env bash
+echo WORKER-RAN >&2
+git config --get-all credential.helper
+git config --get core.hooksPath
+SH
+  chmod +x "$FAKEBIN_DIR/git-config-probe"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" \
-    "$id" "$PROJ_DIR" --harness 'echo WORKER-RAN >&2; git config --get-all credential.helper; git config --get core.hooksPath')
+    "$id" "$PROJ_DIR" --harness "$FAKEBIN_DIR/git-config-probe --probe")
   status=$?
   expect_code 0 "$status" "Git configuration probe should spawn: $out"
   launch=$(cat "$LAUNCH_LOG")

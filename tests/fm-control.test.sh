@@ -18,6 +18,9 @@
 #   6. Marker non-regression: a control command to a kind=secondmate task
 #      carries NO from-firstmate marker and opens no pending-reply expectation,
 #      while fm-send's marking of the same task is untouched.
+#   7. Teardown's stop: exit runs as the direct child of the process that holds
+#      the task's locks, inherits only those locks, keeps every exit safety
+#      rule, and leaves the busy record to its parent.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -26,6 +29,8 @@ set -u
 . "$ROOT/bin/fm-control-lib.sh"
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-operational-input.sh"
+# shellcheck source=/dev/null
+. "$ROOT/bin/fm-timeout-lib.sh"
 
 CONTROL="$ROOT/bin/fm-control.sh"
 SEND="$ROOT/bin/fm-send.sh"
@@ -1307,6 +1312,121 @@ EOF
   pass "fm-control-lib: only a runtime's own recorded session has a relaunch resume form"
 }
 
+# --- 7. teardown's stop runs exit as the lock holder's child ------------------
+#
+# Teardown stops a live worker with bin/fm-local-pane-lib.sh fm_local_pane_stop
+# while it holds the task's lease guard, control lock, and record lock. The
+# stop runs `fm-control.sh <id> exit` as its direct child. That child inherits
+# the locks, keeps every exit safety rule, and leaves the busy record to its
+# parent.
+
+# stop_as_teardown <case-dir> [holder]: run the stop from a process that holds
+# the locks as teardown does. With holder=other, a different process holds the
+# control lock and the stopping process holds nothing. Prints the stop's
+# output, then `stop-rc=<n>`, and fails the test if the stop does not return.
+stop_as_teardown() {
+  local dir=$1 holder=${2:-self} out rc
+  # shellcheck disable=SC2016 # The driver shell expands its own variables.
+  out=$(fm_run_timed 60 env PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" \
+    FM_FAKE_DIR="$dir/fake" FM_SUPERVISION_ACTOR=main \
+    FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 FM_CONTROL_EXIT_WAIT=0.05 \
+    FM_FAKE_NEVER_DIES="${FM_FAKE_NEVER_DIES:-}" \
+    FM_FAKE_INTERRUPT_STOPS_AGENT="${FM_FAKE_INTERRUPT_STOPS_AGENT:-}" \
+    TEST_ROOT="$ROOT" TEST_HOLDER="$holder" bash -c '
+      set -u
+      STATE=$FM_HOME/state
+      . "$TEST_ROOT/bin/fm-backend.sh"
+      . "$TEST_ROOT/bin/fm-wake-lib.sh"
+      . "$TEST_ROOT/bin/fm-local-pane-lib.sh"
+      . "$TEST_ROOT/bin/fm-lease-lib.sh"
+      meta=$STATE/t1.meta
+      if [ "$TEST_HOLDER" = self ]; then
+        fm_lease_guard t1 "teardown (test)"
+        fm_lock_try_acquire "$STATE/.control-t1.lock" || { echo "setup: control lock"; exit 90; }
+        fm_lock_try_acquire "$(fm_meta_lock_path "$meta")" || { echo "setup: record lock"; exit 91; }
+        fm_local_pane_stop "$meta" t1 fmses:fm-t1; rc=$?
+        [ "$(cat "$STATE/.control-t1.lock/pid")" = "$$" ] || echo "the stop released the parent control lock"
+        # Only `exit` inherits the parent lock; any other verb still needs it.
+        # It takes the lease guard first, so release that one here.
+        fm_lease_guard_release
+        FM_CONTROL_LOCK_PARENT=$$ "$TEST_ROOT/bin/fm-control.sh" t1 interrupt 2>&1 \
+          && echo "an interrupt ran on the inherited lock"
+      else
+        (
+          fm_lock_try_acquire "$STATE/.control-t1.lock" || { echo "setup: control lock"; exit 90; }
+          bash -c ". \"$TEST_ROOT/bin/fm-backend.sh\"; . \"$TEST_ROOT/bin/fm-local-pane-lib.sh\"; fm_local_pane_stop \"$meta\" t1 fmses:fm-t1"
+          rc=$?
+          fm_lock_release "$STATE/.control-t1.lock"
+          exit "$rc"
+        ); rc=$?
+      fi
+      echo "stop-rc=$rc"
+    ' 2>&1); rc=$?
+  [ "$rc" != 124 ] || fail "the teardown stop did not return: a lock its parent holds blocked it"$'\n'"$out"
+  printf '%s\n' "$out"
+}
+
+test_teardown_stop_inherits_the_parent_locks() {
+  local dir out gen
+  dir=$(new_case stop-inherit)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1 --state idle --source fm-spawn --event seed)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(stop_as_teardown "$dir")
+  assert_contains "$out" "stop-rc=0" "the stop should succeed under the parent's locks"
+  assert_not_contains "$out" "released the parent control lock" "the stop must keep the parent's control lock"
+  assert_contains "$out" "another lifecycle action is already running" "a verb other than exit must not inherit the lock"
+  assert_not_contains "$out" "interrupt ran on the inherited lock" "a verb other than exit must not inherit the lock"
+  [ "$(literals "$dir")" = /exit ] || fail "the stop should type the exit command once, got: $(literals "$dir")"
+  [ "$(cat "$dir/fake/command")" = zsh ] || fail "the stop should stop the agent"
+  [ -e "$dir/home/state/t1.busy-gen" ] || fail "the stop must leave the busy record to its parent"
+  grep -qx "busy_gen=$gen" "$dir/home/state/t1.meta" || fail "the stop must not rewrite the task record its parent holds"
+  pass "teardown stop: exit runs as the lock holder's child and leaves the record to the parent"
+}
+
+test_teardown_stop_keeps_the_exit_safety_rules() {
+  local dir out enters gen
+  dir=$(new_case stop-picker)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  exit_picker_screen > "$dir/fake/after-enter"
+  out=$(FM_FAKE_NEVER_DIES=1 stop_as_teardown "$dir")
+  assert_contains "$out" "stop-rc=1" "a stop that opens the background-task picker should refuse"
+  assert_contains "$out" "blocked on a prompt: Claude background-task exit picker" "the refusal should name the dialog"
+  enters=$(grep -c '^Enter$' "$dir/fake/keys" || true)
+  [ "$enters" -eq 1 ] || fail "only the submitting Enter should be sent, never a confirming one, got $enters"
+  dir=$(new_case stop-open-picker)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  exit_picker_screen > "$dir/fake/pane"
+  out=$(stop_as_teardown "$dir")
+  assert_contains "$out" "stop-rc=1" "a stop into an open picker should refuse"
+  [ ! -s "$dir/fake/literal" ] && [ ! -s "$dir/fake/keys" ] || fail "an open picker must receive nothing"
+  dir=$(new_case stop-interrupt-ends)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  gen=$("$ROOT/bin/fm-busy-event.sh" arm "$dir/home/state" t1)
+  printf 'busy_gen=%s\n' "$gen" >> "$dir/home/state/t1.meta"
+  out=$(FM_FAKE_INTERRUPT_STOPS_AGENT=1 stop_as_teardown "$dir")
+  assert_contains "$out" "stop-rc=0" "an interrupt that ends the agent completes the stop"
+  [ "$(keys_sent "$dir")" = Escape ] || fail "the busy agent should get its interrupt, got: $(keys_sent "$dir")"
+  [ -z "$(literals "$dir")" ] || fail "no exit command may follow an interrupt that ended the agent"
+  pass "teardown stop: the exit picker, an open dialog, and an interrupt-ended agent follow exit's rules"
+}
+
+test_teardown_stop_needs_the_parent_to_hold_the_lock() {
+  local dir out
+  dir=$(new_case stop-not-holder)
+  add_task "$dir" t1 claude
+  alive_as "$dir" claude
+  out=$(stop_as_teardown "$dir" other)
+  assert_contains "$out" "stop-rc=1" "a stop whose parent does not hold the control lock should refuse"
+  assert_contains "$out" "another lifecycle action is already running" "the refusal should name the held lock"
+  [ ! -s "$dir/fake/literal" ] && [ ! -s "$dir/fake/keys" ] || fail "a refused stop must send nothing"
+  pass "teardown stop: only the direct child of the control lock holder inherits it"
+}
+
 test_exit_types_each_harness_verified_command
 test_opencode_exit_matches_recorded_major
 test_opencode2_exit_retries_ctrl_c_once
@@ -1355,3 +1475,6 @@ test_grok_interrupt_without_acknowledgement_reports_unconfirmed
 test_grok_idle_footer_does_not_confirm_cancellation
 test_secondmate_control_command_carries_no_marker
 test_fm_send_still_marks_the_same_secondmate_task
+test_teardown_stop_inherits_the_parent_locks
+test_teardown_stop_keeps_the_exit_safety_rules
+test_teardown_stop_needs_the_parent_to_hold_the_lock

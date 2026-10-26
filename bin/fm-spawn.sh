@@ -2637,8 +2637,19 @@ if [ "$RELAUNCH" -eq 1 ]; then
     esac
     RESUME_SESSION_ID=$(fm_meta_get "$RELAUNCH_META" native_session)
     RESUME_SESSION_FILE=$(fm_meta_get "$RELAUNCH_META" native_session_file)
+    # A Claude session must lie in the store this launch selects below: the
+    # worker account pin's root, else the forwarded configuration.
+    RESUME_CLAUDE_STORE=
+    if [ "$ARG3" = claude ]; then
+      RESUME_ACCOUNT_MATE=
+      [ "$KIND" != secondmate ] || RESUME_ACCOUNT_MATE=$ID
+      RESUME_CLAUDE_STORE=$(fm_worker_account_claude_store "$CONFIG" "$RESUME_ACCOUNT_MATE") || {
+        echo "error: task $ID's session cannot be resumed, because the Claude store its launch would use cannot be read; nothing was created" >&2
+        exit 1
+      }
+    fi
     fm_native_session_locate "$ARG3" "$RESUME_SESSION_ID" "$RESUME_SESSION_FILE" \
-        "$RELAUNCH_WT" "${CLAUDE_CONFIG_DIR:-$HOME/.claude}" || {
+        "$RELAUNCH_WT" "$RESUME_CLAUDE_STORE" || {
       echo "error: task $ID's session cannot be resumed: $FM_NATIVE_SESSION_REASON; nothing was created" >&2
       exit 1
     }
@@ -2736,27 +2747,43 @@ raw_launch_words() {
   [ "${#RAW_WORDS[@]}" -gt 0 ]
 }
 
+# The spawn runs a raw launch as `env <words>`, so every leading NAME=value word
+# is an assignment, with or without a first `env` word and with or without
+# quotes. RAW_EXECUTABLE is the first word after the assignments and the env
+# options. RAW_ACCOUNT_COMMAND gives the worker account pin check
+# (bin/fm-worker-account-lib.sh) one NAME= word for each name that the launch
+# sets, then the executable. It adds CLAUDE_CONFIG_DIR= when the launch clears
+# that name with env -u CLAUDE_CONFIG_DIR or env -i, because a cleared root moves
+# Claude off the pinned root. env -u of any other name adds nothing: the pinned
+# launch unsets the shed credentials too, so unsetting one cannot override it.
 raw_launch_executable() {
-  local index=0 word base assignments=0 delimiter=0
+  local index=0 word assignments=0 delimiter=0 names=()
   RAW_ENV_PREFIX=0
-  base=$(basename "${RAW_WORDS[0]:-}")
-  [ "$base" = env ] || { RAW_EXECUTABLE=${RAW_WORDS[0]}; return 0; }
-  RAW_ENV_PREFIX=1
-  index=1
+  if [ "$(basename "${RAW_WORDS[0]:-}")" = env ]; then
+    RAW_ENV_PREFIX=1
+    index=1
+  fi
   while [ "$index" -lt "${#RAW_WORDS[@]}" ]; do
     word=${RAW_WORDS[index]}
     if [[ "$word" == *=* ]]; then
       [[ "$word" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]] || return 1
+      names+=("${word%%=*}")
       assignments=1
       index=$((index + 1))
       continue
     fi
+    [ "$RAW_ENV_PREFIX" -eq 1 ] || break
     case "$word" in
-      -i) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; index=$((index + 1)) ;;
+      -i)
+        [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1
+        names+=(CLAUDE_CONFIG_DIR)
+        index=$((index + 1))
+        ;;
       -u)
         [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1
         index=$((index + 1))
         [[ "${RAW_WORDS[index]:-}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || return 1
+        [ "${RAW_WORDS[index]}" != CLAUDE_CONFIG_DIR ] || names+=(CLAUDE_CONFIG_DIR)
         index=$((index + 1))
         ;;
       --) [ "$assignments" -eq 0 ] && [ "$delimiter" -eq 0 ] || return 1; delimiter=1; index=$((index + 1)); continue ;;
@@ -2768,6 +2795,11 @@ raw_launch_executable() {
   word=${RAW_WORDS[index]}
   [ "$(basename "$word")" != env ] || return 1
   RAW_EXECUTABLE=$word
+  RAW_ACCOUNT_COMMAND=
+  for word in ${names[@]+"${names[@]}"}; do
+    RAW_ACCOUNT_COMMAND+="$word= "
+  done
+  RAW_ACCOUNT_COMMAND+=$RAW_EXECUTABLE
 }
 
 resolve_pi_executable() {
@@ -3479,7 +3511,7 @@ fi
 # step exactly as it was. A pinned Claude root is exported here as well, so the
 # trust registration below writes the store the worker will actually read.
 RAW_COMMAND=
-[ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$ARG3
+[ "$RAW_LAUNCH" = 0 ] || RAW_COMMAND=$RAW_ACCOUNT_COMMAND  # Fork: the parsed raw form (raw_launch_executable).
 WORKER_ACCOUNT_MATE=
 [ "$KIND" != secondmate ] || WORKER_ACCOUNT_MATE=$ID
 WORKER_ACCOUNT=$(fm_worker_account_select "$HARNESS" "$CONFIG" "$MODEL" "${PI_BIN:-$HARNESS}" "$RAW_COMMAND" "$WORKER_ACCOUNT_MATE") || exit 1
@@ -7353,6 +7385,7 @@ esac
 LAUNCH=${LAUNCH//__WORKTREE__/$sq_worktree}
 # A record-backed launch brief is published into the state dir of the pane
 # receiving it, which for a secondmate is its own home, not this primary's.
+brief_doorbell=  # Fork: the provenance-launch hook below records it.
 case "$LAUNCH" in
 *__BRIEFDOORBELL__*)
   case "$KIND" in
@@ -7784,7 +7817,7 @@ else
 fi
 # Typing provenance (bin/fm-local-hooks.sh) records the launch typed into the
 # pane; a T3 thread has no pane, so its launch turn records none.
-if [ "$BACKEND" != t3code ] && declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-launch "$BACKEND" "$T" "$ID" "$LAUNCH" "$BRIEF"; fi
+if [ "$BACKEND" != t3code ] && declare -F fm_local_hook >/dev/null; then fm_local_hook provenance-launch "$BACKEND" "$T" "$ID" "$LAUNCH" "$BRIEF" "$brief_doorbell"; fi
 if [ "$HARNESS" = kimi ]; then
   if ! kimi_wait_for_ready; then
     kimi_spawn_fail "$KIMI_READY_FAILURE_DETAIL"

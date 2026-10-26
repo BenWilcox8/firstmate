@@ -882,7 +882,8 @@ test_raw_secondmate_launch_writes_no_busy_wiring() {
     state="$case_dir/primary/state"
     sm="$case_dir/sm"
     launch=$(cat "$case_dir/launch.log")
-    assert_contains "$launch" "$raw" "raw $harness secondmate did not launch the raw command"
+    # Fork: a raw launch runs as `env` plus single-quoted literal words.
+    assert_contains "$launch" "env '$harness' '--fm-raw-flag'" "raw $harness secondmate did not launch the raw command"
     assert_absent "$state/$id.busy-gen" "raw $harness secondmate armed a busy generation"
     assert_absent "$state/$id.busy-state" "raw $harness secondmate seeded a busy record"
     assert_absent "$state/$id.claude-settings.json" "raw $harness secondmate wrote Claude hook settings"
@@ -908,7 +909,8 @@ test_raw_secondmate_launch_writes_no_busy_wiring() {
   out=$(FM_BACKEND=tmux FM_FAKE_LAUNCH_LOG="$case_dir/launch.log" \
     fm_test_run_spawn "$case_dir/primary" "$sm" "$case_dir/fake/fakebin" "$id" "$sm" 'claude --fm-raw-flag' --secondmate) \
     || fail "raw claude respawn over an armed secondmate must succeed: $out"
-  assert_contains "$(cat "$case_dir/launch.log")" 'claude --fm-raw-flag' "raw respawn did not launch the raw command"
+  # Fork: a raw launch runs as `env` plus single-quoted literal words.
+  assert_contains "$(cat "$case_dir/launch.log")" "env 'claude' '--fm-raw-flag'" "raw respawn did not launch the raw command"
   assert_absent "$state/$id.busy-gen" "raw respawn kept the earlier busy generation"
   assert_absent "$state/$id.busy-state" "raw respawn kept the earlier busy record"
   assert_absent "$sm/.fm-busy-stop" "raw respawn kept the earlier Stop pointer"

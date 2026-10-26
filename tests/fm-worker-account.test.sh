@@ -360,6 +360,49 @@ test_raw_claude_account_override_is_kept_without_a_pin() {
   pass "an unpinned home keeps a raw Claude account override"
 }
 
+# Fork: the raw launch parser in bin/fm-spawn.sh also runs a raw command that
+# starts with env, and it runs a quoted NAME=value word as an assignment. A pin
+# must refuse each of these forms that sets or clears an account variable. An
+# env form that leaves the account alone still launches under the pin.
+test_raw_claude_env_forms_and_the_pin() {
+  local out rc id=acct-raw-env form command name n=0
+  new_case raw-env claude
+  signed_in_claude_root "$CASE/work"
+  signed_in_claude_root "$CASE/other"
+  printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
+  for form in \
+    "CLAUDE_CONFIG_DIR|env CLAUDE_CONFIG_DIR=$CASE/other claude --print raw" \
+    "ANTHROPIC_API_KEY|'ANTHROPIC_API_KEY=override-key' claude --print raw" \
+    "CLAUDE_CONFIG_DIR|env -u CLAUDE_CONFIG_DIR claude --print raw" \
+    "CLAUDE_CONFIG_DIR|env -i claude --print raw"; do
+    n=$((n + 1))
+    name=${form%%|*}
+    command=${form#*|}
+    out=$(spawn_ship "$id-$n" --harness "$command"); rc=$?
+    expect_code 1 "$rc" "the raw form '$command' must refuse under a pin: $out"
+    assert_refused_before_launch "$id-$n" "$out" "the raw launch command sets $name"
+  done
+  assert_absent "$CASE/claude-worker" "a refused raw override must never start Claude"
+  out=$(spawn_ship "$id-ok" --harness "env FOO=1 claude --print raw"); rc=$?
+  expect_code 0 "$rc" "an env raw form that leaves the account alone should launch under the pin: $out"
+  assert_contains "$out" "account=$CASE/work" "an env raw Claude spawn should report the pin"
+  run_pane
+  assert_grep "CLAUDE_CONFIG_DIR=$CASE/work" "$CASE/claude-worker" "an env raw Claude worker should run under the pinned root"
+  assert_grep "ANTHROPIC_API_KEY=unset" "$CASE/claude-worker" "an env raw Claude worker must not keep an ambient API key"
+  # Unsetting a shed credential cannot move Claude off the pinned root, because
+  # the pinned launch unsets it too.
+  rm -f "$CASE/claude-worker"
+  out=$(spawn_ship "$id-unset" --harness "env -u ANTHROPIC_API_KEY claude --print raw"); rc=$?
+  expect_code 0 "$rc" "a raw form that only unsets a shed credential should launch under the pin: $out"
+  assert_contains "$out" "account=$CASE/work" "a raw Claude spawn that unsets a credential should report the pin"
+  run_pane
+  assert_grep "CLAUDE_CONFIG_DIR=$CASE/work" "$CASE/claude-worker" \
+    "a raw Claude worker that unsets a credential should run under the pinned root"
+  assert_grep "ANTHROPIC_API_KEY=unset" "$CASE/claude-worker" \
+    "a raw Claude worker that unsets a credential must not keep an ambient API key"
+  pass "a pinned home refuses each raw env form that overrides the account and pins the rest"
+}
+
 test_local_secondmate_reads_the_launching_home_pin() {
   local out rc id=acct-sm sm
   new_case secondmate claude
@@ -485,6 +528,48 @@ test_remote_secondmate_account_override_refuses_locally() {
   pass "a remote route refuses a primary-side account override instead of silently ignoring it"
 }
 
+# The Claude store a park and a resume look in is the store the launch uses:
+# the pinned root, the default ~/.claude for an ordinary pin, a mate's own pin,
+# and with no pin the caller's own CLAUDE_CONFIG_DIR, else ~/.claude. An
+# unusable pin refuses, and no sign-in check runs.
+test_claude_store_follows_the_launch_store() {
+  local out rc
+  new_case claude-store claude
+  out=$(store_of ""); rc=$?
+  expect_code 0 "$rc" "an unpinned store should resolve: $out"
+  [ "$out" = "$HOME_DIR/user-home/.claude" ] || fail "with no pin and no CLAUDE_CONFIG_DIR the store is ~/.claude, got: $out"
+  out=$(store_of "" "$CASE/own"); rc=$?
+  [ "$out" = "$CASE/own" ] || fail "with no pin the store is the caller's own CLAUDE_CONFIG_DIR, got: $out"
+  mkdir -p "$CASE/work"
+  printf '%s\n' "$CASE/work" > "$HOME_DIR/config/claude-account"
+  out=$(store_of "" "$CASE/own"); rc=$?
+  expect_code 0 "$rc" "a pinned store should resolve: $out"
+  [ "$out" = "$CASE/work" ] || fail "a pin selects its root over the caller's own store, got: $out"
+  mkdir -p "$HOME_DIR/config/secondmate-accounts/mate" "$CASE/mate"
+  printf '%s\n' "$CASE/mate" > "$HOME_DIR/config/secondmate-accounts/mate/claude-account"
+  out=$(store_of mate)
+  [ "$out" = "$CASE/mate" ] || fail "a secondmate's own pin selects its root, got: $out"
+  printf 'ordinary\n' > "$HOME_DIR/config/claude-account"
+  out=$(store_of "" "$CASE/own"); rc=$?
+  [ "$out" = "$HOME_DIR/user-home/.claude" ] || fail "an ordinary pin selects ~/.claude, got: $out"
+  printf '%s\n' "$CASE/missing-root" > "$HOME_DIR/config/claude-account"
+  out=$(store_of "" 2>&1); rc=$?
+  expect_code 1 "$rc" "an unusable pin must refuse"
+  assert_contains "$out" "config/claude-account must name a readable, searchable existing directory" "the refusal should name the pin"
+  assert_absent "$CASE/claude-checks" "the store lookup must not run a sign-in check"
+  pass "the Claude store for park and resume follows the store the launch uses"
+}
+
+# store_of <mate> [<own-config>]: fm_worker_account_claude_store for
+# HOME_DIR's config, from a caller whose CLAUDE_CONFIG_DIR is <own-config>.
+store_of() {
+  local -a own=()
+  [ -z "${2:-}" ] || own=("CLAUDE_CONFIG_DIR=$2")
+  # shellcheck disable=SC2016 # The child shell expands its own arguments.
+  env -u CLAUDE_CONFIG_DIR ${own[@]+"${own[@]}"} HOME="$HOME_DIR/user-home" PATH="$FAKEBIN:$PATH" bash -c '. "$1/bin/fm-worker-account-lib.sh"; fm_worker_account_claude_store "$2" "$3"' \
+    _ "$ROOT" "$HOME_DIR/config" "$1"
+}
+
 test_secondmate_account_override
 test_secondmate_account_refusals
 test_remote_secondmate_account_override_refuses_locally
@@ -500,6 +585,9 @@ test_a_pin_governs_only_its_own_runner
 test_raw_claude_command_receives_the_pin
 test_raw_claude_account_override_refuses_under_a_pin
 test_raw_claude_account_override_is_kept_without_a_pin
+test_raw_claude_env_forms_and_the_pin
 test_local_secondmate_reads_the_launching_home_pin
+
+test_claude_store_follows_the_launch_store
 
 echo "# all fm-worker-account tests passed"

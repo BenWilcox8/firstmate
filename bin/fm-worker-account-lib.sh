@@ -298,6 +298,35 @@ fm_worker_account_select() {
   printf '%s\t%s\t%s\n' "$declared" "$root" "$provider"
 }
 
+# fm_worker_account_claude_store <config-dir> [<secondmate-id>]
+# Fork: prints the Claude config store that a Claude launch from this home
+# uses, so that a park and a resume (bin/fm-control.sh, bin/fm-spawn.sh
+# --resume-session) look for a session where the launch keeps it. A pinned
+# root is that root. The `ordinary` pin unsets CLAUDE_CONFIG_DIR, so Claude
+# uses $HOME/.claude. With no pin, the launch forwards the caller's own
+# CLAUDE_CONFIG_DIR, else Claude uses $HOME/.claude. The pin is read and
+# checked as fm_worker_account_select reads it, but no sign-in check runs. On
+# refusal prints one error and returns 1; the caller must refuse too.
+fm_worker_account_claude_store() {
+  local config=$1 mate=${2:-} selected_config setting selection root
+  selected_config=$(fm_worker_account_config claude "$config" "$mate") || return 1
+  setting=config/claude-account
+  [ "$selected_config" = "$config" ] || setting="$selected_config/claude-account"
+  selection=$(fm_worker_account_resolve claude "$selected_config" "$setting") || return 1
+  if [ -z "$selection" ]; then
+    if [ "$selected_config" != "$config" ]; then
+      echo "error: secondmate account pin disappeared during selection: $setting" >&2
+      return 1
+    fi
+    printf '%s\n' "${CLAUDE_CONFIG_DIR:-${HOME:?HOME is required to find the Claude store}/.claude}"
+    return 0
+  fi
+  root=${selection#*$'\t'}
+  root=${root%%$'\t'*}
+  [ -n "$root" ] || root="${HOME:?HOME is required to find the ordinary Claude store}/.claude"
+  printf '%s\n' "$root"
+}
+
 # fm_worker_account_claude_shed
 # Prints the `env` launch prefix that unsets the environment credentials Claude
 # ranks above a pinned root's stored login. The caller appends the root

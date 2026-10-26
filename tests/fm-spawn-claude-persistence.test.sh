@@ -9,58 +9,24 @@
 # CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 remedy on every claude launch.
 #
 # Like the dispatch-profile suite, these tests drive fm-spawn through launch
-# construction with a fake tmux pane and a real isolated git worktree, so the
-# captured command is the one firstmate would run without starting any harness.
+# construction with the shared spawn-world fake tmux (tests/fixtures.sh) and a
+# real isolated git worktree, so the captured command is the one firstmate would
+# run without starting any harness.
 # The last test then EXECUTES the captured command against a fake claude in a
 # deliberately contaminated environment, which is what proves the prefix does
 # the job rather than merely being present as text.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-claude-persistence)
 
-make_spawn_fakebin() {
-  local dir=$1 fakebin
-  fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys)
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
-          # A spawn types a short line that sources its staged launch file;
-          # log the staged command, which is what the pane runs.
-          case "$a" in
-            ". '"*"'")
-              staged=${a#". '"}
-              staged=${staged%"'"}
-              [ ! -f "$staged" ] || a=$(cat "$staged")
-              ;;
-          esac
-          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
-        fi
-        prev=$a
-      done
-    fi
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse
+# The shared fake tmux tracks the task window and logs each staged launch
+# command to FM_FAKE_LAUNCH_LOG.
+make_persistence_fakebin() {
+  local fakebin
+  fakebin=$(fm_test_make_spawn_fakebin "$1")
   # Stub pi so resolve_pi_executable finds it; the test only checks absence of
   # the claude persistence prefix, not pi's own behaviour.
   cat > "$fakebin/pi" <<'SH'
@@ -81,7 +47,7 @@ make_spawn_case() {
   proj="$case_dir/project"
   wt="$case_dir/wt"
   launchlog="$case_dir/launch.log"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  fakebin=$(make_persistence_fakebin "$case_dir/fake")
   mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config"
   printf '%s\n' "$harness" > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
@@ -99,6 +65,9 @@ make_seeded_secondmate_home() {
   printf '# Firstmate\n' > "$home/AGENTS.md"
   printf '%s\n' "$id" > "$home/.fm-secondmate-home"
   printf 'charter for %s\n' "$id" > "$home/data/charter.md"
+  # A seeded home is a git repository; the spawn installs its strip hooks there.
+  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$home/.gitignore"
+  git -C "$home" init -q -b main
 }
 
 run_spawn() {
@@ -106,16 +75,12 @@ run_spawn() {
   shift 4
   : > "$launchlog"
   # The spawning shell is contaminated exactly the way a pane daemon started
-  # from inside a claude session contaminates its children. CLAUDE_CONFIG_DIR is
-  # pinned empty so these assertions never depend on the invoking shell; a test
-  # opts in to the set case via FM_TEST_CLAUDE_CONFIG_DIR.
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
-    CLAUDE_CODE_CHILD_SESSION=1 CLAUDE_CONFIG_DIR="${FM_TEST_CLAUDE_CONFIG_DIR:-}" \
-    FM_FAKE_LAUNCH_LOG="$launchlog" GROK_HOME="$home/grok-home" PATH="$fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+  # from inside a claude session contaminates its children. The shared runner
+  # pins CLAUDE_CONFIG_DIR empty and HOME to a throwaway directory, so these
+  # assertions never depend on the invoking shell; a test opts in to the set
+  # case via FM_TEST_CLAUDE_CONFIG_DIR.
+  CLAUDE_CODE_CHILD_SESSION=1 FM_FAKE_LAUNCH_LOG="$launchlog" GROK_HOME="$home/grok-home" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$@"
 }
 
 # Ship spawns carry an explicit delivery contract (AGENTS.md section 7); this
@@ -154,10 +119,12 @@ test_claude_crewmate_launch_keeps_its_transcript() {
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
   launch=$(cat "$LAUNCH_LOG")
   assert_persistence_prefix "$launch" "the claude crewmate launch"
-  # The prefix must lead, so it governs the claude process no matter which other
-  # launch prefixes (config dir, secondmate env, trace context) are added later.
-  # Only the separate compact-adviser export statement may run before it.
-  case "${launch#"export COMPACT_ADVISER_DISABLE=1; "}" in
+  # The prefix must lead the command, so it governs the claude process no matter
+  # which other launch prefixes (config dir, secondmate env, trace context) are
+  # added later. Only separate statements may run before it: the export
+  # statements and the Git configuration prefix, which fm_test_launch_command
+  # removes.
+  case "$(fm_test_launch_command "$launch")" in
     "env -u CLAUDE_CODE_CHILD_SESSION CLAUDE_CODE_FORCE_SESSION_PERSISTENCE=1 "*) ;;
     *) fail "the persistence prefix did not lead the claude launch: $launch" ;;
   esac

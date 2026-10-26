@@ -261,6 +261,84 @@ PY
 )
 pass 'send-provenance-dispatch: provenance hooks route through the one shared fork dispatcher'
 
+# Drive the launch hook with the arguments that fm-spawn gives it, on every pane
+# backend that fm-spawn can launch on (T3 Code has no pane and no hook call).
+# Each record must be valid against the reader schema.
+# This is the typing-provenance-launch seam.
+(
+  # fm-spawn resolves FM_ROOT to the code root, not to a home.
+  unset FM_ROOT_OVERRIDE FM_ROOT
+  export FM_HOME="$TMP_ROOT/launch"
+  mkdir -p "$FM_HOME/state"
+  # shellcheck source=bin/fm-backend.sh
+  . "$ROOT/bin/fm-backend.sh"
+  brief="$TMP_ROOT/launch-brief.md"
+  printf 'Launch with "quotes" and a snowman ☃.\n' > "$brief"
+  # A record-backed launch (Claude) gives the doorbell that names the brief record.
+  doorbell=$(FM_STATE_OVERRIDE="$FM_HOME/state" "$ROOT/bin/fm-operational-input.sh" record launch-brief < "$brief")
+  printf '%s' "$doorbell" > "$TMP_ROOT/launch-doorbell"
+  spawn_backends=
+  for backend in $FM_BACKEND_SPAWN; do
+    [ "$backend" != t3code ] || continue
+    spawn_backends="$spawn_backends $backend"
+    fm_local_hook provenance-launch "$backend" "session:p-$backend" "task-$backend" \
+      "claude --name 'task-$backend' '<doorbell>'" "$brief" "$doorbell"
+  done
+  # Other harnesses carry the encoded brief as a command substitution.
+  fm_local_hook provenance-launch tmux sess:win encoded \
+    "codex \"\$('$ROOT/bin/fm-operational-input.sh' encode launch-brief < '$brief')\"" "$brief" ''
+  # The agent receives the substitution's output, which drops trailing newlines.
+  printf '%s' "$("$ROOT/bin/fm-operational-input.sh" encode launch-brief < "$brief")" > "$TMP_ROOT/launch-encoded"
+  # A pointer harness or a resume has neither form and records nothing here.
+  fm_local_hook provenance-launch tmux sess:win pointer 'kimi --auto' "$brief" ''
+  # shellcheck disable=SC2086 # One argument for each backend name.
+  python3 - "$FM_HOME" "$ROOT/docs/local/send-provenance.schema.json" "$TMP_ROOT" $spawn_backends <<'PY'
+import hashlib, json, pathlib, re, sys
+root, schema_path, tmp = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2]), pathlib.Path(sys.argv[3])
+backends = sys.argv[4:]
+schema = json.loads(schema_path.read_text())
+records = [json.loads(line) for file in (root/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
+
+def valid(value, rule, where):
+    kinds = rule.get('type')
+    if kinds is not None:
+        names = {'object': dict, 'string': str, 'null': type(None)}
+        allowed = kinds if isinstance(kinds, list) else [kinds]
+        assert any(isinstance(value, names[k]) for k in allowed), (where, value)
+    if 'const' in rule:
+        assert value == rule['const'], (where, value)
+    if 'enum' in rule:
+        assert value in rule['enum'], (where, value, rule['enum'])
+    if 'pattern' in rule:
+        assert re.search(rule['pattern'], value), (where, value)
+    if isinstance(value, dict) and 'properties' in rule:
+        for key in rule.get('required', []):
+            assert key in value, (where, key)
+        if rule.get('additionalProperties') is False:
+            assert set(value) <= set(rule['properties']), (where, sorted(set(value) - set(rule['properties'])))
+        for key, item in value.items():
+            if key in rule['properties']:
+                valid(item, rule['properties'][key], f'{where}.{key}')
+
+for record in records:
+    valid(record, schema, 'record')
+doorbell = hashlib.sha256((tmp/'launch-doorbell').read_bytes()).hexdigest()
+encoded = hashlib.sha256((tmp/'launch-encoded').read_bytes()).hexdigest()
+by_task = {}
+for record in records:
+    assert record['delivery_kind'] == 'launch-prompt', record
+    by_task.setdefault(record['endpoint']['task_id'], []).append(record)
+assert set(by_task) == {f'task-{b}' for b in backends} | {'encoded'}, sorted(by_task)
+for backend in backends:
+    [record] = by_task[f'task-{backend}']
+    assert record['endpoint']['backend'] == backend, record
+    assert record['sha256'] == doorbell, record
+[record] = by_task['encoded']
+assert record['sha256'] == encoded, record
+PY
+) || fail 'launch provenance records are wrong or do not match the reader schema'
+pass 'typing-provenance-launch: every spawn backend writes a schema-valid record of the prompt the agent receives'
+
 # Run the real watcher against an aged unhandled steer on an idle pane.
 # This is the send-provenance-re-ring seam.
 (

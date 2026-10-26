@@ -167,12 +167,15 @@
 #     is refused rather than guessed at.
 #   - A backend that cannot deliver the harness's interrupt key is refused
 #     (Orca's terminal API has no Escape).
-#   - `exit`, `relaunch`, `park`, and `resume` require a backend with a
-#     recovery-grade agent-state classifier (tmux, herdr, rex, or t3code),
-#     because without one the "the agent stopped" postcondition cannot be
-#     proven. Relaunch, park, and resume also require replacement support, which
-#     t3code lacks. zellij, orca, cmux, paseo, and tern are refused rather than
-#     reported as successful blind.
+#   - `exit` and `relaunch` require a backend with a recovery-grade agent-state
+#     classifier (tmux, herdr, rex, or t3code), because without one the "the
+#     agent stopped" postcondition cannot be proven. Relaunch also requires
+#     replacement support, which t3code lacks. zellij, orca, cmux, paseo, and tern are
+#     refused rather than reported as successful blind.
+#   - `park` and `resume` run on tmux and herdr only, because only those
+#     backends can read the worker's processes and directory and prove its
+#     endpoint closed. Every other backend, rex included, refuses them before
+#     anything changes.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
 #     classified state acts (a Rex `unreadable` first goes through the absence
 #     proof `exit` describes, and refuses unless that proof settles it).
@@ -406,17 +409,31 @@ if ! fm_task_id_creation_valid "$RAW_ID"; then
   die "'$RAW_ID' is not a valid task id"
 fi
 ID=$RAW_ID
+# Fork: teardown stops a live worker (bin/fm-local-pane-lib.sh
+# fm_local_pane_stop) by running `exit` as its direct child. Teardown then
+# holds this task's lease guard, control lock, and record lock, and it owns the
+# pane. The child names its parent in FM_CONTROL_LOCK_PARENT, and the control
+# lock must record that parent. The child then takes neither lock again, and it
+# leaves the busy record and the pane to the parent. So no step of the exit path
+# may wait for a lock that the parent holds.
+CONTROL_LOCK_INHERITED=0
+if [ "$VERB" = exit ] && [ "${FM_CONTROL_LOCK_PARENT:-}" = "$PPID" ] \
+   && [ "$(cat "$STATE/.control-$ID.lock/pid" 2>/dev/null)" = "$PPID" ]; then
+  CONTROL_LOCK_INHERITED=1
+fi
 # Supervision lease guard: lifecycle control is overlap territory between the
 # two Pi supervision actors; refuse while the OTHER actor holds this task's
 # live lease (contract: bin/fm-lease-lib.sh; no-op in homes without leases).
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
-fm_lease_guard "$ID" "lifecycle control (fm-control)"
+[ "$CONTROL_LOCK_INHERITED" = 1 ] || fm_lease_guard "$ID" "lifecycle control (fm-control)"
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 trap control_cleanup EXIT
-fm_lock_try_acquire "$CONTROL_LOCK" \
-  || die "another lifecycle action is already running for task $ID"
-CONTROL_LOCK_HELD=1
+if [ "$CONTROL_LOCK_INHERITED" = 0 ]; then
+  fm_lock_try_acquire "$CONTROL_LOCK" \
+    || die "another lifecycle action is already running for task $ID"
+  CONTROL_LOCK_HELD=1
+fi
 # do_exit runs in a command substitution. That subshell does not run this
 # EXIT trap, so the parent has to hold the path the trap removes. Set it
 # only once the lock is held: a process that loses the lock runs the same
@@ -801,6 +818,7 @@ clear_retired_meta_busy_gen() {  # <gen>
 
 retire_busy_incarnation() {
   local gen=
+  [ "$CONTROL_LOCK_INHERITED" = 0 ] || return 0  # Fork: the parent retires it.
   if [ -f "$STATE/$ID.busy-gen" ]; then
     gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
     if [ -n "$gen" ] \
@@ -1402,10 +1420,16 @@ do_relaunch() {
 
 PARK_KEYS="parked parked_reason parked_on native_session native_session_harness native_session_file"
 
-# The Claude configuration a resume launches with (bin/fm-spawn.sh forwards
-# the same one), so the park and the resume look for a session in one place.
+# resume_claude_config: print the configuration the resume launch looks in,
+# for the locate check. That is the Claude store bin/fm-spawn.sh launches
+# with: the root of this home's worker account pin (config/claude-account),
+# else the configuration it forwards (bin/fm-worker-account-lib.sh
+# fm_worker_account_claude_store). Only a ship or scout is parked, so no
+# per-secondmate pin applies. Other harnesses need no configuration. A pin
+# that cannot be read returns 1 after its error, and the caller refuses.
 resume_claude_config() {
-  printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  [ "$HARNESS" = claude ] || return 0
+  fm_worker_account_claude_store "$CONFIG"
 }
 
 one_line() {  # <text>: a meta value is one line
@@ -1538,8 +1562,17 @@ park_require_harness() {  # <verb>
 
 # A park stops the worker through `exit`, and a resume launches its recorded
 # session through bin/fm-spawn.sh --relaunch, so both need a backend that can
-# do each of those (bin/fm-control-lib.sh owns the per-backend tables).
+# do each of those (bin/fm-control-lib.sh owns the per-backend tables). Both
+# also read the endpoint's foreground processes and current directory and close
+# the endpoint with proof (bin/fm-backend.sh fm_backend_foreground_pids,
+# fm_backend_current_path, fm_backend_task_endpoint_close). Only tmux and herdr
+# implement those, so every other backend refuses here, before anything
+# changes.
 park_require_backend() {  # <verb>
+  case "$BACKEND" in
+    tmux|herdr) ;;
+    *) die "task $ID runs on the $BACKEND backend, where '$1' cannot read the worker's processes and directory or prove its endpoint closed (park and resume run on tmux and herdr only), so '$1' is refused and nothing was changed" ;;
+  esac
   require_state_verified_backend "$1"
   if fm_control_backend_exit_supported "$BACKEND" && fm_control_backend_relaunch_supported "$BACKEND"; then
     return 0
@@ -1548,7 +1581,7 @@ park_require_backend() {  # <verb>
 }
 
 do_park() {
-  local state pids gen sid file parked stamp reason on key value
+  local state pids gen sid file parked stamp reason on key value cfg
   local -a record prior
   park_require_kind park
   park_require_backend park
@@ -1586,7 +1619,9 @@ do_park() {
       || die "task $ID cannot be parked: $FM_NATIVE_SESSION_REASON; nothing was changed"
     sid=$FM_NATIVE_SESSION_ID
     file=$FM_NATIVE_SESSION_FILE
-    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$(resume_claude_config)" \
+    cfg=$(resume_claude_config) \
+      || die "task $ID cannot be parked, because the Claude store its resume would use cannot be read (see the error above); nothing was changed"
+    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$cfg" \
       || die "task $ID cannot be parked, because its resume would not find the session: $FM_NATIVE_SESSION_REASON; nothing was changed"
     stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
@@ -1657,7 +1692,7 @@ resume_rollback() {
 }
 
 do_resume() {
-  local parked file state absence model effort
+  local parked file state absence model effort cfg
   local -a spawn_args
   park_require_kind resume
   park_require_backend resume
@@ -1672,7 +1707,9 @@ do_resume() {
     || die "task $ID's recorded session belongs to '$(fm_meta_get "$META" native_session_harness)', not its recorded harness $HARNESS; it stays parked"
   [ -n "$WT" ] && [ -d "$WT" ] \
     || die "task $ID's recorded worktree '${WT:-none}' is missing; its session cannot be resumed where its work lives, and it stays parked"
-  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$(resume_claude_config)" \
+  cfg=$(resume_claude_config) \
+    || die "task $ID cannot be resumed, because the Claude store its launch would use cannot be read (see the error above). It stays parked and nothing was changed"
+  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$cfg" \
     || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
   # The resume opens a new pane, so it is held to the agent limit. The launch
   # re-checks it; checking here first keeps a refused resume from touching the

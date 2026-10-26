@@ -24,6 +24,9 @@
 #   6. A missing session file refuses before anything changes, and a launch
 #      that does not come up re-records the Atlas park.
 #   7. relaunch of a parked task resumes its session instead of starting fresh.
+#   8. Under a Claude worker account pin, park and resume find the session in
+#      the pinned store, and an unreadable or moved pin refuses.
+#   9. A Rex task refuses park and resume before anything changes.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -440,6 +443,123 @@ test_park_refuses_a_session_its_resume_would_not_find() {
   pass "park: a session outside the configuration the resume launches with refuses with nothing changed"
 }
 
+# claude_worker_on <case-dir> <store>: replace the case's running Claude worker
+# with one whose store is <store>, holding its session record and transcript.
+claude_worker_on() {
+  local dir=$1 store=$2 pid
+  pid=$(stand_in claude "CLAUDE_CONFIG_DIR=$store" ':')
+  mkdir -p "$store/sessions" "$store/projects/-wt"
+  jq -cn --argjson pid "$pid" --arg sid "$SID" --arg cwd "$(meta_field "$dir" worktree)" --arg start "$(proc_start "$pid")" \
+    '{pid: $pid, sessionId: $sid, cwd: $cwd, procStart: $start}' > "$store/sessions/$pid.json"
+  printf '{"type":"user"}\n' > "$store/projects/-wt/$SID.jsonl"
+  printf '%s' "$pid" > "$dir/fake/fgpid"
+}
+
+# pin_claude_account <case-dir> <root>: pin this home's Claude workers to
+# <root> (config/claude-account) and let a fake claude report <root> as signed
+# in, as the launch's sign-in check requires.
+pin_claude_account() {
+  local dir=$1 root=$2
+  mkdir -p "$root"
+  printf '%s\n' "$root" > "$dir/home/config/claude-account"
+  cat > "$dir/fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" = "auth status" ] || exit 1
+exit 0
+SH
+  chmod +x "$dir/fakebin/claude"
+}
+
+# A home's worker account pin (config/claude-account) puts every Claude worker
+# in the pinned store. Park and resume look for the session there, and the
+# resume launch selects that store again.
+test_park_and_resume_under_a_claude_account_pin() {
+  local dir out rc root launch
+  dir=$(new_case park-pin)
+  root="$dir/pinned-claude"
+  pin_claude_account "$dir" "$root"
+  claude_worker_on "$dir" "$root"
+  out=$(run_control "$dir" t1 park --reason "waits on the pinned account"); rc=$?
+  expect_code 0 "$rc" "park of a worker on the pinned store should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" native_session_file)" = "$root/projects/-wt/$SID.jsonl" ] \
+    || fail "park should record the transcript in the pinned store"
+  : > "$dir/fake/literal"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session in the pinned store should succeed"$'\n'"$out"
+  launch=$(grep -F -- "--resume '$SID'" "$dir/fake/literal" || true)
+  [ -n "$launch" ] || fail "resume should reopen the recorded session, got: $(cat "$dir/fake/literal")"
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$root'" "the resume launch should select the pinned store"
+  [ -z "$(meta_field "$dir" parked)" ] || fail "resume should clear the park record"
+  pass "park and resume: under a Claude account pin the session is found in, and resumed on, the pinned store"
+}
+
+# A pin that cannot be read refuses the park, and a pin that moved to another
+# store while the task was parked refuses the resume: that store does not hold
+# the session, and a resume never starts fresh.
+test_park_and_resume_refuse_a_pin_that_does_not_hold_the_session() {
+  local dir out rc before
+  dir=$(new_case park-pin-bad)
+  printf '%s\n' "$dir/no-such-root" > "$dir/home/config/claude-account"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 1 "$rc" "park under a pin that cannot be read should refuse"$'\n'"$out"
+  assert_contains "$out" "config/claude-account must name a readable, searchable existing directory" \
+    "the refusal should name the pin"
+  assert_contains "$out" "cannot be parked" "the refusal should say the task cannot be parked"
+  assert_nothing_changed "$dir" "$before" "a park under an unreadable pin"
+  ! grep -q 'ticket park' "$dir/fake/atlas" || fail "a park under an unreadable pin must not touch the Atlas"
+
+  dir=$(new_case resume-pin-moved)
+  pin_claude_account "$dir" "$dir/pinned-claude"
+  claude_worker_on "$dir" "$dir/pinned-claude"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 0 "$rc" "setup park should succeed"$'\n'"$out"
+  : > "$dir/fake/literal"
+  pin_claude_account "$dir" "$dir/other-claude"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 1 "$rc" "resume after the pin moved should refuse"$'\n'"$out"
+  assert_contains "$out" "is not under $dir/other-claude/projects" "the refusal should name the store the launch would use"
+  assert_contains "$out" "stays parked" "the refusal should keep the task parked"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused resume must leave the park record unchanged"
+  ! grep -q 'ticket unpark' "$dir/fake/atlas" || fail "a refused resume must not unpark the ticket"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused resume must launch nothing"
+  pass "park and resume: an unreadable pin, or a pin moved to another store, refuses with nothing changed"
+}
+
+# Park and resume read the worker's processes and directory and close its
+# endpoint with proof, which only tmux and herdr can do. A Rex task refuses
+# both before anything changes.
+test_park_and_resume_refuse_a_rex_task() {
+  local dir out rc before session block
+  dir=$(new_case park-rex)
+  session=0a5d3f0e-1111-4a2b-9c3d-000000000001
+  block=0a5d3f0e-2222-4a2b-9c3d-000000000002
+  sed "s|^window=.*|window=$session:$block|" "$dir/home/state/t1.meta" > "$dir/meta.rex"
+  {
+    echo "backend=rex"
+    echo "rex_session_id=session:$session"
+    echo "rex_window_id=window:0a5d3f0e-3333-4a2b-9c3d-000000000003"
+    echo "rex_block_id=block:$block"
+    echo "rex_server=unix:/tmp/rex-test.sock"
+  } >> "$dir/meta.rex"
+  mv "$dir/meta.rex" "$dir/home/state/t1.meta"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  for verb in park resume; do
+    if [ "$verb" = park ]; then
+      out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+    else
+      out=$(run_control "$dir" t1 resume); rc=$?
+    fi
+    expect_code 1 "$rc" "$verb on a Rex task should refuse"$'\n'"$out"
+    assert_contains "$out" "park and resume run on tmux and herdr only" "the $verb refusal should name the supported backends"
+    cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused $verb on Rex must leave the task record unchanged"
+  done
+  [ ! -s "$dir/fake/literal" ] && [ ! -s "$dir/fake/keys" ] || fail "a refused Rex park or resume must send nothing"
+  [ ! -s "$dir/fake/atlas" ] || fail "a refused Rex park or resume must not touch the Atlas"
+  pass "park and resume: a Rex task refuses both before anything changes"
+}
+
 # A park whose stop failed and whose unpark rollback also failed leaves the
 # local record withdrawn while the ticket still holds that exact park. A retry
 # meets an Atlas that drops the identical park as a no-op, and still parks.
@@ -702,3 +822,6 @@ test_resume_refuses_a_task_that_is_not_parked
 test_repark_leaves_a_reused_endpoint_alone
 test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it
 test_relaunch_of_a_parked_task_resumes_its_session
+test_park_and_resume_under_a_claude_account_pin
+test_park_and_resume_refuse_a_pin_that_does_not_hold_the_session
+test_park_and_resume_refuse_a_rex_task

@@ -4,8 +4,9 @@
 # The mode is send (fm-send), re-ring (the watcher), or the delivery kind of a
 # caller that types one kind only: exit-command (fm-control) or
 # supervision-digest (the away-mode daemon). The state overrides the home state.
-# fm_local_provenance_launch <backend> <target> <task> <launch> <brief> records the
-# launch prompt that fm-spawn typed, then records later typings as launch prompts.
+# fm_local_provenance_launch <backend> <target> <task> <launch> <brief> [doorbell]
+# records the launch prompt that fm-spawn typed, then records later typings as
+# launch prompts.
 # fm_local_provenance_typed <backend> <target> <text> observes successful literal typing.
 # fm_local_provenance_remote_sent records a remote steer in the sending home.
 # fm_local_provenance_prune <state> expires old shards during task teardown.
@@ -37,13 +38,20 @@ fm_local_provenance_init() {  # [mode] [state]
   FM_LOCAL_PROVENANCE_SENDER=$(cd "$FM_HOME" 2>/dev/null && pwd -P) || FM_LOCAL_PROVENANCE_SENDER=$FM_HOME
 }
 
-# A launch prompt rides the typed launch line as a command substitution. The
-# record hashes the prompt that the agent receives, not the shell line. A launch
-# without the brief (a pointer harness or a resume) records nothing here.
-fm_local_provenance_launch() {  # <backend> <target> <task> <launch> <brief>
+# A launch prompt rides the typed launch line as an argument. The record hashes
+# the prompt that the agent receives, not the shell line. A record-backed launch
+# (Claude) gives the doorbell that names the brief record, and the agent receives
+# exactly those bytes. Other launches carry the encoded brief as a command
+# substitution. A launch with neither (a pointer harness or a resume) records
+# nothing here.
+fm_local_provenance_launch() {  # <backend> <target> <task> <launch> <brief> [doorbell]
   local prompt
   fm_local_provenance_init launch-prompt
   FM_LOCAL_PROVENANCE_TASK=$3
+  if [ -n "${6:-}" ]; then
+    fm_local_provenance_endpoint "$6" "$1" "$2" "$3" launch-prompt
+    return 0
+  fi
   case "$4" in *'encode launch-brief <'*) ;; *) return 0 ;; esac
   prompt=$("${FM_ROOT:-$FM_BACKEND_LIB_DIR/..}/bin/fm-operational-input.sh" encode launch-brief < "$5") || {
     printf 'warning: typed-send provenance could not be recorded; do not resend the text\n' >&2

@@ -3,63 +3,20 @@
 # display name (AGENTS.md task lifecycle / spawn).
 #
 # Like the dispatch-profile suite, these drive fm-spawn through meta writing and
-# launch construction with a fake tmux pane and a real isolated git worktree. The
-# fake tmux captures the literal launch command sent with `tmux send-keys -l`, so
-# assertions pin the command firstmate would run without starting any real
-# harness. Coverage: flag parsing, per-kind defaults (crewmate/scout task id,
+# launch construction with the shared spawn-world fake tmux (tests/fixtures.sh)
+# and a real isolated git worktree. The fake tmux captures the staged launch
+# command, so assertions pin the command firstmate would run without starting any
+# real harness. Coverage: flag parsing, per-kind defaults (crewmate/scout task id,
 # secondmate "Secondmate, <id>"), harness gating (claude threads --name; a
 # no-support harness like codex does not and launches byte-identically), meta
 # recording of session_name= only when a flag was passed, quoting safety for a
 # name with spaces and single quotes, batch refusal, and empty-value rejection.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-session-name)
-
-make_spawn_fakebin() {
-  local dir=$1 fakebin
-  fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys)
-    if [ -n "${FM_FAKE_LAUNCH_LOG:-}" ]; then
-      prev=
-      for a in "$@"; do
-        if [ "$prev" = "-l" ]; then
-          # A spawn types a short line that sources its staged launch file;
-          # log the staged command, which is what the pane runs.
-          case "$a" in
-            ". '"*"'")
-              staged=${a#". '"}
-              staged=${staged%"'"}
-              [ ! -f "$staged" ] || a=$(cat "$staged")
-              ;;
-          esac
-          printf '%s\n' "$a" >> "$FM_FAKE_LAUNCH_LOG"
-        fi
-        prev=$a
-      done
-    fi
-    exit 0
-    ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse
-  printf '%s\n' "$fakebin"
-}
 
 make_spawn_case() {
   local name=$1 harness=$2 case_dir home proj wt fakebin launchlog id
@@ -69,7 +26,7 @@ make_spawn_case() {
   proj="$case_dir/project"
   wt="$case_dir/wt"
   launchlog="$case_dir/launch.log"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
   mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config"
   printf '%s\n' "$harness" > "$home/config/crew-harness"
   fm_git_worktree "$proj" "$wt" "wt-$name"
@@ -87,18 +44,20 @@ make_seeded_secondmate_home() {
   printf '# Firstmate\n' > "$home/AGENTS.md"
   printf '%s\n' "$id" > "$home/.fm-secondmate-home"
   printf 'charter for %s\n' "$id" > "$home/data/charter.md"
+  # A seeded home is a git repository; the spawn installs its strip hooks there.
+  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$home/.gitignore"
+  git -C "$home" init -q -b main
 }
 
+# The shared runner also gives the spawn a throwaway HOME and an empty
+# CLAUDE_CONFIG_DIR, so the Claude trust registration never writes the
+# developer's own Claude store.
 run_spawn() {
   local home=$1 wt=$2 fakebin=$3 launchlog=$4
   shift 4
   : > "$launchlog"
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
-    FM_FAKE_LAUNCH_LOG="$launchlog" GROK_HOME="$home/grok-home" PATH="$fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+  FM_FAKE_LAUNCH_LOG="$launchlog" GROK_HOME="$home/grok-home" \
+    fm_test_run_spawn "$home" "$wt" "$fakebin" "$@"
 }
 
 # Ship spawns carry an explicit delivery contract (AGENTS.md section 7); this
@@ -114,11 +73,28 @@ $1
 EOF
 }
 
-# These assertions pin the --name flag and its position immediately before the
-# brief substitution, and stop at the opening "$( on purpose. What reads the
-# brief inside that substitution is fm-spawn's own launch template (today the
-# fm-operational-input.sh encoder, previously a plain cat), and pinning it here
-# would duplicate a contract this file does not own.
+# assert_name_flag <launch> <name> <what>
+# Pins the --name flag and its position immediately before the brief argument,
+# the last argument of the claude command. The text check pins the POSIX single
+# quoting of the name. The parsed check runs the shell word rules on the command,
+# so the name must come back as exactly <name>. It checks only that the brief
+# argument is a launch-brief doorbell, because fm-spawn's launch template and
+# bin/fm-operational-input.sh own the brief format, and this file does not.
+assert_name_flag() {
+  local launch=$1 name=$2 what=$3 quoted command
+  quoted="'$(printf '%s' "$name" | sed "s/'/'\\\\''/g")'"
+  assert_contains "$launch" "--name $quoted '" "$what did not thread --name $quoted before the brief"
+  command=$(fm_test_launch_command "$launch")
+  (
+    eval "set -- $command"
+    while [ "$#" -gt 0 ] && [ "$1" != --name ]; do shift; done
+    [ "$#" -eq 3 ] || fail "$what: --name was not followed by exactly the name and the brief: $command"
+    [ "$2" = "$name" ] || fail "$what: --name parsed as '$2', not '$name'"
+    [ "$(printf '%s' "$3" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+      || fail "$what: the argument after --name is not a launch-brief doorbell: $3"
+  ) || exit 1
+}
+
 test_claude_explicit_session_name_threads_name_flag() {
   local rec id out status launch name
   id=session-explicit-z1
@@ -131,10 +107,10 @@ test_claude_explicit_session_name_threads_name_flag() {
   expect_code 0 "$status" "claude spawn with an explicit session name should succeed"
   assert_contains "$out" "spawned $id harness=claude" "spawn did not report claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "claude --dangerously-skip-permissions --settings" \
-    "claude launch omitted its configured settings"
-  assert_contains "$launch" "--name 'herdr pane-split layout' \"\$(" \
-    "claude launch did not thread the explicit --name flag"
+  assert_contains "$launch" "claude --dangerously-skip-permissions " \
+    "claude launch omitted its configured permission flag"
+  assert_contains "$launch" " --settings " "claude launch omitted its configured settings"
+  assert_name_flag "$launch" "$name" "claude launch with an explicit session name"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta missing explicit session_name"
   pass "claude threads an explicit --session-name and records session_name= in meta"
 }
@@ -149,8 +125,7 @@ test_crewmate_default_name_is_task_id() {
   status=$?
   expect_code 0 "$status" "claude crewmate spawn without a session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--name '$id' \"\$(" \
-    "claude crewmate launch did not default --name to the task id"
+  assert_name_flag "$launch" "$id" "claude crewmate launch (default --name is the task id)"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default crewmate session_name=<id>"
   pass "a crewmate defaults its session name to the task id"
 }
@@ -166,8 +141,7 @@ test_scout_default_name_is_task_id() {
   expect_code 0 "$status" "claude scout spawn without a session name should succeed"
   assert_contains "$out" "kind=scout" "scout spawn did not report kind=scout"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--name '$id' \"\$(" \
-    "claude scout launch did not default --name to the task id"
+  assert_name_flag "$launch" "$id" "claude scout launch (default --name is the task id)"
   assert_grep "session_name=$id" "$HOME_DIR/state/$id.meta" "meta missing default scout session_name=<id>"
   pass "a scout defaults its session name to the task id"
 }
@@ -185,8 +159,7 @@ test_secondmate_default_name_is_secondmate_id() {
   expect_code 0 "$status" "claude secondmate spawn without a session name should succeed"
   assert_contains "$out" "spawned $id harness=claude kind=secondmate" "secondmate launch did not use claude"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--name 'Secondmate, $id' \"\$(" \
-    "claude secondmate launch did not default --name to 'Secondmate, <id>'"
+  assert_name_flag "$launch" "Secondmate, $id" "claude secondmate launch (default --name is 'Secondmate, <id>')"
   assert_grep "session_name=Secondmate, $id" "$HOME_DIR/state/$id.meta" \
     "meta missing default secondmate session_name=Secondmate, <id>"
   pass "a secondmate defaults its session name to 'Secondmate, <id>'"
@@ -208,7 +181,10 @@ test_unsupported_harness_omits_name_flag_and_meta() {
   assert_no_grep "session_name=" "$HOME_DIR/state/$id.meta" "codex meta must not record session_name when no flag was passed"
 
   # Explicit --session-name on codex: still no --name, still no session_name=, and
-  # the launch is byte-identical to the no-flag codex launch above.
+  # the launch is byte-identical to the no-flag codex launch above, apart from
+  # the per-spawn nonce in its private Git configuration file name. The first
+  # worker's window closes first, so the second spawn may replace it.
+  PATH="$FAKEBIN_DIR:$PATH" tmux kill-window -t "firstmate:fm-$id"
   out=$(run_ship_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR" --session-name "ignored name")
   status=$?
   expect_code 0 "$status" "codex spawn with an ignored session name should still succeed"
@@ -216,6 +192,8 @@ test_unsupported_harness_omits_name_flag_and_meta() {
   assert_not_contains "$launch_named" "--name" "codex launch must ignore --session-name for an unsupported harness"
   assert_not_contains "$launch_named" "ignored name" "codex launch must not embed the ignored session name"
   assert_no_grep "session_name=" "$HOME_DIR/state/$id.meta" "codex meta must not record session_name even when a flag was passed"
+  launch=$(printf '%s' "$launch" | sed -E 's/git-config\.[A-Za-z0-9.]+\.sh/git-config.NONCE.sh/g')
+  launch_named=$(printf '%s' "$launch_named" | sed -E 's/git-config\.[A-Za-z0-9.]+\.sh/git-config.NONCE.sh/g')
   [ "$launch" = "$launch_named" ] || fail "codex launch changed when an unsupported --session-name was passed"$'\n'"without: $launch"$'\n'"with:    $launch_named"
   pass "an unsupported harness (codex) launches byte-identically and records no session_name"
 }
@@ -234,8 +212,9 @@ test_quoting_safety_spaces_and_single_quotes() {
   expect_code 0 "$status" "claude spawn with a quote-laden session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
   # POSIX single-quote escaping: a literal ' becomes '\'' inside the quoted run.
-  assert_contains "$launch" "--name 'a '\\''b'\\'' c' \"\$(" \
+  assert_contains "$launch" "--name 'a '\\''b'\\'' c' " \
     "claude launch did not safely single-quote a name containing spaces and single quotes"
+  assert_name_flag "$launch" "$name" "claude launch with a quote-laden session name"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta did not record the raw quoted session name"
   pass "a session name with spaces and single quotes is safely quoted and recorded verbatim"
 }
@@ -253,8 +232,7 @@ test_quoting_safety_ampersand() {
   status=$?
   expect_code 0 "$status" "claude spawn with an ampersand session name should succeed"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "--name 'fix build & tests' \"\$(" \
-    "claude launch did not preserve a literal ampersand in the session name"
+  assert_name_flag "$launch" "$name" "claude launch with an ampersand session name"
   assert_not_contains "$launch" "__NAMEFLAG__" \
     "claude launch leaked the __NAMEFLAG__ placeholder into the ampersand name"
   assert_grep "session_name=$name" "$HOME_DIR/state/$id.meta" "meta did not record the ampersand session name"

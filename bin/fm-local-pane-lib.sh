@@ -171,8 +171,12 @@ fm_local_pane_remember() { # <meta> <task-id>
 }
 
 # "held" means the caller already holds the target session's presentation lock.
+# FM_LOCAL_PANE_KEEP_OPEN=1 marks the fm-control exit that teardown runs to stop
+# a live worker (fm_local_pane_stop): that exit closes nothing, because
+# teardown closes the pane itself under the lock it holds.
 fm_local_pane_close() { # <meta> <task-id> [held]
   local meta=$1 id=$2 target
+  [ "${FM_LOCAL_PANE_KEEP_OPEN:-0}" != 1 ] || return 0
   fm_local_pane_resolve "$meta" "$id" || return 1
   target=$FM_LOCAL_PANE_TARGET
   # No home workspace means no owned pane and no slot to remember.
@@ -328,15 +332,31 @@ fm_local_pane_relaunch_create() {
 # fm-control relaunch reserves the home's task set before it stops the old
 # agent, so a concurrent spawn cannot leave the task with no agent and no pane.
 # Its fm-spawn child uses the reservation through FM_LOCAL_PANE_TASK_SET_OWNER.
+# A fresh spawn holds the task set through its whole launch, so the reserve can
+# wait. fm-control can hold the home-wide lease command lock
+# (bin/fm-lease-lib.sh fm_lease_guard), and every steer and lifecycle command
+# of the home waits for that lock. So the reserve never waits while it holds
+# that lock: it releases the lock, waits, then takes the guard again. The guard
+# checks the task's lease again, and a lease that the other actor took in the
+# meantime refuses the relaunch.
 fm_local_pane_reserve() { # <task-id>
+  local lease_held=0
   FM_LOCAL_PANE_TASK_SET_LOCK=$(fm_task_set_lock_path "$STATE") || return 1
-  if ! fm_lock_acquire_wait_bounded "$FM_LOCAL_PANE_TASK_SET_LOCK" "${FM_LOCAL_PANE_RESERVE_WAIT:-120}"; then
-    FM_LOCAL_PANE_TASK_SET_LOCK=
-    fm_local_pane_error "$1 relaunch refused before its agent was stopped: this home has another spawn or teardown in progress"
-    return 1
+  if ! fm_lock_try_acquire "$FM_LOCAL_PANE_TASK_SET_LOCK"; then
+    if [ -n "${FM_LEASE_GUARD_LOCK:-}" ]; then
+      lease_held=1
+      fm_lease_guard_release || { FM_LOCAL_PANE_TASK_SET_LOCK=; return 1; }
+    fi
+    if ! fm_lock_acquire_wait_bounded "$FM_LOCAL_PANE_TASK_SET_LOCK" "${FM_LOCAL_PANE_RESERVE_WAIT:-120}"; then
+      FM_LOCAL_PANE_TASK_SET_LOCK=
+      fm_local_pane_error "$1 relaunch refused before its agent was stopped: this home has another spawn or teardown in progress"
+      return 1
+    fi
   fi
   FM_LOCAL_PANE_TASK_SET_OWNER=$$
   export FM_LOCAL_PANE_TASK_SET_OWNER
+  # A refusal here exits the caller, whose cleanup releases the reservation.
+  [ "$lease_held" = 0 ] || fm_lease_guard "$1" "lifecycle control (fm-control)"
 }
 
 fm_local_pane_release() {
@@ -346,39 +366,20 @@ fm_local_pane_release() {
   unset FM_LOCAL_PANE_TASK_SET_OWNER
 }
 
-# Teardown ends a live worker with fm-control exit's steps while it holds the
-# task control lock: interrupt a busy turn, submit the harness exit command,
-# then wait for the proven-gone state. It never closes the pane itself.
+# Teardown stops a live worker through `bin/fm-control.sh <id> exit`, the one
+# owner of exit safety: the interrupt arm, press gap, and hazard rules, the
+# polytoken API interrupt, the composer-empty check, and the refusal to answer
+# a blocking dialog such as Claude's background-task exit picker. It runs while
+# teardown holds the task's lease guard, control lock, and record lock, so
+# fm-control runs as teardown's direct child and inherits them
+# (FM_CONTROL_LOCK_PARENT). The child leaves the pane open
+# (FM_LOCAL_PANE_KEEP_OPEN): teardown closes it later under its own session
+# presentation lock. fm-control re-resolves the endpoint itself, so <target>
+# is not used. A refusal goes to stderr and returns 1.
 fm_local_pane_stop() { # <meta> <task-id> <target>
-  local meta=$1 id=$2 target=$3 harness key clear i=0 verdict
-  local poll=${FM_CONTROL_POLL:-0.5} wait=${FM_CONTROL_EXIT_WAIT:-30} waited=0
-  harness=$(fm_control_harness_family "$(fm_meta_get "$meta" harness)") || return 1
-  fm_control_harness_supported "$harness" || return 1
-  # shellcheck source=bin/fm-busy-lib.sh
-  declare -F fm_busy_classify_meta >/dev/null || . "$FM_BACKEND_LIB_DIR/fm-busy-lib.sh"
-  case "$(fm_busy_classify_meta "$meta" "$id" "${meta%/*}")" in
-    busy*)
-      key=$(fm_control_interrupt_key "$harness")
-      clear=$(fm_control_interrupt_clear_key "$harness")
-      fm_control_backend_supports_key herdr "$key" || return 1
-      [ -z "$clear" ] || fm_control_backend_supports_key herdr "$clear" || return 1
-      while [ "$i" -lt "$(fm_control_interrupt_repeat "$harness")" ]; do
-        fm_backend_send_key herdr "$target" "$key" "fm-$id" || return 1
-        i=$((i + 1))
-        sleep 0.2
-      done
-      [ -z "$clear" ] || fm_backend_send_key herdr "$target" "$clear" "fm-$id" || return 1
-      [ "$(fm_backend_agent_state herdr "$target")" != dead ] || return 0
-      ;;
-  esac
-  verdict=$(fm_backend_send_text_submit herdr "$target" "$(fm_control_exit_command "$harness")" 3 "$poll" 1.2 "fm-$id") \
-    || return 1
-  [ "$verdict" != send-failed ] || return 1
-  until [ "$(fm_backend_agent_state herdr "$target")" = dead ]; do
-    awk -v e="$waited" -v t="$wait" 'BEGIN{exit !(e < t)}' || return 1
-    sleep "$poll"
-    waited=$(awk -v e="$waited" -v p="$poll" 'BEGIN{printf "%.3f", e + p}')
-  done
+  local meta=$1 id=$2
+  FM_CONTROL_LOCK_PARENT=${BASHPID:-$$} FM_LOCAL_PANE_KEEP_OPEN=1 FM_HOME="$FM_HOME" FM_STATE_OVERRIDE="${meta%/*}" \
+    "$FM_BACKEND_LIB_DIR/fm-control.sh" "$id" exit >/dev/null
 }
 
 # Failed launches can leave a new shell. Preserve live or uncertain agents.
