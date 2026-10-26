@@ -1684,6 +1684,54 @@ test_attached_arm_exits_when_its_root_is_removed() {
   pass "watch-arm: an attached arm exits within its bound when its root is removed"
 }
 
+# An owned arm whose home is removed while it still waits to confirm its child
+# must reap that child before it releases the child's captured stderr: the
+# watcher writes its last diagnostic while it is dying, and a release ahead of
+# the reap drops that line. The child is a stand-in watcher that never takes
+# the lock, so the arm stays in its confirmation window, and its TERM handler
+# writes one diagnostic after a short delay. The arm runs from a bin directory
+# of links to this checkout's bin, with only the watcher replaced.
+test_owned_arm_reaps_its_child_before_reporting_removed_ground() {
+  local dir bin home state armout status f i=0
+  dir=$(make_case confirm-ground-removed)
+  bin="$dir/bin"
+  home="$dir/home"
+  state="$dir/state"
+  armout="$dir/arm.out"
+  mkdir -p "$bin" "$home/data"
+  for f in "$ROOT"/bin/*; do
+    ln -s "$f" "$bin/${f##*/}"
+  done
+  rm -f "$bin/fm-watch.sh"
+  cat > "$bin/fm-watch.sh" <<'SH'
+#!/usr/bin/env bash
+trap 'sleep 0.5; echo "watcher: stand-in diagnostic written while dying" >&2; exit 143' TERM
+: > "$FM_TEST_STANDIN_STARTED"
+while :; do sleep 0.1; done
+SH
+  chmod +x "$bin/fm-watch.sh"
+  FM_HOME="$home" FM_STATE_OVERRIDE="$state" FM_TEST_STANDIN_STARTED="$dir/started" \
+    FM_ARM_CONFIRM_TIMEOUT=60 "$bin/fm-watch-arm.sh" > "$armout" 2>&1 &
+  ARM_PID=$!
+  while [ ! -e "$dir/started" ] && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  [ -e "$dir/started" ] || { kill -TERM "$ARM_PID" 2>/dev/null; fail "the arm never started its stand-in watcher: $(cat "$armout")"; }
+
+  rm -rf "$home"
+  # The 0.2s ground recheck and the stand-in's 0.6s death, with headroom for a
+  # busy host; far short of the 60s confirmation window.
+  wait_for_exit "$ARM_PID" 100
+  status=$?
+  expect_code 1 "$status" "an owned arm whose home was removed must exit 1: $(cat "$armout")"
+  grep -qF "watcher: FAILED - arm ground removed: $home no longer exists" "$armout" \
+    || fail "arm did not report its removed ground: $(cat "$armout")"
+  grep -qF "watcher: stand-in diagnostic written while dying" "$armout" \
+    || fail "arm released the watcher's stderr before it reaped the watcher: $(cat "$armout")"
+  pass "watch-arm: an owned arm reaps its child, keeping its last diagnostic, before it reports removed ground"
+}
+
 # tests/lib.sh's exit-time reaper must stop a watcher a suite armed for a
 # temporary home, through the home-scoped stop, so no test leaves one behind.
 # The reaper is driven with a private registry so this suite's own registry
@@ -1962,6 +2010,7 @@ test_arm_refuses_a_disposable_validation_checkout
 test_watcher_exits_when_its_state_directory_is_removed
 test_watcher_exits_when_its_home_is_removed
 test_attached_arm_exits_when_its_root_is_removed
+test_owned_arm_reaps_its_child_before_reporting_removed_ground
 test_reaper_stops_a_tracked_watcher
 test_attached_arm_still_fails_on_a_wake_it_did_not_deliver
 test_attached_arm_follows_a_slow_live_holder

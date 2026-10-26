@@ -48,6 +48,9 @@
 # A separate per-home lock serializes relaunches of different mates, since each
 # fresh spawn owns the same task-set lock. The watcher uses its spawn timeout
 # as the lock-wait bound; an untimed sweep defaults to 600 seconds.
+# Fork: the restart recovery pass (bin/fm-local-restart-recovery.sh) takes
+# both locks in the same order through fm_secondmate_liveness_lock and
+# fm_secondmate_relaunch_lock.
 # The attempt ledger (.secondmate-relaunch-<id>, one line per attempt plus one
 # per outcome) is both the durable relaunch record and the input to the
 # watcher's relaunch bound; teardown removes it.
@@ -83,6 +86,48 @@ fm_secondmate_liveness_lock() {  # <id>
 fm_secondmate_liveness_unlock() {  # <id>
   fm_sm_live_require_locks || return 0
   fm_lock_release "$STATE/.secondmate-liveness-$1.lock" 2>/dev/null || true
+}
+
+# Fork: the per-home relaunch lock for a relaunch driver outside this library
+# (bin/fm-local-restart-recovery.sh). fm_secondmate_liveness_relaunch takes the
+# same lock itself. Take it after the per-task liveness lock, as that function
+# does, so the two locks are always taken in one order.
+fm_secondmate_relaunch_lock() {  # <wait-seconds>
+  fm_sm_live_require_locks || return 1
+  fm_lock_acquire_wait_bounded "$STATE/.secondmate-relaunch.lock" "$1"
+}
+
+fm_secondmate_relaunch_unlock() {
+  fm_sm_live_require_locks || return 0
+  fm_lock_release "$STATE/.secondmate-relaunch.lock" 2>/dev/null || true
+}
+
+# Fork: the guarded spawn retires the replaced endpoint a second time on its
+# own (spawn_retire_replaced_endpoint in bin/fm-spawn.sh), so the note from the
+# first try can be stale. Keep the final result: the spawn's own "was not
+# retired" warning when it printed one, else the first note only while the old
+# endpoint still stands. A successful spawn that recorded the old target again
+# (a tmux mate's <session>:fm-<id>) proves the old endpoint gone: the backend
+# opens an endpoint at that address only when none is there. Otherwise "gone"
+# uses the retire's own test: the endpoint reads missing, or the backend
+# confirms the close.
+fm_sm_live_settle_retire_note() {  # <backend> <old-target> <meta>
+  local spawn_note state
+  spawn_note=$(printf '%s\n' "$FM_SM_LIVE_OUT" \
+    | sed -n "s/^warning: task .*'s \(previous endpoint .* was not retired: .*\)\$/\1/p" | sed -n 1p)
+  if [ -n "$spawn_note" ]; then
+    FM_SM_LIVE_RETIRE_NOTE=$spawn_note
+    return 0
+  fi
+  [ -n "$FM_SM_LIVE_RETIRE_NOTE" ] && [ -n "$2" ] || return 0
+  if [ "$FM_SM_LIVE_RC" -eq 0 ] && [ "$(fm_backend_target_of_meta "$3" 2>/dev/null)" = "$2" ]; then
+    FM_SM_LIVE_RETIRE_NOTE=''
+    return 0
+  fi
+  state=$(fm_backend_agent_state "$1" "$2" 2>/dev/null) || state=unreadable
+  if [ "$state" = missing ] || fm_backend_endpoint_confirmed_gone "$1" "$2"; then
+    FM_SM_LIVE_RETIRE_NOTE=''
+  fi
 }
 
 fm_sm_live_first_line() {
@@ -280,8 +325,10 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 # other backend retires the exact endpoint through fm_backend_endpoint_retire
 # and still runs the guarded spawn when that close cannot be proven; then
 # FM_SM_LIVE_RETIRE_NOTE names the leftover endpoint for the caller to report
-# (reset to empty at entry). FM_SM_LIVE_RESUME instead sends the endpoint's
-# backend resume turn and spawns nothing.
+# (reset to empty at entry). Fork: the note is the final result, after the
+# spawn's own second retire (fm_sm_live_settle_retire_note).
+# FM_SM_LIVE_RESUME instead sends the endpoint's backend resume turn and spawns
+# nothing.
 # The header owns the lock-wait bounds. A positive timeout separately
 # wraps the spawn in fm_run_timed so a watcher poll stays bounded; 124/137 mean
 # the bound fired. Returns the spawn exit status; combined spawn output is in
@@ -292,6 +339,7 @@ fm_secondmate_liveness_probe() {  # <meta> <id> <full|poll>
 # Caller holds the liveness lock and owns reporting.
 fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
   local meta=$1 id=$2 timeout=${3:-} relaunch_lock wait_seconds rc=0
+  local retire_backend='' retire_target=''  # Fork: an endpoint left open
   FM_SM_LIVE_OUT='' FM_SM_LIVE_RC=0 FM_SM_LIVE_RETIRE_NOTE=''
   if ! fm_secondmate_liveness_recent_attempts "$id" 0 >/dev/null; then
     FM_SM_LIVE_STATUS=skipped
@@ -331,8 +379,10 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
           [ -n "$home" ] || home=$(fm_meta_get "$meta" worktree)
           ( unset FM_ROOT_OVERRIDE; FM_HOME="$home" FM_ROOT="$home" STATE="$home/state" fm_backend_kill "$backend" "$target" ) 2>/dev/null || true
         else
-          fm_backend_endpoint_retire "$backend" "$target" \
-            || FM_SM_LIVE_RETIRE_NOTE="previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+          if ! fm_backend_endpoint_retire "$backend" "$target"; then
+            FM_SM_LIVE_RETIRE_NOTE="previous endpoint $target was not retired: $FM_BACKEND_ENDPOINT_RETIRE_REASON; close it before trusting the next pane audit"
+            retire_backend=$backend retire_target=$target
+          fi
         fi
       fi
     elif [ -n "$target" ] && ! fm_backend_kill "$backend" "$target" 2>/dev/null; then
@@ -363,6 +413,7 @@ fm_secondmate_liveness_relaunch() {  # <meta> <id> [timeout-secs]
     FM_SM_LIVE_OUT=$(FM_SPAWN_NO_GUARD=1 "$FM_ROOT/bin/fm-spawn.sh" "$id" --secondmate 2>&1) || rc=$?
   fi
   FM_SM_LIVE_RC=$rc
+  fm_sm_live_settle_retire_note "$retire_backend" "$retire_target" "$meta"  # Fork: report the final retire result.
   if [ "$rc" -eq 0 ]; then
     fm_secondmate_liveness_ledger_add "$id" relaunched || true
   else

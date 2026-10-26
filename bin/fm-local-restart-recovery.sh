@@ -70,7 +70,15 @@
 #                     pane that is gone gets `bin/fm-spawn.sh <id>
 #                     --secondmate`. Each relaunch appends one unkeyed
 #                     `working:` line to state/<id>.status, so a blocker
-#                     recorded before the restart does not read as current;
+#                     recorded before the restart does not read as current.
+#                     The pass takes the same two locks as the other
+#                     relaunch drivers (bin/fm-secondmate-liveness-lib.sh):
+#                     the second mate's liveness lock, and then the per-home
+#                     relaunch lock, for at most FM_RESTART_RELAUNCH_LOCK_WAIT
+#                     seconds. A held liveness lock means that the watcher's
+#                     liveness tick, a session start sweep, or a cleanup
+#                     owns that second mate now, so the pass skips it with
+#                     a note;
 #                  6. relaunches the primary firstmate last, in its recorded
 #                     pane when that pane holds only a shell in the recorded
 #                     home, else in a new tab of the recorded workspace, else
@@ -97,12 +105,16 @@
 #                A rate-limited or Herdr-unavailable run raises one alert
 #                (a pass record plus a wake) per FM_RESTART_WINDOW, not one per
 #                attempt.
-#   liveness-skip  The secondmate-liveness-skip hook in bin/fm-bootstrap.sh's
-#                startup liveness sweep. Exit 0 (leave the second mate alone)
-#                when it is dormant or while a recovery pass runs, and exit 1
-#                otherwise. A dormant skip prints a BOOTSTRAP_INFO fact only
-#                under FM_BOOTSTRAP_VERBOSE_FACTS=1; a skip for a running pass
-#                always prints one.
+#   liveness-skip  The secondmate-liveness-skip hook. Two readers call it:
+#                bin/fm-bootstrap.sh's startup liveness sweep, and
+#                secondmate_liveness_tick in bin/fm-watch.sh, which
+#                relaunches a dead second mate within
+#                FM_SECONDMATE_LIVENESS_SECS (60 by default) during a
+#                session. Exit 0 (leave the second mate alone) when it is
+#                dormant or while a recovery pass runs, and exit 1 otherwise.
+#                A dormant skip prints a BOOTSTRAP_INFO fact only under
+#                FM_BOOTSTRAP_VERBOSE_FACTS=1; a skip for a running pass
+#                always prints one. The watcher discards that output.
 #   status       Print the recent pass ledger and the newest pass record.
 #   launch-line  Print the command a relaunch would type into the primary
 #                pane for the current primary endpoint record, and on stderr
@@ -122,6 +134,8 @@
 #   FM_RESTART_HERDR_CALL_TIMEOUT  seconds one Herdr call may take (10)
 #   FM_RESTART_POLL          poll interval in seconds (2)
 #   FM_RESTART_LAUNCH_WAIT   seconds to wait for the primary agent (90)
+#   FM_RESTART_RELAUNCH_LOCK_WAIT  seconds to wait for the per-home second
+#                            mate relaunch lock (180)
 #   FM_RESTART_MAX_PASSES    passes allowed per window (2)
 #   FM_RESTART_WINDOW        rate-limit window in seconds (1800)
 #   FM_RESTART_BOOT_ID_FILE  boot id source (/proc/sys/kernel/random/boot_id)
@@ -152,6 +166,10 @@ export FM_HOME
 . "$SCRIPT_DIR/fm-timeout-lib.sh"
 # shellcheck source=bin/fm-operational-input.sh
 . "$SCRIPT_DIR/fm-operational-input.sh"
+# The per-mate liveness lock and the per-home relaunch lock that the watcher's
+# liveness tick and the startup sweep also take.
+# shellcheck source=/dev/null # Analyzed separately as a canonical lint root.
+. "$SCRIPT_DIR/fm-secondmate-liveness-lib.sh"
 
 RR_FINGERPRINT="$STATE/.restart-fingerprint"
 RR_ENDPOINT="$STATE/.primary-endpoint"
@@ -162,6 +180,8 @@ RR_POLL=${FM_RESTART_POLL:-2}
 RR_LAUNCH_WAIT=${FM_RESTART_LAUNCH_WAIT:-90}
 RR_MAX_PASSES=${FM_RESTART_MAX_PASSES:-2}
 RR_WINDOW=${FM_RESTART_WINDOW:-1800}
+RR_RELAUNCH_LOCK_WAIT=${FM_RESTART_RELAUNCH_LOCK_WAIT:-180}
+case "$RR_RELAUNCH_LOCK_WAIT" in ''|*[!0-9]*|0) RR_RELAUNCH_LOCK_WAIT=180 ;; esac
 RR_SESSION_START_BODY="Run \`bin/fm-session-start.sh\` now, exactly once, before executing any other instructions."
 
 CUR_BOOT=
@@ -169,6 +189,8 @@ CUR_UM=
 CUR_SESSION=
 CUR_HS=
 RR_LOCK=
+RR_SM_LOCKED=
+RR_SM_RELAUNCH_LOCKED=0
 RR_NOTES=()
 RR_LAUNCH_LINE=
 RR_LAUNCH_DESC=
@@ -382,8 +404,45 @@ rr_prune_old_locks() {  # <current-lock>
 }
 
 rr_release() {
+  rr_secondmate_unlock
   [ -z "$RR_LOCK" ] || fm_lock_release "$RR_LOCK"
   RR_LOCK=
+}
+
+# The pass takes the same two second mate locks as the watcher's liveness tick
+# and the startup sweep (bin/fm-secondmate-liveness-lib.sh), in the same order:
+# first the second mate's liveness lock, then the per-home relaunch lock. Then
+# no other driver probes, retires, or relaunches a second mate while the pass
+# acts on it, and no other second mate's relaunch runs at the same time.
+
+# rr_secondmate_hold <id>: take the second mate's liveness lock, or skip the
+# second mate with a note when another driver holds it.
+rr_secondmate_hold() {  # <id>
+  if ! fm_secondmate_liveness_lock "$1"; then
+    rr_note "second mate $1: skipped: its liveness lock is held (pid ${FM_LOCK_HELD_PID:-unknown}) by the watcher's liveness check, a session start sweep, or a cleanup, which owns it now"
+    return 1
+  fi
+  RR_SM_LOCKED=$1
+}
+
+# rr_secondmate_relaunch_hold <id>: wait at most RR_RELAUNCH_LOCK_WAIT seconds
+# for the per-home relaunch lock, or record a failed relaunch.
+rr_secondmate_relaunch_hold() {  # <id>
+  if ! fm_secondmate_relaunch_lock "$RR_RELAUNCH_LOCK_WAIT"; then
+    rr_note "second mate $1: relaunch failed: another second mate relaunch still held the per-home relaunch lock after ${RR_RELAUNCH_LOCK_WAIT}s"
+    return 1
+  fi
+  RR_SM_RELAUNCH_LOCKED=1
+}
+
+# rr_secondmate_unlock: release the second mate locks this pass holds. The
+# EXIT trap calls it through rr_release, so an interrupted relaunch does not
+# leave them held.
+rr_secondmate_unlock() {
+  [ "$RR_SM_RELAUNCH_LOCKED" = 0 ] || fm_secondmate_relaunch_unlock
+  RR_SM_RELAUNCH_LOCKED=0
+  [ -z "$RR_SM_LOCKED" ] || fm_secondmate_liveness_unlock "$RR_SM_LOCKED"
+  RR_SM_LOCKED=
 }
 
 rr_wait_herdr() {  # <session>
@@ -568,10 +627,23 @@ rr_secondmates() {  # <class>
       herdr|tmux) ;;
       *) rr_note "second mate $id: skipped: restart recovery does not relaunch on backend '$backend'"; continue ;;
     esac
+    rr_secondmate_hold "$id" || continue
     # Read right before acting, so a second mate the captain relaunched by
-    # hand a moment ago reads alive and is left alone.
+    # hand a moment ago reads alive and is left alone. A relaunch waits for
+    # the per-home relaunch lock first, and that wait can be long, so it reads
+    # again after the wait.
     state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
     case "$state" in
+      dead|missing)
+        if rr_secondmate_relaunch_hold "$id"; then
+          state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
+        else
+          state='lock-busy'
+        fi
+        ;;
+    esac
+    case "$state" in
+      'lock-busy') ;;
       alive)
         rr_note "second mate $id: already running"
         ;;
@@ -595,6 +667,7 @@ rr_secondmates() {  # <class>
         rr_note "second mate $id: skipped: its endpoint reads $state"
         ;;
     esac
+    rr_secondmate_unlock
   done
 }
 

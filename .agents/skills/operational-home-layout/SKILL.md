@@ -83,7 +83,7 @@ data/                personal fleet records; LOCAL, gitignored as a whole
   <id>/report.md     scout task deliverable, written by the crewmate; survives teardown
   <id>/status.log <id>/status.<N>.log <id>/children/<child>/...  optional teardown archives; see docs/architecture.md "Task status archives"
   pipeline-spend.jsonl  optional per-task no-mistakes pipeline spend, written only when config/pipeline-spend is present; bin/fm-pipeline-spend.sh owns the schema
-  secondmate-dormant  captain-ordered dormant second mates, one "<id><TAB><date><TAB><reason>" line each, which the bootstrap liveness sweep and restart recovery never relaunch; written only by bin/fm-local-dormant.sh
+  secondmate-dormant  captain-ordered dormant second mates, one "<id><TAB><date><TAB><reason>" line each, which the bootstrap liveness sweep, the watcher's secondmate liveness tick, and restart recovery never relaunch; written only by bin/fm-local-dormant.sh, and set before bin/fm-control.sh <id> exit, because without it the watcher relaunches an exited mate within FM_SECONDMATE_LIVENESS_SECS
   <id>/retired-reassigned/  archived metadata, status, and volatile records of a finished task whose pool slot another live task now holds; written only by bin/fm-local-retire-reassigned.sh
 projects/            cloned repos; gitignored; read-only except under hard rule 1's concrete captain-approved project operation exception
 state/               runtime records and signals; gitignored

@@ -24,6 +24,9 @@
 #     silent by default, and reports ambiguous and unreadable targets distinctly.
 #   - The sweep proves the close of the endpoint it is about to replace, and
 #     names that endpoint by id when the close cannot be proven.
+#   - That leftover note is the final result after the spawn's own second
+#     retire, and bin/fm-watch.sh's liveness tick names it too, in its check
+#     wake and its triage log.
 #   - The sweep converges: once a secondmate reads alive, a later run never
 #     re-touches it (idempotent by construction, not by remembering what it
 #     already did).
@@ -827,6 +830,270 @@ test_sweep_names_an_endpoint_it_could_not_retire() {
   pass "sweep: an endpoint whose close cannot be proven is named instead of swallowed"
 }
 
+# --- library level: the final retire result -----------------------------------
+# fm_secondmate_liveness_relaunch retires the old endpoint before the guarded
+# spawn, and the spawn retires it a second time on its own. The note a caller
+# reports must name the final result: an endpoint the spawn closed is not a
+# leftover, and the spawn's own "was not retired" warning is the last word.
+
+# relaunch_note <name> [NAME=VALUE...]: run one relaunch of a dead local mate
+# through the real library and print FM_SM_LIVE_RETIRE_NOTE, or "(none)". The
+# mate is recorded at oldses:fm-sm1. The backend reads are stubbed: the
+# library's own retire never confirms the close, and the old endpoint reads
+# gone once <world>/old-closed exists. The spawn is a stub that records the
+# replacement at firstmate:fm-sm1, or keeps the old target under
+# FM_TEST_SPAWN_SAME_TARGET=1. It closes the old endpoint under
+# FM_TEST_SPAWN_CLOSES=1 and prints the spawn's leftover warning with the
+# reason FM_TEST_SPAWN_WARN.
+relaunch_note() {
+  local name=$1 w root
+  shift
+  w="$TMP_ROOT/$name"
+  root="$w/root"
+  mkdir -p "$w/home/state" "$root/bin"
+  cat > "$root/bin/fm-spawn.sh" <<'SH'
+#!/usr/bin/env bash
+[ "${FM_TEST_SPAWN_CLOSES:-0}" != 1 ] || : > "$FM_TEST_WORLD/old-closed"
+[ "${FM_TEST_SPAWN_SAME_TARGET:-0}" = 1 ] \
+  || printf 'window=firstmate:fm-sm1\nkind=secondmate\nharness=claude\nbackend=tmux\n' > "$STATE/$1.meta"
+[ -z "${FM_TEST_SPAWN_WARN:-}" ] \
+  || printf "warning: task %s's previous endpoint oldses:fm-sm1 was not retired: %s; it stays open and unreferenced until it is closed\n" \
+    "$1" "$FM_TEST_SPAWN_WARN" >&2
+exit 0
+SH
+  chmod +x "$root/bin/fm-spawn.sh"
+  printf 'window=oldses:fm-sm1\nkind=secondmate\nharness=claude\nbackend=tmux\n' > "$w/home/state/sm1.meta"
+  # shellcheck disable=SC2016 # The inner shell expands its own variables.
+  env -u FM_ROOT_OVERRIDE "$@" FM_TEST_WORLD="$w" FM_ROOT="$root" FM_HOME="$w/home" \
+    FM_STATE_OVERRIDE="$w/home/state" STATE="$w/home/state" \
+    bash -c '
+      set -u
+      . "$1/bin/fm-secondmate-liveness-lib.sh"
+      fm_backend_agent_state() { if [ -e "$FM_TEST_WORLD/old-closed" ]; then echo missing; else echo dead; fi; }
+      fm_backend_endpoint_confirmed_gone() { [ -e "$FM_TEST_WORLD/old-closed" ]; }
+      fm_backend_endpoint_retire() {
+        FM_BACKEND_ENDPOINT_RETIRE_REASON="backend tmux could not confirm the close"
+        return 1
+      }
+      FM_SM_LIVE_STATE=dead FM_SM_LIVE_KILL=1 FM_SM_LIVE_RESUME=0
+      fm_secondmate_liveness_relaunch "$STATE/sm1.meta" sm1 \
+        || { echo "relaunch failed: $FM_SM_LIVE_RC $FM_SM_LIVE_OUT"; exit 1; }
+      printf "%s\n" "${FM_SM_LIVE_RETIRE_NOTE:-(none)}"
+    ' _ "$ROOT"
+}
+
+test_relaunch_keeps_the_note_while_the_old_endpoint_stands() {
+  local out
+  out=$(relaunch_note note-stands) || fail "the relaunch failed: $out"
+  assert_equals "previous endpoint oldses:fm-sm1 was not retired: backend tmux could not confirm the close; close it before trusting the next pane audit" \
+    "$out" "an endpoint that neither retire closed must be named"
+  pass "relaunch: the leftover note stays while the old endpoint still stands"
+}
+
+test_relaunch_drops_the_note_when_the_spawn_closed_the_endpoint() {
+  local out
+  out=$(relaunch_note note-spawn-closed FM_TEST_SPAWN_CLOSES=1) || fail "the relaunch failed: $out"
+  assert_equals "(none)" "$out" "an endpoint the spawn's own retire closed must not be reported as a leftover"
+  pass "relaunch: no leftover is reported when the spawn's own retire closed the endpoint"
+}
+
+# A tmux mate's replacement takes the same <session>:fm-<id> address, and the
+# spawn skips its own retire for it. The backend opens a window at that address
+# only when none is there, so a successful spawn proves the old one gone even
+# when the address itself still reads alive or dead.
+test_relaunch_drops_the_note_when_the_replacement_reuses_the_target() {
+  local out
+  out=$(relaunch_note note-same-target FM_TEST_SPAWN_SAME_TARGET=1) || fail "the relaunch failed: $out"
+  assert_equals "(none)" "$out" "a successful spawn at the old address must not report that address as a leftover"
+  pass "relaunch: no leftover is reported when the replacement took the old address"
+}
+
+test_relaunch_reports_the_spawn_warning_as_the_final_result() {
+  local out
+  out=$(relaunch_note note-spawn-warned "FM_TEST_SPAWN_WARN=its state reads 'ambiguous'") \
+    || fail "the relaunch failed: $out"
+  assert_equals "previous endpoint oldses:fm-sm1 was not retired: its state reads 'ambiguous'; it stays open and unreferenced until it is closed" \
+    "$out" "the spawn's own leftover warning must be the reported result"
+  pass "relaunch: the spawn's own leftover warning is the reported result"
+}
+
+# --- watcher level: the liveness tick names a leftover endpoint ---------------
+# bin/fm-watch.sh's secondmate_liveness_tick drives the same relaunch. When the
+# relaunch cannot retire the endpoint it replaced, the tick names that endpoint
+# in its check wake and in the triage log, as the startup sweep names it in its
+# SECONDMATE_LIVENESS: line.
+
+tick_running() {  # <pid>: the watcher is alive and not a zombie
+  kill -0 "$1" 2>/dev/null || return 1
+  case "$(ps -p "$1" -o stat= 2>/dev/null)" in Z*) return 1 ;; esac
+  return 0
+}
+
+# run_tick <world> <fakebin> <call-log>: run the real watcher on <world>'s home
+# with a one-second second mate liveness cadence and every other cadence held
+# off, until its first wake. Its stdout and stderr land in <world>/watch.out
+# and <world>/watch.err.
+run_tick() {
+  local w=$1 fb=$2 log=$3 pid i=0
+  cat > "$w/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'state: unknown · source: none · fake'
+SH
+  chmod +x "$w/fm-crew-state.sh"
+  fm_test_track_watcher_state "$w/home/state"
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION \
+    PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$w/home" \
+    FM_STATE_OVERRIDE="$w/home/state" FM_CREW_STATE_BIN="$w/fm-crew-state.sh" \
+    FM_TEST_PANE_CMD=zsh FM_TMUX_CALL_LOG="$log" FM_SECONDMATE_LIVENESS_SECS=1 \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch.sh" > "$w/watch.out" 2> "$w/watch.err" &
+  pid=$!
+  while tick_running "$pid" && [ "$i" -lt 1200 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if tick_running "$pid"; then
+    kill -TERM "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "the watcher did not wake on the relaunch: $(cat "$w/watch.out" "$w/watch.err")"
+  fi
+  wait "$pid" 2>/dev/null || true
+}
+
+# make_session_tmux <dir>: a tmux stub that keeps windows per session in
+# <dir>/tmux/windows.<session>, so a second mate recorded in session `oldses`
+# gets its replacement in session `firstmate`, as a fresh spawn opens it, and
+# the spawn's own retire of the old window runs too. Every pane holds only a
+# shell. FM_TEST_STUCK=<window> survives every kill-window, the close neither
+# retire can prove; FM_TEST_STUCK_ONCE=<window> survives only the first one,
+# the close that only the spawn's own retire proves.
+make_session_tmux() {
+  local dir=$1 fakebin
+  fakebin=$(fm_fakebin "$dir")
+  mkdir -p "$dir/tmux"
+  printf '%s\n' fm-sm1 > "$dir/tmux/windows.oldses"
+  : > "$dir/tmux/windows.firstmate"
+  cat > "$fakebin/tmux" <<'SH'
+#!/usr/bin/env bash
+set -u
+D=${FM_TEST_TMUX_DIR:?}
+target=
+prev=
+for a in "$@"; do
+  [ "$prev" = -t ] && target=$a
+  prev=$a
+done
+target=${target#=}
+target=${target/:=/:}
+ses=${target%%:*}
+win=${target#*:}
+case "${1:-}" in
+  display-message)
+    for a in "$@"; do
+      case "$a" in
+        '#S') printf 'firstmate\n'; exit 0 ;;
+        *pane_current_command*) printf 'zsh\n'; exit 0 ;;
+      esac
+    done
+    exit 0 ;;
+  list-windows)
+    [ -f "$D/windows.$ses" ] || { printf "can't find session: %s\n" "$ses" >&2; exit 1; }
+    cat "$D/windows.$ses"
+    exit 0 ;;
+  new-window)
+    printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"
+    for a in "$@"; do
+      [ "$prev" = -n ] && win=$a
+      prev=$a
+    done
+    printf '%s\n' "$win" >> "$D/windows.$ses"
+    printf '@7\n'
+    exit 0 ;;
+  kill-window)
+    printf '%s\n' "$*" >> "${FM_TMUX_CALL_LOG:?}"
+    [ "${FM_TEST_STUCK:-}" != "$win" ] || exit 0
+    if [ "${FM_TEST_STUCK_ONCE:-}" = "$win" ] && [ ! -e "$D/kept.$ses:$win" ]; then
+      : > "$D/kept.$ses:$win"
+      exit 0
+    fi
+    grep -vxF "$win" "$D/windows.$ses" > "$D/windows.$ses.next" || :
+    mv "$D/windows.$ses.next" "$D/windows.$ses"
+    exit 0 ;;
+  has-session) [ -f "$D/windows.$ses" ]; exit $? ;;
+esac
+exit 0
+SH
+  chmod +x "$fakebin/tmux"
+  printf '%s\n' "$fakebin"
+}
+
+# tick_world <name>: a world with one dead second mate recorded in session
+# `oldses`, with the toolchain and the session-aware tmux in <world>/fakebin.
+tick_world() {
+  local w
+  w=$(new_world "$1")
+  add_sm_home "$w" sm1 oldses:fm-sm1
+  make_toolchain "$w" >/dev/null
+  make_session_tmux "$w" >/dev/null
+  printf '%s\n' "$w"
+}
+
+test_tick_names_an_endpoint_it_could_not_retire() {
+  local w out
+  w=$(tick_world tick-stuck)
+  : > "$w/calls.log"
+
+  FM_TEST_TMUX_DIR="$w/tmux" FM_TEST_STUCK=fm-sm1 run_tick "$w" "$w/fakebin" "$w/calls.log"
+
+  out=$(cat "$w/watch.out")
+  assert_contains "$out" "check: secondmate sm1 auto-relaunched after confirmed agent absence on existing endpoint (backend=tmux); previous endpoint oldses:fm-sm1 was not retired: " \
+    "the tick's wake did not name the endpoint it could not retire: $(cat "$w/watch.err")"
+  assert_grep "previous endpoint oldses:fm-sm1 was not retired" "$w/home/state/.wake-queue" \
+    "the durable wake row did not name the leftover endpoint"
+  assert_grep "secondmate sm1 liveness: previous endpoint oldses:fm-sm1 was not retired" \
+    "$w/home/state/.watch-triage.log" "the triage log did not keep the leftover endpoint"
+  pass "watch tick: an endpoint neither retire could close is named in the wake and the triage log"
+}
+
+test_tick_reports_no_leftover_the_spawn_closed() {
+  local w out
+  w=$(tick_world tick-spawn-closed)
+  : > "$w/calls.log"
+
+  FM_TEST_TMUX_DIR="$w/tmux" FM_TEST_STUCK_ONCE=fm-sm1 run_tick "$w" "$w/fakebin" "$w/calls.log"
+
+  out=$(cat "$w/watch.out")
+  assert_contains "$out" "check: secondmate sm1 auto-relaunched after confirmed agent absence on existing endpoint (backend=tmux)" \
+    "the tick did not relaunch the dead second mate: $(cat "$w/watch.err")"
+  [ "$(grep -c '^kill-window ' "$w/calls.log")" -eq 2 ] \
+    || fail "the fixture did not take both retire tries: $(cat "$w/calls.log")"
+  assert_not_contains "$out" "was not retired" \
+    "an endpoint the spawn's own retire closed must not be reported as a leftover"
+  [ ! -e "$w/home/state/.watch-triage.log" ] \
+    || assert_no_grep "was not retired" "$w/home/state/.watch-triage.log" \
+      "an endpoint the spawn's own retire closed must not reach the triage log"
+  pass "watch tick: no leftover is reported when the spawn's own retire closed the endpoint"
+}
+
+test_tick_logs_a_leftover_when_the_relaunch_fails() {
+  local w fb tmuxfb log out
+  w=$(new_world tick-stuck-failed)
+  add_sm_home "$w" sm1 firstmate:fm-sm1
+  fb=$(make_toolchain "$w"); tmuxfb=$(make_stuck_liveness_tmux "$w")
+  log="$w/calls.log"; : > "$log"
+
+  # The window the retire could not close keeps its name, so tmux refuses the
+  # replacement and the relaunch fails.
+  run_tick "$w" "$tmuxfb:$fb" "$log"
+
+  out=$(cat "$w/watch.out")
+  assert_contains "$out" "check: secondmate sm1 auto-relaunch failed after confirmed agent absence on existing endpoint" \
+    "the tick did not report the failed relaunch: $(cat "$w/watch.err")"
+  assert_grep "secondmate sm1 liveness: previous endpoint firstmate:fm-sm1 was not retired" \
+    "$w/home/state/.watch-triage.log" "the triage log did not keep the endpoint a failed relaunch left open"
+  pass "watch tick: a failed relaunch keeps the endpoint it could not retire in the triage log"
+}
+
 # --- library level: the watcher's poll-mode remote probe ---------------------
 # bin/fm-secondmate-liveness-lib.sh's `poll` mode is the read-only probe the
 # watcher tick runs per cadence: exactly one remote `state` call, `dead` and
@@ -947,6 +1214,13 @@ test_sweep_skipped_under_detect_only
 test_sweep_noop_with_no_secondmate_meta
 test_sweep_retires_the_endpoint_before_it_respawns
 test_sweep_names_an_endpoint_it_could_not_retire
+test_relaunch_keeps_the_note_while_the_old_endpoint_stands
+test_relaunch_drops_the_note_when_the_spawn_closed_the_endpoint
+test_relaunch_drops_the_note_when_the_replacement_reuses_the_target
+test_relaunch_reports_the_spawn_warning_as_the_final_result
+test_tick_names_an_endpoint_it_could_not_retire
+test_tick_reports_no_leftover_the_spawn_closed
+test_tick_logs_a_leftover_when_the_relaunch_fails
 test_sweep_skips_mate_whose_liveness_lock_is_held
 test_relaunch_waits_for_other_mates_relaunch_lock
 test_sweep_refuses_relaunch_on_ledger_errors

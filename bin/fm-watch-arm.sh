@@ -728,6 +728,18 @@ cleanup_child() {
   release_child_diagnostics
 }
 
+# Stop the child and reap it before cleanup_child releases its diagnostics, as
+# the signal traps already do: the watcher's EXIT trap writes its last stderr
+# while it is dying, so a release ordered ahead of the wait would drop exactly
+# the line that says why. Returns the child's exit status.
+reap_child() {
+  [ -n "$child" ] || return 0
+  if fm_pid_alive "$child"; then
+    kill -TERM "$child" 2>/dev/null || true
+  fi
+  wait "$child" 2>/dev/null
+}
+
 # shellcheck disable=SC2329 # Invoked indirectly by the signal traps below.
 handle_arm_signal() {
   local signal=$1 rc=$2
@@ -884,8 +896,8 @@ while :; do
       fi
       cycle_refresh_lock_before
       if ! handling_generation=$(handling_successor_generation); then
+        reap_child || true
         cleanup_child
-        wait "$child" 2>/dev/null || true
         cycle_log_append 1 none handling-handoff-failed none
         echo "watcher: FAILED - established successor could not inspect handling state"
         exit 1
@@ -916,8 +928,8 @@ while :; do
     exit $?
   fi
   if arm_ground_gone; then
+    reap_child || true
     cleanup_child
-    wait "$child" 2>/dev/null || true
     fail_arm_ground_gone
     exit 1
   fi
@@ -927,13 +939,7 @@ done
 
 trap - HUP TERM INT
 print_watch_output "$child_out"
-# Reap before releasing the diagnostics, as the signal traps already do: the
-# watcher's EXIT trap writes its last stderr while it is dying, so a release
-# ordered ahead of the wait would drop exactly the line that says why.
-if [ -n "$child" ] && fm_pid_alive "$child"; then
-  kill -TERM "$child" 2>/dev/null || true
-fi
-wait "$child" 2>/dev/null
+reap_child
 rc=$?
 cleanup_child
 cycle_log_append "$rc" "$(cycle_signal_name "$rc")" confirmation-timeout none

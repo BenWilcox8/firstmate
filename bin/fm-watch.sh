@@ -193,7 +193,10 @@
 #                          same guarded fm-spawn.sh --secondmate path the
 #                          session-start sweep uses; one wake per relaunch, and
 #                          state/.secondmate-relaunch-<id> keeps the durable
-#                          per-mate count (bin/fm-secondmate-liveness-lib.sh)
+#                          per-mate count (bin/fm-secondmate-liveness-lib.sh).
+#                          Fork: when the old endpoint could not be retired,
+#                          the line ends "; previous endpoint <target> was not
+#                          retired: <reason>" and the triage log keeps it too
 #   check: secondmate <id> auto-relaunch failed after <cause>: <detail>
 #                          the same verdict authorized recovery but the
 #                          relaunch itself failed; the attempt is ledgered and
@@ -1196,11 +1199,19 @@ secondmate_liveness_tick() {
         elif fm_secondmate_liveness_relaunch "$meta" "$id" "$SECONDMATE_LIVENESS_TIMEOUT"; then
           reason="check: secondmate $id auto-relaunched after $FM_SM_LIVE_CAUSE ($FM_SM_LIVE_WHERE)"
           notify_key="secondmate-relaunch-$id-$now"
+          # Fork: name an old endpoint the relaunch left open, as the startup
+          # sweep does, in the wake and in the triage log.
+          if [ -n "$FM_SM_LIVE_RETIRE_NOTE" ]; then
+            reason="$reason; $FM_SM_LIVE_RETIRE_NOTE"
+            triage_log "secondmate $id liveness: $FM_SM_LIVE_RETIRE_NOTE"
+          fi
         elif [ "$FM_SM_LIVE_STATUS" = skipped ]; then
           err=$FM_SM_LIVE_REASON
         else
           reason="check: secondmate $id auto-relaunch failed after $FM_SM_LIVE_CAUSE: $(fm_sm_live_first_line "$FM_SM_LIVE_OUT")"
           notify_key="secondmate-relaunch-failed-$id-$now"
+          # Fork: the same leftover note, in the triage log only.
+          [ -z "$FM_SM_LIVE_RETIRE_NOTE" ] || triage_log "secondmate $id liveness: $FM_SM_LIVE_RETIRE_NOTE"
         fi
         ;;
       alive)
