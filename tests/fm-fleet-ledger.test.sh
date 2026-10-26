@@ -94,7 +94,8 @@ run_lifecycle() {
   git -C "$WT_DIR" add landed.txt
   git -C "$WT_DIR" -c user.name='Firstmate Tests' -c user.email='tests@example.invalid' \
     commit -qm 'landed'
-  out=$(in_home "$ROOT/bin/fm-merge-local.sh" "$TASK" 2>&1) || fail "local merge failed: $out"
+  # Fork: the merge-authority guard refuses a yolo=off landing without the captain's word.
+  out=$(in_home "$ROOT/bin/fm-merge-local.sh" "$TASK" --captain-authorized 2>&1) || fail "local merge failed: $out"
   out=$(in_home "$ROOT/bin/fm-teardown.sh" "$TASK" 2>&1) || fail "teardown failed: $out"
 }
 

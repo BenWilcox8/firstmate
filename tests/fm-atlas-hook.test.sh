@@ -607,18 +607,40 @@ make_pr_merge_case() {  # <name> [meta-lines...]
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 exit 0
 SH
+  # The ready gate reads the PR head from inside the worker copy, so the copy
+  # must exist. As in tests/fm-pr-merge.test.sh, it is a git copy whose HEAD is
+  # on a remote-tracking ref, as a pushed ship task's copy is.
+  fm_git_init_commit "$home/wt"
+  git -C "$home/wt" update-ref refs/remotes/origin/main "$(git -C "$home/wt" rev-parse HEAD)"
   # fm-pr-merge verifies the live pull request before it merges, then reads
   # the live outcome back and refuses any merge it cannot prove, so the fake
-  # forge has to answer both reads.
+  # forge has to answer both reads, and the required-check reads below.
   cat > "$fakebin/gh" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
 case "${1:-} ${2:-}" in
   "pr view")
-    printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+    case " $* " in
+      *statusCheckRollup*)
+        printf '%s\n' '{"state":"OPEN","isDraft":false,"mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","headRefOid":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","baseRefName":"main","statusCheckRollup":[{"__typename":"CheckRun","name":"ci","status":"COMPLETED","conclusion":"SUCCESS"}]}'
+        ;;
+      *headRefOid*) printf '%s\n' bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb ;;
+    esac
     ;;
   "api graphql")
     printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main'
+    ;;
+  api\ *)
+    # The required-check reads, as in tests/fm-pr-merge.test.sh: an
+    # unprotected base branch with no required-check rule, so nothing is
+    # required. The merge-queue rules read prints nothing (no queue).
+    case " $* " in
+      *" repos/"*"/rules/branches/"*merge_queue*) ;;
+      *" repos/"*"/rules/branches/"*) printf '%s\n' '[{"type":"deletion"}]' ;;
+      *" repos/"*"/branches/"*)
+        printf '%s\n' '{"name":"main","protected":false,"protection":{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":[],"checks":[]}}}'
+        ;;
+    esac
     ;;
 esac
 exit 0
@@ -882,9 +904,22 @@ set -u
 case "$*" in
   *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
 esac
+window_file="$(dirname "$0")/.spawn-window"
 case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
+  list-windows) cat "$window_file" 2>/dev/null; exit 0 ;;
+  new-window)
+    # The tmux backend checks that a target window exists before it sends a
+    # key, so the fake remembers the window it made, as tests/fixtures.sh does.
+    name=
+    previous=
+    for arg in "$@"; do
+      [ "$previous" = -n ] && name=$arg
+      previous=$arg
+    done
+    printf '%s\n' "$name" > "$window_file"
+    exit 0
+    ;;
 esac
 exit 0
 SH

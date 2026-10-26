@@ -2430,6 +2430,11 @@ fm_backend_herdr_recovery_registry_sample() {  # <session> <pane-id>
 # Read and normalize the exact pane process identity that Herdr reports.
 # The Linux Codex wrapper is exact and conjunctive.
 # Both Herdr argv and the operating-system command line must identify `MainThread node <path>/codex`.
+# The exact harness names (agy, omp, devin, command-code, polytoken, cortex)
+# match the anchored rows of fm_agent_process_classify_name in
+# bin/fm-agent-process-lib.sh. The awk is_agent in
+# fm_backend_herdr_recovery_process_tree_sample must keep the same names,
+# because the tree sample combines the two views.
 fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
   local out
   out=$(fm_backend_herdr_cli "$1" pane process-info --pane "$2" 2>/dev/null) || return 1
@@ -2468,7 +2473,7 @@ fm_backend_herdr_recovery_process_snapshot() {  # <session> <pane-id>
           agent: ((.name | base) as $name
             | (.argv[0] // .argv0) as $argv0
             | (($name | test("^(claude|codex|opencode|grok)"))
-              or ($name | test("^pi(-signed)?$|^kimi(-code)?$|^muse(-bin-.+)?$|^cursor-agent$|^agy$|^omp$"))
+              or ($name | test("^pi(-signed)?$|^kimi(-code)?$|^muse(-bin-.+)?$|^cursor-agent$|^agy$|^omp$|^devin$|^command-code$|^polytoken$|^cortex$"))
               or (($name | test("^(agent|MainThread|node|python)"))
                 and (($argv0 | base) == "cursor-agent" or ($argv0 | test("/cursor-agent/versions/[^/]+/cursor-agent$"))))
               or (($name | test("^(node|python)"))
@@ -2523,7 +2528,7 @@ fm_backend_herdr_recovery_process_tree_sample() {  # <snapshot>
     function is_agent(value, args, fields, argv0) {
       split(args, fields, " ")
       argv0 = fields[1]
-      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || value == "agy" || value == "omp" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || is_codex_mainthread(value, args) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
+      return value ~ /^(claude|codex|opencode|grok)/ || value ~ /^pi(-signed)?$/ || value ~ /^kimi(-code)?$/ || value ~ /^muse(-bin-.+)?$/ || value == "cursor-agent" || value == "agy" || value == "omp" || value == "devin" || value == "command-code" || value == "polytoken" || value == "cortex" || (value ~ /^(agent|MainThread|node|python)/ && (base(argv0) == "cursor-agent" || argv0 ~ /\/cursor-agent\/versions\/[^/]+\/cursor-agent$/)) || is_codex_mainthread(value, args) || (value ~ /^(node|python)/ && args ~ /claude|codex|opencode|grok|(^|[[:space:]])pi([[:space:]]|$)|\/pi($|[[:space:]])/)
     }
     function is_shell_broker(value, args) {
       return value == "treehouse" && args == "treehouse get"
