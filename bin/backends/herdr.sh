@@ -2679,6 +2679,27 @@ fm_backend_herdr_axi_available() {
 # needs to exercise the ledger + target-string contract.
 FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 
+# fm_backend_herdr_axi_failure <what> <stderr-file>: report a failed agent-axi
+# call on stderr with agent-axi's own reason, never a bare failure. With --json,
+# agent-axi writes its error as {"error":{"message","help"}}; the message joins
+# the headline, so a caller that keeps only the first error line still has it,
+# and each help line follows. Any other stderr text (a crash, a missing node)
+# joins the headline by its first line and follows in full.
+fm_backend_herdr_axi_failure() {  # <what> <stderr-file>
+  local what=$1 file=$2 message='' help=''
+  if [ -s "$file" ]; then
+    message=$(jq -er '.error.message | select(type == "string" and . != "")' "$file" 2>/dev/null) || message=''
+    if [ -n "$message" ]; then
+      help=$(jq -r '.error.help[]? | select(type == "string") | "help: agent-axi: " + .' "$file" 2>/dev/null) || help=''
+    else
+      message=$(awk 'NF { sub(/^error: /, ""); print; exit }' "$file")
+      help=$(awk 'NF && ++n > 1 { print "agent-axi: " $0 }' "$file")
+    fi
+  fi
+  echo "error: agent-axi $what${message:+: $message}" >&2
+  [ -z "$help" ] || printf '%s\n' "$help" >&2
+}
+
 # fm_backend_herdr_create_task_delegate: create the task's pane through
 # `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
 # fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
@@ -2688,7 +2709,7 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 # id is the label with its `fm-` prefix stripped (agent-axi re-derives the
 # identical `fm-<id>` pane label from it).
 fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
-  local container=$1 label=$2 cwd=$3 session workspace_id task_id out pane_id tab_id
+  local container=$1 label=$2 cwd=$3 session workspace_id task_id out pane_id tab_id errfile status
   local -a launch
   session=${container%%:*}
   workspace_id=${container#*:}
@@ -2698,11 +2719,15 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
   else
     launch=("${SHELL:-/bin/bash}" -l)
   fi
+  errfile=$(mktemp "${TMPDIR:-/tmp}/fm-agent-axi-spawn.XXXXXX" 2>/dev/null) || errfile=/dev/null
   out=$("$FM_BACKEND_HERDR_AXI_BIN" spawn "$task_id" --workspace-id "$workspace_id" \
-    --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>/dev/null) || {
-    echo "error: agent-axi spawn failed for $label (session $session)" >&2
+    --session "$session" --cwd "$cwd" --json -- "${launch[@]}" 2>"$errfile") && status=0 || status=$?
+  if [ "$status" -ne 0 ]; then
+    fm_backend_herdr_axi_failure "spawn failed for $label (session $session)" "$errfile"
+    [ "$errfile" = /dev/null ] || rm -f "$errfile"
     return 1
-  }
+  fi
+  [ "$errfile" = /dev/null ] || rm -f "$errfile"
   pane_id=$(printf '%s' "$out" | jq -r '.spawn.paneId // empty' 2>/dev/null)
   tab_id=$(printf '%s' "$out" | jq -r '.spawn.tabId // empty' 2>/dev/null)
   if [ -z "$pane_id" ] || [ -z "$tab_id" ]; then

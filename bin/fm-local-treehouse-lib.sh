@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Treehouse slot owner proof: the one owner of the owner-liveness and ancestry
-# rules that bin/fm-local-retire-reassigned.sh and bin/fm-local-worker-restore.sh
+# rules that bin/fm-local-retire-reassigned.sh and bin/fm-local-worktree-lease.sh
 # use. Treehouse records the slot owner as owner_pid and owner_started_at (epoch
 # milliseconds). The proof reads /proc, so a host without it proves nothing.
 
