@@ -1730,14 +1730,20 @@ test_silent_recheck_flag_on_absorbs_unchanged_pause() {
   local dir state key before
   dir=$(silent_recheck_case silent-on on 'paused: rate limit resets, until 2999-01-01T00:00Z, then resuming'); state="$dir/state"
   key=$(watch_window_key test:fm-until)
-  before=$(cat "$state/.paused-resurfaced-$key")
+  # Fork: the declaration lives in .paused-nudged-<key>; the throttle marker
+  # holds only that record's clock, so the window cannot slide.
+  before=$(cat "$state/.paused-nudged-$key")
   until_watch "$dir" 240
   if ! wait_poll_cycle "$state" "$UNTIL_PID" || ! wait_poll_cycle "$state" "$UNTIL_PID"; then
     reap "$UNTIL_PID"; fail "an unchanged paused recheck woke the supervisor with the flag on: $(cat "$dir/watch.out")"
   fi
   reap "$UNTIL_PID"
-  [ "$(cat "$state/.paused-resurfaced-$key")" = "$before" ] || fail "the recheck changed the declaration scope"
+  [ "$(cat "$state/.paused-nudged-$key")" = "$before" ] || fail "the recheck changed the declaration scope"
   [ "$state/.paused-resurfaced-$key" -nt "$state/until.status" ] || fail "the recheck was not recorded in the throttle marker"
+  if [ "$state/.paused-resurfaced-$key" -nt "$state/.paused-nudged-$key" ] \
+    || [ "$state/.paused-nudged-$key" -nt "$state/.paused-resurfaced-$key" ]; then
+    fail "the throttle marker left the declaration record's clock"
+  fi
   grep -F 'rechecked without a wake' "$state/.watch-triage.log" >/dev/null || fail "the silent recheck was not logged"
   pass "with paused-recheck-silent on, an unchanged paused declaration is rechecked without a wake"
 }
