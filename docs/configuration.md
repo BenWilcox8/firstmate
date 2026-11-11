@@ -1673,7 +1673,9 @@ ordinary
 ```
 
 A final newline is optional; a blank line, a relative path, a repeated entry, or a control character refuses.
-The list is opt-in: without it, every launch, including the single pin above, behaves exactly as before, and `--account` stays a per-spawn [cswap](#claude-accounts-cswap) pin.
+The list is opt-in: without it, every launch, including the single pin above, behaves exactly as before.
+A `--account` value that is `ordinary` or an absolute path names a list entry, and it refuses when no list is declared.
+Any other `--account` value is a per-spawn [cswap](#claude-accounts-cswap) pin.
 A home keeps either the list or `config/claude-account`, never both; with both present, every Claude launch refuses.
 
 While the list is present, every Claude ship or scout spawn must name one declared entry with `--account <entry>`.
@@ -1689,7 +1691,7 @@ To move a task to another declared account, for example when its own account is 
 A task with no recorded account, or one whose account is no longer declared, refuses a plain relaunch and needs that explicit `--account`.
 
 The list covers Claude ships and scouts only.
-A local secondmate's own agent never draws from it: under a list it needs its own [per-secondmate account pin](#per-secondmate-account-pins), and `--account` refuses for every secondmate, local or remote.
+A local secondmate's own agent never draws from it: under a list it needs its own [per-secondmate account pin](#per-secondmate-account-pins), and a list entry given with `--account` refuses for every secondmate, local or remote.
 Other runners ignore the list, and `--account` refuses for them.
 Like the single pin, the list is not inherited into secondmate homes.
 
@@ -2145,7 +2147,9 @@ Without `--account`, a claude spawn uses this home's [worker account pin](#worke
 With neither pin, a claude spawn uses the account that cswap has active, the same as a plain `claude` command, and writes no `account=` line.
 So an `account=` line can come from either pin.
 The header of `bin/fm-cswap-lib.sh` owns how firstmate calls cswap.
-While [`config/claude-accounts`](#several-claude-accounts-configclaude-accounts) is present, `--account` names one of its declared entries instead, and that section owns the contract.
+A `--account` value that is `ordinary` or an absolute path names a [`config/claude-accounts`](#several-claude-accounts-configclaude-accounts) entry instead, and that section owns the contract.
+A cswap pin refuses in a home that declares that list, because the pin and the list both select the account of the worker.
+A cswap pin still applies to a local secondmate, and it refuses for a remote secondmate.
 The header of `bin/fm-spawn.sh` owns the flag.
 
 ### Rotate before an account runs out
