@@ -46,9 +46,9 @@ bin/fm-spawn.sh	941	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atla
 bin/fm-control.sh	579	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-teardown.sh	495	atlas-integration	tests/fm-local-cleanup-slot.test.sh	personal: Atlas close-out gate	retain
 bin/backends/herdr.sh	840	herdr-layout	tests/fm-backend-herdr-recovery-state.test.sh	personal: agent-axi placement and the Herdr recovery liveness family	retain
-bin/fm-test-run.sh	109	test-shards-hints	tests/fm-test-run.test.sh	personal: eleven serial shards and fork timing hints	retain
+bin/fm-test-run.sh	109	test-shards-hints	tests/fm-test-run.test.sh	personal: a twelfth serial shard and fork timing hints for fork-only scripts	retain
 bin/fm-test-run.sh	109	browser-reap	tests/fm-test-run.test.sh	personal: a watcher change selects the browser-reap suite	retain
-.github/workflows/ci.yml	52	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: eleven serial shards	retain
+.github/workflows/ci.yml	52	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: a twelfth serial shard	retain
 tests/fm-teardown.test.sh	517	atlas-integration	tests/fm-teardown.test.sh	personal: Atlas landing evidence names the base branch	retain
 docs/agent-control.md	132	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-supervise-daemon.sh	458	away-daemon	tests/fm-daemon-staged-digest-stability.test.sh	personal: stable staged digest and Codex short wakes	retain

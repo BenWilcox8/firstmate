@@ -134,8 +134,10 @@ args=()
 while IFS= read -r -d '' arg; do args+=("$arg"); done \
   < <(perl -MMIME::Base64 -e 'print decode_base64($ARGV[0])' "$4")
 printf '%s\0' "${args[@]}" > "$PROVENANCE_TEST_ROOT/remote-args"
+# A remote steer carries its text on stdin (send-stdin), so keep a copy of it.
+cat > "$PROVENANCE_TEST_ROOT/remote-stdin"
 env -u FM_STATE_OVERRIDE \
-  FM_HOME="$remote_home" "$PROVENANCE_CODE_ROOT/bin/${args[0]}" "${args[@]:1}"
+  FM_HOME="$remote_home" "$PROVENANCE_CODE_ROOT/bin/${args[0]}" "${args[@]:1}" < "$PROVENANCE_TEST_ROOT/remote-stdin"
 if [ "${TEST_SSH_LOST:-0}" = 1 ]; then exit 255; fi
 SH
 chmod +x "$TMP_ROOT/fakebin/herdr" "$TMP_ROOT/fakebin/ssh"
@@ -159,9 +161,10 @@ remote_args() { # <text> [delivery-mode]
   python3 - "$TMP_ROOT/remote-args" "$@" <<'PY'
 import pathlib, sys
 args = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
-assert args[:3] == [b"fm-remote-secondmate-control.sh", b"send", b"remote"], args
-assert args[3].endswith(sys.argv[2].encode()), args
-assert args[4:] == [m.encode() for m in sys.argv[3:]], args
+assert args[:3] == [b"fm-remote-secondmate-control.sh", b"send-stdin", b"remote"], args
+stdin = pathlib.Path(sys.argv[1]).with_name("remote-stdin").read_bytes()
+assert stdin.endswith(sys.argv[2].encode()), stdin
+assert args[3:] == [m.encode() for m in sys.argv[3:]], args
 PY
 }
 remote_args /no-mistakes || fail 'remote send arguments changed'

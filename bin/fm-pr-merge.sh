@@ -13,9 +13,10 @@
 # parse below owns why.
 #
 # Usage:
-#   fm-pr-merge.sh <task-id> <pr-url> [--attended-override] [--update-branch]
-#     [--expected-head <full-sha>]
+#   fm-pr-merge.sh <task-id> <pr-url> [--captain-authorized] [--attended-override]
+#     [--update-branch] [--expected-head <full-sha>]
 #     [--allow-red <check>] [--allow-missing <check>] [--allow-no-pipeline]
+#     [--captain-word <words>|--captain-word=<words>]
 #     [-- <forge merge flags>]
 #   fm-pr-merge.sh -h | --help
 #

@@ -223,8 +223,8 @@ fm_local_pane_close_held() { # <task-id> <target>
     || fm_local_pane_error "$id at $target: the pane could not be confirmed closed after $FM_LOCAL_PANE_CLOSE_TRIES attempts"
 }
 
-# The loud report for a task pane teardown could not close. Reads T, ID, FORCE,
-# and FM_LOCAL_PANE_GUARD_STATE from the teardown caller.
+# The loud report for a task pane teardown could not close. Reads T, ID, and
+# FM_LOCAL_PANE_GUARD_STATE from the teardown caller.
 fm_local_pane_leak_report() { # <close-attempts>
   echo "error: LEAKED HERDR PANE - $T for $ID is still open after $1 close attempts" >&2
   if [ "${FM_LOCAL_PANE_GUARD_STATE:-}" = alive ]; then
@@ -232,11 +232,7 @@ fm_local_pane_leak_report() { # <close-attempts>
   else
     echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
   fi
-  if [ "$FORCE" = --force ]; then
-    echo "error: cleanup continued and this task's records are being removed, so close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
-  else
-    echo "error: teardown refused and this task's records are retained for a rerun, so close it by that exact pane id or rerun teardown (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
-  fi
+  echo "error: teardown refused and this task's records are retained for a rerun, also under --force, so close it by that exact pane id or rerun teardown (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
 }
 
 fm_local_pane_receipt() { # <meta> <task-id>

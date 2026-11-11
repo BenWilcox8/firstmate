@@ -2880,12 +2880,18 @@ if [ "$RELAUNCH" -eq 1 ]; then
     RESUME_SESSION_ID=$(fm_meta_get "$RELAUNCH_META" native_session)
     RESUME_SESSION_FILE=$(fm_meta_get "$RELAUNCH_META" native_session_file)
     # A Claude session must lie in the store this launch selects below: the
-    # worker account pin's root, else the forwarded configuration.
+    # declared list entry it requests, else the worker account pin's root,
+    # else the forwarded configuration. The request is built exactly as the
+    # selection below builds it, so an explicit --account wins.
     RESUME_CLAUDE_STORE=
     if [ "$ARG3" = claude ]; then
       RESUME_ACCOUNT_MATE=
       [ "$KIND" != secondmate ] || RESUME_ACCOUNT_MATE=$ID
-      RESUME_CLAUDE_STORE=$(fm_worker_account_claude_store "$CONFIG" "$RESUME_ACCOUNT_MATE") || {
+      RESUME_ACCOUNT_REQUEST=$ACCOUNT_ARG
+      [ "$ACCOUNT_CSWAP" -eq 0 ] || RESUME_ACCOUNT_REQUEST=
+      RESUME_ACCOUNT_REQUEST=$(fm_worker_account_relaunch_request claude "$CONFIG" "$RELAUNCH_PRIOR_HARNESS" \
+        "$(fm_meta_get "$RELAUNCH_META" account)" "$RESUME_ACCOUNT_REQUEST" "$RESUME_ACCOUNT_MATE") || exit 1
+      RESUME_CLAUDE_STORE=$(fm_worker_account_claude_store "$CONFIG" "$RESUME_ACCOUNT_MATE" "$RESUME_ACCOUNT_REQUEST") || {
         echo "error: task $ID's session cannot be resumed, because the Claude store its launch would use cannot be read; nothing was created" >&2
         exit 1
       }

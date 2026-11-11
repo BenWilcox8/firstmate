@@ -560,14 +560,44 @@ test_claude_store_follows_the_launch_store() {
   pass "the Claude store for park and resume follows the store the launch uses"
 }
 
-# store_of <mate> [<own-config>]: fm_worker_account_claude_store for
-# HOME_DIR's config, from a caller whose CLAUDE_CONFIG_DIR is <own-config>.
+# The park and resume store under a declared config/claude-accounts list is
+# the entry the launch spends: a path entry is that path, and `ordinary` is
+# ~/.claude even when the caller sets its own CLAUDE_CONFIG_DIR, because the
+# launch unsets it. An undeclared or missing entry, and a secondmate with no
+# pin of its own, refuse as the launch does, and no sign-in check runs.
+test_claude_store_follows_the_account_list() {
+  local out rc
+  new_case claude-store-list claude
+  mkdir -p "$CASE/second"
+  declare_accounts ordinary "$CASE/second"
+  out=$(store_of "" "$CASE/own" "$CASE/second"); rc=$?
+  expect_code 0 "$rc" "a declared path entry should resolve: $out"
+  [ "$out" = "$CASE/second" ] || fail "a declared path entry selects that path over the caller's own store, got: $out"
+  out=$(store_of "" "$CASE/own" ordinary); rc=$?
+  expect_code 0 "$rc" "the declared ordinary entry should resolve: $out"
+  [ "$out" = "$HOME_DIR/user-home/.claude" ] || fail "the ordinary entry selects ~/.claude, not the caller's own store, got: $out"
+  out=$(store_of "" "$CASE/own" "$CASE/elsewhere" 2>&1); rc=$?
+  expect_code 1 "$rc" "an undeclared entry must refuse"
+  assert_contains "$out" "account '$CASE/elsewhere' is not declared in config/claude-accounts" "the refusal should name the undeclared entry"
+  out=$(store_of "" "$CASE/own" 2>&1); rc=$?
+  expect_code 1 "$rc" "a list with no named entry must refuse"
+  assert_contains "$out" "config/claude-accounts declares 2 Claude accounts" "the refusal should say an entry must be named"
+  out=$(store_of mate "" 2>&1); rc=$?
+  expect_code 1 "$rc" "a secondmate without its own pin must refuse under a list"
+  assert_contains "$out" "secondmate mate needs its own pin" "the refusal should name the secondmate's missing pin"
+  assert_absent "$CASE/claude-checks" "the store lookup must not run a sign-in check"
+  pass "the Claude store for park and resume follows the declared account list entry"
+}
+
+# store_of <mate> [<own-config>] [<account>]: fm_worker_account_claude_store
+# for HOME_DIR's config and the requested <account>, from a caller whose
+# CLAUDE_CONFIG_DIR is <own-config>.
 store_of() {
   local -a own=()
   [ -z "${2:-}" ] || own=("CLAUDE_CONFIG_DIR=$2")
   # shellcheck disable=SC2016 # The child shell expands its own arguments.
-  env -u CLAUDE_CONFIG_DIR ${own[@]+"${own[@]}"} HOME="$HOME_DIR/user-home" PATH="$FAKEBIN:$PATH" bash -c '. "$1/bin/fm-worker-account-lib.sh"; fm_worker_account_claude_store "$2" "$3"' \
-    _ "$ROOT" "$HOME_DIR/config" "$1"
+  env -u CLAUDE_CONFIG_DIR ${own[@]+"${own[@]}"} HOME="$HOME_DIR/user-home" PATH="$FAKEBIN:$PATH" bash -c '. "$1/bin/fm-worker-account-lib.sh"; fm_worker_account_claude_store "$2" "$3" "$4"' \
+    _ "$ROOT" "$HOME_DIR/config" "$1" "${3:-}"
 }
 
 test_remote_secondmate_refuses_account() {
@@ -739,5 +769,6 @@ test_account_list_refusals
 test_account_list_secondmate_needs_its_own_pin
 
 test_claude_store_follows_the_launch_store
+test_claude_store_follows_the_account_list
 
 echo "# all fm-worker-account tests passed"

@@ -282,7 +282,8 @@ After those checks pass, teardown stops a live agent with the `fm-control exit` 
 If the agent does not stop, teardown refuses before it removes anything, also under `--force`.
 When pane closure cannot be confirmed, it prints the exact task and pane, the close-attempt count, and the known causes.
 It then returns exit 1 before the worktree reap and the pool slot return, so the task records, worktree, and slot remain for retry.
-An explicit `--force` allows record retirement despite unconfirmed closure or unreadable ownership; the unclosed pane remains named in the diagnostic.
+The refusal holds also under `--force`, for an unconfirmed closure and for unreadable ownership, because the copy still holds the pane shell.
+The diagnostic names the unclosed pane.
 An unconfirmed presentation journal remains intact even under `--force`.
 Placement receipts retire only when task records retire.
 
@@ -527,7 +528,7 @@ After every close path, only a structured not-found response counts as gone.
 An already-gone pane is confirmed without another close, and an unconfirmed close is retried a bounded number of times under the same held lock before teardown gives up.
 A present or unknown result retains every record with a visible, retryable error.
 A pane that still cannot be confirmed gone after those retries is reported loudly by exact task and pane id, and teardown then refuses with the task's records kept, so the pane never leaks silently as a bare terminal.
-Only `--force` continues past that refusal and removes the records, and the report is then the only thing that still names the pane for the supervising turn to close.
+The refusal holds also under `--force`, because the leased copy still holds the pane shell at that point.
 Missing or malformed endpoint identity and missing confirmation machinery are ambiguity, never proof of a gone pane, and refuse record removal the same way.
 The presentation journal is retired only on that same single confirmation; an unconfirmed close, renamed label, duplicate token, or unreadable state retains the journal and attempts no workspace cleanup.
 If lock, snapshot, pane identity, or restoration is ambiguous, cleanup warns and preserves the journal for manual inspection.

@@ -112,8 +112,8 @@
 #              state; it never leaves a half-transitioned task claiming to be
 #              running. A PARKED task is resumed instead of started fresh:
 #              relaunch reopens its recorded native session (see resume), and
-#              refuses a harness, model, or effort change for it. Relaunch
-#              takes resume's --over-limit only for a parked task.
+#              refuses a harness, model, effort, or account change for it.
+#              Relaunch takes resume's --over-limit only for a parked task.
 #   park       Worker gone, work preserved. Proves the running worker's native
 #              session (bin/fm-native-session-lib.sh owns the proof per
 #              harness), records it with the reason in the task record
@@ -1462,14 +1462,20 @@ PARK_KEYS="parked parked_reason parked_on native_session native_session_harness 
 
 # resume_claude_config: print the configuration the resume launch looks in,
 # for the locate check. That is the Claude store bin/fm-spawn.sh launches
-# with: the root of this home's worker account pin (config/claude-account),
-# else the configuration it forwards (bin/fm-worker-account-lib.sh
-# fm_worker_account_claude_store). Only a ship or scout is parked, so no
-# per-secondmate pin applies. Other harnesses need no configuration. A pin
-# that cannot be read returns 1 after its error, and the caller refuses.
+# with: the task's recorded entry under a declared account list
+# (config/claude-accounts), else the root of this home's worker account pin
+# (config/claude-account), else the configuration it forwards
+# (bin/fm-worker-account-lib.sh fm_worker_account_claude_store). The account
+# is the one the resume launch requests, which never takes --account. Only a
+# ship or scout is parked, so no per-secondmate pin applies. Other harnesses
+# need no configuration. A list or pin that cannot be read returns 1 after
+# its error, and the caller refuses.
 resume_claude_config() {
+  local account
   [ "$HARNESS" = claude ] || return 0
-  fm_worker_account_claude_store "$CONFIG"
+  account=$(fm_worker_account_relaunch_request claude "$CONFIG" "$HARNESS" \
+    "$(fm_meta_get "$META" account)" "") || return 1
+  fm_worker_account_claude_store "$CONFIG" "" "$account"
 }
 
 one_line() {  # <text>: a meta value is one line
@@ -1860,8 +1866,8 @@ case "$VERB" in
     if [ -n "$(fm_meta_get "$META" parked)" ]; then
       # A parked task keeps its recorded conversation: relaunch reopens it.
       { [ "$HARNESS_SET" = 0 ] || [ "$NEW_HARNESS" = "$HARNESS" ]; } \
-        && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
-        || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile, so relaunch refuses a harness, model, or effort change for it"
+        && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$ACCOUNT_SET" = 0 ] \
+        || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile and account, so relaunch refuses a harness, model, effort, or account change for it"
       do_resume
     else
       [ "$OVER_LIMIT" = 0 ] \

@@ -217,7 +217,7 @@
 # empty, zero, or non-numeric value falls back to the default. A pane still
 # open after the last attempt is reported loudly by task and pane id, and the
 # cleanup then refuses through endpoint_close_refusal with the task's records
-# kept; only --force continues past it and removes them.
+# and its copy kept, even under --force.
 # Secondmates (kind=secondmate in meta) are retired explicitly. Normal
 # teardown refuses while their home has in-flight crewmate meta files; --force
 # is the approved discard path that prevalidates child removal targets, locks each
@@ -3593,12 +3593,16 @@ preflight_firstmate_home_herdr_children() {  # <home>
 # about its own close is bin/fm-backend.sh's fm_backend_kill contract.
 #
 # Returns 0 when the caller must continue anyway and 1 when it must stop.
-# <honors-force> is 1 at exactly two sites, the generic non-Herdr/non-Orca/non-T3
-# close and the main Herdr task close, where --force is the operator's existing
-# authority to discard this task's records deliberately AND continuing is
-# actually reachable: the worktree is already returned by then and nothing
-# after it needs the backend that could not close.
-# It is 0 everywhere else. The Orca site refuses under --force too, because
+# <honors-force> is 1 at exactly one site, the generic non-Herdr/non-Orca/non-T3
+# close, where --force is the operator's existing authority to discard this
+# task's records deliberately AND continuing is actually reachable: the
+# worktree is already returned by then and nothing after it needs the backend
+# that could not close.
+# It is 0 everywhere else. The main Herdr task close refuses under --force,
+# because it runs before the reaper and the Treehouse return while the copy
+# still holds the pane shell, so a forced continue would kill that shell outside
+# the focus-preserving close and return a slot a live pane still points into.
+# The Orca site refuses under --force too, because
 # the step immediately after it removes the Orca worktree through the same CLI
 # whose absence is the only thing that arm ever reports, so a forced continue
 # would die there having removed nothing while this message claimed otherwise.
@@ -4092,9 +4096,8 @@ teardown_herdr_close_once() {
 
 # teardown_herdr_report_unclosed_pane: report a pane this teardown could not
 # close, loudly and by exact task and pane id. endpoint_close_refusal then
-# stops the cleanup with the task's records kept, unless --force continues and
-# removes them; in that case this line is the only thing that still names the
-# pane, so it carries everything the supervising turn needs to close it.
+# stops the cleanup with the task's records and copy kept, even under --force;
+# this line still carries everything the supervising turn needs to close it.
 # Reads the task globals T and ID.
 teardown_herdr_report_unclosed_pane() {
   if declare -F fm_local_hook >/dev/null && fm_local_hook pane-teardown-report; then return 0; fi
@@ -4174,7 +4177,7 @@ elif [ "$BACKEND" = herdr ] \
 fi
 if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
   teardown_herdr_report_unclosed_pane
-  endpoint_close_refusal "$ID" herdr "$T" 1 || exit 1
+  endpoint_close_refusal "$ID" herdr "$T" 0 || exit 1
 fi
 if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-teardown-confirm || exit 1; fi
 

@@ -404,7 +404,7 @@ It does this because it holds no handle on the watcher's stdout and cannot read 
 ### Terminal-delivery ledger
 
 The watcher records its actionable reason with its PID and process identity in `state/.watch-deliveries.log` when it QUEUES that wake, in `wake_queue_append`, not when it prints it.
-The deliveries whose rows are queued by something other than the cycle's own inline `wake_queue_append` call - the inactive-outcome reconcile, the process-event surface, the merged-PR poll's in-process call into `fm-merge-outcome-lib.sh`, and the wedge cap's locked PERMANENTLY-WEDGED append - publish at the point those rows become durable, for the same reason.
+The deliveries whose rows are queued by something other than the cycle's own inline `wake_queue_append` call - the inactive-outcome reconcile, the process-event surface, the merged-PR poll's in-process call into `fm-merge-outcome-lib.sh`, the wedge cap's locked PERMANENTLY-WEDGED append, and the model-stream silence wedge's guarded append - publish at the point those rows become durable, for the same reason.
 The record is written just after the queue append, never before: a claimed delivery must never outrun a durable row, so a failed append leaves nothing claimed.
 The queued row is the delivery: the next drain hands it to the supervising session whether or not the cycle survives to print its reason line.
 That ordering is what makes the ledger answer "did this cycle deliver" rather than "did this cycle finish printing".

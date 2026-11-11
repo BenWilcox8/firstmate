@@ -177,8 +177,8 @@ test_branch_outcomes_only_on_a_host_home_off_pi() {
     || fail "fixture: could not record a captain outcome"
   fakes="$TMP_ROOT/drain-scope-fakes"
   mkdir -p "$fakes"
-  ln -sf /bin/bash "$fakes/pi"
-  ln -sf /bin/bash "$fakes/codex"
+  ln -sf "$(fm_test_tool bash)" "$fakes/pi"
+  ln -sf "$(fm_test_tool bash)" "$fakes/codex"
 
   : > "$home/config/supervision-host-off"
   drained=$(FM_HOME="$home" "$FAKE_CLAUDE" -c '"$0" 2>&1' "$ROOT/bin/fm-wake-drain.sh")
@@ -511,7 +511,7 @@ test_branch_outcomes_date_an_outcome_carried_across_a_switch_off_pi() {
   : > "$home/config/supervision-host"
   fakepi="$TMP_ROOT/fakepi"
   mkdir -p "$fakepi"
-  ln -sf /bin/bash "$fakepi/pi"
+  ln -sf "$(fm_test_tool bash)" "$fakepi/pi"
   outcome_row 1 $(( $(date +%s) - 2 * 86400 )) gamma captain 'gamma needs your decision on the schema migration' \
     > "$home/state/branch-outcomes.jsonl"
   FM_HOME="$home" "$ROOT/bin/fm-branch-outcome.sh" mark-read --through 1 \

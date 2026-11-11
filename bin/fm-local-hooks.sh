@@ -110,8 +110,8 @@ fm_local_hook() {
     pane-teardown-close)
       # An unforced teardown closes the stopped worker's proven-gone pane before
       # the reap and the slot return, so an unconfirmed close refuses while the
-      # slot is still leased. --force never refuses on the close, so the later
-      # upstream close with its retry notices owns that path unchanged. The
+      # slot is still leased. A forced teardown skips this close, and the later
+      # upstream close with its retry notices then refuses the same way. The
       # close runs under teardown's own session presentation lock, which stays
       # held through the reap, the slot return, and record removal. It makes
       # a fixed 3 attempts, like the backend close; FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS and
@@ -155,7 +155,7 @@ fm_local_hook() {
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0
-      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] || [ "$FORCE" = --force ]
+      [ "$HERDR_CLOSE_CONFIRMED" = 1 ]
       ;;
     pane-teardown-retired)
       rm -f "${META%.meta}.local-pane.json"

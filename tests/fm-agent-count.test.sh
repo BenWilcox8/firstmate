@@ -198,8 +198,8 @@ test_reads_only_sessions_the_homes_record() {
 }
 
 # The harnesses that upstream verified later (devin, Command Code, polytoken,
-# Cortex Code) must hold a place in the limit like every other harness. Their
-# process names are anchored, so a lookalike name does not count.
+# Cortex Code, Kiro CLI) must hold a place in the limit like every other
+# harness. Their process names are anchored, so a lookalike name does not count.
 test_counts_every_verified_harness_name() {
   local dir=$TMP_ROOT/harness-names home out fakebin
   home="$dir/home"
@@ -211,31 +211,35 @@ test_counts_every_verified_harness_name() {
   add_pane "$dir" default w1:p3 w1 "$dir/wt-poly" polytoken polytoken
   add_pane "$dir" default w1:p4 w1 "$dir/wt-cortex" cortex cortex
   add_pane "$dir" default w1:p5 w1 "$dir/wt-look" cortexd cortexd
+  add_pane "$dir" default w1:p6 w1 "$dir/wt-kiro" kiro-cli kiro-cli
   task_meta "$home" task-devin ship devin default:w1:p1
   task_meta "$home" task-cc ship commandcode default:w1:p2
   task_meta "$home" task-poly ship polytoken default:w1:p3
   task_meta "$home" task-cortex scout cortex default:w1:p4
   task_meta "$home" task-look ship cortex default:w1:p5
+  task_meta "$home" task-kiro ship kiro default:w1:p6
   out=$(run_count "$dir" "$home" "$fakebin" --json) || fail "count failed: $out"
-  [ "$(printf '%s' "$out" | jq -r '.count')" = 4 ] \
-    || fail "expected the devin, Command Code, polytoken, and Cortex crewmates to count: $out"
+  [ "$(printf '%s' "$out" | jq -r '.count')" = 5 ] \
+    || fail "expected the devin, Command Code, polytoken, Cortex, and Kiro crewmates to count: $out"
   [ "$(printf '%s' "$out" | jq -r '[.agents[] | "\(.task)=\(.harness)"] | sort | join(",")')" \
-    = "task-cc=commandcode,task-cortex=cortex,task-devin=devin,task-poly=polytoken" ] \
-    || fail "the counted agents are not the four new harness crewmates: $out"
+    = "task-cc=commandcode,task-cortex=cortex,task-devin=devin,task-kiro=kiro,task-poly=polytoken" ] \
+    || fail "the counted agents are not the five new harness crewmates: $out"
   assert_not_contains "$out" task-look "a lookalike process name (cortexd) counted as an agent"
 
   printf '1\n' > "$home/config/agent-limit"
   out=$(run_count "$dir" "$home" "$fakebin" --json) || fail "count failed: $out"
-  [ "$(printf '%s' "$out" | jq -c '[.count, .limit, .at_limit]')" = '[4,1,true]' ] \
+  [ "$(printf '%s' "$out" | jq -c '[.count, .limit, .at_limit]')" = '[5,1,true]' ] \
     || fail "the new harness crewmates should hold places in the limit: $out"
-  pass "fm-agent-count: devin, Command Code, polytoken, and Cortex crewmates count, and a lookalike name does not"
+  pass "fm-agent-count: devin, Command Code, polytoken, Cortex, and Kiro crewmates count, and a lookalike name does not"
 }
 
 # The same names drive the recovery tree sample. A live pane of one of these
 # harnesses must read alive through the public backend interface, not
 # unreadable, and a lookalike name must stay unreadable.
+# Each verdict must also agree with the shared fm_agent_process_classify_name,
+# so the Herdr name lists cannot drift from it for any name listed here.
 test_recovery_reads_new_harness_panes_alive() {
-  local dir=$TMP_ROOT/harness-recovery fakebin name actual
+  local dir=$TMP_ROOT/harness-recovery fakebin name actual shared
   mkdir -p "$dir"
   fakebin=$(make_fake_herdr "$dir")
   cat > "$fakebin/ps" <<'SH'
@@ -244,19 +248,25 @@ printf '%s\n' '1 0 1 S systemd /sbin/init' '100 1 100 S bash /bin/bash'
 printf '200 100 200 S %s %s\n' "$FM_TEST_PS_NAME" "$FM_TEST_PS_NAME"
 SH
   chmod +x "$fakebin/ps"
-  for name in devin command-code polytoken cortex cortexd; do
+  for name in devin command-code polytoken cortex kiro-cli cortexd kiro; do
     add_pane "$dir" default "w1:p-$name" w1 "$dir/wt-$name" "$name" "$name"
   done
-  for name in devin command-code polytoken cortex cortexd; do
+  for name in devin command-code polytoken cortex kiro-cli cortexd kiro; do
     actual=$(FM_ROOT_OVERRIDE='' FM_HOME="$dir" FM_FAKE_HERDR_DIR="$dir/herdr" \
       FM_HERDR_PS_BIN="$fakebin/ps" FM_TEST_PS_NAME="$name" PATH="$fakebin:$PATH" \
       bash -c '. "$1/bin/fm-backend.sh"; fm_backend_agent_state herdr "$2"' _ "$ROOT" "default:w1:p-$name" 2>&1)
     case "$name" in
-      cortexd) [ "$actual" = unreadable ] || fail "a lookalike $name pane read $actual, expected unreadable" ;;
+      cortexd|kiro) [ "$actual" = unreadable ] || fail "a lookalike $name pane read $actual, expected unreadable" ;;
       *) [ "$actual" = alive ] || fail "a live $name pane read $actual, expected alive" ;;
     esac
+    shared=$(bash -c '. "$1/bin/fm-agent-process-lib.sh"; fm_agent_process_classify_name "$2" "$2"' _ "$ROOT" "$name")
+    if [ "$shared" = agent ]; then
+      [ "$actual" = alive ] || fail "the shared classifier calls $name an agent, but Herdr recovery read $actual"
+    else
+      [ "$actual" != alive ] || fail "the shared classifier calls $name $shared, but Herdr recovery read it alive"
+    fi
   done
-  pass "herdr recovery: devin, Command Code, polytoken, and Cortex panes read alive, and a lookalike name stays unreadable"
+  pass "herdr recovery: devin, Command Code, polytoken, Cortex, and Kiro panes read alive, and a lookalike name stays unreadable"
 }
 
 test_counts_only_crewmate_agents_open_in_herdr

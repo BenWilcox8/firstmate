@@ -22,7 +22,7 @@
       "required": ["backend", "target", "pane_id", "task_id"],
       "additionalProperties": false,
       "properties": {
-        "backend": {"enum": ["tmux", "herdr", "zellij", "cmux", "orca", "paseo", "rex", "tern"], "description": "The backend of the endpoint. Typed text records come from tmux, herdr, zellij, cmux, and orca. A launch prompt record can come from every pane backend that fm-spawn launches on, which adds paseo, rex, and tern. A T3 Code thread has no pane, so it has no record."},
+        "backend": {"enum": ["tmux", "herdr", "zellij", "cmux", "orca", "paseo", "rex", "tern", "hc"], "description": "The backend of the endpoint. Typed text records come from tmux, herdr, zellij, cmux, and orca. A launch prompt record can come from every pane backend that fm-spawn launches on, which adds paseo, rex, tern, and hc. A T3 Code thread has no pane, so it has no record."},
         "target": {"type": "string", "description": "The fully qualified backend target. For a remote target, this is the remote endpoint that the sending home recorded for the secondmate."},
         "pane_id": {"type": ["string", "null"], "description": "The tmux pane id or the final component of the backend target. Null means the tmux lookup failed."},
         "task_id": {"type": ["string", "null"], "description": "The task from endpoint metadata in the sending home, including an explicit endpoint with matching metadata. For a launch prompt, this is the task that fm-spawn starts. For a remote target, this is the remote secondmate id. Null means no task is known, as for the supervisor pane."},

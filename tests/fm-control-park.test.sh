@@ -323,7 +323,7 @@ EOF
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
   env -u TMUX PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' FM_SPAWN_NO_GUARD=1 \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR="${FM_TEST_CALLER_CLAUDE:-}" FM_SPAWN_NO_GUARD=1 \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
     FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 FM_CONTROL_STATE_SETTLE=0.1 FM_CONTROL_READY_WAIT=0.1 \
     FM_FAKE_ATLAS_FAIL="${FM_FAKE_ATLAS_FAIL:-}" FM_FAKE_NEVER_DIES="${FM_FAKE_NEVER_DIES:-}" \
@@ -462,12 +462,75 @@ pin_claude_account() {
   local dir=$1 root=$2
   mkdir -p "$root"
   printf '%s\n' "$root" > "$dir/home/config/claude-account"
-  cat > "$dir/fakebin/claude" <<'SH'
+  fake_claude_signed_in "$dir"
+}
+
+# list_claude_accounts <case-dir> <entry>...: declare this home's Claude
+# account list (config/claude-accounts), creating each path entry, and let a
+# fake claude report every entry as signed in.
+list_claude_accounts() {
+  local dir=$1 entry
+  shift
+  for entry in "$@"; do
+    [ "$entry" = ordinary ] || mkdir -p "$entry"
+  done
+  printf '%s\n' "$@" > "$dir/home/config/claude-accounts"
+  fake_claude_signed_in "$dir"
+}
+
+fake_claude_signed_in() {  # <case-dir>
+  cat > "$1/fakebin/claude" <<'SH'
 #!/usr/bin/env bash
 [ "${1:-} ${2:-}" = "auth status" ] || exit 1
 exit 0
 SH
-  chmod +x "$dir/fakebin/claude"
+  chmod +x "$1/fakebin/claude"
+}
+
+# Under a declared Claude account list (config/claude-accounts) each Claude
+# worker runs in the store of the entry its task records. Park and resume look
+# for the session there, and the resume launch selects that entry again. The
+# session lives in that store, so a parked task's relaunch refuses to move to
+# another account.
+test_park_and_resume_under_a_claude_account_list() {
+  local dir out rc root other launch before
+  dir=$(new_case park-list)
+  root="$dir/second-claude"
+  other="$dir/third-claude"
+  list_claude_accounts "$dir" ordinary "$root" "$other"
+  echo "account=$root" >> "$dir/home/state/t1.meta"
+  claude_worker_on "$dir" "$root"
+  out=$(run_control "$dir" t1 park --reason "waits on the second account"); rc=$?
+  expect_code 0 "$rc" "park of a worker on its listed entry's store should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" native_session_file)" = "$root/projects/-wt/$SID.jsonl" ] \
+    || fail "park should record the transcript in the listed entry's store"
+  : > "$dir/fake/literal"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 relaunch --account "$other" --note "move accounts"); rc=$?
+  expect_code 1 "$rc" "relaunch of a parked task onto another account should refuse"$'\n'"$out"
+  assert_contains "$out" "relaunch refuses a harness, model, effort, or account change" \
+    "the refusal should name the account change"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused relaunch must leave the park record unchanged"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must launch nothing"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session in the listed entry's store should succeed"$'\n'"$out"
+  launch=$(grep -F -- "--resume '$SID'" "$dir/fake/literal" || true)
+  [ -n "$launch" ] || fail "resume should reopen the recorded session, got: $(cat "$dir/fake/literal")"
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$root'" "the resume launch should select the recorded entry's store"
+  [ -z "$(meta_field "$dir" parked)" ] || fail "resume should clear the park record"
+
+  # The ordinary entry is ~/.claude with CLAUDE_CONFIG_DIR unset, whatever
+  # store the calling process names for itself.
+  dir=$(new_case park-list-ordinary)
+  list_claude_accounts "$dir" ordinary "$dir/second-claude"
+  echo "account=ordinary" >> "$dir/home/state/t1.meta"
+  out=$(FM_TEST_CALLER_CLAUDE="$dir/caller-claude" run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 0 "$rc" "park of a worker on the ordinary entry should succeed"$'\n'"$out"
+  : > "$dir/fake/literal"
+  out=$(FM_TEST_CALLER_CLAUDE="$dir/caller-claude" run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session on the ordinary entry should succeed"$'\n'"$out"
+  grep -qF -- "--resume '$SID'" "$dir/fake/literal" || fail "resume should reopen the recorded session on the ordinary entry"
+  pass "park and resume: under a Claude account list the session is found in, and resumed on, the recorded entry's store, and a parked relaunch refuses an account move"
 }
 
 # A home's worker account pin (config/claude-account) puts every Claude worker
@@ -823,5 +886,6 @@ test_repark_leaves_a_reused_endpoint_alone
 test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it
 test_relaunch_of_a_parked_task_resumes_its_session
 test_park_and_resume_under_a_claude_account_pin
+test_park_and_resume_under_a_claude_account_list
 test_park_and_resume_refuse_a_pin_that_does_not_hold_the_session
 test_park_and_resume_refuse_a_rex_task

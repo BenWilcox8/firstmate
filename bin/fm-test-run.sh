@@ -731,7 +731,8 @@ list_portable_serial() {
 # artifacts and isolated checks recorded in docs/fm-test-portable-shards.md.
 # Each value is the slowest successful sample in the referenced complete/partial
 # CI runs, with the version-specific host and native-Windows exceptions
-# documented there. A refresh or merge retains each larger existing hint.
+# documented there. A script that upstream measures takes the upstream value at
+# each sync; a fork-only script keeps the larger of its fork measurements.
 # These are balance hints only: the shard
 # partition stays complete and disjoint whatever they say, so a stale hint costs
 # balance rather than coverage. That doc owns the refresh procedure.

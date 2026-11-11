@@ -48,7 +48,7 @@ The session-start hint retains its pre-optimization maximum until CI measures th
 The T3 Code backend suites carry the slowest successful Ubuntu samples from CI runs [39463576576](https://github.com/kunchenguid/firstmate/actions/runs/39463576576), [39814995718](https://github.com/kunchenguid/firstmate/actions/runs/39814995718), and [39883948163](https://github.com/kunchenguid/firstmate/actions/runs/39883948163) - 239245 ms for `tests/fm-backend-t3code.test.sh`, 57613 ms for `tests/fm-t3-mcp.test.sh`, 283 ms for `tests/fm-watch-inbox-meta.test.sh`, and the 51 ms and 52 ms live-guard skips for `tests/fm-backend-t3code-live-e2e.test.sh` and `tests/fm-backend-t3code-pr-tools-live-e2e.test.sh`.
 `tests/fm-backend-t3code.test.sh` and `tests/fm-t3-mcp.test.sh` run in the portable parallel lanes, so those two values sit in `portable_parallel_weight_hints`: every case id the backend suite spawns carries a per-run suffix and its cleanup removes only the `/tmp/fm-<id>` directories that run created, and both suites passed running concurrently with each other and beside another parallel suite (see [`fm-test-isolation-proof.md`](fm-test-isolation-proof.md)).
 
-The fork's serial table merges these upstream values with the fork's own measurements and retains the larger hint for each script.
+The fork's serial table uses the upstream value for every script that upstream measures, and the fork's own measurements only for fork-only scripts.
 Fork measurements came from these workflows on 2026-09-12:
 
 - [34689466430](https://github.com/BenWilcox8/firstmate/actions/runs/34689466430), the complete green run.
@@ -57,7 +57,6 @@ Fork measurements came from these workflows on 2026-09-12:
 - [34697219751](https://github.com/BenWilcox8/firstmate/actions/runs/34697219751) and [34699090764](https://github.com/BenWilcox8/firstmate/actions/runs/34699090764).
 - [34700273710](https://github.com/BenWilcox8/firstmate/actions/runs/34700273710), the fork measurement cutoff.
 
-Earlier upstream measurements from successful script records in [35279383618](https://github.com/kunchenguid/firstmate/actions/runs/35279383618) and [35282466441](https://github.com/kunchenguid/firstmate/actions/runs/35282466441) on 2026-09-17 remain wherever they are still the larger hint.
 A cancelled workflow supplies only its completed exit-0 records, not a green workflow verdict.
 An exit-0 capability skip measures only that skip path.
 Fork-local measurements for endpoint retirement and Herdr layout remain lower bounds.
@@ -112,7 +111,7 @@ That catches missing hints, not stale existing hints: the host suite still had a
 Refresh the hints whenever a serial member grows materially or the lane gains scripts, rather than waiting for missing-hint coverage to trip.
 
 `bin/fm-test-run.sh` owns the per-shard packing, so its `--check-coverage` output is the current account of lane size and coverage rather than a copied inventory.
-Eleven serial runners use the merged table.
+Twelve serial runners use the merged table, one more than upstream, because the fork adds its own serial scripts.
 Its header and `--help` own the modeled-budget check and output fields; read the current estimates from `--check-coverage` instead of retaining copied lane sums here.
 [`tests/fm-test-run.test.sh`](../tests/fm-test-run.test.sh), in `test_portable_serial_packing_budget_boundary`, verifies acceptance exactly at the budget and refusal one millisecond above it through the executable runner.
 The watch-triage suite is three serial members so no one file occupies a whole CI shard: `tests/fm-watch-triage.test.sh` (classifier, signal/turn-end absorb, wedge ladder, gone endpoints, TERM, busy-pane age, timer repair, procevent, heartbeat/afk hand-off, exit picker; hint 592950 ms), `tests/fm-watch-triage-pause.test.sh` (declared waits, captain-call holds, pause transitions, away/quiet holds, paused-until and background-job waits; hint 466750 ms), and `tests/fm-watch-triage-wedge-defer.test.sh` (wedge-threshold deferrals; 13 tests, hint 526980 ms).
@@ -135,7 +134,7 @@ jq -r '.scripts[] | select(.exit == 0) | [.path, .duration_ms] | @tsv' /tmp/fm-s
 bin/fm-test-run.sh --check-coverage
 ```
 
-Merge those successful observations with the existing hints by retaining the larger duration for each current serial path.
+For a fork-only serial script, merge those successful observations with the existing hint by retaining the larger duration; a script that upstream measures takes the upstream value at each sync.
 Prefer complete green workflows; an interrupted shard can leave an incomplete or absent artifact.
 When using an interrupted workflow, account for every missing script and never count failed or cancelled commands as passing measurements.
 Retain native-only measurements separately when portable CI cannot run their behavior.

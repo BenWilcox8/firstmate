@@ -4376,8 +4376,8 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
   printf '{}\n' > "$case_dir/state/task-x1.local-pane.json"
   printf '#!/usr/bin/env bash\nprintf "%%s\\n" "$*" >> "%s"\n' "$case_dir/treehouse.log" > "$case_dir/fakebin/treehouse"
 
-  # Unforced, a close that never confirms refuses and keeps the record that
-  # names the surviving pane; only --force continues past it.
+  # A close that never confirms refuses and keeps the record that names the
+  # surviving pane, and --force does not continue past it either.
   if FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
     FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
@@ -4388,8 +4388,6 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
     "herdr-close-never-confirms: the unforced run did not report the leaked pane"
   assert_grep "could not be closed" "$case_dir/unforced.err" \
     "herdr-close-never-confirms: the unforced run did not refuse on the failed close"
-  grep -qF -- "--force" "$case_dir/unforced.err" \
-    || fail "herdr-close-never-confirms: the refusal did not name the override"
   [ -f "$case_dir/state/task-x1.meta" ] \
     || fail "herdr-close-never-confirms: the unforced refusal removed the record naming the pane"
   assert_not_contains "$(cat "$case_dir/unforced.out")" "teardown task-x1 complete" \
@@ -4421,10 +4419,10 @@ test_herdr_teardown_reports_a_pane_it_could_never_close_loudly() {
     FM_FAKE_HERDR_CLOSE_INEFFECTIVE_TIMES=99 FM_FAKE_HERDR_CLOSE_COUNT="$count" \
     FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
     run_teardown "$case_dir" --force > "$case_dir/forced.stdout" 2> "$case_dir/forced.stderr" \
-    || fail 'an explicit --force did not override unconfirmed flat-pane closure'
-  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -e "$case_dir/state/task-x1.local-pane.json" ] \
-    || fail 'forced retirement retained task metadata or its placement receipt'
-  pass "herdr teardown refuses a pane it could never close unless forced, and reports it loudly by task and pane instead of leaking it silently"
+    && fail 'herdr-close-never-confirms: --force continued past unconfirmed flat-pane closure'
+  assert_forced_unclosed_task_retained "$case_dir"
+  [ ! -s "$case_dir/treehouse.log" ] || fail "herdr-close-never-confirms: the forced refusal came after the pool slot was returned"
+  pass "herdr teardown refuses a pane it could never close even when forced, and reports it loudly by task and pane instead of leaking it silently"
 }
 
 test_herdr_teardown_preserves_unknown_process_pane_even_when_forced() {
@@ -4448,15 +4446,14 @@ test_herdr_teardown_preserves_unknown_process_pane_even_when_forced() {
   FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" \
     FM_HERDR_PS_BIN="$case_dir/unreadable-ps" FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
     run_teardown "$case_dir" --force > "$case_dir/forced.stdout" 2> "$case_dir/forced.stderr" \
-    || fail 'explicit --force did not permit task record retirement'
-  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -e "$case_dir/state/task-x1.local-pane.json" ] \
-    || fail 'forced retirement retained task metadata or its placement receipt'
+    && fail 'explicit --force retired the records of a pane with unknown process evidence'
+  assert_forced_unclosed_task_retained "$case_dir"
   [ ! -e "$closed" ] || fail 'forced teardown closed a pane with unknown process evidence'
   assert_not_contains "$(cat "$log")" 'pane close' '--force bypassed the proven-gone guard'
-  pass 'herdr teardown preserves unknown process panes even when forced record retirement is allowed'
+  pass 'herdr teardown preserves unknown process panes and their records even when forced'
 }
 
-test_herdr_teardown_force_retires_records_when_ownership_is_unreadable() {
+test_herdr_teardown_refuses_unreadable_ownership_even_when_forced() {
   local case_dir log closed rc=0
   case_dir=$(make_case herdr-ownership-unreadable)
   write_meta "$case_dir" local-only ship
@@ -4481,13 +4478,12 @@ SH
 
   FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_TEARDOWN_HERDR_CLOSE_RETRY_WAIT_SECS=0 \
     run_teardown "$case_dir" --force > "$case_dir/forced.stdout" 2> "$case_dir/forced.stderr" \
-    || fail "explicit --force did not override unreadable ownership: $(cat "$case_dir/forced.stderr")"
+    && fail 'explicit --force retired the records of a pane whose ownership was unreadable'
   assert_grep 'LEAKED HERDR PANE - fmtest:w1:p2 for task-x1' "$case_dir/forced.stderr" \
-    'forced retirement did not name the recorded pane as unclosed'
-  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -e "$case_dir/state/task-x1.local-pane.json" ] \
-    || fail 'forced retirement retained task metadata or its placement receipt'
+    'the forced refusal did not name the recorded pane as unclosed'
+  assert_forced_unclosed_task_retained "$case_dir"
   assert_not_contains "$(cat "$log")" 'pane close' 'forced teardown closed a pane whose ownership was unreadable'
-  pass 'herdr teardown refuses unreadable ownership unless forced, and forced retirement closes no pane'
+  pass 'herdr teardown refuses unreadable ownership even when forced, and closes no pane it cannot verify'
 }
 
 test_herdr_teardown_keeps_receipt_when_a_later_step_refuses() {
@@ -4637,11 +4633,10 @@ test_herdr_projection_teardown_retains_journal_when_close_unconfirmed() {
   assert_unclosed_task_retained "$case_dir"
   FM_FAKE_HERDR_LOG="$log" FM_FAKE_HERDR_CLOSED="$closed" FM_FAKE_HERDR_RESTORED="$restored" FM_FAKE_HERDR_CLOSE_FAIL=1 \
     run_teardown "$case_dir" --force > "$case_dir/forced.stdout" 2> "$case_dir/forced.stderr" \
-    || fail 'an explicit --force did not override unconfirmed projected closure'
-  [ ! -e "$case_dir/state/task-x1.meta" ] && [ ! -e "$case_dir/state/task-x1.local-pane.json" ] \
-    || fail 'forced retirement retained task metadata or its placement receipt'
-  [ -e "$case_dir/state/task-x1.herdr-presentation" ] || fail 'forced retirement discarded the unconfirmed projection journal'
-  assert_not_contains "$(cat "$log")" "workspace close" 'forced retirement escalated to workspace cleanup'
+    && fail '--force continued past unconfirmed projected closure'
+  assert_forced_unclosed_task_retained "$case_dir"
+  [ -e "$case_dir/state/task-x1.herdr-presentation" ] || fail 'the forced refusal discarded the unconfirmed projection journal'
+  assert_not_contains "$(cat "$log")" "workspace close" 'the forced refusal escalated to workspace cleanup'
   pass "herdr projection teardown retains the stale journal and attempts no workspace cleanup when exact-pane close is unconfirmed"
 }
 
@@ -6129,6 +6124,15 @@ assert_unclosed_task_retained() {
   assert_grep 'records are retained' "$case_dir/stderr" 'unconfirmed pane close did not explain the retained records'
 }
 
+# A forced teardown past an unconfirmed Herdr close still refuses, because the
+# reaper and the copy return that follow would end the pane shell in the copy.
+assert_forced_unclosed_task_retained() {
+  local case_dir=$1
+  [ -e "$case_dir/state/task-x1.meta" ] || fail 'forced teardown past an unconfirmed pane close removed the task record'
+  [ -e "$case_dir/state/task-x1.local-pane.json" ] || fail 'forced teardown past an unconfirmed pane close removed the placement receipt'
+  assert_grep 'without removing the task' "$case_dir/forced.stderr" 'forced teardown did not explain the retained records'
+}
+
 # Copy the public teardown script tree, then drop or blank one required file.
 # Symlinks keep the copy cheap; an unreadable case replaces one link with a
 # real mode-000 file so the probe is of the file itself.
@@ -6966,7 +6970,7 @@ test_herdr_teardown_treats_already_dead_pane_as_confirmed_without_reclosing
 test_herdr_teardown_retries_an_unapplied_close_then_completes
 test_herdr_teardown_reports_a_pane_it_could_never_close_loudly
 test_herdr_teardown_preserves_unknown_process_pane_even_when_forced
-test_herdr_teardown_force_retires_records_when_ownership_is_unreadable
+test_herdr_teardown_refuses_unreadable_ownership_even_when_forced
 test_herdr_teardown_keeps_receipt_when_a_later_step_refuses
 test_herdr_teardown_holds_session_lock_after_the_early_pane_close
 test_herdr_teardown_close_overrides_fall_back_instead_of_aborting

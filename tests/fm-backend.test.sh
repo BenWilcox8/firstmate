@@ -33,6 +33,13 @@ set -u
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 fm_git_identity fmtest fmtest@example.invalid
 
+# Fork: the hc detection cases restrict PATH. On a host with no FHS /usr/bin they
+# still need the core tools and python3 (the socket probe). FM_HC_BIN still
+# names a missing binary, so hc stays unusable in every such case.
+HC_DETECT_PATH=$(fm_test_core_path)
+mkdir -p "$HC_DETECT_PATH"
+if HC_DETECT_PY=$(type -P python3 2>/dev/null); then ln -sf "$HC_DETECT_PY" "$HC_DETECT_PATH/python3"; fi
+
 # shellcheck source=/dev/null
 . "$ROOT/bin/fm-backend.sh"
 
@@ -657,7 +664,7 @@ SH
     FM_FAKE_HC_GET='{"labels":{"herdr.space":"fm-app"}}' \
     HC_TERMINAL_ID=t2 fm_backend_detect) \
     && fail "HC_TERMINAL_ID without a socket never reaches the record check, got '$out'"
-  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID; PATH="/usr/bin:/bin" XDG_RUNTIME_DIR="$run" \
+  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID; PATH="$HC_DETECT_PATH:/usr/bin:/bin" XDG_RUNTIME_DIR="$run" \
     HC_TERMINAL_ID=t2 HC_TERMINAL_SOCKET="$sock" FM_HC_BIN=/nonexistent/hc fm_backend_detect && exit 9; \
     [ "${FM_BACKEND_DETECT_SIGNAL:-}" = app-terminal-unusable ]) \
     || fail "a live terminal with no usable hc must stay undetected with signal app-terminal-unusable, got '$out'"
@@ -736,7 +743,7 @@ SH
   # An unusable hc toolchain beside a live window is equally silent: there
   # is no candidate, so there is nothing to name.
   lpid=$(live_sock "$apphome/herdr-app.sock"); sleep 0.2
-  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HC_TERMINAL_ID HC_TERMINAL_SOCKET; PATH="/usr/bin:/bin" \
+  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HC_TERMINAL_ID HC_TERMINAL_SOCKET; PATH="$HC_DETECT_PATH:/usr/bin:/bin" \
     HERDR_APP_HOME="$apphome" FM_HC_BIN=/nonexistent/hc fm_backend_detect && exit 9; \
     [ -z "${FM_BACKEND_DETECT_SIGNAL:-}" ]) \
     || fail "a live window with no usable hc must stay silently undetected, got signal '${FM_BACKEND_DETECT_SIGNAL:-}'"
@@ -802,14 +809,14 @@ SH
 
   # A live window with no usable toolchain: still no candidate, still silent.
   : > "$errfile"
-  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HC_TERMINAL_ID HC_TERMINAL_SOCKET; PATH="/usr/bin:/bin" \
+  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HC_TERMINAL_ID HC_TERMINAL_SOCKET; PATH="$HC_DETECT_PATH:/usr/bin:/bin" \
     HERDR_APP_HOME="$apphome" FM_HC_BIN=/nonexistent/hc FM_BACKEND='' FM_BACKEND_CONFIG_DIR="$cfg" fm_backend_name 2>"$errfile")
   [ "$out" = tmux ] || fail "an unusable hc toolchain must keep the default backend, got '$out'"
   [ -s "$errfile" ] && fail "a live window with an unusable toolchain resolves silently - there is no candidate to name"$'\n'"$(cat "$errfile")"
 
   # A live hc terminal with no usable toolchain: no switch, notice names the gap.
   : > "$errfile"
-  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HERDR_APP_HOME; PATH="/usr/bin:/bin" \
+  out=$(unset TMUX HERDR_ENV CMUX_WORKSPACE_ID PASEO_AGENT_ID HERDR_APP_HOME; PATH="$HC_DETECT_PATH:/usr/bin:/bin" \
     XDG_RUNTIME_DIR="$run" HC_TERMINAL_ID=t4 HC_TERMINAL_SOCKET="$run/herdr-core/default.sock" \
     FM_HC_BIN=/nonexistent/hc FM_BACKEND='' FM_BACKEND_CONFIG_DIR="$cfg" fm_backend_name 2>"$errfile")
   [ "$out" = tmux ] || fail "a live hc terminal with an unusable toolchain must keep the default backend, got '$out'"

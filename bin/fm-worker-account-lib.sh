@@ -330,18 +330,16 @@ fm_worker_account_request_valid() {
   esac
 }
 
-# fm_worker_account_select <harness> <config-dir> <model> <executable> [<raw-command>] [<secondmate-id>] [<account>]
-# The whole launch-time decision. Prints nothing for an unpinned runner, so
-# the caller keeps today's launch unchanged. For a pinned one, or a Claude
-# ship or scout launching on a declared config/claude-accounts entry named by
-# <account>, prints "declared<TAB>root<TAB>provider", where provider is the
-# Pi launch model's own (empty for Claude), after the model guard and the
-# sign-in check pass. On refusal prints one error and returns 1.
-# bin/fm-spawn.sh runs it before any endpoint exists, and bin/fm-control.sh
-# before a relaunch stops the live agent.
-fm_worker_account_select() {
-  local harness=$1 config=$2 model=$3 executable=$4 raw=${5:-} mate=${6:-} account=${7:-}
-  local selection declared root providers word provider='' selected_config setting listed count
+# fm_worker_account_list_choice <harness> <config-dir> <secondmate-id> <account>
+# The single owner of the config/claude-accounts decision, shared by
+# fm_worker_account_select and fm_worker_account_claude_store so the launch
+# and the park and resume store cannot drift. Prints "declared<TAB>root" when
+# a Claude ship or scout launch spends the declared entry <account> (root is
+# empty for `ordinary`, meaning CLAUDE_CONFIG_DIR unset). Prints nothing when
+# the launch reads a pin instead: the home declares no list, or a secondmate
+# has its own pin. On refusal prints one error and returns 1.
+fm_worker_account_list_choice() {
+  local harness=$1 config=$2 mate=$3 account=$4 listed count word declared root selected_config
   fm_worker_account_request_valid "$account" || return 1
   if [ -n "$account" ] && [ "$harness" != claude ]; then
     echo "error: --account names one of config/claude-accounts and applies to Claude workers only, not $harness" >&2
@@ -356,39 +354,60 @@ fm_worker_account_select() {
     echo "error: --account '$account' needs config/claude-accounts, which this home does not declare" >&2
     return 1
   fi
-  if [ -n "$listed" ] && { [ -e "$config/claude-account" ] || [ -L "$config/claude-account" ]; }; then
+  [ -n "$listed" ] || return 0
+  if [ -e "$config/claude-account" ] || [ -L "$config/claude-account" ]; then
     echo "error: config/claude-accounts and config/claude-account are both present; keep the account list or the single pin, not both" >&2
     return 1
   fi
+  if [ -n "$mate" ]; then
+    selected_config=$(fm_worker_account_config "$harness" "$config" "$mate") || return 1
+    [ "$selected_config" = "$config" ] || return 0
+    echo "error: config/claude-accounts chooses accounts for ships and scouts only; secondmate $mate needs its own pin in config/secondmate-accounts/$mate/claude-account" >&2
+    return 1
+  fi
+  if [ -z "$account" ]; then
+    count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
+    echo "error: config/claude-accounts declares $count Claude accounts, so a Claude ship or scout launch must name one with --account; bin/fm-claude-account-quota.sh measures each, and Firstmate never picks a default" >&2
+    return 1
+  fi
+  declared=
+  while IFS= read -r word; do
+    [ "$word" != "$account" ] || { declared=$account; break; }
+  done <<< "$listed"
+  [ -n "$declared" ] || {
+    echo "error: account '$account' is not declared in config/claude-accounts; name a declared entry with --account" >&2
+    return 1
+  }
+  root=$account
+  [ "$declared" != ordinary ] || root=
+  if [ -n "$root" ] && { [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; }; then
+    # shellcheck disable=SC2088  # Literal text for the refusal.
+    echo "error: config/claude-accounts must name readable, searchable existing directories (ordinary means ~/.claude with CLAUDE_CONFIG_DIR unset): $root" >&2
+    return 1
+  fi
+  printf '%s\t%s\n' "$declared" "$root"
+}
+
+# fm_worker_account_select <harness> <config-dir> <model> <executable> [<raw-command>] [<secondmate-id>] [<account>]
+# The whole launch-time decision. Prints nothing for an unpinned runner, so
+# the caller keeps today's launch unchanged. For a pinned one, or a Claude
+# ship or scout launching on a declared config/claude-accounts entry named by
+# <account>, prints "declared<TAB>root<TAB>provider", where provider is the
+# Pi launch model's own (empty for Claude), after the model guard and the
+# sign-in check pass. On refusal prints one error and returns 1.
+# bin/fm-spawn.sh runs it before any endpoint exists, and bin/fm-control.sh
+# before a relaunch stops the live agent.
+fm_worker_account_select() {
+  local harness=$1 config=$2 model=$3 executable=$4 raw=${5:-} mate=${6:-} account=${7:-}
+  local selection declared root providers word provider='' selected_config setting choice
+  choice=$(fm_worker_account_list_choice "$harness" "$config" "$mate" "$account") || return 1
   selected_config=$(fm_worker_account_config "$harness" "$config" "$mate") || return 1
   setting="config/$(fm_worker_account_file "$harness")"
   [ "$selected_config" = "$config" ] || setting="$selected_config/$(fm_worker_account_file "$harness")"
-  if [ -n "$listed" ] && [ -n "$mate" ] && [ "$selected_config" = "$config" ]; then
-    echo "error: config/claude-accounts chooses accounts for ships and scouts only; secondmate $mate needs its own pin in config/secondmate-accounts/$mate/claude-account" >&2
-    return 1
-  elif [ -n "$listed" ] && [ -z "$mate" ]; then
+  if [ -n "$choice" ]; then
     setting=config/claude-accounts
-    if [ -z "$account" ]; then
-      count=$(printf '%s\n' "$listed" | wc -l | tr -d ' ')
-      echo "error: config/claude-accounts declares $count Claude accounts, so a Claude ship or scout launch must name one with --account; bin/fm-claude-account-quota.sh measures each, and Firstmate never picks a default" >&2
-      return 1
-    fi
-    declared=
-    while IFS= read -r word; do
-      [ "$word" != "$account" ] || { declared=$account; break; }
-    done <<< "$listed"
-    [ -n "$declared" ] || {
-      echo "error: account '$account' is not declared in config/claude-accounts; name a declared entry with --account" >&2
-      return 1
-    }
-    declared=$account
-    root=$account
-    [ "$declared" != ordinary ] || root=
-    if [ -n "$root" ] && { [ ! -d "$root" ] || [ ! -r "$root" ] || [ ! -x "$root" ]; }; then
-      # shellcheck disable=SC2088  # Literal text for the refusal.
-      echo "error: $setting must name readable, searchable existing directories (ordinary means ~/.claude with CLAUDE_CONFIG_DIR unset): $root" >&2
-      return 1
-    fi
+    declared=${choice%%$'\t'*}
+    root=${choice#*$'\t'}
     providers=
   else
     selection=$(fm_worker_account_resolve "$harness" "$selected_config" "$setting") || return 1
@@ -437,17 +456,27 @@ fm_worker_account_select() {
   printf '%s\t%s\t%s\n' "$declared" "$root" "$provider"
 }
 
-# fm_worker_account_claude_store <config-dir> [<secondmate-id>]
+# fm_worker_account_claude_store <config-dir> [<secondmate-id>] [<account>]
 # Fork: prints the Claude config store that a Claude launch from this home
 # uses, so that a park and a resume (bin/fm-control.sh, bin/fm-spawn.sh
-# --resume-session) look for a session where the launch keeps it. A pinned
-# root is that root. The `ordinary` pin unsets CLAUDE_CONFIG_DIR, so Claude
-# uses $HOME/.claude. With no pin, the launch forwards the caller's own
-# CLAUDE_CONFIG_DIR, else Claude uses $HOME/.claude. The pin is read and
-# checked as fm_worker_account_select reads it, but no sign-in check runs. On
-# refusal prints one error and returns 1; the caller must refuse too.
+# --resume-session) look for a session where the launch keeps it. <account>
+# is the request the launch passes fm_worker_account_select. Under a declared
+# config/claude-accounts list, the store is that entry's root, chosen by
+# fm_worker_account_list_choice. A pinned root is that root. An `ordinary`
+# entry or pin unsets CLAUDE_CONFIG_DIR, so Claude uses $HOME/.claude. With no
+# pin, the launch forwards the caller's own CLAUDE_CONFIG_DIR, else Claude
+# uses $HOME/.claude. The list and the pin are read and checked as
+# fm_worker_account_select reads them, but no sign-in check runs. On refusal
+# prints one error and returns 1; the caller must refuse too.
 fm_worker_account_claude_store() {
-  local config=$1 mate=${2:-} selected_config setting selection root
+  local config=$1 mate=${2:-} account=${3:-} choice selected_config setting selection root
+  choice=$(fm_worker_account_list_choice claude "$config" "$mate" "$account") || return 1
+  if [ -n "$choice" ]; then
+    root=${choice#*$'\t'}
+    [ -n "$root" ] || root="${HOME:?HOME is required to find the ordinary Claude store}/.claude"
+    printf '%s\n' "$root"
+    return 0
+  fi
   selected_config=$(fm_worker_account_config claude "$config" "$mate") || return 1
   setting=config/claude-account
   [ "$selected_config" = "$config" ] || setting="$selected_config/claude-account"

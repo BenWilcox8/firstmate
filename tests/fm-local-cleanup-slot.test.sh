@@ -42,7 +42,8 @@ make_case() {
   printf '{"worktrees":[{"name":"1","path":"%s","created_at":"2026-09-24T00:00:00Z"}]}\n' "$WT" > "$CASE/pool/treehouse-state.json"
   set_slot_owner "$$"
   fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
-    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=old-generation"
+    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=old-generation" \
+    "local_done_head=$(git -C "$CASE/project" rev-parse fm/old)"
   printf 'done: finished\n' > "$CASE/home/state/old.status"
   cat > "$CASE/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash

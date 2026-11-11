@@ -95,7 +95,7 @@ Each proof comes from evidence the harness itself keeps for the exact running pr
 A session that cannot be proven refuses the park, and the worker keeps running.
 The park also confirms that the resume will find the session where it looks for it.
 A Claude resume launches with the Claude store that a launch from this home uses.
-That is the root of the home's [worker account pin](configuration.md#worker-account-pin-configclaude-account-configpi-account) when `config/claude-account` sets one, the ordinary `~/.claude` for an `ordinary` pin, and otherwise the configuration of the firstmate home.
+That is the task's recorded entry when the home declares a [Claude account list](configuration.md#several-claude-accounts-configclaude-accounts), the root of the home's [worker account pin](configuration.md#worker-account-pin-configclaude-account-configpi-account) when `config/claude-account` sets one, the ordinary `~/.claude` for an `ordinary` pin, and otherwise the configuration of the firstmate home.
 So a Claude worker that keeps its session in another store refuses the park, for example a worker started on another account profile.
 A pin that cannot be read refuses the park and the resume.
 A pin that changes while a task is parked makes the resume refuse, because the session is not in the new store.
@@ -143,7 +143,7 @@ A parked task is visible as parked everywhere firstmate reads the fleet.
 `bin/fm-crew-state.sh` reports `parked` from `park` with the reason and the resume command.
 The session-start digest and the fleet view print the endpoint as parked, not dead or absent.
 The watcher raises no stale wake for it, and a steer sent to it waits in the inbox for the resume.
-Recovery never restarts a parked task fresh: `relaunch` of a parked task runs the resume, and refuses a harness, model, or effort change for it.
+Recovery never restarts a parked task fresh: `relaunch` of a parked task runs the resume, and refuses a harness, model, effort, or account change for it.
 
 ## Transactional relaunch
 
