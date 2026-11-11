@@ -133,7 +133,7 @@ case "${1:-}" in
   spawn)
     printf '%s\n' p-new >> "$D/panes"
     printf '%s\n' p-new > "$D/slot"
-    printf '%s\n' '{"spawn":{"paneId":"p-new","tabId":"t-new"}}'
+    printf '%s\n' '{"spawn":{"paneId":"p-new","tabId":"t-new","workspaceId":"ws1"}}'
     ;;
   teardown)
     if [ -s "$D/slot" ]; then
