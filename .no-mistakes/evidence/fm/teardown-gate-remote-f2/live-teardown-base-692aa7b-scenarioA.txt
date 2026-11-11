@@ -1,0 +1,16 @@
+=== Scenario A: mode=no-mistakes ship, commit only on the local no-mistakes gate ===
+$ git log --oneline HEAD --not --remotes   # bare --remotes (old check)
+(empty: the gate remote holds HEAD)
+$ git branch -r
+  no-mistakes/fm/task-x1
+  origin/HEAD -> origin/main
+  origin/main
+$ bin/fm-teardown.sh task-x1
+$W/A/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree $W/A/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at $W/A/data/backlog.md). Update $W/A/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+fatal: 'refs/heads/fm/task-x1' - not a valid ref
+task branch still present: no
+worktree still present: yes; meta still present: no
+

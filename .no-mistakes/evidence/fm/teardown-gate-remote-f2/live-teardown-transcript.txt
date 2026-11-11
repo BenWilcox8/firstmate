@@ -1,0 +1,40 @@
+=== Scenario A: mode=no-mistakes ship, commit only on the local no-mistakes gate ===
+$ git log --oneline HEAD --not --remotes   # bare --remotes (old check)
+(empty: the gate remote holds HEAD)
+$ git branch -r
+  no-mistakes/fm/task-x1
+  origin/HEAD -> origin/main
+  origin/main
+$ bin/fm-teardown.sh task-x1
+REFUSED: worktree $W/A/wt has work not on any remote (the local no-mistakes gate does not count) and not landed.
+unpushed commits:
+af8eb3c gate-only work
+Push the branch, land its PR, or get the captain's explicit OK to discard, then --force.
+exit=1
+task branch still present: yes
+worktree still present: yes; meta still present: yes
+
+=== Scenario B: same project, branch then pushed to origin (a real remote) ===
+$ bin/fm-teardown.sh task-x1
+$W/A/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree $W/A/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at $W/A/data/backlog.md). Update $W/A/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+meta still present: no
+
+=== Scenario C: mode=local-only ship, commit only on the gate, not merged to local main ===
+$ bin/fm-teardown.sh task-x1
+REFUSED: local-only worktree $W/C/wt has work not yet merged into main and not on any remote (the local no-mistakes gate does not count).
+commits not yet on main:
+36309f2 gate-only work
+Merge the branch into local main first (bin/fm-merge-local.sh after the captain approves), or push to a fork/remote, or get the captain's explicit OK to discard, then --force.
+exit=1
+task branch still present: yes
+
+=== Scenario D: mode=no-mistakes, commit on a fork remote (non-gate) - still counts as landed ===
+$ bin/fm-teardown.sh task-x1
+$W/D/project: already current
+teardown task-x1 complete (window firstmate:fm-task-x1, worktree $W/D/wt)
+Backlog: task-x1 just finished (this home keeps no markdown backlog at $W/D/data/backlog.md). Update $W/D/data/backlog.md - move task-x1 to Done, keep Done to the 10 most recent, then re-scan Queued and dispatch only work whose blockers are gone and date is due.
+exit=0
+meta still present: no
