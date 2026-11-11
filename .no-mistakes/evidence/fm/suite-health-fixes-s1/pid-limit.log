@@ -1,0 +1,1 @@
+pid_max=4194304; kill -0 4194304 -> /run/current-system/sw/bin/bash: line 1: kill: (4194304) - No such process

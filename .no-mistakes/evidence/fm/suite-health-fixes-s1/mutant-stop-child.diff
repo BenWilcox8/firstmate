@@ -1,0 +1,11 @@
+5,11c5,6
+<     if [ "$i" -ge "$limit" ]; then
+<       kill -KILL "$pid" 2>/dev/null || true
+<       break
+<     fi
+<     sleep 0.1
+<     i=$((i + 1))
+<     if [ $((i % 10)) -eq 0 ]; then kill -TERM "$pid" 2>/dev/null || true; fi
+---
+>     if [ "$i" -ge "$limit" ]; then kill -KILL "$pid" 2>/dev/null || true; break; fi
+>     sleep 0.1; i=$((i + 1))

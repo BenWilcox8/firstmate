@@ -1,0 +1,18 @@
+tests/lib.sh: line 39: tests/git-config-helpers.sh: No such file or directory
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+ok - fm_test_tmproot cleans up its fixture root on normal exit
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+ok - fm_test_tmproot cleans up its fixture root on SIGTERM
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+ok - the cleanup registry cannot be injected through path precreation
+ok - failed fixture registration rolls back the new root
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+ok - the orphan sweep reaps only old fixtures without a live owner
+/tmp/tmp.K33ytCcqb8/tests/lib.sh: line 39: /tmp/tmp.K33ytCcqb8/tests/git-config-helpers.sh: No such file or directory
+ok - the orphan sweep reaps read-only package fixtures
+ok - registered fixture processes are reaped when their suite exits normally
+ok - registered fixture processes are reaped when their suite fails
+ok - registered fixture processes are reaped when their suite is terminated
+not ok - a child that swallowed its first TERM did not exit through a second TERM (status 137)
+mutant rc=1

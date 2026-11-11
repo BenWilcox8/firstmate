@@ -1,0 +1,7 @@
+== old reap: kill $pid; wait $pid (bounded here by a 5 s watchdog) ==
+old reap returned after 5 s; child ended only because the watchdog sent KILL
+== new reap: fm_test_stop_child ==
+fm_test_stop_child returned after 2 s with child status 7 (7 = exited through the re-sent TERM)
+child is gone
+== new reap on a child that ignores TERM, bound 2 s ==
+returned after 2 s with status 137 (137 = KILL at bound)

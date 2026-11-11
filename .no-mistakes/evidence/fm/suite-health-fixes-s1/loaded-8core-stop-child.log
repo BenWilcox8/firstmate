@@ -1,0 +1,17 @@
+load: 16 busy loops pinned to CPUs 0-7; test pinned to CPUs 0-7
+ 11:40:43  up  13:11,  4 users,  load average: 18.02, 12.57, 7.66
+== run 1 ==
+ok - fm_test_stop_child re-sends TERM when the first one is lost
+ok - fm_test_stop_child kills a child that ignores TERM once its bound passes
+FM_TEST_END 2026-11-11T17:40:57Z tests/fm-test-fixture-cleanup.test.sh exit=0 duration_ms=13574 gate_skip=false
+took 14 s
+== run 2 ==
+ok - fm_test_stop_child re-sends TERM when the first one is lost
+ok - fm_test_stop_child kills a child that ignores TERM once its bound passes
+FM_TEST_END 2026-11-11T17:41:11Z tests/fm-test-fixture-cleanup.test.sh exit=0 duration_ms=13488 gate_skip=false
+took 14 s
+== run 3 ==
+ok - fm_test_stop_child re-sends TERM when the first one is lost
+ok - fm_test_stop_child kills a child that ignores TERM once its bound passes
+FM_TEST_END 2026-11-11T17:41:23Z tests/fm-test-fixture-cleanup.test.sh exit=0 duration_ms=11516 gate_skip=false
+took 12 s
