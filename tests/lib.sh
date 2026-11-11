@@ -708,7 +708,9 @@ assert_not_contains() {
 # FM_TEST_ONE_JSON: the first step of a `jq -s` filter that reads product JSON.
 # It gives the one JSON document of the input. If the input is not exactly one
 # JSON document, for example because text follows the document, it fails with
-# no output, as Python json.load did.
+# no output, as Python json.load did. Consumed by sourcing test files, not by
+# this library, so it reads as "unused" here.
+# shellcheck disable=SC2034
 FM_TEST_ONE_JSON='if length == 1 then .[0] else error("the input is not exactly one JSON document") end'
 
 # expect_code <expected> <actual> <label>
