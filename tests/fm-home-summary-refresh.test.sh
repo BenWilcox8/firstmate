@@ -912,13 +912,19 @@ fi
 kill -KILL "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
 wait "$LOCK_HOLDER_PID" >/dev/null 2>&1 || true
 LOCK_HOLDER_PID=
-PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
-  FM_HOME_SUMMARY_IF_IDLE=1 "$WRITER" --best-effort \
-  || fail "stale-lock recovery changed the best-effort caller result"
-i=0
-while [ ! -e "$RESTART_HOME/state/home-summary.json" ] && [ "$i" -lt 200 ]; do
-  sleep 0.05
-  i=$((i + 1))
+# The live watcher starts its own idle-only refresh every poll, bounded by a
+# 2-second deadline. An idle-only writer that finds one of those workers holding
+# the lock returns without publishing, and on a loaded host those workers can
+# keep exceeding their deadline. Retry the idle-only writer until it publishes,
+# under a deadline wide enough for a loaded machine.
+publish_deadline=$((SECONDS + 60))
+while :; do
+  PATH="$FAKEBIN:$PATH" FM_ROOT_OVERRIDE="$ROOT" FM_HOME="$RESTART_HOME" \
+    FM_HOME_SUMMARY_IF_IDLE=1 "$WRITER" --best-effort \
+    || fail "stale-lock recovery changed the best-effort caller result"
+  [ ! -e "$RESTART_HOME/state/home-summary.json" ] || break
+  [ "$SECONDS" -lt "$publish_deadline" ] || break
+  sleep 0.2
 done
 [ -e "$RESTART_HOME/state/home-summary.json" ] \
   || fail "a dead publication lock wedged publication"
