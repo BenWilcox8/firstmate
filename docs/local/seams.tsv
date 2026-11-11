@@ -360,7 +360,7 @@ tests/fm-turnend-foreign-owner-repro.py	4	nixos-test-portability	tests/fm-turnen
 tests/fm-turnend-guard.test.sh	23	nixos-test-portability	tests/fm-turnend-guard.test.sh	generic: tests tolerate newer Node and non-FHS hosts, upstreamable	retain
 tests/fm-usage-warner.test.sh	2	nixos-test-portability	tests/fm-usage-warner.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-vendor-auth-probe.test.sh	2	nixos-test-portability	tests/fm-vendor-auth-probe.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-watch-arm.test.sh	49	watcher-delivered-wake	tests/fm-watch-arm.test.sh	generic: completes the fork's captured watcher stderr from fork PR #25 by reaping before release, upstreamable with it	retain
+tests/fm-watch-arm.test.sh	58	watcher-delivered-wake	tests/fm-watch-arm.test.sh	generic: completes the fork's captured watcher stderr from fork PR #25 by reaping before release, upstreamable with it	retain
 tests/fm-watch-checkpoint.test.sh	2	nixos-test-portability	tests/fm-watch-checkpoint.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-watch-triage.test.sh	39	pane-hash-owner	tests/fm-watch-triage.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
 tests/fm-watch-triage.test.sh	39	watcher-delivered-wake	tests/fm-watch-triage.test.sh	generic: a queued wake keeps its delivery record when stdout fails, upstreamable	retain
