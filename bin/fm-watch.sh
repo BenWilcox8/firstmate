@@ -1594,16 +1594,19 @@ _wedge_cap_rollback() {
 # reset. Without this record every such repaint, and every later turn on the
 # same unchanging wait, re-earned the window's report and cost a handling turn
 # for a nudge carrying nothing new. The identity is the caller's and is written
-# only on an actual delivery, so the record's own mtime is the time of that
-# delivery, and its content self-invalidates when the declaration itself changes.
+# only when a recheck runs: on an actual delivery, or, in a home with
+# config/paused-recheck-silent, on a recheck run without a wake
+# (paused_recheck_silent). The record's own mtime is the time of that recheck,
+# and its content self-invalidates when the declaration itself changes.
 # The check runs BEFORE the owed and timed gates because a delivered recheck
 # outranks both: an owed report is owed once per window, not once per reset.
 # Absorbing here REBUILDS the throttle the reset destroyed, on the RECORD's own
 # clock rather than now, so the two markers expire together and a stream of
 # absorbs cannot keep pushing the next delivery out of reach.
 # The absorb is itself bounded by the record's age, so it can never become a rot
-# hole: past PAUSE_RESURFACE_SECS since the real delivery the recheck is
-# delivered again, which is the same floor the timed path carries.
+# hole: past PAUSE_RESURFACE_SECS since the last recheck, the recheck runs again:
+# it is delivered, or with config/paused-recheck-silent it can run without a
+# wake. This is the same floor the timed path carries.
 resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min-age] [status-file] [blocked-line] [overdue-marker] [snapshot] [owed] [record-file] [record-id]
   local win=$1 throttle=$2 age=$3 reason=$4 scope=${5-} min_age=${6:-$PAUSE_RESURFACE_SECS} statusf=${7-} blocked_line=${8-} overdue_marker=${9-} snapshot=${10-} append_rc task
   local owed=${11-} record_file=${12-} record_id=${13-}
@@ -1615,7 +1618,7 @@ resurface_absorbed() {  # <window> <throttle-marker> <age> <reason> [scope] [min
     # record's clock. Only the mtime is ever read, never the content.
     date +%s > "$throttle"
     touch -r "$record_file" "$throttle" 2>/dev/null || true
-    triage_log "absorbed duplicate nudge (this declaration's recheck already delivered inside the window): $win"
+    triage_log "absorbed duplicate nudge (this declaration's recheck already ran inside the window): $win"
     return 0
   fi
   if [ -n "$record_file" ] && [ -s "$record_file" ] \
@@ -2664,8 +2667,9 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   nudge_id="$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
   nudge_file="$STATE/.paused-nudged-$key"
   # Upstream's opt-in quiet recheck (config/paused-recheck-silent) reads this
-  # fork's declaration record: a recheck already delivered for this same
-  # declaration, a full window ago, is run again without a wake. The throttle
+  # fork's declaration record: a recheck that already ran for this same
+  # declaration a full window ago (delivered or silent) runs again without a
+  # wake. The throttle
   # takes the record's clock, as the duplicate absorb in resurface_absorbed does.
   if [ "$silent" = 1 ] && paused_recheck_silent "$win" "$statusf" "$nudge_file" "$nudge_id" "$age"; then
     touch -r "$nudge_file" "$throttlef" 2>/dev/null || true
@@ -3204,7 +3208,7 @@ captain_call_stale_bound() {  # <window-key> <task>
 # above): the status line the worker declared, and the backlog hold firstmate
 # recorded once the captain took the work in hand.
 surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
-  local win=$1 h=$2 dialog=${3-} key task last declared=1 bounded=1 throttled=1 until now reason=''
+  local win=$1 h=$2 dialog=${3-} key task last declared=1 bounded=1 throttled=1 until now reason='' status_mtime
   key=$(window_key "$win")
   task=$(window_to_task "$win" "$STATE")
   last=$(status_declared_wait_line "$STATE/$task.status")
@@ -3213,6 +3217,11 @@ surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
     declared=0
     bounded=0
     STALE_WAIT_DECLARATION=$(stale_wait_declaration "$task")
+    # Fork: a status log removed after the read above (an archive) gives age 0,
+    # which the quiet recheck refuses, instead of an arithmetic error that would
+    # stop the watch loop.
+    status_mtime=$(stat_mtime "$STATE/$task.status")
+    case "$status_mtime" in ''|*[!0-9]*) status_mtime=$(date +%s) ;; esac
     if until=$(status_paused_until "$last"); then
       now=$(date +%s)
       if [ "$now" -lt "$until" ]; then
@@ -3223,7 +3232,7 @@ surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
       fi
     elif stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" \
       || paused_recheck_silent "$win" "$STATE/$task.status" "$STATE/.paused-resurfaced-$key" "$STALE_WAIT_DECLARATION" \
-        "$(( $(date +%s) - $(stat_mtime "$STATE/$task.status") ))"; then
+        "$(( $(date +%s) - status_mtime ))"; then
       throttled=0
     fi
   elif status_is_captain_held "$last"; then

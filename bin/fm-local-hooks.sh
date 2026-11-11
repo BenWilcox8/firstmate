@@ -149,6 +149,7 @@ fm_local_hook() {
       fm_local_pane_worker "$META" "$ID" || return 1
       if fm_local_pane_flat "$META" && fm_local_pane_recorded_gone "$META" "$ID" "$T" 2>/dev/null; then
         echo "warning: $ID's recorded pane $T is gone or now belongs to other work, so pane cleanup neither closed nor reports it as this task's pane" >&2
+        TEARDOWN_HERDR_PANE_FOREIGN=1
         return 0
       fi
       fm_local_pane_leak_report "$(teardown_herdr_close_attempts)"

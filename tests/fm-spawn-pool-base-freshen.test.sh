@@ -1486,9 +1486,18 @@ test_opt_in_still_refuses_an_unclean_slot_first() {
 # `never`. Then the pane reads <after>, where `cd` names the path the cd gave.
 # The pool leases the first slot that no process holds and no lease names, and
 # the earlier attempts' gets hold LEFTOVER and QUEUED.
-use_reused_herdr_pane() { # <during> <after> <hold>
+# The pane's foreground is <foreground> (default `bash`): a real idle bash,
+# blocked on a FIFO with no child, stands in for its shell process, so the
+# idle-shell proof reads a real process table. Any other name plays a live
+# agent that an earlier attempt left running in the pane.
+use_reused_herdr_pane() { # <during> <after> <hold> [foreground]
   local fake="$CASE_DIR/herdr"
   mkdir -p "$fake"
+  printf '%s\n' "${4:-bash}" > "$fake/foreground"
+  rm -f "$fake/idle-fifo"
+  mkfifo "$fake/idle-fifo"
+  bash -c 'read -r _ < "$1"' _ "$fake/idle-fifo" &
+  printf '%s\n' "$!" > "$fake/idle-shell"
   printf '%s\n' "$1" > "$fake/during"
   printf '%s\n' "$2" > "$fake/after"
   printf '%s\n' "$3" > "$fake/hold"
@@ -1529,6 +1538,10 @@ case "${1:-} ${2:-}" in
     printf '%s\n' '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true,"version":"0.9.0","protocol":22}}' ;;
   'workspace list') printf '%s\n' '{"result":{"workspaces":[]}}' ;;
   'workspace create') printf '%s\n' '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t1"}}}' ;;
+  'pane process-info')
+    pid=$(cat "$fake/idle-shell"); name=$(cat "$fake/foreground")
+    printf '{"result":{"type":"pane_process_info","process_info":{"pane_id":"%s","shell_pid":%s,"foreground_process_group_id":%s,"foreground_processes":[{"pid":%s,"name":"%s","argv":["%s"]}]}}}\n' \
+      "${4:-}" "$pid" "$pid" "$pid" "$name" "$name" ;;
   'pane get')
     where=$(cat "$fake/during")
     if [ -s "$fake/cd-target" ]; then
@@ -1552,6 +1565,14 @@ esac
 exit 0
 SH
   chmod +x "$FAKEBIN_DIR/agent-axi" "$FAKEBIN_DIR/treehouse" "$FAKEBIN_DIR/herdr"
+}
+
+# Ends the stand-in idle shell of the current reused-pane case.
+end_reused_pane_shell() {
+  local pid
+  pid=$(cat "$CASE_DIR/herdr/idle-shell" 2>/dev/null) || return 0
+  kill "$pid" 2>/dev/null || true
+  wait "$pid" 2>/dev/null || true
 }
 
 run_herdr_spawn() { # <id>
@@ -1618,6 +1639,7 @@ test_retry_in_a_reused_pane_records_the_copy_the_worker_runs_in() {
       || fail "$start: the retry did not refresh the copy the worker runs in"
     [ "$(git -C "$LEFTOVER" rev-parse HEAD)" = "$INITIAL_SHA" ] && [ "$(git -C "$QUEUED" rev-parse HEAD)" = "$INITIAL_SHA" ] \
       || fail "$start: the retry reset a copy an earlier get entered"
+    end_reused_pane_shell
     pass "$start: a retry in a reused pane records, hooks, and refreshes the copy its worker runs in"
   done
 }
@@ -1653,13 +1675,45 @@ test_retry_in_a_reused_pane_refuses_and_leaves_it_open() {
       || fail "$refusal: the refused retry closed the reused pane"
     ! grep -q '^teardown' "$CASE_DIR/herdr/axi-calls" \
       || fail "$refusal: the refused retry tore down the reused pane through agent-axi"
+    end_reused_pane_shell
     pass "$refusal: a retry in a reused pane refuses, names the pane, and leaves it open"
   done
+}
+
+# agent-axi hands back a pane where an earlier attempt's worker still runs.
+# The retry must type nothing there and lease no copy: it waits for an idle
+# shell to hold the pane's foreground, then refuses and leaves the pane open.
+test_retry_in_a_reused_pane_with_a_live_worker_refuses_before_typing() {
+  local id out status
+  id="pool-reused-pane-live-worker-r1"
+  make_reused_pane_case "reused-pane-live-worker" "$id"
+  use_reused_herdr_pane "$LEFTOVER" cd 3 kimi
+  out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 run_herdr_spawn "$id")
+  status=$?
+  end_reused_pane_shell
+  [ "$status" -ne 0 ] || fail "live-worker: a retry typed into a pane where an earlier worker still runs"$'\n'"$out"
+  assert_contains "$out" "pane fmtest:w1:p7 was left behind by an earlier attempt for task $id" \
+    "live-worker: the refusal did not name the handed-back pane"
+  assert_contains "$out" "no idle shell held its foreground" \
+    "live-worker: the refusal did not say why it refused"
+  ! grep -q '^pane run' "$CASE_DIR/herdr/calls" \
+    || fail "live-worker: the retry typed into the handed-back pane: $(grep '^pane run' "$CASE_DIR/herdr/calls")"
+  ! grep -q 'get --lease' "$CASE_DIR/herdr/treehouse-calls" \
+    || fail "live-worker: the retry leased a copy for a pane it refused"
+  grep -q '^pane process-info' "$CASE_DIR/herdr/calls" \
+    || fail "live-worker: setup is wrong: the spawn never read the pane's foreground"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "live-worker: the refused retry published a task record"
+  ! grep -q 'pane close' "$CASE_DIR/herdr/calls" \
+    || fail "live-worker: the refused retry closed the handed-back pane"
+  ! grep -q '^teardown' "$CASE_DIR/herdr/axi-calls" \
+    || fail "live-worker: the refused retry tore down the handed-back pane through agent-axi"
+  pass "live-worker: a retry refuses before typing into or leasing for a pane where an earlier worker still runs"
 }
 
 if command -v jq >/dev/null 2>&1; then
   test_retry_in_a_reused_pane_records_the_copy_the_worker_runs_in
   test_retry_in_a_reused_pane_refuses_and_leaves_it_open
+  test_retry_in_a_reused_pane_with_a_live_worker_refuses_before_typing
 else
   echo "skip: jq not found (the Herdr reused-pane cases)"
 fi

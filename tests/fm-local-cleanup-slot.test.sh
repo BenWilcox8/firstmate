@@ -724,6 +724,44 @@ test_unowned_slot_scans_registered_local_homes() {
   pass 'the unowned-slot scan includes records in registered local secondmate homes'
 }
 
+# --no-live-owner must see every local home that could hold a newer record for
+# the slot, so a home it cannot scan refuses before anything changes.
+test_unowned_slot_refuses_unscannable_registered_homes() {
+  local scenario expect mate_line
+  for scenario in missing-home exec-only-state unsafe-registry malformed-entry; do
+    make_shared_slot "unowned-scan-$scenario" "$TMP_ROOT/unowned-scan-$scenario/mate/state"
+    mate_line=$(printf -- '- mate - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)' "$CASE/mate")
+    printf '%s\n' "$mate_line" > "$CASE/home/data/secondmates.md"
+    case "$scenario" in
+      missing-home)
+        expect='registered local Firstmate home is unavailable'
+        printf -- '- gone - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)\n' "$CASE/gone" \
+          >> "$CASE/home/data/secondmates.md" ;;
+      exec-only-state)
+        expect='cannot read state directory'
+        chmod 100 "$CASE/mate/state" ;;
+      unsafe-registry)
+        expect='local Firstmate registry is unsafe'
+        mv "$CASE/home/data/secondmates.md" "$CASE/registry.real"
+        ln -s "$CASE/registry.real" "$CASE/home/data/secondmates.md" ;;
+      malformed-entry)
+        expect='malformed local Firstmate registry entry'
+        printf -- '- broken entry with no home\n' >> "$CASE/home/data/secondmates.md" ;;
+    esac
+    cp "$CASE/home/state/old.meta" "$CASE/old.before"
+    cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
+    if run_retire_unowned > "$CASE/out" 2> "$CASE/err"; then
+      chmod 755 "$CASE/mate/state"
+      fail "$scenario: retirement went on past a home it could not scan"
+    fi
+    chmod 755 "$CASE/mate/state"
+    assert_grep "$expect" "$CASE/err" "$scenario: the refusal did not name the cause"
+    cmp -s "$CASE/old.before" "$CASE/home/state/old.meta" || fail "$scenario: the refused retirement changed the old record"
+    cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$scenario: the refused retirement changed the pool record"
+  done
+  pass 'unowned-slot retirement refuses when a registered local home or its state directory cannot be scanned'
+}
+
 test_unowned_slot_closes_an_archived_backlog_row() {
   make_shared_slot unowned-archived
   printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\narchive = "data/done-archive.md"\n' > "$CASE/home/.tasks.toml"
@@ -792,6 +830,7 @@ test_unowned_slot_retires_older_record
 test_unowned_slot_skips_a_legacy_claimant_for_ordering
 test_unowned_slot_proves_the_recorded_owner_stopped
 test_unowned_slot_scans_registered_local_homes
+test_unowned_slot_refuses_unscannable_registered_homes
 test_unowned_slot_closes_an_archived_backlog_row
 test_unowned_slot_refusals_preserve_records
 test_parent_gate_preserves_slot

@@ -318,7 +318,7 @@ fm_local_pane_relaunch_create() {
     FM_LOCAL_PANE_LAUNCH_ATTEMPTED=1
     ids=$(fm_backend_herdr_create_task "$session:$workspace" "fm-$ID" "$RELAUNCH_WT" '') || return 1
   fi
-  read -r HERDR_TAB_ID HERDR_PANE_ID <<< "$ids"
+  read -r HERDR_TAB_ID HERDR_PANE_ID _ <<< "$ids"
   [ -n "$HERDR_TAB_ID" ] && [ -n "$HERDR_PANE_ID" ] || return 1
   HERDR_SES=$session
   HERDR_WORKSPACE_ID=$workspace

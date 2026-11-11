@@ -4099,16 +4099,14 @@ teardown_herdr_close_once() {
 # close, loudly and by exact task and pane id. endpoint_close_refusal then
 # stops the cleanup with the task's records and copy kept, even under --force;
 # this line still carries everything the supervising turn needs to close it.
-# When the local pane hook proves that the recorded pane id now names other
-# work (another task's label, or a shell outside this copy), nothing is
-# reported and TEARDOWN_HERDR_PANE_FOREIGN is 1. Reads the task globals T and
-# ID.
+# A local pane hook that handles the report returns 0. It sets
+# TEARDOWN_HERDR_PANE_FOREIGN to 1 only when it proves that the recorded pane id
+# now names other work (no pane, another task's label, or a shell outside this
+# copy); after its own leak report the flag stays 0. Reads the task globals T
+# and ID.
 TEARDOWN_HERDR_PANE_FOREIGN=0
 teardown_herdr_report_unclosed_pane() {
-  if declare -F fm_local_hook >/dev/null && fm_local_hook pane-teardown-report; then
-    TEARDOWN_HERDR_PANE_FOREIGN=1
-    return 0
-  fi
+  if declare -F fm_local_hook >/dev/null && fm_local_hook pane-teardown-report; then return 0; fi
   echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
   echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
   echo "error: close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2

@@ -2879,7 +2879,10 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 
 # fm_backend_herdr_create_task_delegate: create the task's pane through
 # `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
-# fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
+# fm_backend_herdr_create_task. When agent-axi hands back a pane it already
+# held for the task (spawn action `noop`) instead of opening one, the echo ends
+# with " reused": an earlier attempt's worker may still run there, so fm-spawn
+# types nothing into it until an idle shell holds its foreground. The 4th native arg (seeded_default_tab_id) is
 # intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
 # pane as its slot anchor rather than pruning it, so there is nothing to thread
 # through. Session and workspace id come from the verified container. The task
@@ -2908,6 +2911,7 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
     return 1
   fi
   printf '%s %s' "$tab_id" "$pane_id"
+  [ "$(printf '%s' "$out" | jq -r '.spawn.action // empty' 2>/dev/null)" != noop ] || printf ' reused'
 }
 
 fm_backend_herdr_single_pane_for_tab() {
@@ -4195,10 +4199,13 @@ fm_backend_herdr_kill_serialized() {  # <session> <pane>
 # guarantee the endpoint is gone: it is idempotent (an already-reaped pane is a
 # no-op), it is the sole path when agent-axi is absent or the label is unknown,
 # and it also reaps a pre-shim pane that agent-axi's ledger never recorded.
-# Both steps run under the session presentation lock, and the close is
-# upstream's serialized close, so this kill never moves focus or closes a pane
-# while a presentation change holds the session. Without the lock the kill
-# refuses the close. Session for the teardown comes from the target's first
+# Both steps run under the session presentation lock, so no presentation change
+# runs between them, and without the lock the kill refuses the close. The
+# focus-safe removal plan of fm_backend_herdr_kill_serialized applies when the
+# pane is still present at that close: agent-axi is absent, the label is
+# unknown, or agent-axi left the pane open. When agent-axi teardown closes the
+# pane itself, Herdr's own close applies, and closing the last pane of a
+# workspace that is not focused can move focus. Session for the teardown comes from the target's first
 # field; FM_HOME is inherited unchanged so the teardown frees the slot in the
 # invoking home's own ledger.
 # Teardown does not call this: it closes through fm_backend_herdr_kill_serialized

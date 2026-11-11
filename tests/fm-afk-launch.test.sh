@@ -267,8 +267,9 @@ unit_stop_archives_the_record_last() {
 }
 
 # ---------------------------------------------------------------------------
-# UNIT 1: fm_afk_clear_stale_artifacts removes exactly the four delivery
-# artifacts plus the prior session's five per-task marker families.
+# UNIT 1: fm_afk_clear_stale_artifacts removes every FM_AFK_DELIVERY_ARTIFACTS
+# entry plus the prior session's five per-task marker families; this case
+# seeds the four upstream delivery artifacts.
 # ---------------------------------------------------------------------------
 unit_clear_stale() {
   local st

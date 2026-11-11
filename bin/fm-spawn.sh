@@ -175,6 +175,9 @@
 #   backend_detect= line.
 #   Herdr leases its slot durably (treehouse get --lease) and moves the pane's
 #   top-level shell into it, because a restart restores that shell's cwd.
+#   When agent-axi hands back a pane an earlier attempt for the task left
+#   behind, the spawn types nothing there and leases no copy until an idle
+#   shell holds the pane's foreground, and refuses after a bounded wait.
 #   codex-app is not a known backend yet; docs/codex-app-backend.md owns that
 #   blocked backend contract. Default tmux spawns do not write backend= to meta;
 #   absent backend= means tmux. Orca, cmux, paseo, tern, and hc do not support
@@ -386,7 +389,8 @@
 #   default-branch commit when safe: directly for a local home, or through the
 #   configured host for a remote home. Skipped syncs warn and launch unchanged.
 #   A ship or scout slot comes from this home's own Treehouse pool, never one
-#   shared with another home's clone of the project: `treehouse get` runs with
+#   shared with another home's clone of the project: `treehouse get` (and the
+#   Herdr and T3 Code `treehouse get --lease`) runs with
 #   TREEHOUSE_ROOT from bin/fm-wake-lib.sh fm_treehouse_home_root, which owns why.
 #   Ship/scout spawns refuse to launch unless the resolved task path is a real
 #   git worktree root distinct from both the spawning project and its repository's
@@ -5428,6 +5432,7 @@ if [ "$RELAUNCH" -eq 0 ] && ! spawn_prior_endpoint; then
 fi
 
 W="fm-$ID"
+SPAWN_ENDPOINT_REUSED=0
 # A fresh spawn opens its endpoint in the project, where `treehouse get` then
 # allocates the worktree; a resume that must open a new endpoint opens it in
 # the recorded worktree directly.
@@ -5551,7 +5556,7 @@ EOF
     HERDR_SES=${CONTAINER%%:*}
     HERDR_WORKSPACE_ID=${CONTAINER#*:}
     HERDR_TASK_IDS=$(fm_backend_herdr_create_task "$CONTAINER" "$W" "$WT" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-    read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+    read -r HERDR_TAB_ID HERDR_PANE_ID _ <<EOF
 $HERDR_TASK_IDS
 EOF
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
@@ -5750,9 +5755,10 @@ else
       HERDR_SES=${CONTAINER%%:*}
       HERDR_WORKSPACE_ID=${CONTAINER#*:}
       HERDR_TASK_IDS=$(FM_HOME="$HERDR_LABEL_HOME" fm_backend_herdr_create_task "$CONTAINER" "$W" "$ENDPOINT_DIR" "$HERDR_SEEDED_DEFAULT_TAB_ID") || exit 1
-      read -r HERDR_TAB_ID HERDR_PANE_ID <<EOF
+      read -r HERDR_TAB_ID HERDR_PANE_ID HERDR_TASK_ORIGIN <<EOF
 $HERDR_TASK_IDS
 EOF
+      [ "$HERDR_TASK_ORIGIN" != reused ] || SPAWN_ENDPOINT_REUSED=1
     fi
     if [ -z "$HERDR_TAB_ID" ] || [ -z "$HERDR_PANE_ID" ]; then
       echo "error: herdr did not return a tab/pane id for $W" >&2
@@ -6569,6 +6575,23 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
   if [ "$BACKEND" = t3code ]; then
     :
   elif [ "$BACKEND" = herdr ]; then
+    # agent-axi can hand back a pane that an earlier attempt for the task left
+    # behind, where that attempt's worker may still run. Nothing is typed into
+    # such a pane, and no copy is leased for it, until an idle shell holds its
+    # foreground; otherwise the spawn refuses and leaves the pane as it is.
+    if [ "$SPAWN_ENDPOINT_REUSED" -eq 1 ]; then
+      reused_pane_idle=0
+      for _ in $(seq 1 30); do
+        if fm_backend_herdr_pane_idle_shell_pid "$HERDR_SES" "$HERDR_PANE_ID" >/dev/null; then
+          reused_pane_idle=1
+          break
+        fi
+      done
+      if [ "$reused_pane_idle" -eq 0 ]; then
+        echo "error: pane $T was left behind by an earlier attempt for task $ID, and no idle shell held its foreground within about 30s, so an earlier worker or command may still run there; refusing before typing into it or leasing a copy, and leaving that pane as it is; inspect window $T" >&2
+        exit 1
+      fi
+    fi
     spawn_lease_herdr_slot
   else
     # TREEHOUSE_ROOT keeps the slot in this home's own pool, so a worker never
