@@ -29,7 +29,7 @@ tests/fm-teardown.test.sh	517	pane-cleanup-on-exit	tests/fm-teardown.test.sh	per
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	48	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-presentation-e2e.test.sh	55	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	57	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
-bin/fm-teardown.sh	495	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream; endpoint-close refusals after the slot return are an accepted divergence	retain
+bin/fm-teardown.sh	495	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
 bin/fm-session-start.sh	95	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
@@ -120,7 +120,7 @@ bin/fm-brief.sh	69	brief-unknown-option	tests/fm-brief.test.sh	generic: refuse u
 bin/fm-brief.sh	69	dashboard-signals	tests/fm-brief.test.sh	personal: dashboard attribution	retain
 bin/fm-brief.sh	69	marker-lib-retired	tests/fm-brief.test.sh	personal: fork retired the fm-marker-lib.sh shim	retain
 bin/fm-busy-lib.sh	26	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
-bin/fm-captain-hold.sh	102	captain-hold-archive	tests/fm-captain-archive-bound.test.sh	generic: archive-aware captain answers, upstreamable	retain
+bin/fm-captain-hold.sh	102	captain-hold-archive	tests/fm-captain-archive-bound.test.sh	generic: archive-aware captain answers, upstreamable; the archive reader lives in bin/fm-backlog-transition-lib.sh, which the backlog close shares	retain
 bin/fm-classify-lib.sh	20	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: watcher stale-wake churn on idle panes	retain
 bin/fm-config-inherit-lib.sh	5	agent-limit	tests/fm-agent-count.test.sh	personal: Herdr concurrent agent limit	retain
 bin/fm-control-lib.sh	41	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
@@ -382,3 +382,14 @@ bin/fm-spawn.sh	941	claude-account-pin	tests/fm-spawn-dispatch-profile.test.sh	p
 bin/fm-spawn.sh	941	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	generic: remoteless pool freshness, upstreamable	retain
 bin/fm-spawn.sh	941	orca-retired	tests/fm-spawn-orca-worktree.test.sh	personal: new Orca tasks retired	retain
 bin/fm-spawn.sh	941	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
+tests/fm-capacity-auto.test.sh	0	nixos-test-portability	tests/fm-capacity-auto.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-hermes-signals-live-e2e.test.sh	0	nixos-test-portability	tests/fm-hermes-signals-live-e2e.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-kiro-harness.test.sh	0	nixos-test-portability	tests/fm-kiro-harness.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-lane-vitals.test.sh	0	nixos-test-portability	tests/fm-lane-vitals.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-remote-herdr-identity.test.sh	0	nixos-test-portability	tests/fm-remote-herdr-identity.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-remote-secondmate-omp.test.sh	0	nixos-test-portability	tests/fm-remote-secondmate-omp.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-session-lock-ps-denied.test.sh	0	nixos-test-portability	tests/fm-session-lock-ps-denied.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-supervision-host-drain.test.sh	0	nixos-test-portability	tests/fm-supervision-host-drain.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/supervision-host-helpers.sh	0	nixos-test-portability	tests/fm-supervision-host.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+bin/fm-backlog-transition-lib.sh	0	retire-reassigned	tests/fm-backlog-atomicity.test.sh	personal: a row that retention moved to the Done archive counts as closed (fork PR #64); this library owns the archive path and the archived-row read that fm-captain-hold.sh also uses	retain
+tests/fm-backlog-atomicity.test.sh	0	retire-reassigned	tests/fm-backlog-atomicity.test.sh	personal: archived-Done close cases (fork PR #64)	retain

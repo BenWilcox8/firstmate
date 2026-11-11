@@ -2781,6 +2781,7 @@ require_exclusive_worktree_slot_record() {
         echo "REFUSED: task $record_id's recorded worktree $slot is also task $other_id's recorded $field." >&2
         echo "Returning that pool slot would kill $other_id's processes and reset its copy, so nothing was changed - not even with --force." >&2
         echo "Reconcile whichever record is wrong (bin/fm-crew-state.sh $record_id; bin/fm-crew-state.sh $other_id), then re-run teardown." >&2
+        echo "A finished stale record can be retired without touching the slot through bin/fm-local-retire-reassigned.sh (see its --help)." >&2
         return 1
       done
     done
@@ -4098,9 +4099,16 @@ teardown_herdr_close_once() {
 # close, loudly and by exact task and pane id. endpoint_close_refusal then
 # stops the cleanup with the task's records and copy kept, even under --force;
 # this line still carries everything the supervising turn needs to close it.
-# Reads the task globals T and ID.
+# When the local pane hook proves that the recorded pane id now names other
+# work (another task's label, or a shell outside this copy), nothing is
+# reported and TEARDOWN_HERDR_PANE_FOREIGN is 1. Reads the task globals T and
+# ID.
+TEARDOWN_HERDR_PANE_FOREIGN=0
 teardown_herdr_report_unclosed_pane() {
-  if declare -F fm_local_hook >/dev/null && fm_local_hook pane-teardown-report; then return 0; fi
+  if declare -F fm_local_hook >/dev/null && fm_local_hook pane-teardown-report; then
+    TEARDOWN_HERDR_PANE_FOREIGN=1
+    return 0
+  fi
   echo "error: LEAKED HERDR PANE - $T for $ID is still open after $(teardown_herdr_close_attempts) close attempts" >&2
   echo "error: its agent may already have exited, so it is likely showing as a bare terminal pane" >&2
   echo "error: close it by that exact pane id (a focused task tab, a contended session lock, or an unreachable server all block the close)" >&2
@@ -4177,7 +4185,15 @@ elif [ "$BACKEND" = herdr ] \
 fi
 if [ "$BACKEND" = herdr ] && [ "$HERDR_CLOSE_CONFIRMED" != 1 ]; then
   teardown_herdr_report_unclosed_pane
-  endpoint_close_refusal "$ID" herdr "$T" 0 || exit 1
+  # A forced cleanup goes on only when the recorded pane id now names other work
+  # (another task's label, or a shell outside this copy): no pane of this task
+  # is left, so the reap and the slot return below end nothing that this close
+  # had to close.
+  if [ "$TEARDOWN_HERDR_PANE_FOREIGN" = 1 ] && [ "$FORCE" = --force ]; then
+    echo "warning: --force retires $ID's records, because its recorded pane id $T now names other work" >&2
+  else
+    endpoint_close_refusal "$ID" herdr "$T" 0 || exit 1
+  fi
 fi
 if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-teardown-confirm || exit 1; fi
 

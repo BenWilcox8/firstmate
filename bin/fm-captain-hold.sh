@@ -969,40 +969,13 @@ refuse_self_inventory() {
 # through a recorded resolution, because it is closed. `hold`'s closed-call
 # check, `answer`, and `answers` read the archive as well (see "TWO LEDGERS, ONE
 # CALL" in the header). No mutation ever writes an archived row.
-
-# The [markdown] archive key tasks-axi would honour, resolved with tasks-axi's
-# own source precedence: the backlog root's .tasks.toml first, then the
-# user-level $HOME/.tasks-axi/config.toml. Empty when neither sets it; a relative
-# value resolves against the backlog root wherever it was configured, the way
-# tasks-axi resolves it.
-captain_markdown_archive_setting() {  # <backlog-root>
-  local root=$1 archive
-  archive=$(captain_toml_section_entries "$root/.tasks.toml" markdown archive | sed -n 's/^archive //p' | head -1)
-  if [ -z "$archive" ] && [ -n "${HOME:-}" ]; then
-    archive=$(captain_toml_section_entries "$HOME/.tasks-axi/config.toml" markdown archive | sed -n 's/^archive //p' | head -1)
-  fi
-  printf '%s\n' "$archive"
-}
+# bin/fm-backlog-transition-lib.sh owns the archive path and the archived read.
 
 # The archive tasks-axi writes: the [markdown] archive key resolved against the
 # backlog root, else done-archive.md beside the addressed backlog file. Returns
 # 1 when the configured backend keeps no markdown archive.
 captain_markdown_archive_path() {
-  local data root backend archive file
-  data=$(fm_backlog_data_absolute "$DATA") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  backend=$(fm_tasks_axi_backend "$root" 2>/dev/null) || return 1
-  [ "$backend" = markdown ] || return 1
-  archive=$(captain_markdown_archive_setting "$root")
-  case "$archive" in
-    '')
-      file=$(fm_backlog_file "$data") || return 1
-      archive="${file%/*}/done-archive.md"
-      ;;
-    /*) ;;
-    *) archive="$root/$archive" ;;
-  esac
-  printf '%s\n' "$archive"
+  fm_backlog_archive_path "$DATA"
 }
 
 # Read an archived row into TASK_SHOW_OUTPUT exactly as tasks-axi shows a live
@@ -1010,46 +983,16 @@ captain_markdown_archive_path() {
 # reused id can be archived more than once, and retention appends, so the last
 # block is the newest. Returns 1 when the row is not archived.
 task_show_archived() {  # <id>; sets TASK_SHOW_OUTPUT
-  local id=$1 archive dir status=0 secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
-  TASK_SHOW_OUTPUT=
-  case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
-  [ "$secs" -gt 0 ] 2>/dev/null || secs=10
-  archive=$(captain_markdown_archive_path) || return 1
-  [ -f "$archive" ] || return 1
-  dir=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-captain-hold-archive.XXXXXX") \
-    || fail "cannot stage the Done archive read for $id"
-  printf 'backend = "markdown"\n' > "$dir/.tasks.toml"
-  {
-    printf '## Done\n'
-    LC_ALL=C awk -v id="$id" '
-      /^- \[.\] / {
-        rest = substr($0, 7)
-        inrow = (rest == id || index(rest, id " ") == 1)
-        if (inrow) block = $0 "\n"
-        next
-      }
-      inrow && ($0 == "" || $0 ~ /^[[:space:]]/) { block = block $0 "\n"; next }
-      { inrow = 0 }
-      END { printf "%s", block }
-    ' "$archive"
-  } > "$dir/backlog.md" || status=1
-  if [ "$status" -eq 0 ]; then
-    # The replayed archive read gets the same bound as a live backlog read, so a
-    # wedged tasks-axi cannot hang verify, or complete while it holds the origin
-    # metadata lock. A bound hit is not absence, so it stops loudly with 124.
-    # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
-    TASK_SHOW_OUTPUT=$(fm_run_timed "$secs" bash -c \
-      'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi show "$@"' \
-      _ "$dir" "$id" --full --file "$dir/backlog.md" 2>/dev/null)
-    status=$?
-    if [ "$status" -eq 124 ]; then
-      printf 'fm-captain-hold: tasks-axi show %s exceeded its %ss Done-archive read bound\n' "$id" "$secs" >&2
-    elif [ "$status" -ne 0 ]; then
-      status=1
-    fi
-  fi
-  rm -f -- "$dir/backlog.md" "$dir/.tasks.toml"
-  rmdir -- "$dir" 2>/dev/null || true
+  local status=0
+  # The replayed archive read gets the same bound as a live backlog read, so a
+  # wedged tasks-axi cannot hang verify, or complete while it holds the origin
+  # metadata lock. A bound hit is not absence, so it stops loudly with 124.
+  TASK_SHOW_OUTPUT=$(fm_backlog_archive_show "$DATA" "$1") || status=$?
+  case "$status" in
+    0|1) ;;
+    124) printf 'fm-captain-hold: %s\n' "$TASK_SHOW_OUTPUT" >&2 ;;
+    *) fail "$TASK_SHOW_OUTPUT" ;;
+  esac
   return "$status"
 }
 

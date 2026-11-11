@@ -155,7 +155,8 @@ fm_local_hook() {
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0
-      [ "$HERDR_CLOSE_CONFIRMED" = 1 ]
+      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] \
+        || { [ "$TEARDOWN_HERDR_PANE_FOREIGN" = 1 ] && [ "$FORCE" = --force ]; }
       ;;
     pane-teardown-retired)
       rm -f "${META%.meta}.local-pane.json"

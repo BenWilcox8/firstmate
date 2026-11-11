@@ -4191,26 +4191,47 @@ fm_backend_herdr_kill_serialized() {  # <session> <pane>
 # fm_backend_kill passes "<target> <zellij_tab_id-ignored> fm-<id>", so the task
 # label is available as $3. Phase-0 shim (spec agent-axi/v1 s6): when agent-axi
 # is resolvable and the label is known, delegate to `agent-axi teardown` first so
-# the ledger slot is freed. The native `pane close` then still runs as the
-# mechanical guarantee the endpoint is gone: it is idempotent (an already-reaped
-# pane is a no-op), it is the sole path when agent-axi is absent or the label is
-# unknown, and it also reaps a pre-shim pane that agent-axi's ledger never
-# recorded. Session for the teardown comes from the target's first field; FM_HOME
-# is inherited unchanged so the teardown frees the slot in the invoking home's
-# own ledger.
+# the ledger slot is freed. The close then still runs as the mechanical
+# guarantee the endpoint is gone: it is idempotent (an already-reaped pane is a
+# no-op), it is the sole path when agent-axi is absent or the label is unknown,
+# and it also reaps a pre-shim pane that agent-axi's ledger never recorded.
+# Both steps run under the session presentation lock, and the close is
+# upstream's serialized close, so this kill never moves focus or closes a pane
+# while a presentation change holds the session. Without the lock the kill
+# refuses the close. Session for the teardown comes from the target's first
+# field; FM_HOME is inherited unchanged so the teardown frees the slot in the
+# invoking home's own ledger.
 # Teardown does not call this: it closes through fm_backend_herdr_kill_serialized
 # under the session presentation lock it already holds (bin/fm-teardown.sh's
 # teardown_herdr_close_once), which is the focus-safe path for the common close.
 fm_backend_herdr_kill() {  # <target> [<zellij_tab_id-ignored> <fm-label>]
-  local target=$1 label=${3:-} task_id session
-  if fm_backend_herdr_axi_available && [ -n "$label" ] \
-    && fm_backend_herdr_parse_target "$target"; then
-    task_id=${label#fm-}
-    session=$FM_BACKEND_HERDR_SESSION
-    "$FM_BACKEND_HERDR_AXI_BIN" teardown "$task_id" --session "$session" >/dev/null 2>&1 || true
+  local label=${3:-}
+  fm_backend_herdr_target_ready "$1" || return 0
+  local session=$FM_BACKEND_HERDR_SESSION pane=$FM_BACKEND_HERDR_PANE
+  local lock_path attempt=0 lock_held=0
+  if ! declare -F fm_lock_try_acquire >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-wake-lib.sh
+    . "$FM_BACKEND_HERDR_ROOT/bin/fm-wake-lib.sh"
   fi
-  fm_backend_herdr_target_ready "$target" || return 0
-  fm_backend_herdr_cli "$FM_BACKEND_HERDR_SESSION" pane close "$FM_BACKEND_HERDR_PANE" >/dev/null 2>&1 || true
+  if lock_path=$(fm_backend_herdr_presentation_session_lock_path "$session"); then
+    while [ "$attempt" -lt 50 ]; do
+      if fm_lock_try_acquire "$lock_path"; then
+        lock_held=1
+        break
+      fi
+      sleep 0.1
+      attempt=$((attempt + 1))
+    done
+  fi
+  if [ "$lock_held" = 1 ]; then
+    if [ -n "$label" ] && fm_backend_herdr_axi_available; then
+      "$FM_BACKEND_HERDR_AXI_BIN" teardown "${label#fm-}" --session "$session" >/dev/null 2>&1 || true
+    fi
+    fm_backend_herdr_kill_serialized "$session" "$pane"
+    fm_lock_release "$lock_path" || true
+  else
+    echo "warning: herdr task kill could not acquire its session presentation lock; refusing an unlocked pane close" >&2
+  fi
 }
 
 # fm_backend_herdr_task_pane_close: close ONE task's agent-free pane and prove

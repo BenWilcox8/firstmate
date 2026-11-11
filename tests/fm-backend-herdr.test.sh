@@ -6654,7 +6654,13 @@ test_kill_delegates_to_agent_axi() {
   axifb=$(make_agent_axi_fakebin "$dir")
   PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
     FM_AXI_LOG="$axilog" FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_session_lock_path() { printf "/tmp/fm-herdr-test-lock"; }
+      fm_lock_try_acquire() { return 0; }
+      fm_lock_release() { return 0; }
+      fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1
+    ' "$ROOT" \
     || fail "kill should succeed while delegating to agent-axi"
   # Delegated: agent-axi teardown by task id + session, home passed through.
   assert_contains "$(cat "$axilog")" $'\x1f''teardown'$'\x1f''axi1'$'\x1f''--session'$'\x1f''fmtest' \
@@ -6673,10 +6679,37 @@ test_kill_fallback_when_agent_axi_absent() {
   # native pane close - byte-identical to the pre-shim behavior.
   PATH="$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
     FM_BACKEND_HERDR_AXI_BIN=agent-axi-absent-xyz \
-    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1' "$ROOT" \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_session_lock_path() { printf "/tmp/fm-herdr-test-lock"; }
+      fm_lock_try_acquire() { return 0; }
+      fm_lock_release() { return 0; }
+      fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1
+    ' "$ROOT" \
     || fail "kill should fall back to the native pane close when agent-axi is absent"
   assert_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close'$'\x1f''w1:p2' "native fallback kill did not close the pane"
   pass "fm_backend_herdr_kill: falls back byte-identically to the native pane close when agent-axi is absent"
+}
+
+test_kill_refuses_without_presentation_lock() {
+  local dir hlog resp fb axilog axifb out
+  dir="$TMP_ROOT/axi-kill-unlocked"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  # The session presentation lock cannot be resolved, so the kill neither frees
+  # the agent-axi slot nor closes the pane outside the lock.
+  out=$(PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_HOME="$dir" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    bash -c '
+      . "$0/bin/backends/herdr.sh"
+      fm_backend_herdr_presentation_session_lock_path() { return 1; }
+      fm_backend_herdr_kill fmtest:w1:p2 "" fm-axi1
+    ' "$ROOT" 2>&1) || fail "an unlocked kill should stay best-effort: $out"
+  assert_contains "$out" "refusing an unlocked pane close" "an unlocked kill did not say it refused the close"
+  assert_not_contains "$(cat "$axilog")" $'\x1f''teardown' "an unlocked kill freed the agent-axi slot"
+  assert_not_contains "$(cat "$hlog")" $'\x1f''pane'$'\x1f''close' "an unlocked kill closed the pane"
+  pass "fm_backend_herdr_kill: refuses the agent-axi teardown and the pane close without the session presentation lock"
 }
 
 # shellcheck source=bin/fm-backend.sh
@@ -6813,6 +6846,7 @@ test_list_live_delegates_to_agent_axi
 test_list_live_excludes_secondmate_supervisor
 test_kill_delegates_to_agent_axi
 test_kill_fallback_when_agent_axi_absent
+test_kill_refuses_without_presentation_lock
 test_create_task_refuses_duplicate_label
 test_create_task_replaces_only_proved_duplicate_husks
 test_create_task_creates_and_parses_ids
