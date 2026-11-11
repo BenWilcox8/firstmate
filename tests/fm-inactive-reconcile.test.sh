@@ -143,7 +143,7 @@ prime_seen() { # <state> <status>
   ' _ "$ROOT/bin/fm-wake-lib.sh" "$1" "$2"
 }
 
-reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+reap() { fm_test_stop_child "$1" || true; }
 
 # The main retains a terminal presentation receipt until the corresponding wake
 # is handled and acknowledged.

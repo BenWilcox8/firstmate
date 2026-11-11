@@ -1201,6 +1201,13 @@ Each is one line in a local, gitignored `config/` file, with an environment vari
 That configuration is the whole opt-in: an unconfigured home cannot start the relay and cannot run `fm-inbox.sh say` or `ask`, while `note`, `announce`, `reply`, `receipts`, `ready`, `status`, `list` and `drain` need no configuration at all because they make no model call.
 The voice handover depends on `note`, so it keeps working in a home that has configured nothing.
 
+The machine-readable output of `fm-inbox.sh` (`--json`, `receipts` and `ready`) and its `say` and `ask` subcommands need node 20 or newer.
+`fm-inbox.sh` finds node on the caller's PATH, in `~/.local/bin`, in `/opt/homebrew/bin` or in `/usr/local/bin`.
+A non-login `ssh host fm-inbox.sh` does not load a version manager such as nvm, fnm, volta, asdf or mise.
+As a result, it does not find a node that a version manager installed.
+For such a node, run `mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node` in a login shell on that host.
+Without node, these subcommands stop with an error before they write a note, a wake or a reply.
+
 | File | Environment | Holds |
 | --- | --- | --- |
 | `config/voice-region` | `FM_VOICE_REGION` | Bedrock region for the relay's bidirectional session, required by `bin/fm-voice-relay.py`. |

@@ -18,13 +18,18 @@ TMP_ROOT=$(fm_test_tmproot fm-herdr-codex-attribution)
 FIXTURE_ROOT=
 FIXTURE_CHILD=
 
+# The root leads its own session and group, and its `set -m` moves the Node
+# child into a separate group, so signaling the root's group alone orphaned the
+# child. Both groups are signaled here, and both are registered with
+# fm_test_track_pid, because classify_fixture runs in a command substitution
+# whose variables and traps never reach this shell when a case fails.
 cleanup_fixture() {
-  if [ -n "$FIXTURE_ROOT" ] && kill -0 "$FIXTURE_ROOT" 2>/dev/null; then
+  if [ -n "$FIXTURE_CHILD" ]; then
+    kill -TERM -- "-$FIXTURE_CHILD" 2>/dev/null || kill -TERM "$FIXTURE_CHILD" 2>/dev/null || true
+  fi
+  if [ -n "$FIXTURE_ROOT" ]; then
     kill -TERM -- "-$FIXTURE_ROOT" 2>/dev/null || true
     wait "$FIXTURE_ROOT" 2>/dev/null || true
-  elif [ -n "$FIXTURE_CHILD" ] && kill -0 "$FIXTURE_CHILD" 2>/dev/null; then
-    kill -TERM "$FIXTURE_CHILD" 2>/dev/null || true
-    wait "$FIXTURE_CHILD" 2>/dev/null || true
   fi
   FIXTURE_ROOT=
   FIXTURE_CHILD=
@@ -64,6 +69,7 @@ start_fixture() { # <node-wrapper> <entry-point>
   setsid bash --noprofile --norc -c "$fixture_command" \
     bash "$node_binary" "$entry_point" >/dev/null 2>&1 &
   FIXTURE_ROOT=$!
+  fm_test_track_pid "$FIXTURE_ROOT" group
   while [ "$attempt" -lt 50 ]; do
     child=$(ps -o pid= --ppid "$FIXTURE_ROOT" 2>/dev/null | awk 'NF { print $1; exit }')
     [ -n "$child" ] && break
@@ -72,6 +78,7 @@ start_fixture() { # <node-wrapper> <entry-point>
   done
   [ -n "$child" ] || fail "the process fixture did not start its Node child"
   FIXTURE_CHILD=$child
+  fm_test_track_pid "$child" group
   FIXTURE_PGID=$(ps -o pgid= -p "$child" 2>/dev/null | tr -d '[:space:]')
   FIXTURE_COMM=$(ps -o comm= -p "$child" 2>/dev/null | awk '{ sub(/^.*\//, ""); print }')
   [ "$FIXTURE_COMM" = MainThread ] \

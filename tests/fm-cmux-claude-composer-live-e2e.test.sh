@@ -34,7 +34,7 @@ cleanup() {
   [ -z "$LAB" ] || rm -rf -- "$LAB"
 }
 
-fm_live_gate opt-in FM_CMUX_CLAUDE_COMPOSER_LIVE claude cmux jq treehouse python3
+fm_live_gate opt-in FM_CMUX_CLAUDE_COMPOSER_LIVE claude cmux jq treehouse node
 
 cmux ping >/dev/null 2>&1 || fail "FM_CMUX_CLAUDE_COMPOSER_LIVE=1 but the cmux socket is unavailable"
 
@@ -52,19 +52,20 @@ git -C "$LAB/projects/comms" commit -qm 'fixture: initialize cmux Claude compose
 
 STATUS="$LAB/state/$TASK.status"
 FM_HOME="$LAB" "$ROOT/bin/fm-brief.sh" "$TASK" comms --scout || fail "could not scaffold the Claude probe brief"
-python3 - "$LAB/data/$TASK/brief.md" "$STATUS" <<'PY'
-from pathlib import Path
-import sys
+node - "$LAB/data/$TASK/brief.md" "$STATUS" <<'JS'
+const fs = require("fs");
 
-brief = Path(sys.argv[1])
-status = sys.argv[2]
-brief.write_text(brief.read_text().replace("{TASK}", f'''Run a cmux communication probe.
-
-Immediately append `working [at=<epoch>]: cmux composer probe ready` to `{status}`, substituting `<epoch>` as rule 4 instructs.
-Then append exactly `needs-decision [at=<epoch>] [key=probe-decision]: awaiting codeword` to that file and stop to wait for a firstmate message.
-When you receive a firstmate message containing `ALBATROSS`, append `done [at=<epoch>]: received ALBATROSS` to that status file and stop.
-Do not change project files or make a commit.'''))
-PY
+const [brief, status] = process.argv.slice(2);
+const task = [
+  "Run a cmux communication probe.",
+  "",
+  "Immediately append `working [at=<epoch>]: cmux composer probe ready` to `" + status + "`, substituting `<epoch>` as rule 4 instructs.",
+  "Then append exactly `needs-decision [at=<epoch>] [key=probe-decision]: awaiting codeword` to that file and stop to wait for a firstmate message.",
+  "When you receive a firstmate message containing `ALBATROSS`, append `done [at=<epoch>]: received ALBATROSS` to that status file and stop.",
+  "Do not change project files or make a commit.",
+].join("\n");
+fs.writeFileSync(brief, fs.readFileSync(brief, "utf8").split("{TASK}").join(task));
+JS
 
 FM_HOME="$LAB" "$ROOT/bin/fm-spawn.sh" "$TASK" "$LAB/projects/comms" --scout --harness claude --model haiku --backend cmux \
   || fail "could not launch the real Claude cmux probe"

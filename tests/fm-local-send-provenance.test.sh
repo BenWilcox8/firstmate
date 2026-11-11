@@ -11,6 +11,26 @@ set -eu
 TMP_ROOT=$(fm_test_tmproot fm-local-send-provenance)
 mkdir -p "$TMP_ROOT/fakebin" "$TMP_ROOT/home/state"
 export PROVENANCE_TEST_ROOT="$TMP_ROOT"
+# Shared helper for the node assertions below: it reads the JSONL provenance shards.
+cat > "$TMP_ROOT/provenance-lib.js" <<'JS'
+const fs = require("fs");
+const path = require("path");
+exports.sha256 = (bytes) => require("crypto").createHash("sha256").update(bytes).digest("hex");
+exports.shards = (dir) => {
+  if (!fs.existsSync(dir)) return [];
+  return fs.readdirSync(dir).filter((name) => name.endsWith(".jsonl")).sort().map((name) => path.join(dir, name));
+};
+exports.records = (dir) => {
+  const rows = [];
+  for (const file of exports.shards(dir)) {
+    const lines = fs.readFileSync(file, "utf8").split("\n");
+    if (lines[lines.length - 1] === "") lines.pop();
+    for (const line of lines) rows.push(JSON.parse(line));
+  }
+  return rows;
+};
+JS
+export PROVENANCE_LIB="$TMP_ROOT/provenance-lib.js"
 cat > "$TMP_ROOT/fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
 case "$1" in
@@ -47,21 +67,23 @@ send() {
 }
 
 assert_record() { # <kind> <task-id> <count>
-  python3 - "$FM_HOME/state" "$TMP_ROOT/typed" "$1" "$2" "$3" "$FM_HOME" <<'PY'
-import datetime, hashlib, json, pathlib, sys
-state, typed, kind, task, count, sender = sys.argv[1:]
-records = [json.loads(line) for file in sorted(pathlib.Path(state).glob('local-send-provenance/*.jsonl')) for line in file.read_text().splitlines()]
-assert len(records) == int(count), (len(records), count)
-record = records[-1]
-assert record['version'] == 1
-assert record['sha256'] == hashlib.sha256(pathlib.Path(typed).read_bytes()).hexdigest(), record
-assert record['endpoint'] == {'backend': 'tmux', 'target': 'sess:win', 'pane_id': '%7', 'task_id': task or None}, record
-assert record['sender_home'] == sender, record
-assert record['delivery_kind'] == kind, record
-now = datetime.datetime.now(datetime.timezone.utc)
-assert abs((now - datetime.datetime.fromisoformat(record['time'])).total_seconds()) < 60
-assert 'text' not in record, record
-PY
+  node - "$FM_HOME/state" "$TMP_ROOT/typed" "$1" "$2" "$3" "$FM_HOME" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const [state, typed, kind, task, count, sender] = process.argv.slice(2);
+const records = lib.records(`${state}/local-send-provenance`);
+assert.strictEqual(records.length, Number(count), `${records.length} ${count}`);
+const record = records[records.length - 1];
+assert.strictEqual(record.version, 1);
+assert.strictEqual(record.sha256, lib.sha256(fs.readFileSync(typed)), JSON.stringify(record));
+assert.deepStrictEqual(record.endpoint, { backend: "tmux", target: "sess:win", pane_id: "%7", task_id: task || null }, JSON.stringify(record));
+assert.strictEqual(record.sender_home, sender, JSON.stringify(record));
+assert.strictEqual(record.delivery_kind, kind, JSON.stringify(record));
+assert.match(record.time, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/, record.time);
+assert.ok(Math.abs(Date.now() - Date.parse(record.time)) < 60000, record.time);
+assert.ok(!("text" in record), JSON.stringify(record));
+JS
 }
 
 send worker '$no-mistakes'
@@ -156,45 +178,59 @@ fm_write_meta "$FM_HOME/state/remote.meta" \
 printf '%s\n' "- remote - test (host: fixture; root: /remote/root; home: $remote_home; scope: test; projects: alpha; added 2026-09-24)" > "$FM_HOME/data/secondmates.md"
 FM_ROOT_OVERRIDE="$ROOT" send remote '/no-mistakes'
 remote_args() { # <text> [delivery-mode]
-  python3 - "$TMP_ROOT/remote-args" "$@" <<'PY'
-import pathlib, sys
-args = pathlib.Path(sys.argv[1]).read_bytes().split(b"\0")[:-1]
-assert args[:3] == [b"fm-remote-secondmate-control.sh", b"send", b"remote"], args
-assert args[3].endswith(sys.argv[2].encode()), args
-assert args[4:] == [m.encode() for m in sys.argv[3:]], args
-PY
+  node - "$TMP_ROOT/remote-args" "$@" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const argv = process.argv.slice(2);
+const args = fs.readFileSync(argv[0], "utf8").split("\0").slice(0, -1);
+assert.deepStrictEqual(args.slice(0, 3), ["fm-remote-secondmate-control.sh", "send", "remote"], JSON.stringify(args));
+assert.ok(args[3].endsWith(argv[1]), JSON.stringify(args));
+assert.deepStrictEqual(args.slice(4), argv.slice(2), JSON.stringify(args));
+JS
 }
 remote_args /no-mistakes || fail 'remote send arguments changed'
-python3 - "$remote_home" "$FM_HOME" "$TMP_ROOT" <<'PY'
-import hashlib, json, pathlib, sys
-remote, sender, temp = map(pathlib.Path, sys.argv[1:])
-assert not list(remote.glob('**/local-send-provenance')), 'the destination home wrote provenance'
-records = [json.loads(line) for file in sorted((sender/'state/local-send-provenance').glob('*.jsonl')) for line in file.read_text().splitlines()]
-assert len(records) == 7, records
-r = records[-1]
-assert r['sender_home'] == str(sender), r
-assert r['endpoint'] == {'backend': 'herdr', 'target': 'fm-remote:p1', 'pane_id': 'p1', 'task_id': 'remote', 'remote_host': 'fixture'}, r
-assert r['delivery_kind'] == 'doorbell', r
-typed = (temp/'remote-typed').read_bytes()
-assert r['sha256'] == hashlib.sha256(typed).hexdigest(), r
-assert typed.startswith(b': Firstmate instruction waiting:')
-assert b'/no-mistakes' not in typed
-assert '/no-mistakes' in (remote/'state/parent-route/remote.inbox/001.msg').read_text()
-PY
+node - "$remote_home" "$FM_HOME" "$TMP_ROOT" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const [remote, sender, temp] = process.argv.slice(2);
+const provenanceDirs = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const full = `${dir}/${entry.name}`;
+  if (entry.name === "local-send-provenance") return [full];
+  return entry.isDirectory() ? provenanceDirs(full) : [];
+});
+assert.deepStrictEqual(provenanceDirs(remote), [], "the destination home wrote provenance");
+const records = lib.records(`${sender}/state/local-send-provenance`);
+assert.strictEqual(records.length, 7, JSON.stringify(records));
+const r = records[records.length - 1];
+assert.strictEqual(r.sender_home, sender, JSON.stringify(r));
+assert.deepStrictEqual(r.endpoint, { backend: "herdr", target: "fm-remote:p1", pane_id: "p1", task_id: "remote", remote_host: "fixture" }, JSON.stringify(r));
+assert.strictEqual(r.delivery_kind, "doorbell", JSON.stringify(r));
+const typed = fs.readFileSync(`${temp}/remote-typed`);
+assert.strictEqual(r.sha256, lib.sha256(typed), JSON.stringify(r));
+assert.ok(typed.toString("utf8").startsWith(": Firstmate instruction waiting:"));
+assert.ok(!typed.toString("utf8").includes("/no-mistakes"));
+assert.ok(fs.readFileSync(`${remote}/state/parent-route/remote.inbox/001.msg`, "utf8").includes("/no-mistakes"));
+JS
 pass 'send-provenance-context: a remote steer keeps its arguments and records the remote doorbell in the sending home'
 
 rc=0
 FM_ROOT_OVERRIDE="$ROOT" TEST_SSH_LOST=1 send remote --fire-and-forget 0123456789abcdef 'retry the remote transport' || rc=$?
 expect_code 3 "$rc" 'lost remote transport keeps the unconfirmed exit contract'
 remote_args 'retry the remote transport' fire-and-forget || fail 'fire-and-forget remote send arguments changed'
-python3 - "$remote_home" "$FM_HOME" "$TMP_ROOT/remote-count" <<'PY'
-import json, pathlib, sys
-remote, sender, count = map(pathlib.Path, sys.argv[1:])
-records = [json.loads(line) for file in (sender/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 8, records
-assert len(count.read_text().splitlines()) == 3
-assert len(list((remote/'state/parent-route/remote.inbox').glob('*.msg'))) == 2
-PY
+node - "$remote_home" "$FM_HOME" "$TMP_ROOT/remote-count" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const [remote, sender, count] = process.argv.slice(2);
+const records = lib.records(`${sender}/state/local-send-provenance`);
+assert.strictEqual(records.length, 8, JSON.stringify(records));
+const countLines = fs.readFileSync(count, "utf8").split("\n");
+if (countLines[countLines.length - 1] === "") countLines.pop();
+assert.strictEqual(countLines.length, 3);
+const inbox = fs.readdirSync(`${remote}/state/parent-route/remote.inbox`).filter((name) => name.endsWith(".msg"));
+assert.strictEqual(inbox.length, 2);
+JS
 pass 'an unconfirmed remote send records once and preserves inbox deduplication'
 
 # Exercise each submit adapter with deterministic transport primitives.
@@ -222,14 +258,16 @@ for backend in herdr zellij cmux orca; do
     fm_backend_orca_composer_state() { printf send-failed; }
     result=$(fm_backend_send_text_submit "$backend" 'session:p9' 'same bytes' 1 0 0)
     [ "$result" = send-failed ] || fail "$backend: expected failure after typing, got $result"
-    python3 - "$FM_HOME" "$backend" <<'PY'
-import hashlib, json, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-records = [json.loads(line) for file in (root/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 1, records
-assert records[0]['endpoint']['backend'] == sys.argv[2]
-assert records[0]['sha256'] == hashlib.sha256((root/'typed').read_bytes()).hexdigest()
-PY
+    node - "$FM_HOME" "$backend" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const [root, backend] = process.argv.slice(2);
+const records = lib.records(`${root}/state/local-send-provenance`);
+assert.strictEqual(records.length, 1, JSON.stringify(records));
+assert.strictEqual(records[0].endpoint.backend, backend);
+assert.strictEqual(records[0].sha256, lib.sha256(fs.readFileSync(`${root}/typed`)));
+JS
   )
 done
 pass 'every submit adapter records after literal typing even when submission fails'
@@ -249,14 +287,15 @@ pass 'every submit adapter records after literal typing even when submission fai
   [ "$rc" = 1 ] || fail 'the shared dispatcher must refuse an unknown hook after provenance hooks run'
   grep -qx 'error: unknown local hook: no-such-hook' "$TMP_ROOT/dispatch.err" \
     || fail 'the shared dispatcher must name the unknown hook'
-  python3 - "$FM_HOME" <<'PY'
-import hashlib, json, pathlib, sys
-root = pathlib.Path(sys.argv[1])
-records = [json.loads(line) for file in (root/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 1, records
-assert records[0]['endpoint'] == {'backend': 'orca', 'target': 'terminal-1', 'pane_id': 'terminal-1', 'task_id': None}, records
-assert records[0]['sha256'] == hashlib.sha256(b'dispatch bytes').hexdigest(), records
-PY
+  node - "$FM_HOME" <<'JS'
+const assert = require("assert");
+const lib = require(process.env.PROVENANCE_LIB);
+const root = process.argv[2];
+const records = lib.records(`${root}/state/local-send-provenance`);
+assert.strictEqual(records.length, 1, JSON.stringify(records));
+assert.deepStrictEqual(records[0].endpoint, { backend: "orca", target: "terminal-1", pane_id: "terminal-1", task_id: null }, JSON.stringify(records));
+assert.strictEqual(records[0].sha256, lib.sha256(Buffer.from("dispatch bytes")), JSON.stringify(records));
+JS
 )
 pass 'send-provenance-dispatch: provenance hooks route through the one shared fork dispatcher'
 
@@ -295,19 +334,22 @@ SH
   kill "$pid" 2>/dev/null || true
   wait "$pid" 2>/dev/null || true
   [ -s "$TMP_ROOT/watch-typed" ] || { cat "$TMP_ROOT/watch.out" >&2; fail 'the watcher did not re-ring the doorbell'; }
-  python3 - "$FM_HOME" "$TMP_ROOT/watch-typed" <<'PY'
-import hashlib, json, pathlib, sys
-home, typed = map(pathlib.Path, sys.argv[1:])
-records = [json.loads(line) for file in (home/'state/local-send-provenance').glob('*.jsonl') for line in file.read_text().splitlines()]
-assert records, 'the re-ring wrote no record'
-typed = typed.read_bytes()
-assert typed.startswith(b': Firstmate instruction waiting:')
-for r in records:
-    assert r['endpoint'] == {'backend': 'tmux', 'target': 'sess:win', 'pane_id': '%3', 'task_id': 'steered'}, r
-    assert r['delivery_kind'] == 'doorbell', r
-    assert r['sender_home'] == str(home.resolve()), r
-    assert r['sha256'] == hashlib.sha256(typed).hexdigest(), r
-PY
+  node - "$FM_HOME" "$TMP_ROOT/watch-typed" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const [home, typedFile] = process.argv.slice(2);
+const records = lib.records(`${home}/state/local-send-provenance`);
+assert.ok(records.length > 0, "the re-ring wrote no record");
+const typed = fs.readFileSync(typedFile);
+assert.ok(typed.toString("utf8").startsWith(": Firstmate instruction waiting:"));
+for (const r of records) {
+  assert.deepStrictEqual(r.endpoint, { backend: "tmux", target: "sess:win", pane_id: "%3", task_id: "steered" }, JSON.stringify(r));
+  assert.strictEqual(r.delivery_kind, "doorbell", JSON.stringify(r));
+  assert.strictEqual(r.sender_home, fs.realpathSync(home), JSON.stringify(r));
+  assert.strictEqual(r.sha256, lib.sha256(typed), JSON.stringify(r));
+}
+JS
 )
 pass 'send-provenance-re-ring: a watcher doorbell re-ring records the typed line for its task'
 
@@ -328,20 +370,23 @@ for n in $(seq 1 12); do
   pids+=("$!")
 done
 for pid in "${pids[@]}"; do wait "$pid"; done
-python3 - "$TMP_ROOT/concurrent-state" <<'PY'
-import json, pathlib, sys
-records = [json.loads(line) for file in pathlib.Path(sys.argv[1]).glob('local-send-provenance/*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 12, len(records)
-PY
-python3 - "$store" <<'PY'
-import json, pathlib, sys
-store = pathlib.Path(sys.argv[1])
-assert not (store/'2000-01-01.jsonl').exists()
-records = [json.loads(line) for file in store.glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 20, len(records)
-assert store.stat().st_mode & 0o777 == 0o700
-assert all(f.stat().st_mode & 0o777 == 0o600 for f in store.glob('*.jsonl'))
-PY
+node - "$TMP_ROOT/concurrent-state" <<'JS'
+const assert = require("assert");
+const lib = require(process.env.PROVENANCE_LIB);
+const records = lib.records(`${process.argv[2]}/local-send-provenance`);
+assert.strictEqual(records.length, 12, String(records.length));
+JS
+node - "$store" <<'JS'
+const assert = require("assert");
+const fs = require("fs");
+const lib = require(process.env.PROVENANCE_LIB);
+const store = process.argv[2];
+assert.ok(!fs.existsSync(`${store}/2000-01-01.jsonl`));
+const records = lib.records(store);
+assert.strictEqual(records.length, 20, String(records.length));
+assert.strictEqual(fs.statSync(store).mode & 0o777, 0o700);
+assert.ok(lib.shards(store).every((file) => (fs.statSync(file).mode & 0o777) === 0o600));
+JS
 pass 'concurrent writers preserve complete private records and expire old shards'
 
 # Drive real teardown on a landed local fixture, with external tools stubbed.
@@ -365,9 +410,10 @@ FM_DATA_OVERRIDE="$FM_HOME/data" FM_CONFIG_OVERRIDE="$FM_HOME/config" \
   || { cat "$TMP_ROOT/teardown.err" >&2; fail 'fixture teardown failed'; }
 [ ! -e "$FM_HOME/state/worker.meta" ] || fail 'fixture task did not retire'
 [ ! -e "$store/2000-01-01.jsonl" ] || fail 'teardown did not prune expired provenance'
-python3 - "$store" <<'PY'
-import json, pathlib, sys
-records = [json.loads(line) for file in pathlib.Path(sys.argv[1]).glob('*.jsonl') for line in file.read_text().splitlines()]
-assert len(records) == 20, len(records)
-PY
+node - "$store" <<'JS'
+const assert = require("assert");
+const lib = require(process.env.PROVENANCE_LIB);
+const records = lib.records(process.argv[2]);
+assert.strictEqual(records.length, 20, String(records.length));
+JS
 pass 'teardown retains recent history and removes only expired provenance'

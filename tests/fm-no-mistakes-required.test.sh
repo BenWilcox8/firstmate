@@ -4,6 +4,7 @@ set -u
 
 # shellcheck source=tests/lib.sh disable=SC1091
 . "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+command -v python3 >/dev/null 2>&1 || { echo "skip: python3 not found (the pinned shared action verifier is a Python program)"; exit 0; }
 
 ACTION_REF=32d396ac0f29135daf7fcb9964aba9d5f4e796d6
 TMP_ROOT=$(fm_test_tmproot fm-no-mistakes-required)
@@ -15,7 +16,6 @@ COMPLETED_STEPS='[{"step":"review","status":"completed"},{"step":"test","status"
 
 fetch_shared_verifier() {
   command -v curl >/dev/null 2>&1 || fail "curl is required to exercise the pinned shared action"
-  command -v python3 >/dev/null 2>&1 || fail "python3 is required to exercise the pinned shared action"
   curl --fail --silent --show-error --location \
     "https://raw.githubusercontent.com/kunchenguid/no-mistakes/${ACTION_REF}/.github/actions/require-no-mistakes/verify.py" \
     > "$VERIFY" || fail "could not fetch the pinned shared action verifier"

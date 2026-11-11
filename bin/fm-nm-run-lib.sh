@@ -276,7 +276,11 @@ except (ValueError, OSError, sqlite3.Error):
     print("unknown|complete same-branch run inventory unreadable; run ids: " + ", ".join(ids))
 PY
   ); then
-    printf 'unknown|complete same-branch run inventory reader unavailable; run ids: %s\n' "$available_ids"
+    if command -v python3 >/dev/null 2>&1; then
+      printf 'unknown|complete same-branch run inventory reader unavailable; run ids: %s\n' "$available_ids"
+    else
+      printf 'unknown|complete same-branch run inventory reader unavailable (python3 is not installed); run ids: %s\n' "$available_ids"
+    fi
     return
   fi
   case "$inventory" in

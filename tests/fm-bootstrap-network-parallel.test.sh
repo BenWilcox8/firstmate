@@ -22,12 +22,6 @@ unset TMUX TMUX_PANE HERDR_ENV HERDR_PANE_ID HERDR_SESSION HERDR_SOCKET_PATH \
   CMUX_WORKSPACE_ID CMUX_SURFACE_ID CMUX_SOCKET_PATH CMUX_TAB_ID CMUX_PANEL_ID \
   2>/dev/null || true
 
-command -v python3 >/dev/null 2>&1 \
-  || fail "python3 is required to decode the fm-on.sh argv payload"
-# The fake ssh decodes that payload under the restricted PATH too, and NixOS
-# keeps python3 outside the FHS directories.
-BASE_PATH="$BASE_PATH:$(dirname "$(command -v python3)")"
-
 REAL_GIT=$(command -v git) || fail "git is required"
 REAL_MKTEMP=$(command -v mktemp) || fail "mktemp is required"
 fm_git_identity fmtest fmtest@example.invalid
@@ -58,13 +52,10 @@ entry=${2:-}
 shift 2 || true
 [ "$entry" = fm-remote-entrypoint.sh ] || exit 92
 argv_b64=${4:-}
-cmd=$(python3 -c 'import sys, base64
-raw = base64.b64decode(sys.argv[1])
-parts = [p.decode() for p in raw.split(b"\0") if p]
-print(parts[0] if parts else "")
-print(parts[1] if len(parts) > 1 else "")
-print(parts[2] if len(parts) > 2 else "")
-' "$argv_b64")
+decode() { printf '%s' "$1" | base64 --decode 2>/dev/null || printf '%s' "$1" | base64 -D; }
+decode "$argv_b64" >/dev/null 2>&1 || exit 93
+# The payload is NUL-separated argv; keep the first three non-empty parts, one per line.
+cmd=$(decode "$argv_b64" | tr '\0' '\n' | awk 'length' | head -n 3)
 command_name=$(printf '%s\n' "$cmd" | sed -n '1p')
 subcommand=$(printf '%s\n' "$cmd" | sed -n '2p')
 slow=0

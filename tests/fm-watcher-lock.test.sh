@@ -16,9 +16,13 @@ LIB="$ROOT/bin/fm-wake-lib.sh"
 # An arm only reports its typed failure after wait_for_healthy_successor has
 # spent the whole confirmation budget, so cases that wait for that failure must
 # outlast the largest production default (30s on MSYS, 10s elsewhere - see
-# ARM_CONFIRM_DEFAULT in bin/fm-watch-arm.sh). This is a ceiling spent only when
-# an arm genuinely fails to exit; a passing case returns as soon as it does.
-ARM_FAIL_EXIT_POLLS=400
+# ARM_CONFIRM_DEFAULT in bin/fm-watch-arm.sh). Every other wait on an arm or
+# watcher lifecycle step (start, attach, exit, child cleanup) uses the same
+# ceiling: a shorter one than the arm's own confirmation budget failed these
+# cases on a loaded host while the arm was still legitimately confirming. It is
+# spent only when a step genuinely never happens; a passing case returns as soon
+# as it does.
+ARM_LIFECYCLE_POLLS=400
 
 TMP_ROOT=$(fm_test_tmproot fm-watcher-lock-tests)
 
@@ -37,14 +41,11 @@ drain_and_ack() {  # <state>
 test_wait_deadline_reaps_a_stopped_child() {
   # A stopped TERM-resistant child cannot finish graceful cleanup. The helper waited
   # forever after its nominal deadline. An outer process-group deadline keeps
-  # this regression finite even if that bug returns.
-  python3 - "$ROOT/tests/wake-helpers.sh" <<'PY' || fail "bounded child cleanup regression"
-import os
-import signal
-import subprocess
-import sys
-
-script = r'''
+  # this regression finite even if that bug returns: the probe runs as its own
+  # job-control group, and this loop KILLs that whole group if it outlives the
+  # bound, without trusting the wait_for_exit helper it is testing.
+  local probe out err pid rc i
+  IFS= read -r -d '' probe <<'SH' || true
 . "$1"
 bash -c 'trap "" TERM; kill -STOP "$$"; exec sleep 300' &
 pid=$!
@@ -58,18 +59,28 @@ wait_for_exit "$pid" 2
 rc=$?
 [ "$rc" = 124 ] || exit 21
 ! kill -0 "$pid" 2>/dev/null || exit 22
-'''
-p = subprocess.Popen([os.environ.get("BASH", "bash"), "-c", script, "_", sys.argv[1]],
-                     start_new_session=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-try:
-    out, err = p.communicate(timeout=15)
-except subprocess.TimeoutExpired:
-    os.killpg(p.pid, signal.SIGKILL)
-    p.communicate()
-    raise SystemExit("wait_for_exit hung after its deadline on a stopped child")
-if p.returncode or "survived TERM; sending KILL" not in err:
-    raise SystemExit(f"cleanup rc={p.returncode}, stdout={out}, stderr={err}")
-PY
+SH
+  out="$TMP_ROOT/wait-deadline.out"
+  err="$TMP_ROOT/wait-deadline.err"
+  set -m
+  "${BASH:-bash}" -c "$probe" _ "$ROOT/tests/wake-helpers.sh" > "$out" 2> "$err" &
+  pid=$!
+  set +m
+  i=0
+  while [ "$i" -lt 150 ] && is_live_non_zombie "$pid"; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  if is_live_non_zombie "$pid"; then
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+    fail "bounded child cleanup regression: wait_for_exit hung after its deadline on a stopped child"
+  fi
+  rc=0
+  wait "$pid" || rc=$?
+  if [ "$rc" -ne 0 ] || ! grep -F 'survived TERM; sending KILL' "$err" >/dev/null; then
+    fail "bounded child cleanup regression: cleanup rc=$rc, stdout=$(cat "$out"), stderr=$(cat "$err")"
+  fi
   pass "wait deadline diagnoses and reaps a stopped test child without hanging"
 }
 
@@ -79,7 +90,7 @@ PY
 stop_seed_watcher() {  # <owned-pid> <output-path>
   local pid=$1 out=$2 status=0
   kill -TERM "$pid" 2>/dev/null || true
-  wait_for_exit "$pid" 100 || status=$?
+  wait_for_exit "$pid" "$ARM_LIFECYCLE_POLLS" || status=$?
   if [ "$status" -eq 124 ]; then
     cat "$out" >&2
     fail "seed watcher survived TERM; see bounded wait/process/trap evidence above"
@@ -102,7 +113,7 @@ test_singleton_start() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out2" &
   pid2=$!
   i=0
-  while [ "$i" -lt 50 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     live=0
     is_live_non_zombie "$pid1" && live=$((live + 1))
     is_live_non_zombie "$pid2" && live=$((live + 1))
@@ -140,7 +151,7 @@ test_stale_watch_lock_reclaimed() {
   i=0
   live=0
   lock_pid=
-  while [ "$i" -lt 50 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     live=0
     is_live_non_zombie "$pid" && live=1
     lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
@@ -250,13 +261,31 @@ test_guard_warnings() {
   pass "guard banner leads when down with pending wakes (repair-after-drain) and stays silent when live and fresh"
 }
 
+# A lock winner in the contention cases below holds its lock until every
+# contender has recorded its attempt, instead of for a fixed sleep. A fixed hold
+# let a contender scheduled late on a loaded host find a dead-pid lock and
+# legitimately reclaim it, which read as two winners. The poll is bounded so a
+# contender that never starts cannot keep the winner alive forever.
+hold_until_all_tried() {  # <tried-file> <contenders>
+  local i=0
+  while [ "$i" -lt 1200 ]; do
+    [ "$(awk 'NF { c++ } END { print c + 0 }' "$1" 2>/dev/null)" -ge "$2" ] && return 0
+    sleep 0.05
+    i=$((i + 1))
+  done
+  return 1
+}
+export -f hold_until_all_tried
+
 test_lock_single_winner_under_concurrency() {
-  local dir state lockdir marker i pids pid wins
+  local dir state lockdir marker tried i pids pid wins
   dir=$(make_case lock-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   marker="$dir/wins"
+  tried="$dir/tried"
   : > "$marker"
+  : > "$tried"
   pids=
   i=1
   while [ "$i" -le 40 ]; do
@@ -264,11 +293,15 @@ test_lock_single_winner_under_concurrency() {
       . "$1"
       if fm_lock_try_acquire "$2"; then
         printf "%s\n" "$$" >> "$3"
-        # Stay alive so the held lock names a live pid for the whole window;
-        # otherwise a late contender could legitimately reclaim a dead-pid lock.
-        sleep 1
+        printf "x\n" >> "$4"
+        # Stay alive until every contender has tried, so the held lock names a
+        # live pid for the whole window; otherwise a late contender on a loaded
+        # host could legitimately reclaim a dead-pid lock.
+        hold_until_all_tried "$4" "$5"
+      else
+        printf "x\n" >> "$4"
       fi
-    ' _ "$LIB" "$lockdir" "$marker" &
+    ' _ "$LIB" "$lockdir" "$marker" "$tried" 40 &
     pids="$pids $!"
     i=$((i + 1))
   done
@@ -300,7 +333,7 @@ test_lock_steals_dead_pid_lock() {
 }
 
 test_lock_stale_steal_single_winner_under_concurrency() {
-  local dir state lockdir dead marker i pids pid wins
+  local dir state lockdir dead marker tried i pids pid wins
   dir=$(make_case lock-stale-concurrency)
   state="$dir/state"
   lockdir="$state/.contend.lock"
@@ -308,7 +341,9 @@ test_lock_stale_steal_single_winner_under_concurrency() {
   dead=$(dead_pid)
   mkdir "$lockdir"
   printf '%s\n' "$dead" > "$lockdir/pid"
+  tried="$dir/tried"
   : > "$marker"
+  : > "$tried"
   pids=
   i=1
   while [ "$i" -le 40 ]; do
@@ -316,9 +351,12 @@ test_lock_stale_steal_single_winner_under_concurrency() {
       . "$1"
       if fm_lock_try_acquire "$2"; then
         printf "%s\n" "${BASHPID:-$$}" >> "$3"
-        sleep 1
+        printf "x\n" >> "$4"
+        hold_until_all_tried "$4" "$5"
+      else
+        printf "x\n" >> "$4"
       fi
-    ' _ "$LIB" "$lockdir" "$marker" &
+    ' _ "$LIB" "$lockdir" "$marker" "$tried" 40 &
     pids="$pids $!"
     i=$((i + 1))
   done
@@ -331,11 +369,13 @@ test_lock_stale_steal_single_winner_under_concurrency() {
 }
 
 test_lock_live_steal_mutex_is_not_reclaimed() {
-  local dir state lockdir dead holder_file holder out i lockpid stealpid
+  local dir state lockdir dead holder_file tried holder out i lockpid stealpid
   dir=$(make_case lock-live-stealer)
   state="$dir/state"
   lockdir="$state/.contend.lock"
   holder_file="$dir/holder"
+  tried="$dir/tried"
+  : > "$tried"
   dead=$(dead_pid)
   mkdir "$lockdir"
   printf '%s\n' "$dead" > "$lockdir/pid"
@@ -343,9 +383,9 @@ test_lock_live_steal_mutex_is_not_reclaimed() {
     . "$1"
     fm_lock_try_acquire "$2.steal" || exit 7
     printf "%s\n" "${BASHPID:-$$}" > "$3"
-    sleep 2
+    hold_until_all_tried "$4" 1
     fm_lock_release "$2.steal"
-  ' _ "$LIB" "$lockdir" "$holder_file" &
+  ' _ "$LIB" "$lockdir" "$holder_file" "$tried" &
   holder=$!
   i=0
   while [ "$i" -lt 50 ] && [ ! -s "$holder_file" ]; do
@@ -357,7 +397,8 @@ test_lock_live_steal_mutex_is_not_reclaimed() {
     . "$1"
     if fm_lock_try_acquire "$2"; then rc=0; else rc=1; fi
     printf "rc=%s held=%s lockpid=%s stealpid=%s\n" "$rc" "${FM_LOCK_HELD_PID:-}" "$(cat "$2/pid" 2>/dev/null || true)" "$(cat "$2.steal/pid" 2>/dev/null || true)"
-  ' _ "$LIB" "$lockdir")
+    printf "x\n" >> "$3"
+  ' _ "$LIB" "$lockdir" "$tried")
   wait "$holder" || fail "live steal mutex holder failed"
   case "$out" in
     *"rc=1"*) ;;
@@ -496,7 +537,7 @@ test_watch_restart_rejects_reused_pid() {
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" --restart > "$out" &
   pid=$!
   i=0
-  while [ "$i" -lt 80 ] && is_live_non_zombie "$pid"; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ] && is_live_non_zombie "$pid"; do
     sleep 0.1
     i=$((i + 1))
   done
@@ -540,7 +581,7 @@ test_watch_restart_attaches_to_healthy_peer() {
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" --restart > "$out" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF "watcher: attached pid=$peer" "$out" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -550,7 +591,7 @@ test_watch_restart_attaches_to_healthy_peer() {
   is_live_non_zombie "$peer" || fail "restart killed a TERM-resistant peer unexpectedly"
   kill -KILL "$peer" 2>/dev/null || true
   wait "$peer" 2>/dev/null || true
-  wait_for_exit "$armpid" 80
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "restart arm did not fail after its attached peer ended without a successor (status $status)"
   grep -qF 'watcher: FAILED - cycle ended without an actionable reason' "$out" || fail "restart arm did not surface the attached cycle end"
@@ -566,7 +607,7 @@ test_watcher_self_evicts_on_lock_takeover() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" &
   pid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$pid" ] \
       && [ -s "$state/.watch.lock/pid-identity" ] \
       && [ -e "$state/.last-watcher-beat" ] \
@@ -581,7 +622,7 @@ test_watcher_self_evicts_on_lock_takeover() {
   # Simulate a second watcher taking over the singleton lock. $$ (the test
   # runner) is a live pid that is not the watcher.
   printf '%s\n' "$$" > "$state/.watch.lock/pid"
-  wait_for_exit "$pid" 60 || fail "watcher did not self-evict after lock takeover"
+  wait_for_exit "$pid" "$ARM_LIFECYCLE_POLLS" || fail "watcher did not self-evict after lock takeover"
   lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
   [ "$lock_pid" = "$$" ] || fail "self-evicting watcher clobbered the new holder's lock (got '$lock_pid')"
   pass "watcher self-evicts when the lock pid no longer names it"
@@ -603,7 +644,7 @@ test_arm_self_eviction_is_loud_without_successor() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=0.2 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -615,7 +656,7 @@ test_arm_self_eviction_is_loud_without_successor() {
   # self-evict normally. With no verified successor, the arm must turn that
   # otherwise clean empty close into the typed nonzero failure.
   printf '%s\n' "$$" > "$state/.watch.lock/pid"
-  wait_for_exit "$armpid" "$ARM_FAIL_EXIT_POLLS"
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "self-evicted arm did not fail nonzero (status $status)"
   grep -qF 'watcher: FAILED - cycle ended without an actionable reason' "$armout" || fail "self-evicted arm omitted the typed cycle-end failure"
@@ -634,7 +675,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
-  while [ "$i" -lt 60 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
     sleep 0.1
     i=$((i + 1))
@@ -645,7 +686,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF "watcher: attached pid=$wpid" "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -657,7 +698,7 @@ test_arm_attaches_and_waits_for_live_fresh_watcher() {
   is_live_non_zombie "$armpid" || fail "arm exited while the seed watcher was still healthy"
   # After the seed dies without a successor, the attached arm must fail loudly.
   stop_seed_watcher "$wpid" "$out"
-  wait_for_exit "$armpid" 80
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "attached arm did not fail after seed died (status $status)"
   grep -qF 'watcher: FAILED - cycle ended without an actionable reason' "$armout" || fail "attached arm did not emit the typed cycle-end failure"
@@ -674,7 +715,7 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH" > "$out" 2>&1 &
   wpid=$!
   i=0
-  while [ "$i" -lt 60 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     [ "$(cat "$state/.watch.lock/pid" 2>/dev/null || true)" = "$wpid" ] && [ -e "$state/.last-watcher-beat" ] && break
     sleep 0.1
     i=$((i + 1))
@@ -683,14 +724,14 @@ test_attached_arm_signal_is_recorded_in_cycle_ledger() {
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_ARM_ATTACH_POLL=0.1 FM_ARM_CONFIRM_TIMEOUT=1 "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF "watcher: attached pid=$wpid" "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
   done
   grep -qF "watcher: attached pid=$wpid" "$armout" || fail "arm did not report attach before signal"
   kill -TERM "$armpid" 2>/dev/null || fail "could not signal the attached arm"
-  wait_for_exit "$armpid" 80
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -eq 143 ] || fail "attached arm did not exit with TERM status (got $status)"
   grep -q "arm_pid=$armpid.*watcher_pid=$wpid.*origin=attached.*exit_code=143.*signal=TERM.*reason=arm-interrupted" "$state/.watch-cycle-exits.log" \
@@ -725,7 +766,7 @@ test_arm_starts_and_self_heals() {
     PATH="$fakebin:$PATH" FM_HOME="$dir" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
     armpid=$!
     i=0
-    while [ "$i" -lt 80 ]; do
+    while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
       if [ "$row" = dead-pid ]; then
         is_live_non_zombie "$armpid" || break
       else
@@ -764,7 +805,7 @@ test_arm_hup_cleans_child_and_temp_output() {
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -772,11 +813,11 @@ test_arm_hup_cleans_child_and_temp_output() {
   grep -qF 'watcher: started pid=' "$armout" || fail "arm did not start before HUP cleanup check"
   lock_pid=$(cat "$state/.watch.lock/pid" 2>/dev/null || true)
   kill -HUP "$armpid" 2>/dev/null || fail "could not send HUP to arm"
-  wait_for_exit "$armpid" 80
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -eq 129 ] || fail "arm did not exit with HUP status (got $status)"
   i=0
-  while [ "$i" -lt 80 ] && is_live_non_zombie "$lock_pid"; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ] && is_live_non_zombie "$lock_pid"; do
     sleep 0.1
     i=$((i + 1))
   done
@@ -840,7 +881,7 @@ test_arm_waits_for_peer_beacon_after_child_stands_down() {
   # regression fixture race the confirmation deadline under full-suite load,
   # rather than testing the intended successor-handshake boundary.
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF "watcher: already running pid $peer" "$state"/.watch-arm-output.* 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -849,7 +890,7 @@ test_arm_waits_for_peer_beacon_after_child_stands_down() {
     || fail "arm child did not stand down behind the peer watcher"
   touch "$state/.last-watcher-beat"
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF "watcher: attached pid=$peer" "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -860,7 +901,7 @@ test_arm_waits_for_peer_beacon_after_child_stands_down() {
   # After the peer dies without a successor, the attached arm must fail loudly.
   kill "$peer" 2>/dev/null || true
   wait "$peer" 2>/dev/null || true
-  wait_for_exit "$armpid" "$ARM_FAIL_EXIT_POLLS"
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "attached arm did not fail after peer died (status $status): $(cat "$armout")"
   grep -qF 'watcher: FAILED - cycle ended without an actionable reason' "$armout" || fail "peer-attached arm did not emit the typed cycle-end failure"
@@ -883,7 +924,7 @@ test_arm_fails_loud_when_no_fresh_watcher_confirmable() {
   touch -t 200001010000 "$state/.last-watcher-beat"
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 FM_ARM_CONFIRM_TIMEOUT=3 "$WATCH_ARM" > "$armout" &
   armpid=$!
-  wait_for_exit "$armpid" 120
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 124 ] || fail "arm never returned for an unconfirmable watcher"
   [ "$status" -ne 0 ] || fail "arm exited zero when no fresh watcher could be confirmed"
@@ -923,7 +964,7 @@ SH
   PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_PREDECESSOR_ARM_PID="$first_arm" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
   successor_arm=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -948,7 +989,7 @@ SH
     PATH="$fakebin:$PATH" FM_STATE_OVERRIDE="$state" FM_WATCH_CYCLE_LOG_MAX_BYTES=1400 FM_WATCH_CYCLE_LOG_KEEP_LINES=2 FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
     successor_arm=$!
     i=0
-    while [ "$i" -lt 80 ]; do
+    while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
       grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
       sleep 0.1
       i=$((i + 1))
@@ -976,7 +1017,7 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
   PATH="$fakebin:$PATH" FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_POLL=5 FM_SIGNAL_GRACE=1 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 "$WATCH_ARM" > "$armout" &
   armpid=$!
   i=0
-  while [ "$i" -lt 80 ]; do
+  while [ "$i" -lt "$ARM_LIFECYCLE_POLLS" ]; do
     grep -qF 'watcher: started pid=' "$armout" 2>/dev/null && break
     sleep 0.1
     i=$((i + 1))
@@ -994,7 +1035,7 @@ test_stopped_watcher_is_live_but_stale_then_exit_is_classified() {
 
   kill -CONT "$watcher_pid" 2>/dev/null || true
   kill -TERM "$watcher_pid" 2>/dev/null || true
-  wait_for_exit "$armpid" 80
+  wait_for_exit "$armpid" "$ARM_LIFECYCLE_POLLS"
   status=$?
   [ "$status" -ne 0 ] && [ "$status" -ne 124 ] || fail "terminated stopped-watcher cycle did not surface nonzero (status $status)"
   grep -Eq 'reason=(nonzero-exit|signal-exit)' "$state/.watch-cycle-exits.log" \

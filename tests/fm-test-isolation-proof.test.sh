@@ -35,6 +35,7 @@ test_family_pool_json_identifies_admission() {
   skipped_json="$tmp/skipped-proof.json"
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$PROOF" "$proof"
+  cp "$ROOT/bin/fm-test-json-lib.cjs" "$repo/bin/"
   cat >"$repo/bin/fm-test-run.sh" <<'SH'
 #!/usr/bin/env bash
 if { [ "$1" = --list ] || [ "$1" = --list-scheduled ]; } && [ "$2" = --family ]; then
@@ -108,29 +109,29 @@ SH
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "family pool proof fixture failed: $(cat "$tmp/out") $(cat "$tmp/err")"
-  python3 -c '
-import json, sys
-artifact = json.load(open(sys.argv[1], encoding="utf-8"))
-assert artifact["kind"] == "isolation-proof"
-assert artifact["pool"] == "fixture-family"
-assert artifact["fm_test_run_jobs_enabled"] is False
-assert artifact["production_sharding_enabled"] is False
-assert artifact["summary"]["total"] == 2
-assert artifact["summary"]["failed"] == 0
+  node -e '
+const assert = require("assert");
+const artifact = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(artifact.kind, "isolation-proof");
+assert.strictEqual(artifact.pool, "fixture-family");
+assert.strictEqual(artifact.fm_test_run_jobs_enabled, false);
+assert.strictEqual(artifact.production_sharding_enabled, false);
+assert.strictEqual(artifact.summary.total, 2);
+assert.strictEqual(artifact.summary.failed, 0);
 ' "$json" || fail "serial family pool artifact metadata is incorrect"
   set +e
   PROOF_SCHED_EVIDENCE="$tmp" "$proof" --pool admitted-family --jobs 2 --json "$admitted_json" >"$tmp/admitted.out" 2>"$tmp/admitted.err"
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "admitted family proof fixture failed: $(cat "$tmp/admitted.out") $(cat "$tmp/admitted.err")"
-  python3 -c '
-import json, sys
-artifact = json.load(open(sys.argv[1], encoding="utf-8"))
-assert artifact["pool"] == "admitted-family"
-assert artifact["concurrency"] == 2
-assert artifact["fm_test_run_jobs_enabled"] is True
-assert artifact["summary"]["total"] == 3
-assert artifact["summary"]["failed"] == 0
+  node -e '
+const assert = require("assert");
+const artifact = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(artifact.pool, "admitted-family");
+assert.strictEqual(artifact.concurrency, 2);
+assert.strictEqual(artifact.fm_test_run_jobs_enabled, true);
+assert.strictEqual(artifact.summary.total, 3);
+assert.strictEqual(artifact.summary.failed, 0);
 ' "$admitted_json" || fail "admitted family pool artifact metadata is incorrect"
   mkdir "$tmp/capped-evidence"
   set +e
@@ -138,13 +139,13 @@ assert artifact["summary"]["failed"] == 0
   rc=$?
   set -e
   [ "$rc" -eq 0 ] || fail "over-cap family proof fixture failed: $(cat "$tmp/capped.out") $(cat "$tmp/capped.err")"
-  python3 -c '
-import json, sys
-artifact = json.load(open(sys.argv[1], encoding="utf-8"))
-assert artifact["pool"] == "admitted-family"
-assert artifact["concurrency"] == 3
-assert artifact["fm_test_run_jobs_enabled"] is False
-assert artifact["summary"]["failed"] == 0
+  node -e '
+const assert = require("assert");
+const artifact = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(artifact.pool, "admitted-family");
+assert.strictEqual(artifact.concurrency, 3);
+assert.strictEqual(artifact.fm_test_run_jobs_enabled, false);
+assert.strictEqual(artifact.summary.failed, 0);
 ' "$capped_json" || fail "over-cap family pool artifact metadata is incorrect"
   set +e
   "$proof" --pool skipped-family --jobs 2 --json "$skipped_json" >"$tmp/skipped.out" 2>"$tmp/skipped.err"
@@ -155,14 +156,14 @@ assert artifact["summary"]["failed"] == 0
     || fail "gate-skipped proof did not name its pool: $(cat "$tmp/skipped.err")"
   grep -Fq 'tests/fm-proof-skipped.test.sh: skip: herdr not found' "$tmp/skipped.err" \
     || fail "gate-skipped proof did not name its candidate and prerequisite: $(cat "$tmp/skipped.err")"
-  python3 -c '
-import json, sys
-artifact = json.load(open(sys.argv[1], encoding="utf-8"))
-assert artifact["pool"] == "skipped-family"
-assert artifact["fm_test_run_jobs_enabled"] is False
-assert artifact["summary"]["total"] == 1
-assert artifact["summary"]["failed"] == 1
-assert artifact["scripts"][0]["exit"] == 1
+  node -e '
+const assert = require("assert");
+const artifact = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+assert.strictEqual(artifact.pool, "skipped-family");
+assert.strictEqual(artifact.fm_test_run_jobs_enabled, false);
+assert.strictEqual(artifact.summary.total, 1);
+assert.strictEqual(artifact.summary.failed, 1);
+assert.strictEqual(artifact.scripts[0].exit, 1);
 ' "$skipped_json" || fail "gate-skipped family artifact was admitted"
   rm -rf "$tmp"
   pass "family pool JSON scopes jobs admission to proven concurrency"
@@ -249,7 +250,7 @@ test_family_map_labels_this_contract() {
   safe_max=$("$RUNNER" --concurrent-safe-family-jobs-max pure-contract-unit)
   [ "$safe_max" -eq 4 ] || fail "runner exposed the wrong contract-unit family worker cap: $safe_max"
   scheduled_first=$("$RUNNER" --list-scheduled --family watcher-wake-lock | head -n 1)
-  [ "$scheduled_first" = tests/fm-watch-triage.test.sh ] \
+  [ "$scheduled_first" = tests/fm-watch-triage-stale.test.sh ] \
     || fail "runner scheduled the watcher family out of longest-hint order: $scheduled_first"
   pass "isolation-proof contract test is family-mapped"
 }

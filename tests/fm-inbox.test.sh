@@ -6,7 +6,12 @@
 # announced state of notes that predate the marker, bounded receipts JSON with
 # omission disclosure, the reply cursor's strict order, and the readiness
 # projection's model-aware verdict and unknown path. Human note/list/drain
-# behaviour stays unchanged when the new flags are omitted.
+# behaviour stays unchanged when the new flags are omitted. `say` and `ask` are
+# covered with a fake aws: the WAV header that `say` builds, the duration, and
+# each request body. The machine-readable subcommands also run under a minimal
+# non-login PATH that finds node only in /opt/homebrew/bin or /usr/local/bin,
+# and a node on that PATH still wins over the node in those directories.
+# Without any node, they stop before they write a note, a wake or a reply.
 set -euo pipefail
 
 # shellcheck source=tests/lib.sh
@@ -35,15 +40,20 @@ run_lock() {
   FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" "$LOCK_BIN" "$@"
 }
 
+# Prints the JSON value at the key path: strings bare, booleans as true or
+# false, null as null. A digit-only key indexes into an array. A key or an
+# index that is not there fails with no output, so an absent value never
+# passes for a null one. Input that is not exactly one JSON document also
+# fails with no output.
 json_get() {
-  python3 -c 'import json,sys
-v=json.load(sys.stdin)
-for k in sys.argv[1:]:
-    if isinstance(v, list) and k.lstrip("-").isdigit():
-        v=v[int(k)]
-    else:
-        v=v[k]
-print(v)' "$@"
+  jq -rs --args "$FM_TEST_ONE_JSON"' |
+    reduce $ARGS.positional[] as $k (.;
+      if type == "array" and ($k | test("^-?[0-9]+$"))
+        and (($k | tonumber) as $i | $i < length and $i >= -length)
+      then .[$k | tonumber]
+      elif type == "object" and has($k) then .[$k]
+      else error("no \($k) in the JSON value") end)
+    | tostring' "$@"
 }
 
 count_notes() {
@@ -99,9 +109,9 @@ first=$(printf '%s' "$body" | run_inbox "$home" note --request-id req-1 --json -
 first_id=$(printf '%s' "$first" | json_get id)
 assert_equals "created" "$(printf '%s' "$first" | json_get outcome)" \
   "first submission is created"
-assert_equals "True" "$(printf '%s' "$first" | json_get saved)" \
+assert_equals "true" "$(printf '%s' "$first" | json_get saved)" \
   "first submission is saved"
-assert_equals "True" "$(printf '%s' "$first" | json_get announced)" \
+assert_equals "true" "$(printf '%s' "$first" | json_get announced)" \
   "first submission is announced"
 assert_equals "req-1" "$(printf '%s' "$first" | json_get request_id)" \
   "receipt carries the request id"
@@ -156,9 +166,9 @@ set -e
 expect_code 3 "$saved_code" "request-id note exits 3 when saved but not announced"
 assert_equals "created" "$(printf '%s' "$saved_out" | json_get outcome)" \
   "first isolated submit is created"
-assert_equals "True" "$(printf '%s' "$saved_out" | json_get saved)" \
+assert_equals "true" "$(printf '%s' "$saved_out" | json_get saved)" \
   "isolated submit saved the note"
-assert_equals "False" "$(printf '%s' "$saved_out" | json_get announced)" \
+assert_equals "false" "$(printf '%s' "$saved_out" | json_get announced)" \
   "isolated submit could not announce"
 saved_id=$(printf '%s' "$saved_out" | json_get id)
 assert_equals "1" "$(count_notes "$home")" "isolated submit wrote one note"
@@ -181,7 +191,7 @@ repair=$(run_inbox "$home" note --request-id repair-1 --json "please announce") 
   || fail "replay with a working announcer should repair the wake"
 assert_equals "replay" "$(printf '%s' "$repair" | json_get outcome)" \
   "repair is still a replay"
-assert_equals "True" "$(printf '%s' "$repair" | json_get announced)" \
+assert_equals "true" "$(printf '%s' "$repair" | json_get announced)" \
   "repair announces the existing note"
 assert_equals "$saved_id" "$(printf '%s' "$repair" | json_get id)" \
   "repair keeps the original id"
@@ -218,9 +228,9 @@ acked_id=$(printf '%s' "$acked" | json_get id)
 run_inbox "$home" drain --ack "$acked_id" >/dev/null || fail "drain --ack failed"
 acked_repair=$(run_inbox "$home" announce --json "$acked_id") \
   || fail "announce of an acknowledged note should succeed without waking"
-assert_equals "True" "$(printf '%s' "$acked_repair" | json_get acknowledged)" \
+assert_equals "true" "$(printf '%s' "$acked_repair" | json_get acknowledged)" \
   "announce reports the note as already acknowledged"
-assert_equals "False" "$(printf '%s' "$acked_repair" | json_get announced)" \
+assert_equals "false" "$(printf '%s' "$acked_repair" | json_get announced)" \
   "announce does not claim a wake it never appended"
 acked_human=$(run_inbox "$home" announce "$acked_id") \
   || fail "human announce of an acknowledged note should succeed"
@@ -230,7 +240,7 @@ acked_replay=$(run_inbox "$home" note --request-id acked-1 --json "drained befor
   || fail "replay of an acknowledged note should exit 0"
 assert_equals "replay" "$(printf '%s' "$acked_replay" | json_get outcome)" \
   "retry of an acknowledged note is a replay"
-assert_equals "True" "$(printf '%s' "$acked_replay" | json_get acknowledged)" \
+assert_equals "true" "$(printf '%s' "$acked_replay" | json_get acknowledged)" \
   "replay reports the note as already acknowledged"
 assert_equals "0" "$(count_wakes "$home")" \
   "an acknowledged note never gets a repair wake"
@@ -238,8 +248,12 @@ pass "repair and replay do not wake firstmate for an already-acknowledged note"
 
 # --- bounded receipts JSON, omission disclosure, reply cursor ---------------
 
-json_len() {  # <key>
-  python3 -c 'import json,sys; print(len(json.load(sys.stdin)[sys.argv[1]]))' "$1"
+json_len() {  # <key> - fails with no output unless the key holds a list, object, or string
+  jq -rs --arg k "$1" "$FM_TEST_ONE_JSON"' |
+    if type == "object" and has($k)
+      and (.[$k] | type | . == "array" or . == "object" or . == "string")
+    then .[$k] | length
+    else error("no sized \($k) in the JSON value") end'
 }
 
 home=$(make_home receipts)
@@ -266,7 +280,7 @@ all_receipts=$(run_inbox "$home" receipts --all-pending) \
   || fail "unbounded receipts should succeed"
 assert_equals "21" "$(printf '%s' "$all_receipts" | json_len pending)" \
   "--all-pending reveals every pending note"
-assert_equals "[]" "$(printf '%s' "$all_receipts" | python3 -c 'import json,sys; print(json.load(sys.stdin)["omitted"])')" \
+assert_equals "[]" "$(printf '%s' "$all_receipts" | json_get omitted)" \
   "revealing every row leaves omitted empty"
 
 # shellcheck disable=SC2086 # deliberate word splitting: one id per --ack arg.
@@ -291,13 +305,14 @@ run_inbox "$home" note "establish the inbox" >/dev/null || fail "seed note faile
 legacy="1700000000-legacy"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\n--\nfrom before the marker\n' \
   "$legacy" > "$home/state/inbox/$legacy.note"
-legacy_announced=$(run_inbox "$home" receipts --all-pending | python3 -c 'import json,sys
-rows={r["id"]: r["announced"] for r in json.load(sys.stdin)["pending"]}
-print(json.dumps(rows[sys.argv[1]]))' "$legacy")
+legacy_announced=$(run_inbox "$home" receipts --all-pending | jq -cs --arg id "$legacy" "$FM_TEST_ONE_JSON"' |
+  [.pending[] | select(.id == $id)]
+  | if length > 0 then last else error("no pending note \($id)") end
+  | if has("announced") then .announced else error("no announced in the note \($id)") end')
 assert_equals "null" "$legacy_announced" \
   "a note that predates the marker reports announced as unknown, not false"
-fresh_announced=$(run_inbox "$home" receipts --all-pending | python3 -c 'import json,sys
-print(json.dumps([r["announced"] for r in json.load(sys.stdin)["pending"] if r["id"] != sys.argv[1]]))' "$legacy")
+fresh_announced=$(run_inbox "$home" receipts --all-pending | jq -cs --arg id "$legacy" \
+  "$FM_TEST_ONE_JSON"' | [.pending[] | select(.id != $id) | .announced]')
 assert_equals "[true]" "$fresh_announced" \
   "a note this version wrote still reports a definite announced state"
 before_wakes=$(count_wakes "$home")
@@ -326,16 +341,14 @@ run_inbox "$home" reply "$later" "answer two" >/dev/null || fail "second reply f
 replies=$(run_inbox "$home" receipts --all-replies) || fail "receipts with replies should succeed"
 assert_equals "2" "$(printf '%s' "$replies" | json_len replies)" \
   "both replies appear without a cursor"
-order=$(printf '%s' "$replies" | python3 -c 'import json,sys
-print(" ".join(r["id"] for r in json.load(sys.stdin)["replies"]))')
+order=$(printf '%s' "$replies" | jq -rs "$FM_TEST_ONE_JSON"' | [.replies[].id] | join(" ")')
 assert_equals "$earlier $later" "$order" "replies are ordered by when they were recorded"
-first_cursor=$(printf '%s' "$replies" | python3 -c 'import json,sys
-print(json.load(sys.stdin)["replies"][0]["cursor"])')
+first_cursor=$(printf '%s' "$replies" | json_get replies 0 cursor)
 after=$(run_inbox "$home" receipts --all-replies --after "$first_cursor") \
   || fail "receipts --after should succeed"
 assert_equals "1" "$(printf '%s' "$after" | json_len replies)" \
   "--after returns only replies recorded later"
-after_id=$(printf '%s' "$after" | python3 -c 'import json,sys; print(json.load(sys.stdin)["replies"][0]["id"])')
+after_id=$(printf '%s' "$after" | json_get replies 0 id)
 assert_equals "$later" "$after_id" \
   "a same-second reply recorded after the cursor is still delivered"
 
@@ -349,8 +362,7 @@ pass "the reply channel is durable and its cursor is a strict order"
 
 # A lost sequence counter must not move the cursor backwards: the next reply
 # still sorts after every reply a client has already read.
-lost_cursor=$(printf '%s' "$replies" | python3 -c 'import json,sys
-print(json.load(sys.stdin)["reply_cursor"])')
+lost_cursor=$(printf '%s' "$replies" | json_get reply_cursor)
 rm -f "$home/state/inbox/.replies/.seq"
 third="1700000000-mmmmmm"
 printf 'id=%s\nat=2026-01-01T00:00:00Z\nsource=text\nannounce_marker=1\n--\norder three\n' \
@@ -388,30 +400,59 @@ assert_equals "2" "$(printf '%s' "$binary" | json_len pending)" \
   "the undecodable note and the readable note are both listed"
 pass "a non-UTF-8 note does not break the receipts view"
 
+# Note names are bytes. Receipts list them newest name first in code point
+# order, and a name that is not valid UTF-8 is still read and listed. Without
+# an id header its id keeps each undecodable byte as U+DC80 to U+DCFF.
+home=$(make_home note-names)
+mkdir -p "$home/state/inbox"
+printf 'id=1700000000-ok\nat=2026-01-01T00:00:00Z\nsource=text\n--\nascii name\n' \
+  > "$home/state/inbox/1700000000-ok.note"
+printf 'id=private-use\nat=2026-01-01T00:00:00Z\nsource=text\n--\nU+E000 name\n' \
+  > "$home/state/inbox/$(printf '\356\200\200').note"
+printf 'id=emoji\nat=2026-01-01T00:00:00Z\nsource=text\n--\nU+1F600 name\n' \
+  > "$home/state/inbox/$(printf '\360\237\230\200').note"
+named=$(run_inbox "$home" receipts) || fail "receipts with unusual note names should succeed"
+assert_equals "emoji private-use 1700000000-ok" \
+  "$(printf '%s' "$named" | jq -rs "$FM_TEST_ONE_JSON"' | [.pending[].id] | join(" ")')" \
+  "note names sort by code point, so U+1F600 is above U+E000"
+if { printf 'at=2026-01-01T00:00:00Z\nsource=text\n--\nno id header\n' \
+  > "$home/state/inbox/$(printf 'bad\377').note"; } 2>/dev/null; then
+  named=$(run_inbox "$home" receipts) || fail "receipts with a non-UTF-8 note name should succeed"
+  assert_equals "4" "$(printf '%s' "$named" | json_len pending)" \
+    "a note whose name is not valid UTF-8 is listed"
+  assert_contains "$named" '"id":"bad\udcff"' \
+    "the id from a non-UTF-8 name keeps the byte as U+DCFF"
+  assert_equals "1700000000-ok" "$(printf '%s' "$named" | json_get pending 3 id)" \
+    "the non-UTF-8 name sorts by its code points"
+else
+  printf '# skip: this file system refuses a note name that is not valid UTF-8\n'
+fi
+pass "receipts list note names by code point and keep names that are not UTF-8"
+
 # --- readiness projection, including unknown -------------------------------
 
 home=$(make_home ready-free)
 ready=$(run_inbox "$home" ready) || fail "ready should succeed with no lock"
 assert_equals "fm-primary-ready.v1" "$(printf '%s' "$ready" | json_get schema)" \
   "ready uses the readiness schema"
-assert_equals "free" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')" \
+assert_equals "free" "$(printf '%s' "$ready" | json_get lock state)" \
   "no lock file is free, not live"
-assert_equals "False" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["can_receive"])')" \
+assert_equals "false" "$(printf '%s' "$ready" | json_get can_receive)" \
   "a free lock cannot receive work"
-assert_equals "present" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["posture"]["state"])')" \
+assert_equals "present" "$(printf '%s' "$ready" | json_get posture state)" \
   "no away flag is present posture"
 
 # A live non-harness pid in the lock file must not be treated as a live primary.
 home=$(make_home ready-unknown)
 printf '%s\n' "$$" > "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for an unclassified pid"
-lock_state=$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')
+lock_state=$(printf '%s' "$ready" | json_get lock state)
 assert_equals "unknown" "$lock_state" \
   "a live process that is not a verified harness is unknown, not held"
-live=$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["live_harness"])')
-assert_equals "False" "$live" "a bash test pid is not a live harness"
-can=$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["can_receive"])')
-[ "$can" = "False" ] || [ "$can" = "unknown" ] \
+live=$(printf '%s' "$ready" | json_get lock live_harness)
+assert_equals "false" "$live" "a bash test pid is not a live harness"
+can=$(printf '%s' "$ready" | json_get can_receive)
+[ "$can" = "false" ] || [ "$can" = "unknown" ] \
   || fail "unknown lock must not claim can_receive true (got $can)"
 
 human_lock=$(run_lock "$home" status) || fail "lock status should succeed"
@@ -422,16 +463,24 @@ assert_contains "$human_lock" "stale (pid $$ dead or not a harness)" \
 home=$(make_home ready-stale)
 printf '%s\n' "999999" > "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for a dead pid"
-assert_equals "stale" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')" \
+assert_equals "stale" "$(printf '%s' "$ready" | json_get lock state)" \
   "a dead recorded pid is stale"
-assert_equals "False" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["can_receive"])')" \
+assert_equals "false" "$(printf '%s' "$ready" | json_get can_receive)" \
   "a stale lock cannot receive work"
+
+# A corrupt lock file can hold any digits. ready reports them as the exact
+# integer, never a rounded or exponent form.
+home=$(make_home ready-huge-pid)
+printf '%s\n' "0099999999999999999999" > "$home/state/.lock"
+ready=$(run_inbox "$home" ready) || fail "ready should succeed for a corrupt lock pid"
+assert_contains "$ready" '"pid":99999999999999999999,' \
+  "a lock pid beyond the exact range of a JS number is written exactly"
 
 # Existence of a pane-like leftover must not become liveness: unreadable lock.
 home=$(make_home ready-unreadable)
 mkdir -p "$home/state/.lock"
 ready=$(run_inbox "$home" ready) || fail "ready should succeed for a directory lock"
-assert_equals "unreadable" "$(printf '%s' "$ready" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')" \
+assert_equals "unreadable" "$(printf '%s' "$ready" | json_get lock state)" \
   "a non-file lock is unreadable rather than held"
 # A Claude primary mid-turn runs no watcher process - its watcher is armed at
 # turn end - so the model-aware supervision verdict, not the pid-strict watcher
@@ -451,7 +500,7 @@ nobeat=$(run_inbox "$home" ready) || fail "ready should succeed with no beacon"
 assert_equals "supervision-model-unknown-for-home" \
   "$(printf '%s' "$nobeat" | json_get wake_consumer reason)" \
   "no lock holder means the home's supervision model is unknown"
-assert_equals "None" "$(printf '%s' "$nobeat" | json_get wake_consumer beacon_age_seconds)" \
+assert_equals "null" "$(printf '%s' "$nobeat" | json_get wake_consumer beacon_age_seconds)" \
   "a beacon that does not exist has no age"
 
 # The intended caller (HTTP backend, ssh host fm-inbox.sh ready) does not set
@@ -486,11 +535,11 @@ trap 'kill_holder; fm_test_cleanup' EXIT
 printf '%s\n' "$holder_pid" > "$home/state/.lock"
 touch "$home/state/.last-watcher-beat"
 held=$(run_inbox "$home" ready) || fail "ready should succeed for a lock-holder harness"
-assert_equals "held" "$(printf '%s' "$held" | python3 -c 'import json,sys; print(json.load(sys.stdin)["lock"]["state"])')" \
+assert_equals "held" "$(printf '%s' "$held" | json_get lock state)" \
   "a live claude-named holder is a held lock"
 assert_equals "healthy" "$(printf '%s' "$held" | json_get wake_consumer state)" \
   "lock-holder ancestry plus a fresh beacon is a healthy wake consumer"
-assert_equals "True" "$(printf '%s' "$held" | json_get can_receive)" \
+assert_equals "true" "$(printf '%s' "$held" | json_get can_receive)" \
   "a held lock with a healthy wake consumer can receive work"
 kill_holder
 trap fm_test_cleanup EXIT
@@ -526,8 +575,7 @@ dash_out=$(run_inbox "$home" note "$transcript") \
   || fail "a note body opening with dashes should be queued"
 assert_contains "$dash_out" "queued " "a dash-leading body is queued like any other"
 assert_equals "1" "$(count_notes "$home")" "a dash-leading body writes one note"
-dash_body=$(run_inbox "$home" receipts --all-pending | python3 -c 'import json,sys
-print(json.load(sys.stdin)["pending"][0]["body"])')
+dash_body=$(run_inbox "$home" receipts --all-pending | json_get pending 0 body)
 assert_equals "$transcript" "$dash_body" "the transcript is stored verbatim"
 escaped=$(run_inbox "$home" note -- "--request-id is body text here") \
   || fail "-- should end option parsing"
@@ -544,3 +592,264 @@ run_inbox "$home" drain --ack "$did" >/dev/null || fail "drain --ack failed"
 assert_absent "$home/state/inbox/$did.note" "acked note leaves pending"
 assert_present "$home/state/inbox/handled/$did.note" "acked note is in handled"
 pass "drain --ack still moves the note to handled"
+
+# --- say: audio wrapping and the model request ------------------------------
+#
+# `say` needs a model call, so a fake aws on PATH records the request body the
+# real CLI would have sent. HOME points at the test home so a developer's own
+# toolbox directories cannot shadow the fake.
+
+home=$(make_home say)
+fakebin="$home/fakebin"
+mkdir -p "$fakebin"
+cat >"$fakebin/aws" <<'AWS'
+#!/usr/bin/env bash
+prev=""
+for arg in "$@"; do
+  [ "$prev" = "--messages" ] && cp "${arg#file://}" "$FAKE_AWS_DIR/messages.json"
+  prev=$arg
+done
+printf 'fake transcript\n'
+AWS
+chmod +x "$fakebin/aws"
+
+run_say() {  # <audio-file> - stdout and stderr merged
+  HOME="$home" PATH="$fakebin:$PATH" FAKE_AWS_DIR="$home" FM_INBOX_REGION=us-east-1 \
+    FM_INBOX_STT_MODEL=fake-stt FM_INBOX_PROFILE="" run_inbox "$home" say "$1" 2>&1
+}
+
+# The audio the fake aws received, decoded from the request body.
+sent_audio() {
+  local encoded
+  encoded=$(json_get 0 content 0 audio source bytes <"$home/messages.json")
+  printf '%s' "$encoded" | base64 --decode 2>/dev/null || printf '%s' "$encoded" | base64 -D
+}
+
+hex_head() {  # <file> - the first 44 bytes as hex
+  od -An -tx1 -N44 "$1" | tr -d ' \n'
+}
+
+# 16kHz mono s16le PCM, 4000 frames: a quarter of a second.
+head -c 8000 /dev/zero | tr '\0' 'A' >"$home/pcm-quarter"
+out=$(run_say "$home/pcm-quarter") || fail "say should accept headerless PCM: $out"
+assert_contains "$out" "input looked like raw PCM, wrapped as 16kHz mono WAV" \
+  "headerless PCM is reported as wrapped"
+assert_contains "$out" "0.25s of audio, transcribing with fake-stt in us-east-1" \
+  "the duration of the wrapped audio is 0.25 seconds"
+sent_audio >"$home/sent.wav"
+# RIFF, size 36 + 8000, WAVE, a 16 byte fmt chunk (PCM, 1 channel, 16000 Hz,
+# 32000 bytes per second, block align 2, 16 bits), then the 8000 byte data chunk.
+expected_header="52494646 641f0000 57415645 666d7420 10000000 0100 0100 803e0000 007d0000 0200 1000 64617461 401f0000"
+assert_equals "${expected_header// /}" "$(hex_head "$home/sent.wav")" \
+  "the wrapped WAV has the canonical 44 byte header for the PCM it received"
+assert_equals "8044" "$(wc -c <"$home/sent.wav" | tr -d ' ')" \
+  "the wrapped WAV is the header plus every PCM byte"
+tail -c 8000 "$home/sent.wav" | cmp -s - "$home/pcm-quarter" \
+  || fail "the PCM bytes after the header must be the input unchanged"
+assert_equals "Transcribe the speech exactly. Output only the transcript, nothing else." \
+  "$(json_get 0 content 1 text <"$home/messages.json")" \
+  "the request carries the transcription instruction"
+assert_equals "wav" "$(json_get 0 content 0 audio format <"$home/messages.json")" \
+  "the request names the audio format as wav"
+assert_equals '[{"role": "user", "content": [{"audio": {"format": "wav", "source": {"bytes": "B"}}}, {"text": "Transcribe the speech exactly. Output only the transcript, nothing else."}]}]' \
+  "$(sed 's/"bytes": "[^"]*"/"bytes": "B"/' "$home/messages.json")" \
+  "the request body keeps the JSON layout of Python json.dump"
+assert_contains "$out" "heard: fake transcript" "the model transcript is reported"
+assert_contains "$(cat "$home"/state/inbox/*.note)" "audio_seconds=0.25" \
+  "the queued note records the audio duration"
+pass "say wraps headerless PCM in a WAV header and sends it with the right duration"
+
+# A WAV is passed through untouched, and its duration is read from its header.
+out=$(run_say "$home/sent.wav") || fail "say should accept a WAV: $out"
+assert_contains "$out" "input is WAV, passing through" "a WAV is passed through"
+assert_contains "$out" "0.25s of audio" "a WAV reports its own duration"
+sent_audio | cmp -s - "$home/sent.wav" || fail "a WAV must reach the model byte for byte"
+pass "say passes a WAV through unchanged"
+
+# A WAVE_FORMAT_EXTENSIBLE WAV is PCM when its SubFormat is the PCM GUID, and
+# its duration comes from the same header fields. Any other SubFormat is refused.
+extensible_wav() {  # <first SubFormat byte, octal escape> <file>
+  printf 'RIFF\174\037\000\000WAVEfmt \050\000\000\000\376\377\001\000\200\076\000\000\000\175\000\000\002\000\020\000\026\000\020\000\004\000\000\000%b\000\000\000\000\000\020\000\200\000\000\252\000\070\233\161data\100\037\000\000' "$1" >"$2"
+  head -c 8000 /dev/zero >>"$2"
+}
+extensible_wav '\001' "$home/extensible.wav"
+out=$(run_say "$home/extensible.wav") || fail "say should accept extensible PCM: $out"
+assert_contains "$out" "0.25s of audio" "extensible PCM reports its own duration"
+sent_audio | cmp -s - "$home/extensible.wav" || fail "an extensible WAV must reach the model byte for byte"
+extensible_wav '\003' "$home/extensible-float.wav"
+set +e
+float_out=$(run_say "$home/extensible-float.wav")
+float_code=$?
+set -e
+expect_code 1 "$float_code" "say refuses an extensible WAV that is not PCM"
+assert_contains "$float_out" "unknown extended format" "the refusal names the extended format"
+pass "say reads extensible PCM and refuses other extended formats"
+
+# A trailing odd byte is not a whole sample and is dropped. Durations print as
+# a rounded float: whole seconds keep one decimal, and an exact tie rounds to
+# even (0.125 is 0.12).
+head -c 8001 /dev/zero >"$home/pcm-odd"
+out=$(run_say "$home/pcm-odd") || fail "say should accept odd-length PCM: $out"
+sent_audio >"$home/sent.wav"
+assert_equals "8044" "$(wc -c <"$home/sent.wav" | tr -d ' ')" \
+  "an odd trailing byte is dropped from the wrapped audio"
+head -c 32000 /dev/zero >"$home/pcm-second"
+out=$(run_say "$home/pcm-second") || fail "say should accept one second of PCM: $out"
+assert_contains "$out" "1.0s of audio" "whole seconds keep one decimal"
+head -c 4000 /dev/zero >"$home/pcm-tie"
+out=$(run_say "$home/pcm-tie") || fail "say should accept 0.125 seconds of PCM: $out"
+assert_contains "$out" "0.12s of audio" "an exact rounding tie rounds to even"
+pass "say drops a partial sample and prints durations as rounded floats"
+
+# Compressed audio is refused before any model call.
+rm -f "$home/messages.json"
+printf 'OggS\000\002rest of an ogg stream' >"$home/audio.ogg"
+set +e
+ogg_out=$(run_say "$home/audio.ogg")
+ogg_code=$?
+set -e
+expect_code 1 "$ogg_code" "say refuses Ogg audio"
+assert_contains "$ogg_out" "got Ogg/FLAC/MP3; re-encode to WAV first" \
+  "the refusal tells the user to re-encode"
+assert_absent "$home/messages.json" "refused audio never reaches the model"
+pass "say refuses compressed audio"
+
+# --- ask: the side-question request ----------------------------------------
+#
+# The same fake aws records the request body of `ask`. A question that starts
+# with a dash is text: it must reach the request body unchanged, and the node
+# program that writes the body must not read it as an option of its own.
+
+home=$(make_home ask)
+run_ask() {  # <question-word>... - stdout and stderr merged
+  HOME="$home" PATH="$fakebin:$PATH" FAKE_AWS_DIR="$home" FM_INBOX_REGION=us-east-1 \
+    FM_INBOX_ASK_MODEL=fake-ask FM_INBOX_PROFILE="" run_inbox "$home" ask "$@" 2>&1
+}
+
+out=$(run_ask -- why did the café build fail) \
+  || fail "ask should accept a question that starts with --: $out"
+assert_contains "$out" "fake transcript" "ask prints the model answer"
+assert_equals "-- why did the café build fail" "$(json_get 0 content 0 text <"$home/messages.json")" \
+  "a question that starts with -- reaches the model unchanged"
+assert_equals "user" "$(json_get 0 role <"$home/messages.json")" "the question is the user turn"
+assert_equals '[{"role": "user", "content": [{"text": "-- why did the caf\u00e9 build fail"}]}]' \
+  "$(cat "$home/messages.json")" "the request body keeps the JSON layout and ASCII escapes of Python json.dump"
+rm -f "$home/messages.json"
+out=$(run_ask --version) || fail "ask should accept the question --version: $out"
+assert_equals "--version" "$(json_get 0 content 0 text <"$home/messages.json")" \
+  "a question that looks like a node option reaches the model unchanged"
+pass "ask sends a question that starts with a dash as text"
+
+# --- machine-readable output under a non-login ssh PATH ---------------------
+#
+# `ssh host fm-inbox.sh ready` gets the non-login PATH of the host. On macOS
+# that PATH has no Homebrew or nvm tools. The script appends /opt/homebrew/bin
+# and /usr/local/bin when they exist, so a node in one of them serves the
+# machine-readable subcommands, and a node that the PATH already holds still
+# wins. This case uses the node of this host in one of those directories, and
+# it skips when neither directory has a node.
+
+std_node_dir=
+for dir in /opt/homebrew/bin /usr/local/bin; do
+  if [ -x "$dir/node" ]; then
+    std_node_dir=$dir
+    break
+  fi
+done
+if [ -z "$std_node_dir" ]; then
+  printf '# skip: no node in /opt/homebrew/bin or /usr/local/bin, so node from a standard directory under a non-login PATH is unverified here\n'
+else
+  core_path=$(fm_test_core_path)
+  PATH=$core_path command -v node >/dev/null 2>&1 \
+    && fail "the minimal PATH must not hold node"
+  home=$(make_home ssh-path)
+  run_bare() {
+    HOME="$home" PATH="$core_path" run_inbox "$home" "$@"
+  }
+  noted=$(run_bare note --json "from a non-login shell") \
+    || fail "note --json must find node in $std_node_dir: $noted"
+  assert_equals "created" "$(printf '%s' "$noted" | json_get outcome)" "note --json under the minimal PATH"
+  nid=$(printf '%s' "$noted" | json_get id)
+  replied=$(run_bare reply --json "$nid" "an answer") \
+    || fail "reply --json must find node in $std_node_dir: $replied"
+  assert_equals "fm-inbox-reply.v1" "$(printf '%s' "$replied" | json_get schema)" \
+    "reply --json under the minimal PATH"
+  receipts=$(run_bare receipts) || fail "receipts must find node in $std_node_dir: $receipts"
+  assert_equals "$nid" "$(printf '%s' "$receipts" | json_get replies 0 id)" \
+    "receipts under the minimal PATH"
+  readiness=$(run_bare ready) || fail "ready must find node in $std_node_dir: $readiness"
+  printf '%s' "$readiness" | jq -es "$FM_TEST_ONE_JSON"' | has("can_receive")' >/dev/null \
+    || fail "ready under the minimal PATH did not print the readiness JSON: $readiness"
+  pass "machine-readable subcommands find node in $std_node_dir under a non-login PATH"
+
+  shimbin="$home/shimbin"
+  mkdir -p "$shimbin"
+  cat >"$shimbin/node" <<'NODE'
+#!/usr/bin/env bash
+printf '%s\n' "$#" >>"$SHIM_NODE_LOG"
+exec "$REAL_NODE" "$@"
+NODE
+  chmod +x "$shimbin/node"
+  : >"$home/shim-node.log"
+  readiness=$(SHIM_NODE_LOG="$home/shim-node.log" REAL_NODE="$std_node_dir/node" \
+    HOME="$home" PATH="$shimbin:$core_path" run_inbox "$home" ready) \
+    || fail "ready must run with the node of the caller PATH: $readiness"
+  printf '%s' "$readiness" | jq -es "$FM_TEST_ONE_JSON"' | has("can_receive")' >/dev/null \
+    || fail "ready with a node on the caller PATH did not print the readiness JSON: $readiness"
+  [ -s "$home/shim-node.log" ] \
+    || fail "the node on the caller PATH must win over the node in $std_node_dir"
+  pass "a node on the caller PATH wins over the node in $std_node_dir"
+fi
+
+# --- no node: the machine-readable subcommands write nothing ----------------
+#
+# Without node, `note --json`, `announce --json` and `reply --json` stop with
+# exit 1 before they write a note, a wake or a reply. The error names where the
+# script looks for node and how to link one. A host with node in
+# /opt/homebrew/bin or /usr/local/bin always finds it, so this case skips there.
+
+if [ -n "$std_node_dir" ]; then
+  printf '# skip: fm-inbox.sh always finds the node in %s, so a host without node is unverified here\n' "$std_node_dir"
+else
+  core_path=$(fm_test_core_path)
+  home=$(make_home no-node)
+  run_nodeless() {
+    HOME="$home" PATH="$core_path" run_inbox "$home" "$@"
+  }
+  # shellcheck disable=SC2088 # Literal text from the error message.
+  link_hint="~/.local/bin/node"
+  set +e
+  nodeless_out=$(run_nodeless note --json "needs node" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "note --json without node fails"
+  assert_contains "$nodeless_out" "PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin" \
+    "the error names where fm-inbox.sh looks for node"
+  assert_contains "$nodeless_out" "$link_hint" "the error tells how to link a node"
+  assert_equals "0" "$(count_notes "$home")" "note --json without node must not save a note"
+  assert_equals "0" "$(count_wakes "$home")" "note --json without node must not append a wake"
+
+  plain=$(run_nodeless note "saved without node") || fail "a plain note must not need node: $plain"
+  nid=$(printf '%s\n' "$plain" | sed -n 's/^queued //p')
+  [ -n "$nid" ] || fail "a plain note without node printed no id: $plain"
+  rm -f "$home/state/inbox/.announced/$nid"
+  wakes=$(count_wakes "$home")
+  set +e
+  nodeless_out=$(run_nodeless announce --json "$nid" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "announce --json without node fails"
+  assert_contains "$nodeless_out" "$link_hint" "the announce error tells how to link a node"
+  assert_equals "$wakes" "$(count_wakes "$home")" "announce --json without node must not append a wake"
+  [ ! -e "$home/state/inbox/.announced/$nid" ] \
+    || fail "announce --json without node must not mark the note announced"
+
+  set +e
+  nodeless_out=$(run_nodeless reply --json "$nid" "an answer" 2>&1)
+  nodeless_code=$?
+  set -e
+  expect_code 1 "$nodeless_code" "reply --json without node fails"
+  assert_contains "$nodeless_out" "$link_hint" "the reply error tells how to link a node"
+  [ ! -e "$home/state/inbox/.replies/$nid" ] || fail "reply --json without node must not record a reply"
+  pass "without node, note, announce and reply --json stop before they write anything"
+fi

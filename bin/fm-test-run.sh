@@ -148,8 +148,8 @@
 set -eu
 
 now_ms() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import time; print(int(time.time() * 1000))'
+  if command -v node >/dev/null 2>&1; then
+    node -e 'console.log(Date.now())'
   else
     echo $(($(date +%s) * 1000))
   fi
@@ -307,7 +307,10 @@ family_for_basename() {
     fm-mail.test.sh|fm-mail-check.test.sh|\
     fm-turnend-foreign-owner-arm-fix.test.sh|\
     fm-wake-queue.test.sh|fm-watch-arm.test.sh|fm-watch-checkpoint.test.sh|fm-watch-recovery-loop.test.sh|\
-    fm-watch-triage.test.sh|fm-task-inbox.test.sh|fm-ping-ack.test.sh|\
+    fm-watch-triage.test.sh|fm-watch-triage-stale.test.sh|fm-watch-triage-wedge.test.sh|\
+    fm-watch-triage-gone-endpoint.test.sh|fm-watch-triage-captain-hold.test.sh|\
+    fm-watch-triage-busy.test.sh|fm-watch-triage-procevent-afk.test.sh|\
+    fm-task-inbox.test.sh|fm-ping-ack.test.sh|\
     fm-watcher-lock.test.sh|fm-inactive-reconcile.test.sh)
       printf '%s\n' watcher-wake-lock
       ;;
@@ -872,7 +875,13 @@ tests/fm-wake-queue.test.sh 85252
 tests/fm-watch-arm.test.sh 68479
 tests/fm-watch-checkpoint.test.sh 6101
 tests/fm-watch-recovery-loop.test.sh 58946
-tests/fm-watch-triage.test.sh 697969
+tests/fm-watch-triage-busy.test.sh 78487
+tests/fm-watch-triage-captain-hold.test.sh 104545
+tests/fm-watch-triage-gone-endpoint.test.sh 102963
+tests/fm-watch-triage-procevent-afk.test.sh 68532
+tests/fm-watch-triage-stale.test.sh 119481
+tests/fm-watch-triage-wedge.test.sh 118958
+tests/fm-watch-triage.test.sh 105003
 tests/fm-watcher-lock.test.sh 108940
 EOF
 }
@@ -1186,59 +1195,82 @@ aggregate_timing_json() {
   local out=$1
   shift
   [ "$#" -gt 0 ] || die "--aggregate-json requires at least one input timing JSON"
-  command -v python3 >/dev/null 2>&1 || die "--aggregate-json requires python3"
-  python3 - "$out" "$@" <<'PY'
-import json, sys
-from pathlib import Path
+  command -v node >/dev/null 2>&1 || die "--aggregate-json requires node"
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" node - "$out" "$@" <<'JS'
+const fs = require('fs');
+const path = require('path');
+const { byCodePoint, dumpJson, readUtf8, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
-out = Path(sys.argv[1])
-inputs = [Path(p) for p in sys.argv[2:]]
-lanes = []
-all_scripts = []
-failed = 0
-skipped = 0
-total = 0
-wall_ms = 0
-for path in inputs:
-    doc = json.loads(path.read_text(encoding="utf-8"))
-    summary = doc.get("summary") or {}
-    lane = {
-        "path": str(path),
-        "run_id": doc.get("run_id"),
-        "selection": doc.get("selection"),
-        "started_at": doc.get("started_at"),
-        "finished_at": doc.get("finished_at"),
-        "summary": summary,
-    }
-    lanes.append(lane)
-    total += int(summary.get("total") or 0)
-    failed += int(summary.get("failed") or 0)
-    skipped += int(summary.get("skipped_gate") or 0)
-    wall_ms = max(wall_ms, int(summary.get("duration_ms") or 0))
-    for s in doc.get("scripts") or []:
-        row = dict(s)
-        row["lane_selection"] = doc.get("selection")
-        row["lane_run_id"] = doc.get("run_id")
-        all_scripts.append(row)
+// The lane fields follow the Python reader this replaced: doc.get(key) or
+// default, int(value or 0), and str(Path(lane)). A value that Python refused
+// still stops the aggregate with exit 1.
+const nullable = (v) => (v === undefined ? null : v);
+const truthy = (v) => !(v === undefined || v === null || v === false || v === 0 || v === '' ||
+  (typeof v === 'object' && Object.keys(v).length === 0));
+const or = (v, fallback) => (truthy(v) ? v : fallback);
+const intOr0 = (v) => {
+  if (!truthy(v)) return 0;
+  if (typeof v === 'string') return toInt(v);
+  if (typeof v === 'boolean' || (typeof v === 'number' && Number.isFinite(v))) return Math.trunc(Number(v));
+  throw new TypeError(`int() cannot convert ${JSON.stringify(v)}`);
+};
+const pathStr = (p) => {
+  const root = p.startsWith('//') && !p.startsWith('///') ? '//' : p.startsWith('/') ? '/' : '';
+  return root + p.split('/').filter((part) => part !== '' && part !== '.').join('/') || '.';
+};
 
-all_scripts.sort(key=lambda s: (-int(s.get("duration_ms") or 0), s.get("path") or ""))
-agg = {
-    "kind": "aggregate",
-    "lanes": lanes,
-    "summary": {
-        "lanes": len(lanes),
-        "total": total,
-        "failed": failed,
-        "skipped_gate": skipped,
-        "critical_path_duration_ms": wall_ms,
-    },
-    "scripts": all_scripts,
-    "slowest": all_scripts[:15],
+const out = process.argv[2];
+const inputs = process.argv.slice(3);
+const lanes = [];
+let allScripts = [];
+let failed = 0;
+let skipped = 0;
+let total = 0;
+let wallMs = 0;
+for (const input of inputs) {
+  const doc = JSON.parse(readUtf8(input));
+  if (doc === null || typeof doc !== 'object' || Array.isArray(doc)) throw new TypeError(`${input} is not a JSON object`);
+  const summary = or(doc.summary, {});
+  lanes.push({
+    path: pathStr(input),
+    run_id: nullable(doc.run_id),
+    selection: nullable(doc.selection),
+    started_at: nullable(doc.started_at),
+    finished_at: nullable(doc.finished_at),
+    summary,
+  });
+  total += intOr0(summary.total);
+  failed += intOr0(summary.failed);
+  skipped += intOr0(summary.skipped_gate);
+  wallMs = Math.max(wallMs, intOr0(summary.duration_ms));
+  for (const s of or(doc.scripts, [])) {
+    allScripts.push({ ...s, lane_selection: nullable(doc.selection), lane_run_id: nullable(doc.run_id) });
+  }
 }
-out.parent.mkdir(parents=True, exist_ok=True)
-out.write_text(json.dumps(agg, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-print(f"FM_TEST_AGGREGATE lanes={len(lanes)} total={total} failed={failed} skipped_gate={skipped} critical_path_duration_ms={wall_ms}")
-PY
+
+allScripts.sort((x, y) => {
+  const dx = intOr0(x.duration_ms);
+  const dy = intOr0(y.duration_ms);
+  if (dx !== dy) return dy - dx;
+  return byCodePoint(or(x.path, ''), or(y.path, ''));
+});
+const agg = {
+  kind: 'aggregate',
+  lanes,
+  summary: {
+    lanes: lanes.length,
+    total,
+    failed,
+    skipped_gate: skipped,
+    critical_path_duration_ms: wallMs,
+  },
+  scripts: allScripts,
+  slowest: allScripts.slice(0, 15),
+};
+fs.mkdirSync(path.dirname(out), { recursive: true });
+fs.writeFileSync(out, dumpJson(agg) + '\n');
+console.log(`FM_TEST_AGGREGATE lanes=${lanes.length} total=${total} failed=${failed} skipped_gate=${skipped} critical_path_duration_ms=${wallMs}`);
+JS
 }
 
 all_repo_tests() {
@@ -1828,64 +1860,49 @@ write_json_artifact() {
   local records_file=${10}
   local families_file=${11}
 
-  if ! command -v python3 >/dev/null 2>&1; then
-    die "--json requires python3 to emit a valid timing artifact"
-  fi
+  command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid timing artifact"
 
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'PY'
-import json, sys
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
+    node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$skipped" "$duration" "$selection" "$records_file" "$families_file" <<'JS'
+const fs = require('fs');
+const { dumpJson, rows, toInt } = require(process.env.FM_TEST_JSON_LIB);
 
-out, started, finished, run_id, total, failed, skipped, duration, selection, records_file, families_file = sys.argv[1:]
+const [out, started, finished, runId, total, failed, skipped, duration, selection, recordsFile, familiesFile] =
+  process.argv.slice(2);
 
-scripts = []
-with open(records_file, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        path, family, expected, exit_s, dur_s, gate, reason = line.split("\t")
-        scripts.append({
-            "path": path,
-            "family": family,
-            "expected_gate_skip": expected,
-            "duration_ms": int(dur_s),
-            "exit": int(exit_s),
-            "gate_skip": gate == "true",
-            "gate_skip_reason": reason,
-        })
+const scripts = rows(recordsFile, 7).map(([p, family, expected, exitS, durS, gate, reason]) => ({
+  path: p,
+  family,
+  expected_gate_skip: expected,
+  duration_ms: toInt(durS),
+  exit: toInt(exitS),
+  gate_skip: gate === 'true',
+  gate_skip_reason: reason,
+}));
 
-families = []
-with open(families_file, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        name, count_s, dur_s, failed_s = line.split("\t")
-        families.append({
-            "name": name,
-            "count": int(count_s),
-            "duration_ms": int(dur_s),
-            "failed": int(failed_s),
-        })
+const families = rows(familiesFile, 4).map(([name, countS, durS, failedS]) => ({
+  name,
+  count: toInt(countS),
+  duration_ms: toInt(durS),
+  failed: toInt(failedS),
+}));
 
-doc = {
-    "run_id": run_id,
-    "started_at": started,
-    "finished_at": finished,
-    "selection": selection,
-    "summary": {
-        "total": int(total),
-        "failed": int(failed),
-        "skipped_gate": int(skipped),
-        "duration_ms": int(duration),
-    },
-    "scripts": scripts,
-    "families": families,
-}
-with open(out, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PY
+const doc = {
+  run_id: runId,
+  started_at: started,
+  finished_at: finished,
+  selection,
+  summary: {
+    total: toInt(total),
+    failed: toInt(failed),
+    skipped_gate: toInt(skipped),
+    duration_ms: toInt(duration),
+  },
+  scripts,
+  families,
+};
+fs.writeFileSync(out, dumpJson(doc) + '\n');
+JS
 }
 
 while [ "$#" -gt 0 ]; do
@@ -2655,7 +2672,7 @@ fi
 
 if [ -n "$JSON_PATH" ]; then
   mkdir -p "$(dirname "$JSON_PATH")"
-  # Families file may be unsorted; write_json reads as-is (deterministic sort in python).
+  # Families file may be unsorted; write_json reads as-is (deterministic sort in node).
   if [ -s "$FAMILIES_TSV" ]; then
     sort -t$'\t' -k1,1 "$FAMILIES_TSV" -o "$FAMILIES_TSV"
   else

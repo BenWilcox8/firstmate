@@ -85,8 +85,8 @@ now_iso() {
 }
 
 now_ms() {
-  if command -v python3 >/dev/null 2>&1; then
-    python3 -c 'import time; print(int(time.time() * 1000))'
+  if command -v node >/dev/null 2>&1; then
+    node -e 'console.log(Date.now())'
   else
     echo $(($(date +%s) * 1000))
   fi
@@ -121,6 +121,8 @@ exclusion_reason() {
     fm-daemon.test.sh|fm-guard-stale-banner.test.sh|fm-pi-watch-extension.test.sh|\
     fm-supervision-events.test.sh|fm-turnend-guard.test.sh|fm-wake-daemon-lifecycle-e2e.test.sh|\
     fm-wake-queue.test.sh|fm-watch-checkpoint.test.sh|fm-watch-triage.test.sh|\
+    fm-watch-triage-stale.test.sh|fm-watch-triage-wedge.test.sh|fm-watch-triage-gone-endpoint.test.sh|\
+    fm-watch-triage-captain-hold.test.sh|fm-watch-triage-busy.test.sh|fm-watch-triage-procevent-afk.test.sh|\
     fm-watcher-lock.test.sh)
       printf '%s\n' 'watcher/wake/lock family; intentional process locks and daemon races'
       ;;
@@ -240,43 +242,35 @@ detect_gate_skip() {
 
 write_json_artifact() {
   local out=$1 started=$2 finished=$3 run_id=$4 total=$5 failed=$6 concurrency=$7 duration=$8 records=$9 pool=${10} jobs_enabled=${11}
-  python3 - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'PY'
-import json, sys
-out, started, finished, run_id, total, failed, concurrency, duration, records_path, pool, jobs_enabled = sys.argv[1:12]
-scripts = []
-with open(records_path, encoding="utf-8") as fh:
-    for line in fh:
-        line = line.rstrip("\n")
-        if not line:
-            continue
-        path, exit_s, dur_s, worker = line.split("\t")
-        scripts.append({
-            "path": path,
-            "exit": int(exit_s),
-            "duration_ms": int(dur_s),
-            "worker": int(worker),
-        })
-scripts.sort(key=lambda s: s["path"])
-doc = {
-    "run_id": run_id,
-    "started_at": started,
-    "finished_at": finished,
-    "kind": "isolation-proof",
-    "pool": pool,
-    "concurrency": int(concurrency),
-    "summary": {
-        "total": int(total),
-        "failed": int(failed),
-        "duration_ms": int(duration),
-    },
-    "scripts": scripts,
-    "production_sharding_enabled": False,
-    "fm_test_run_jobs_enabled": jobs_enabled == "1",
-}
-with open(out, "w", encoding="utf-8") as fh:
-    json.dump(doc, fh, indent=2, sort_keys=True)
-    fh.write("\n")
-PY
+  command -v node >/dev/null 2>&1 || die "--json requires node to emit a valid proof artifact"
+  FM_TEST_JSON_LIB="$ROOT/bin/fm-test-json-lib.cjs" \
+    node - "$out" "$started" "$finished" "$run_id" "$total" "$failed" "$concurrency" "$duration" "$records" "$pool" "$jobs_enabled" <<'JS'
+const fs = require('fs');
+const { byCodePoint, dumpJson, rows, toInt } = require(process.env.FM_TEST_JSON_LIB);
+
+const [out, started, finished, runId, total, failed, concurrency, duration, recordsPath, pool, jobsEnabled] =
+  process.argv.slice(2);
+const scripts = rows(recordsPath, 4).map(([p, exitS, durS, worker]) => (
+  { path: p, exit: toInt(exitS), duration_ms: toInt(durS), worker: toInt(worker) }));
+scripts.sort((x, y) => byCodePoint(x.path, y.path));
+const doc = {
+  run_id: runId,
+  started_at: started,
+  finished_at: finished,
+  kind: 'isolation-proof',
+  pool,
+  concurrency: toInt(concurrency),
+  summary: {
+    total: toInt(total),
+    failed: toInt(failed),
+    duration_ms: toInt(duration),
+  },
+  scripts,
+  production_sharding_enabled: false,
+  fm_test_run_jobs_enabled: jobsEnabled === '1',
+};
+fs.writeFileSync(out, dumpJson(doc) + '\n');
+JS
 }
 
 while [ "$#" -gt 0 ]; do
