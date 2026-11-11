@@ -1179,7 +1179,7 @@ test_portable_serial_shards_partition_the_serial_lane() {
   local lanes count serial shard listed union dups shard_lane total cap
   lanes=$("$RUNNER" --list-lanes)
   count=$(printf '%s\n' "$lanes" | grep -c '^portable-serial-[0-9]*of[0-9]*$')
-  [ "$count" -eq 11 ] || fail "expected eleven portable serial shard lanes, got $count"
+  [ "$count" -eq 12 ] || fail "expected twelve portable serial shard lanes, got $count"
   printf '%s\n' "$lanes" | grep -q "^portable-serial-1of${count}\$" \
     || fail "shard lane names must carry the shard count ${count}: $lanes"
 
