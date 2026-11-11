@@ -4426,9 +4426,12 @@ elif [ -d "$WT" ] && [ "$KIND" != secondmate ]; then
     git -C "$WT" ls-files --error-unmatch CLAUDE.local.md >/dev/null 2>&1 || rm -f "$WT/CLAUDE.local.md"
   fi
   # Kills remaining processes in the worktree (including the agent), resets, returns
-  # to pool. treehouse resolves the pool from the working directory, so run it from
-  # the project. teardown_treehouse_return tolerates transient and stale git locks
-  # left by a killed crew process; see the script header for retry and stale-lock proof.
+  # to pool. `treehouse return` with an explicit path finds the slot's pool from the
+  # path itself, so old shared-pool slots and per-home slots (fm_treehouse_home_root
+  # in bin/fm-wake-lib.sh) both return; the project working directory is only
+  # treehouse's fallback. teardown_treehouse_return tolerates transient and stale git
+  # locks left by a killed crew process; see the script header for retry and
+  # stale-lock proof.
   post_lock_cleanup_check=
   if [ "$FORCE" != "--force" ] && [ "$KIND" != scout ] && [ "$KIND" != secondmate ]; then
     post_lock_cleanup_check=validate_worktree_teardown_safety

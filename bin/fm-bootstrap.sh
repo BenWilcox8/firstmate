@@ -61,7 +61,9 @@
 #          `setup hooks` or a `curl | sh` installer. MISSING stays for absent
 #          tools only.
 #          treehouse is OUTDATED when its installed version lacks
-#          "treehouse get --lease" support.
+#          "treehouse get --lease" support or does not read TREEHOUSE_ROOT
+#          (added in treehouse v2.2.0), because each home keeps its own pool
+#          through that variable (bin/fm-wake-lib.sh fm_treehouse_home_root).
 #          no-mistakes is OUTDATED when its installed version is older than
 #          1.46.0 (structured pipeline attestation floor; see CONTRIBUTING.md).
 #          The AXI-family floor policy is owned beside GH_AXI_MIN and
@@ -962,6 +964,12 @@ treehouse_supports_lease() {
   treehouse get --help 2>&1 | grep -Eq '(^|[^[:alnum:]_-])--lease([^[:alnum:]_-]|$)'
 }
 
+# A treehouse that ignores TREEHOUSE_ROOT would silently put every home back in
+# the one shared per-origin pool, so it is reported as an upgrade like --lease.
+treehouse_supports_home_root() {
+  treehouse get --help 2>&1 | grep -Fq TREEHOUSE_ROOT
+}
+
 # Shared semantic-version floor for the tool gates below. A version string that
 # cannot be parsed into exactly one major.minor.patch triple is incompatible,
 # never assumed current, so a development or vendored build cannot pass a floor
@@ -1576,12 +1584,13 @@ detect_local_tools() {
   for t in $COMMON_TOOLS; do
     command -v "$t" >/dev/null || missing_tool_diagnostic "$t"
   done
-  # The treehouse lease-support upgrade check is only relevant when the resolved
+  # The treehouse lease and home-root upgrade checks are only relevant when the resolved
   # backend actually requires treehouse (every backend except orca, which owns its
   # own worktrees); an orca home must not be told to upgrade a provider it never uses.
   if fm_backend_list_contains "$TOOLS" treehouse \
-    && command -v treehouse >/dev/null 2>&1 && ! treehouse_supports_lease; then
-    echo "OUTDATED: treehouse (installed: $(tool_version treehouse); requires --lease support; upgrade: $(upgrade_cmd treehouse))"
+    && command -v treehouse >/dev/null 2>&1 \
+    && { ! treehouse_supports_lease || ! treehouse_supports_home_root; }; then
+    echo "OUTDATED: treehouse (installed: $(tool_version treehouse); requires --lease and TREEHOUSE_ROOT support; upgrade: $(upgrade_cmd treehouse))"
   fi
   if command -v no-mistakes >/dev/null 2>&1 && ! tool_version_at_least no-mistakes "$NO_MISTAKES_MIN"; then
     echo "OUTDATED: no-mistakes (installed: $(tool_version no-mistakes); requires $NO_MISTAKES_MIN; upgrade: $(upgrade_cmd no-mistakes))"

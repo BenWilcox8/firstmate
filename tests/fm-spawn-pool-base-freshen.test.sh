@@ -910,7 +910,8 @@ case "$cmd" in
     rm -f "$world/$w.id" "$world/$w.path"
     ;;
   send-keys)
-    if [ "$text" = "treehouse get Enter" ]; then
+    case "$text" in "TREEHOUSE_ROOT='"*"' treehouse get Enter") typed_get=1 ;; *) typed_get=0 ;; esac
+    if [ "$typed_get" = 1 ]; then
       w=$(window_name "$target")
       for slot in "$slots"/*/project; do
         grep -qxF -- "$slot" "$world"/*.path 2>/dev/null && continue
