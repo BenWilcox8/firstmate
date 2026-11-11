@@ -1225,6 +1225,17 @@ test_no_mistakes_truly_unpushed_refuses() {
   pass "no-mistakes worktree with genuinely unlanded work is refused (safety preserved)"
 }
 
+# Register a bare repo as the project's local validation gate remote, named the
+# way `no-mistakes init` names it, push <rev> to it as the task branch, and fetch
+# so the worktree sees refs/remotes/no-mistakes/fm/task-x1. Args: case_dir rev
+add_gate_remote_with_pushed_rev() {
+  local case_dir=$1 rev=$2
+  git init -q --bare "$case_dir/gate.git"
+  git -C "$case_dir/project" remote add no-mistakes "$case_dir/gate.git"
+  git -C "$case_dir/wt" push -q no-mistakes "$rev:refs/heads/fm/task-x1"
+  git -C "$case_dir/project" fetch -q no-mistakes
+}
+
 test_no_mistakes_mirror_only_branch_refuses() {
   local case_dir rc local_head
   case_dir=$(make_case nm-mirror-only)
@@ -1247,6 +1258,33 @@ test_no_mistakes_mirror_only_branch_refuses() {
   grep -q REFUSED "$case_dir/stderr" || fail "nm-mirror-only: no REFUSED line in stderr"
   assert_refusal_retained_task_state "$case_dir" nm-mirror-only "$local_head"
   pass "branch pushed only to the no-mistakes mirror is refused as unlanded"
+}
+
+test_merged_pr_with_gate_only_parent_refuses() {
+  local case_dir rc parent_head head pr_head
+  case_dir=$(make_case gate-only-parent)
+  write_meta "$case_dir" no-mistakes ship
+  # The parent commit reached only the local gate. The merged PR head carries an
+  # equivalent of the later commit but not the parent, so the parent's work is
+  # unlanded even though the PR merged.
+  wt_commit_file "$case_dir" local-parent.txt parent "gate-only parent"
+  parent_head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  add_gate_remote_with_pushed_rev "$case_dir" "$parent_head"
+  wt_commit_file "$case_dir" feature.txt hello "add feature"
+  head=$(git -C "$case_dir/wt" rev-parse HEAD)
+  append_pr_meta_url "$case_dir"
+  pr_head=$(land_equivalent_patch_on_origin_branch "$case_dir" pr-head feature.txt hello "add feature")
+  add_gh_pr_merged_for_head "$case_dir" "$pr_head"
+
+  set +e
+  run_teardown "$case_dir" > "$case_dir/stdout" 2> "$case_dir/stderr"
+  rc=$?
+  set -e
+
+  expect_code 1 "$rc" "gate-only-parent: teardown should refuse a gate-only parent missing from the merged PR"
+  grep -q REFUSED "$case_dir/stderr" || fail "gate-only-parent: no REFUSED line in stderr"
+  assert_refusal_retained_task_state "$case_dir" gate-only-parent "$head"
+  pass "merged PR does not cover a parent commit found only on the local gate remote"
 }
 
 test_squash_merged_branch_deleted_allows() {
@@ -6946,6 +6984,7 @@ test_gate_remote_is_not_refreshed_into_landed
 test_no_mistakes_origin_remote_allows
 test_no_mistakes_truly_unpushed_refuses
 test_no_mistakes_mirror_only_branch_refuses
+test_merged_pr_with_gate_only_parent_refuses
 test_local_only_force_overrides_unpushed
 test_secondmate_pr_registration_publishes_ready_line
 test_secondmate_pr_ready_line_waits_for_green_when_opted_in
