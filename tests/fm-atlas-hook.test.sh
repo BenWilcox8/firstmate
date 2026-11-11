@@ -522,6 +522,7 @@ make_merge_local_case() {  # <name> [ticket-lines...]
     "kind=ship" \
     "mode=local-only" \
     "yolo=on" \
+    "local_done_head=$(git -C "$proj" rev-parse fm/task-a1)" \
     "$@"
   printf '%s\n' "$home"
 }

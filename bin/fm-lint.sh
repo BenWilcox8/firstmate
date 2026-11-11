@@ -672,6 +672,11 @@ sub scan_unexported_body_vars {
     while ($body =~ /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s+in\b/g) {
       $bodylocal{$1} = 1;
     }
+    # `for name do` and `for name;` iterate the body's own positional
+    # arguments, so the loop variable is body-local too.
+    while ($body =~ /\bfor\s+([A-Za-z_][A-Za-z0-9_]*)\s*(?:;|\n|do\b)/g) {
+      $bodylocal{$1} = 1;
+    }
     while ($body =~ /\bread\s+(?:-\w+\s+)*(.+)$/gm) {
       $bodylocal{$_} = 1 for split /\s+/, $1;
     }

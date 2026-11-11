@@ -28,13 +28,14 @@ command -v node >/dev/null 2>&1 || { echo "skip: node not found"; exit 0; }
 TMP_ROOT=$(fm_test_tmproot fm-remote-secondmate-omp)
 mkdir -p "$TMP_ROOT"
 TMP_ROOT=$(cd "$TMP_ROOT" && pwd -P)
-BASE_PATH=/usr/bin:/bin:/usr/sbin:/sbin
+BASE_PATH="$(fm_test_core_path):/usr/bin:/bin:/usr/sbin:/sbin"
 
 FAKEBIN="$TMP_ROOT/fakebin"
 mkdir -p "$FAKEBIN"
 install_remote_herdr_fixture "$FAKEBIN-root" "$TMP_ROOT/herdr.state" "$TMP_ROOT/herdr.log" \
   "$TMP_ROOT/herdr-send-fail" "$TMP_ROOT/herdr.sock"
 mv "$FAKEBIN-root/bin/herdr" "$FAKEBIN/herdr"
+mv "$FAKEBIN-root/bin/ps" "$FAKEBIN/ps"
 rmdir "$FAKEBIN-root/bin" "$FAKEBIN-root"
 ln -sf "$(command -v git)" "$FAKEBIN/git"
 ln -sf "$(command -v jq)" "$FAKEBIN/jq"

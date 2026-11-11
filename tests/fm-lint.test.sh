@@ -1402,6 +1402,36 @@ SH
   pass "fm-lint.sh fails a single-quoted bash -c body reading an unexported outer variable, naming the file and line"
 }
 
+test_hazard_scan_accepts_body_for_do_loop_var() {
+  if ! pinned_ready; then
+    pass "SKIP (ShellCheck $REQUIRED not resolved): body for-do loop variable hazard check"
+    return
+  fi
+  local tmp good rc out
+  tmp=$(fm_test_tmproot fm-lint-hazard-for-do)
+  mkdir -p "$tmp"
+  good="$tmp/for-do.test.sh"
+  cat > "$good" <<'SH'
+#!/usr/bin/env bash
+set -u
+claim_all() {
+  local lock
+  lock=unused
+  bash -c '
+    for lock do
+      printf "%s\n" "$lock"
+    done
+  ' _ a b
+}
+claim_all
+SH
+  rc=0
+  out=$("$LINT" "$good" 2>&1) || rc=$?
+  [ "$rc" -eq 0 ] || fail "fm-lint.sh flagged the loop variable of a bash -c body's own for-do loop (rc=$rc)"$'\n'"$out"
+  assert_not_contains "$out" "unexported \$lock" "fm-lint.sh reported a for-do loop variable as an unexported outer read"
+  pass "fm-lint.sh treats the variable of a bash -c body's own for-do loop as body-local"
+}
+
 test_hazard_scan_passes_clean_fixture() {
   if ! pinned_ready; then
     pass "SKIP (ShellCheck $REQUIRED not resolved): hazard-scan clean fixture check"
@@ -2388,6 +2418,7 @@ test_ignores_ambient_shellcheck_opts
 test_clean_fixture_passes
 test_hazard_scan_catches_restricted_path_fallback
 test_hazard_scan_catches_unexported_bash_c_var
+test_hazard_scan_accepts_body_for_do_loop_var
 test_hazard_scan_passes_clean_fixture
 test_hazard_scan_catches_absent_tool_path
 test_hazard_scan_absent_tool_path_allows_guarded_use

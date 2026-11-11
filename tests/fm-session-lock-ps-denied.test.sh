@@ -584,7 +584,7 @@ test_e2e_real_tree_with_blocked_ps() {
   # "named claude" for either reader. (A COPY of /bin/bash cannot even
   # execute here: SIP kills relocated platform binaries.) Route
   # equivalence itself is pinned by test_helper_identity_matches_ps_route.
-  ln -s /bin/bash "$named/claude"
+  ln -s "$(fm_test_tool bash)" "$named/claude"
 
   # The child resolves the anchor for its real named parent through the
   # REAL platform provider with a blocked ps. The parent stays alive until
@@ -601,10 +601,10 @@ CHILD
 
   "$named/claude" -c '
     set -u
-    pidfile=$1; child=$2; path=$3; lib=$4
+    pidfile=$1; child=$2; path=$3; lib=$4; bash_bin=$5
     printf "%s\n" "$$" > "$pidfile"
     env -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID PATH="$path" \
-      /bin/bash "$child" "$lib" > "$pidfile.anchor" 2>&1 &
+      "$bash_bin" "$child" "$lib" > "$pidfile.anchor" 2>&1 &
     childpid=$!
     i=0
     while [ ! -s "$pidfile.anchor" ] && [ "$i" -lt 60 ]; do
@@ -612,7 +612,7 @@ CHILD
     done
     kill "$childpid" 2>/dev/null || true
     wait "$childpid" 2>/dev/null || true
-  ' x "$dir/parent.pid" "$dir/child.sh" "$path_with_shim" "$LIB"
+  ' x "$dir/parent.pid" "$dir/child.sh" "$path_with_shim" "$LIB" "$(fm_test_tool bash)"
 
   local want got2 pid_part comm_part
   want=$(cat "$dir/parent.pid") || fail "e2e: the named parent did not record its pid"
@@ -765,7 +765,7 @@ test_helper_identity_matches_ps_route() {
     || { pass "route equivalence: ps unavailable on this host, skipped"; return; }
   local marker="$TMP_ROOT/renamed-ready" child ps_comm ps_args got h_comm h_args i
   rm -f "$marker"
-  /bin/bash -c ': > "$1"; exec -a claude-fake /bin/sleep 40' x "$marker" &
+  "$(fm_test_tool bash)" -c ': > "$1"; exec -a claude-fake "$2" 40' x "$marker" "$(fm_test_tool sleep)" &
   child=$!
   # Wait for the exec to land, then require ps itself to agree before
   # judging the helper - this pins the two routes against each other.

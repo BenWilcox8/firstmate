@@ -34,7 +34,7 @@ command -v perl >/dev/null 2>&1 || { printf 'skip: perl absent\n'; exit 0; }
 
 TMP_ROOT=$(fm_test_tmproot fm-supervision-host)
 FAKEBIN=$(fm_fakebin "$TMP_ROOT/fakebin")
-ln -s /bin/bash "$FAKEBIN/claude"
+ln -s "$(fm_test_tool bash)" "$FAKEBIN/claude"
 FAKE_CLAUDE="$FAKEBIN/claude"
 
 # The stub engine. It records its environment and arguments, then acts like a

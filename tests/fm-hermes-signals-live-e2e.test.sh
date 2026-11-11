@@ -97,7 +97,7 @@ export PATH="$LAB/bin:$PATH" FM_HOME="$H"
 unset FM_ROOT_OVERRIDE FM_STATE_OVERRIDE FM_DATA_OVERRIDE FM_CONFIG_OVERRIDE FM_PROJECTS_OVERRIDE
 TARGET="firstmate:fm-$ID"
 "$REAL_TMUX" -S "$SOCKET" new-session -d -s firstmate -n "fm-$ID" -x 140 -y 44 -c "$WT" \
-  "/bin/sh '$LAB/launch.sh'; exec /bin/bash --noprofile --norc" || fail 'could not launch visible pane'
+  "$(fm_test_tool sh) '$LAB/launch.sh'; exec $(fm_test_tool bash) --noprofile --norc" || fail 'could not launch visible pane'
 capture() { tmux capture-pane -p -e -t "$TARGET"; }
 wait_file() {
   local path=$1 i

@@ -578,6 +578,7 @@ test_merge_local_with_captain_word() {
   git -C "$proj" add change.txt
   git -C "$proj" commit -qm change
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
+  printf 'local_done_head=%s\n' "$(git -C "$proj" rev-parse fm/task-a1)" >> "$HOME_DIR/state/task-a1.meta"
   set +e
   in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word "land it" >"$HOME_DIR/merge.out" 2>&1
   rc=$?
@@ -752,6 +753,7 @@ test_captain_word_equals_forms() {
   git -C "$proj" add change.txt
   git -C "$proj" commit -qm change
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
+  printf 'local_done_head=%s\n' "$(git -C "$proj" rev-parse fm/task-a1)" >> "$HOME_DIR/state/task-a1.meta"
   in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word="-land it" >/dev/null 2>&1 \
     || fail "$store: fm-merge-local did not accept --captain-word=<words>"
   [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-land it" ] \
