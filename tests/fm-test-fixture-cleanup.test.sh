@@ -271,10 +271,17 @@ test_registered_fixture_processes_reaped_after_sigterm() {
 # signal in the same observable way without depending on that race.
 
 test_stop_child_resends_a_lost_term() {
-  local pid status
-  bash -c 'n=0; trap '\''n=$((n + 1)); [ "$n" -ge 2 ] && exit 7'\'' TERM; while :; do sleep 0.1; done' &
+  local harness pid status tries
+  harness=$(fm_test_tmproot fm-test-stop-child-lost-term)
+  bash -c 'n=0; trap '\''n=$((n + 1)); [ "$n" -ge 2 ] && exit 7'\'' TERM; : > "$1"; while :; do sleep 0.1; done' _ "$harness/ready" &
   pid=$!
-  sleep 0.3
+  fm_test_track_pid "$pid"
+  tries=0
+  while [ ! -e "$harness/ready" ] && [ "$tries" -lt 400 ]; do
+    sleep 0.05
+    tries=$((tries + 1))
+  done
+  [ -e "$harness/ready" ] || fail "the stand-in never installed its TERM trap"
   status=0
   fm_test_stop_child "$pid" || status=$?
   ! fm_test_process_running "$pid" || fail "a child that swallowed its first TERM was still running"
@@ -284,10 +291,17 @@ test_stop_child_resends_a_lost_term() {
 }
 
 test_stop_child_kills_a_child_that_ignores_term() {
-  local pid status
-  bash -c 'trap "" TERM; while :; do sleep 0.1; done' &
+  local harness pid status tries
+  harness=$(fm_test_tmproot fm-test-stop-child-ignored-term)
+  bash -c 'trap "" TERM; : > "$1"; while :; do sleep 0.1; done' _ "$harness/ready" &
   pid=$!
-  sleep 0.3
+  fm_test_track_pid "$pid"
+  tries=0
+  while [ ! -e "$harness/ready" ] && [ "$tries" -lt 400 ]; do
+    sleep 0.05
+    tries=$((tries + 1))
+  done
+  [ -e "$harness/ready" ] || fail "the stand-in never ignored TERM"
   status=0
   fm_test_stop_child "$pid" 20 || status=$?
   ! fm_test_process_running "$pid" || fail "a child that ignores TERM was still running after its bound"
