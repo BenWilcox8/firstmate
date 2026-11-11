@@ -3,7 +3,7 @@
 bin/fm-send.sh	39	send-provenance-context	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-watch.sh	505	send-provenance-re-ring	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-tmux-lib.sh	1	send-provenance-tmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/backends/herdr.sh	828	send-provenance-herdr	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/backends/herdr.sh	860	send-provenance-herdr	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
@@ -22,11 +22,11 @@ bin/fm-teardown.sh	511	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: 
 bin/fm-test-run.sh	110	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
 bin/fm-watch.sh	505	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
 docs/agent-control.md	132	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: Herdr endpoint exception	retain
-docs/herdr-backend.md	306	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
+docs/herdr-backend.md	312	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
 docs/verification/runtime-backends.md	243	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
 tests/fm-control-herdr-smoke.test.sh	350	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
-tests/fm-teardown.test.sh	521	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
-tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	48	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-teardown.test.sh	560	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
+tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	84	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-presentation-e2e.test.sh	55	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	57	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 bin/fm-teardown.sh	511	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
@@ -46,11 +46,11 @@ bin/fm-spawn.sh	995	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Her
 bin/fm-spawn.sh	995	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas dispatch identity and hooks	retain
 bin/fm-control.sh	585	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-teardown.sh	511	atlas-integration	tests/fm-local-cleanup-slot.test.sh	personal: Atlas close-out gate	retain
-bin/backends/herdr.sh	828	herdr-layout	tests/fm-backend-herdr-recovery-state.test.sh	personal: agent-axi placement and the Herdr recovery liveness family	retain
+bin/backends/herdr.sh	860	herdr-layout	tests/fm-backend-herdr-recovery-state.test.sh	personal: agent-axi placement and the Herdr recovery liveness family	retain
 bin/fm-test-run.sh	110	test-shards-hints	tests/fm-test-run.test.sh	personal: a twelfth serial shard and fork timing hints for fork-only scripts	retain
 bin/fm-test-run.sh	110	browser-reap	tests/fm-test-run.test.sh	personal: a watcher change selects the browser-reap suite	retain
 .github/workflows/ci.yml	52	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: a twelfth serial shard	retain
-tests/fm-teardown.test.sh	521	atlas-integration	tests/fm-teardown.test.sh	personal: Atlas landing evidence names the base branch	retain
+tests/fm-teardown.test.sh	560	atlas-integration	tests/fm-teardown.test.sh	personal: Atlas landing evidence names the base branch	retain
 docs/agent-control.md	132	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-supervise-daemon.sh	458	away-daemon	tests/fm-daemon-staged-digest-stability.test.sh	personal: stable staged digest and Codex short wakes	retain
 .agents/skills/afk/SKILL.md	30	away-daemon	tests/fm-daemon.test.sh	generic: busy-pane max-defer ladder with durable inbox handoff, upstreamable	retain
@@ -208,8 +208,8 @@ tests/fm-backend-autodetect-smoke.test.sh	13	herdr-layout	tests/fm-backend-autod
 tests/fm-backend-autodetect-smoke.test.sh	13	raw-launch-literal	tests/fm-backend-autodetect-smoke.test.sh	personal: raw launch keeps literal words and refuses nested shells	retain
 tests/fm-backend-herdr-respawn-idem-e2e.test.sh	27	herdr-layout	tests/fm-backend-herdr-respawn-idem-e2e.test.sh	personal: exact Herdr recovery liveness	retain
 tests/fm-backend-herdr-smoke.test.sh	24	herdr-layout	tests/fm-backend-herdr-smoke.test.sh	personal: exact Herdr recovery liveness	retain
-tests/fm-backend-herdr.test.sh	1033	herdr-layout	tests/fm-backend-herdr.test.sh	personal: agent-axi Herdr layer and exact recovery liveness	retain
-tests/fm-backend-herdr.test.sh	1033	nixos-test-portability	tests/fm-backend-herdr.test.sh	generic: tool lookup through PATH and fork lint hazard scan, upstreamable	retain
+tests/fm-backend-herdr.test.sh	1096	herdr-layout	tests/fm-backend-herdr.test.sh	personal: agent-axi Herdr layer and exact recovery liveness	retain
+tests/fm-backend-herdr.test.sh	1096	nixos-test-portability	tests/fm-backend-herdr.test.sh	generic: tool lookup through PATH and fork lint hazard scan, upstreamable	retain
 tests/fm-backend-orca.test.sh	315	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca tasks retired	retain
 tests/fm-backend-t3code.test.sh	3	watcher-waits	tests/fm-backend-t3code.test.sh	personal: watcher footer-normalized pane hash	retain
 tests/fm-backend-tern.test.sh	10	nixos-test-portability	tests/fm-backend-tern.test.sh	generic: tool lookup through PATH and fork lint hazard scan, upstreamable	retain
@@ -408,6 +408,6 @@ tests/fm-bootstrap.test.sh	117	per-home-treehouse-pool	tests/fm-treehouse.test.s
 tests/fm-tangle-guard.test.sh	10	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 tests/fm-spawn-pool-base-freshen.test.sh	344	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 bin/fm-spawn.sh	995	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
-bin/backends/herdr.sh	828	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
-docs/herdr-backend.md	306	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
+bin/backends/herdr.sh	860	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
+docs/herdr-backend.md	312	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
 tests/fm-spawn-pool-base-freshen.test.sh	344	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
