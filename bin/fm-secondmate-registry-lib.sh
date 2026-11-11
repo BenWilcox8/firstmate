@@ -309,3 +309,54 @@ secondmate_registry_validate_bindings() {
   fi
   return 0
 }
+
+# The state directories of every local Firstmate home that may hold a record
+# for a shared pool slot: the record's own state directory first, then the
+# local root home and every local home reachable through registered secondmate
+# entries. Remote entries are skipped, because their records live on another
+# machine. Sets SECONDMATE_REGISTRY_LOCAL_STATES; an unsafe registry, a
+# malformed entry, or an unavailable registered home returns 1 with
+# SECONDMATE_REGISTRY_ERROR set, because a partial scan cannot prove exclusivity.
+secondmate_registry_local_state_dirs() {  # <record-state-dir> <root-home>
+  local record_state=$1 home reg line child known existing i=0
+  local -a homes
+  SECONDMATE_REGISTRY_LOCAL_STATES=("$record_state")
+  SECONDMATE_REGISTRY_ERROR=
+  homes=("$2")
+  while [ "$i" -lt "${#homes[@]}" ]; do
+    home=${homes[$i]}
+    i=$((i + 1))
+    known=0
+    for existing in "${SECONDMATE_REGISTRY_LOCAL_STATES[@]}"; do
+      [ "$existing" != "$home/state" ] || known=1
+    done
+    [ "$known" = 1 ] || SECONDMATE_REGISTRY_LOCAL_STATES+=("$home/state")
+    reg="$home/data/secondmates.md"
+    [ ! -e "$reg" ] && [ ! -L "$reg" ] && continue
+    if [ ! -f "$reg" ] || [ -L "$reg" ]; then
+      SECONDMATE_REGISTRY_ERROR="local Firstmate registry is unsafe at $reg"
+      return 1
+    fi
+    while IFS= read -r line || [ -n "$line" ]; do
+      case "$line" in
+        "- "*)
+          if ! secondmate_registry_parse_line "$line"; then
+            SECONDMATE_REGISTRY_ERROR="malformed local Firstmate registry entry in $reg"
+            return 1
+          fi
+          [ "$SECONDMATE_REGISTRY_REMOTE" -eq 0 ] || continue
+          if [ -z "$SECONDMATE_REGISTRY_HOME" ] || [ ! -d "$SECONDMATE_REGISTRY_HOME" ] \
+             || ! child=$(cd "$SECONDMATE_REGISTRY_HOME" && pwd -P); then
+            SECONDMATE_REGISTRY_ERROR="registered local Firstmate home is unavailable: $SECONDMATE_REGISTRY_HOME"
+            return 1
+          fi
+          known=0
+          for existing in "${homes[@]}"; do
+            [ "$existing" != "$child" ] || known=1
+          done
+          [ "$known" = 1 ] || homes+=("$child")
+          ;;
+      esac
+    done < "$reg"
+  done
+}

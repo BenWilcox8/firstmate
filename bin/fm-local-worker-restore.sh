@@ -131,12 +131,7 @@ wr_first_line() {
 
 # wr_gen <meta>: the spawn epoch from spawn_gen=s<epoch>.<pid>.<n>, or nothing.
 wr_gen() {
-  local gen
-  gen=$(fm_meta_get "$1" spawn_gen)
-  gen=${gen#s}
-  gen=${gen%%.*}
-  case "$gen" in ''|*[!0-9]*) return 0 ;; esac
-  printf '%s' "$gen"
+  fm_local_spawn_epoch "$1" || true
 }
 
 # wr_fleet_homes: this home, the root home, and the root's local second mate
