@@ -225,6 +225,44 @@ test_launch_exports_task_inbox() {
   pass "ship and secondmate launches export their absolute steering inbox as FM_TASK_INBOX"
 }
 
+# A pane does not inherit the spawner's FM_HOME, so every launch must set it:
+# ships and scouts get the spawner's active home, which here differs from the
+# code root, and a secondmate gets its own home. Without it a worker's bin/*.sh
+# scripts would resolve their code root as the home.
+test_launch_exports_active_home() {
+  local kind rec id sm out status seen want
+  for kind in ship scout secondmate; do
+    id="home-$kind-a1"
+    rec=$(make_case "home-$kind" codex "$id")
+    read_case "$rec"
+    : > "$HOME_DIR/config/launch-env-allowlist"
+    want=$HOME_DIR
+    case "$kind" in
+    ship) out=$(run_case_spawn "$id" "$PROJ_DIR" --mode no-mistakes --yolo off) ;;
+    scout) out=$(run_case_spawn "$id" "$PROJ_DIR" --scout) ;;
+    secondmate)
+      sm="$CASE_DIR/secondmate-home"
+      mkdir -p "$sm/bin" "$sm/data"
+      printf '# Firstmate\n' > "$sm/AGENTS.md"
+      printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
+      printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
+      printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$sm/.gitignore"
+      git -C "$sm" init -q -b main
+      want=$sm
+      out=$(run_case_spawn "$id" "$sm" --secondmate)
+      ;;
+    esac
+    status=$?
+    expect_code 0 "$status" "$kind spawn should succeed: $out"
+    install_env_probe "$FAKEBIN_DIR" codex FM_HOME
+    seen=$(emitted_launch_env "$FAKEBIN_DIR" "$LAUNCH_LOG" "$PANE_LOG") \
+      || fail "$kind: the emitted launch failed to run"
+    [ "$seen" != "$ROOT" ] || fail "$kind: FM_HOME must not be the code root"
+    assert_equals "$want" "$seen" "a $kind agent must start with FM_HOME set to its home"
+  done
+  pass "ship and scout launches export the active home as FM_HOME; a secondmate gets its own"
+}
+
 # --- relaunch ---------------------------------------------------------------
 #
 # bin/fm-control.sh relaunch stops the agent and rebuilds the launch through
@@ -256,7 +294,7 @@ case "${1:-}" in
         ". '"*"'")
           staged=${payload#". '"}
           staged=${staged%"'"}
-          [ ! -f "$staged" ] || payload=$(cat "$staged")
+          [ ! -f "$staged" ] || { payload=$(cat "$staged"); printf '%s\n' "$payload" > "$D/launch"; }
           ;;
       esac
       printf '%s\n' "$payload" >> "$D/literal"
@@ -333,7 +371,7 @@ test_relaunch_rebuilds_the_switch() {
 
     grep -qx 'export COMPACT_ADVISER_DISABLE=1' "$dir/fake/keys" \
       || fail "relaunch with allowlist=$setting did not re-export the compact-adviser switch into the pane"
-    launch=$(grep 'encode launch-brief' "$dir/fake/literal" | tail -1)
+    launch=$(cat "$dir/fake/launch" 2>/dev/null)
     [ -n "$launch" ] || fail "relaunch with allowlist=$setting sent no replacement launch command"
     install_env_probe "$dir/fakebin" codex
     preamble=$(grep '^export ' "$dir/fake/keys")
@@ -352,7 +390,7 @@ write_adviser_probe() {  # <dir>
   mkdir -p "$1"
   cat > "$1/probe" <<'SH'
 #!/bin/sh
-printf '%s\n' "${COMPACT_ADVISER_DISABLE-unset}"
+printf '%s\n%s\n' "${COMPACT_ADVISER_DISABLE-unset}" "${FM_HOME-unset}"
 SH
   chmod +x "$1/probe"
 }
@@ -360,14 +398,16 @@ SH
 # A raw launch in this fork is one executable with literal arguments, so the
 # disabled-harness gate can name what runs. A compound launch such as
 # `cd <dir> && <probe>` is refused before any launch is sent. The accepted raw
-# shape must still start its agent with the switch on, so this executes the
-# pane's launch under a contrary ambient value.
+# shape must still start its agent with both required environment values, so
+# this executes the pane's launch under a contrary ambient compact-adviser value.
 test_raw_launch_command_carries_the_switch() {
   local rec out status seen launch probe_dir
   rec=$(make_case raw-compound claude raw-compound-a1)
   read_case "$rec"
   printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
     > "$HOME_DIR/config/crew-dispatch.json"
+  mkdir -p "$HOME_DIR/data/raw-compound-a1"
+  printf '%s\n' '{"task":"raw-compound-a1","status":"off","profile":null}' > "$HOME_DIR/data/raw-compound-a1/dispatch-resolution.json"
 
   probe_dir="$CASE_DIR/agent-cwd"
   write_adviser_probe "$probe_dir"
@@ -384,6 +424,8 @@ test_raw_launch_command_carries_the_switch() {
   read_case "$rec"
   printf '%s\n' '{"rules":[{"when":"current events","use":{"harness":"grok","model":"grok-4","effort":"high"}}],"default":{"harness":"codex","model":"gpt-5","effort":"medium"}}' \
     > "$HOME_DIR/config/crew-dispatch.json"
+  mkdir -p "$HOME_DIR/data/raw-single-a1"
+  printf '%s\n' '{"task":"raw-single-a1","status":"off","profile":null}' > "$HOME_DIR/data/raw-single-a1/dispatch-resolution.json"
   probe_dir="$CASE_DIR/agent-cwd"
   write_adviser_probe "$probe_dir"
   out=$(run_case_spawn raw-single-a1 "$PROJ_DIR" --mode no-mistakes --yolo off \
@@ -396,15 +438,49 @@ test_raw_launch_command_carries_the_switch() {
     TMUX=synthetic-pane COMPACT_ADVISER_DISABLE="$CONTRARY" \
     /bin/sh -c "$launch") \
     || fail "single-executable raw launch: the emitted launch failed to run"
-  assert_equals 1 "$seen" \
-    "a single-executable raw launch must start its agent with the compact adviser disabled"
-  pass "a raw compound launch is refused, and a single-executable raw launch starts with the compact-adviser switch on"
+  assert_equals "1
+$HOME_DIR" "$seen" \
+    "a single-executable raw launch must start with COMPACT_ADVISER_DISABLE=1 and active FM_HOME"
+  pass "a raw compound launch is refused, and a single-executable raw launch carries COMPACT_ADVISER_DISABLE=1 and active FM_HOME"
 }
 
+test_launch_preserves_literal_home_and_brief_paths() {
+  local name rec id out status seen want brief
+  for name in normal literal; do
+    id="path-$name-a1"
+    rec=$(make_case "path-$name" codex "$id")
+    read_case "$rec"
+    if [ "$name" = literal ]; then
+      mv "$HOME_DIR" "$CASE_DIR/R&D \"double\" 'single' home"
+      HOME_DIR="$CASE_DIR/R&D \"double\" 'single' home"
+    fi
+    out=$(run_case_spawn "$id" "$PROJ_DIR" --mode no-mistakes --yolo off)
+    status=$?
+    expect_code 0 "$status" "$name path spawn should succeed: $out"
+    # Capture the environment and final prompt received by the fake agent.
+    cat > "$FAKEBIN_DIR/codex" <<'SH'
+#!/bin/sh
+printf '%s\n' "$FM_TASK_INBOX"
+for arg do :; done
+printf '%s\n' "$arg"
+SH
+    chmod +x "$FAKEBIN_DIR/codex"
+    seen=$(emitted_launch_env "$FAKEBIN_DIR" "$LAUNCH_LOG" "$PANE_LOG") \
+      || fail "$name path: the emitted launch failed to run"
+    brief=$("$ROOT/bin/fm-operational-input.sh" encode launch-brief < "$HOME_DIR/data/$id/launch-brief.md")
+    want="$(cd "$HOME_DIR/state" && pwd -P)/$id.inbox
+$brief"
+    assert_equals "$want" "$seen" "$name path: launch changed the home or brief bytes"
+  done
+  pass "launch preserves literal ampersands, quotes and spaces in home and brief paths"
+}
+
+test_launch_preserves_literal_home_and_brief_paths
 test_ship_allowlist_absent
 test_ship_allowlist_enabled
 test_launch_command_carries_the_switch_without_the_pane_export
 test_secondmate_launch
 test_launch_exports_task_inbox
+test_launch_exports_active_home
 test_relaunch_rebuilds_the_switch
 test_raw_launch_command_carries_the_switch
