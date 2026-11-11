@@ -1,0 +1,6 @@
+$ FM_TEST_ONLY=test_turn_ended_churn_existing_marker_absorbed bash tests/fm-watch-triage.test.sh
+ok - a churning turn-end inside an already-open deferral window is absorbed without re-marking
+exit=0
+$ FM_TEST_ONLY=test_moved_to_a_split_file bash tests/fm-watch-triage.test.sh   (adversarial: names no case)
+not ok - FM_TEST_ONLY names no case in this file: test_moved_to_a_split_file
+exit=1

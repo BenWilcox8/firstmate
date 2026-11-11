@@ -1,0 +1,33 @@
+# host python3: absent; node v24.18.0
+## literal  (Python non-strict realpath expectation: migrate)
+   setup: ln -s AGENTS.md CLAUDE.md
+   updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in /tmp/tmp.FEBFHBRhd4/literal
+   exit=0  CLAUDE.md now: file: <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->|@AGENTS.md|
+## existing-dir-dotdot  (Python non-strict realpath expectation: migrate)
+   setup: mkdir sub && ln -s sub/../AGENTS.md CLAUDE.md
+   updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in /tmp/tmp.FEBFHBRhd4/existing-dir-dotdot
+   exit=0  CLAUDE.md now: file: <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->|@AGENTS.md|
+## one-hop-missing-dotdot  (Python non-strict realpath expectation: migrate)
+   setup: ln -s missing/../AGENTS.md CLAUDE.md
+   updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in /tmp/tmp.FEBFHBRhd4/one-hop-missing-dotdot
+   exit=0  CLAUDE.md now: file: <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->|@AGENTS.md|
+## two-hop-missing-dotdot  (Python non-strict realpath expectation: migrate)
+   setup: ln -s missing/../AGENTS.md hop && ln -s hop CLAUDE.md
+   updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in /tmp/tmp.FEBFHBRhd4/two-hop-missing-dotdot
+   exit=0  CLAUDE.md now: file: <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->|@AGENTS.md|
+## symlinked-dir-before-dotdot  (Python non-strict realpath expectation: refuse)
+   setup: mkdir -p deep/x && ln -s deep/x ln && ln -s ln/missing/../../AGENTS.md CLAUDE.md
+   conflict: CLAUDE.md is a symlink in /tmp/tmp.FEBFHBRhd4/symlinked-dir-before-dotdot but does not point to AGENTS.md
+   exit=1  CLAUDE.md now: symlink -> ln/missing/../../AGENTS.md
+## loop  (Python non-strict realpath expectation: refuse)
+   setup: ln -s loopB loopA && ln -s loopA loopB && ln -s loopA CLAUDE.md
+   conflict: CLAUDE.md is a symlink in /tmp/tmp.FEBFHBRhd4/loop but does not point to AGENTS.md
+   exit=1  CLAUDE.md now: symlink -> loopA
+## wrong-target  (Python non-strict realpath expectation: refuse)
+   setup: echo other > other.md && ln -s other.md CLAUDE.md
+   conflict: CLAUDE.md is a symlink in /tmp/tmp.FEBFHBRhd4/wrong-target but does not point to AGENTS.md
+   exit=1  CLAUDE.md now: symlink -> other.md
+## absolute-via-dir-alias  (Python non-strict realpath expectation: migrate)
+   setup: ln -s $PWD /tmp/tmp.FEBFHBRhd4/alias-abs && ln -s /tmp/tmp.FEBFHBRhd4/alias-abs/AGENTS.md CLAUDE.md
+   updated: replaced CLAUDE.md symlink with @AGENTS.md pointer in /tmp/tmp.FEBFHBRhd4/absolute-via-dir-alias
+   exit=0  CLAUDE.md now: file: <!-- Points Claude at AGENTS.md via import; edit AGENTS.md, not this file. -->|@AGENTS.md|

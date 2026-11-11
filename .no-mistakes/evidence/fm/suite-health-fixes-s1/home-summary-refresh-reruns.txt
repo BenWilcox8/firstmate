@@ -1,0 +1,4 @@
+== rerun 1 (load: 26.75)
+FM_TEST_END 2026-11-11T02:28:39Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=54128 gate_skip=false
+== rerun 2 (load: 18.85)
+FM_TEST_END 2026-11-11T02:29:22Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=42913 gate_skip=false

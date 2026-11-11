@@ -1,0 +1,62 @@
+# host: python3=absent node=v24.18.0
+$ fm-inbox.sh note --request-id r1 --json "check the OSG admin"
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1794363244-fH6Bl0","request_id":"r1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/tmp.pGRmGceduv/state/inbox/1794363244-fH6Bl0.note"}
+exit=0
+$ fm-inbox.sh note --request-id r1 --json "check the OSG admin"   (replay)
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1794363244-fH6Bl0","request_id":"r1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/tmp.pGRmGceduv/state/inbox/1794363244-fH6Bl0.note"}
+exit=0
+basename: missing operand
+Try 'basename --help' for more information.
+# note id: 
+1794363244-fH6Bl0.note
+$ fm-inbox.sh reply --json  "done"
+fm-inbox: usage: fm-inbox.sh reply [--json] <id> <text>... (or: reply [--json] <id> -)
+exit=1
+$ fm-inbox.sh receipts
+{
+  "schema": "fm-inbox-receipts.v1",
+  "home": "tmp/tmp.pGRmGceduv",
+  "generated": "2026-11-11T02:14:04Z",
+  "pending": [
+    {
+      "id": "1794363244-fH6Bl0",
+      "at": "2026-11-11T02:14:04Z",
+      "source": "text",
+      "request_id": "r1",
+      "body": "check the OSG admin",
+      "acknowledged": false,
+      "announced": true,
+      "reply": null
+    }
+  ],
+  "handled": [],
+  "replies": [],
+  "reply_cursor": "",
+  "omitted": []
+}
+exit=0
+$ fm-inbox.sh ready
+{
+  "schema": "fm-primary-ready.v1",
+  "home": "tmp/tmp.pGRmGceduv",
+  "observed_at": "2026-11-11T02:14:04Z",
+  "lock": {
+    "state": "free",
+    "pid": null,
+    "live_harness": false
+  },
+  "wake_consumer": {
+    "state": "unknown",
+    "reason": "supervision-model-unknown-for-home",
+    "beacon_age_seconds": null
+  },
+  "posture": {
+    "state": "present"
+  },
+  "can_receive": false
+}
+exit=0
+$ fm-inbox.sh list
+1794363244-fH6Bl0
+    check the OSG admin
+exit=0

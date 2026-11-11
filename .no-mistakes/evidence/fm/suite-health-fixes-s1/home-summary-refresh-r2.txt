@@ -1,0 +1,70 @@
+== round2 run 1 at e3a2156 (load: 9.29)
+ok - watcher-carried status append publishes the real home summary
+ok - large backlog snapshots and home-summary publication stay within exec limits
+ok - fleet snapshot transport does not require or mutate operational state
+ok - parent snapshot consumes large child ledgers without argument transport
+ok - live watcher cadence bounds publication staleness without signals
+ok - fleet snapshot consumes the published local ledger by default
+ok - writer kill and replacement preserve an atomic JSON ledger
+ok - best-effort publication logs and continues
+ok - best-effort refresh bounds publication lock acquisition
+ok - best-effort refresh bounds validation and publication
+ok - best-effort refresh bounds state initialization
+ok - best-effort refresh logs worker termination
+ok - best-effort refresh bounds failure reporting fallback
+ok - valid publication ignores an unavailable failure record
+ok - publication completes on a home carrying accumulated status history
+ok - producer skips remote per-task state probes
+ok - a stalled publication does not delay the watcher liveness beacon
+ok - publication remains single-flight across watcher restart
+ok - bootstrap scopes retained failures to the current publication
+ok - failure records preserve refresh attempt ordering
+ok - repeated publication failure is reported at session start until it clears
+FM_TEST_END 2026-11-11T02:41:09Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=42047 gate_skip=false
+== round2 run 2 at e3a2156 (load: 9.27)
+ok - watcher-carried status append publishes the real home summary
+ok - large backlog snapshots and home-summary publication stay within exec limits
+ok - fleet snapshot transport does not require or mutate operational state
+ok - parent snapshot consumes large child ledgers without argument transport
+ok - live watcher cadence bounds publication staleness without signals
+ok - fleet snapshot consumes the published local ledger by default
+ok - writer kill and replacement preserve an atomic JSON ledger
+ok - best-effort publication logs and continues
+ok - best-effort refresh bounds publication lock acquisition
+ok - best-effort refresh bounds validation and publication
+ok - best-effort refresh bounds state initialization
+ok - best-effort refresh logs worker termination
+ok - best-effort refresh bounds failure reporting fallback
+ok - valid publication ignores an unavailable failure record
+ok - publication completes on a home carrying accumulated status history
+ok - producer skips remote per-task state probes
+ok - a stalled publication does not delay the watcher liveness beacon
+ok - publication remains single-flight across watcher restart
+ok - bootstrap scopes retained failures to the current publication
+ok - failure records preserve refresh attempt ordering
+ok - repeated publication failure is reported at session start until it clears
+FM_TEST_END 2026-11-11T02:41:52Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=42229 gate_skip=false
+== round2 stressed run (16 extra nice-19 busy loops; load: 9.37)
+ok - watcher-carried status append publishes the real home summary
+ok - large backlog snapshots and home-summary publication stay within exec limits
+ok - fleet snapshot transport does not require or mutate operational state
+ok - parent snapshot consumes large child ledgers without argument transport
+ok - live watcher cadence bounds publication staleness without signals
+ok - fleet snapshot consumes the published local ledger by default
+ok - writer kill and replacement preserve an atomic JSON ledger
+ok - best-effort publication logs and continues
+ok - best-effort refresh bounds publication lock acquisition
+ok - best-effort refresh bounds validation and publication
+ok - best-effort refresh bounds state initialization
+ok - best-effort refresh logs worker termination
+ok - best-effort refresh bounds failure reporting fallback
+ok - valid publication ignores an unavailable failure record
+ok - publication completes on a home carrying accumulated status history
+ok - producer skips remote per-task state probes
+ok - a stalled publication does not delay the watcher liveness beacon
+ok - publication remains single-flight across watcher restart
+ok - bootstrap scopes retained failures to the current publication
+ok - failure records preserve refresh attempt ordering
+ok - repeated publication failure is reported at session start until it clears
+FM_TEST_END 2026-11-11T02:42:59Z tests/fm-home-summary-refresh.test.sh exit=0 duration_ms=55908 gate_skip=false
+   load at end: 18.91

@@ -1,0 +1,12 @@
+# commit e3a2156; python3 on PATH: absent; node v24.18.0
+$ bin/fm-doc-audience-check.sh
+fm-doc-audience-check: ok surfaces=117 local_links=463
+exit=0
+$ fm-inbox.sh note --request-id r1 --json "check the OSG admin"  (twice: create then replay)
+{"schema":"fm-inbox-note.v1","outcome":"created","id":"1794365202-4oqrgv","request_id":"r1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/tmp.TMatIadMc2/state/inbox/1794365202-4oqrgv.note"}
+exit=0
+{"schema":"fm-inbox-note.v1","outcome":"replay","id":"1794365202-4oqrgv","request_id":"r1","saved":true,"announced":true,"acknowledged":false,"path":"/tmp/tmp.TMatIadMc2/state/inbox/1794365202-4oqrgv.note"}
+exit=0
+$ FM_TEST_ONLY=test_moved_to_a_split_file bash tests/fm-watch-triage.test.sh  (adversarial)
+not ok - FM_TEST_ONLY names no case in this file: test_moved_to_a_split_file
+exit=1

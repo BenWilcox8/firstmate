@@ -1,0 +1,10 @@
+## mode=success suite exit=0; stand-in pid 1893093 after suite exit: gone
+   ok - suite body done (success)
+## mode=fail suite exit=1; stand-in pid 1894060 after suite exit: gone
+   not ok - deliberate assertion failure
+## mode=recycled suite exit=0; stand-in pid 1895121 after suite exit: gone
+   ok - suite body done (recycled)
+   decoy pid 1895146 with forged start time after suite exit: still alive (correctly NOT signaled)
+## registry files left for exited suites: 1 (this probe's)
+## SIGTERM to a suite mid-run:
+   suite exit=143; stand-in 1896161 after TERM: gone

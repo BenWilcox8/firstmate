@@ -1,0 +1,14 @@
+# bare PATH holds node? no  realpath? no
+# chain: /tmp/tmp.4lb8Z1XZo6/ssh/fm-remote-entrypoint.sh -> hop/fm-remote-entrypoint.sh -> /home/ben/.no-mistakes/worktrees/3665d600861c/01M745ZKFHF1NSDAD0G5KVE9RK/bin/fm-remote-entrypoint.sh
+$ (bare PATH) linked entrypoint, protocol 2
+error: incompatible remote protocol: local=2 remote=1
+exit=64
+$ (bare PATH) linked entrypoint, protocol 1, command outside namespace
+error: command is outside the fm-*.sh namespace: rm
+exit=64
+$ (bare PATH) linked entrypoint, protocol 1, traversal command
+error: command contains a path or traversal: fm-../x.sh
+exit=64
+# adversarial: symlink loop as the entrypoint (bounded at 40 hops, no hang)
+bash: /tmp/tmp.4lb8Z1XZo6/ssh/loopA: Too many levels of symbolic links
+exit=126 (bash itself cannot open a looping path)

@@ -1,0 +1,17 @@
+# created note 1794363265-9yoj9F
+$ fm-inbox.sh reply --json 1794363265-9yoj9F "on it"
+{"schema":"fm-inbox-reply.v1","outcome":"created","id":"1794363265-9yoj9F","path":"/tmp/tmp.FWr2oJrvT6/state/inbox/.replies/1794363265-9yoj9F"}
+exit=0
+$ fm-inbox.sh receipts --all-replies (replies + reply_cursor)
+{"pending":[{"id":"1794363265-9yoj9F","reply":{"id":"1794363265-9yoj9F","at":"2026-11-11T02:14:26Z","body":"on it","cursor":"000000000001"}}],"replies":[{"id":"1794363265-9yoj9F","at":"2026-11-11T02:14:26Z","body":"on it","cursor":"000000000001"}],"reply_cursor":"000000000001"}
+exit=0
+$ fm-inbox.sh drain --ack 1794363265-9yoj9F
+acked 1794363265-9yoj9F
+exit=0
+$ fm-inbox.sh receipts --all-handled
+{"pending":0,"handled":[{"id":"1794363265-9yoj9F","acknowledged":true}]}
+
+# nodeless host: PATH without node, HOME without ~/.local/bin/node
+fm-inbox: node 20 or newer is required and was not found on PATH or in ~/.local/bin, /opt/homebrew/bin or /usr/local/bin. In a login shell that finds node, run: mkdir -p ~/.local/bin && ln -s "$(command -v node)" ~/.local/bin/node
+exit=1
+# notes after nodeless attempt: 1 pending

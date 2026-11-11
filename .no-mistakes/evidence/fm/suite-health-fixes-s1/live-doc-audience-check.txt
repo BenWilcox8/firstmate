@@ -1,0 +1,32 @@
+# host python3: absent
+$ bin/fm-doc-audience-check.sh   (real repo inventory)
+fm-doc-audience-check: ok surfaces=117 local_links=463
+exit=0
+
+# adversarial 1: inventory version 2
+fm-doc-audience-check: inventory version must be 1
+exit=1
+
+# adversarial 2: drop the first document entry
+# first scalar paths: version
+scope.trackedPatterns.0
+scope.trackedPatterns.1
+fm-doc-audience-check: ok surfaces=117 local_links=463
+exit=0
+
+# adversarial 3: trailing text after the JSON document
+fm-doc-audience-check: inventory is unreadable: Unexpected non-whitespace character after JSON at position 15292 (line 581 column 1)
+exit=1
+
+# adversarial 4: missing inventory
+fm-doc-audience-check: inventory is missing: /tmp/tmp.ZnlGin6yg6/nope.json
+exit=1
+
+# adversarial 2 (retry): drop the first surfaces[] entry, so a tracked doc is unclassified
+# dropped: {"path":".agents/skills/afk/SKILL.md"}
+fm-doc-audience-check: unclassified: .agents/skills/afk/SKILL.md
+exit=1
+
+# adversarial 5: audience not in allowedAudiences
+fm-doc-audience-check: .agents/skills/afk/SKILL.md: unsupported audience 'martians'
+exit=1
