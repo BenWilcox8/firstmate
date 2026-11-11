@@ -5267,6 +5267,8 @@ test_wait_transition_clean_timeout_returns_1() {
 # assert the invoking home is passed through unchanged) to $FM_AXI_LOG and, for
 # `spawn --json`, emits a canned spawn envelope naming a NEW tab/pane id. Other
 # verbs (teardown) succeed silently, mirroring the real CLI's quiet mutations.
+# FM_AXI_SPAWN_WS names the spawned workspace (default w9); a non-empty
+# FM_AXI_SPAWN_ERROR makes spawn refuse with that message instead.
 make_agent_axi_fakebin() {  # <dir> -> echoes fakebin dir
   local dir=$1 fb="$1/axibin"
   mkdir -p "$fb"
@@ -5279,9 +5281,14 @@ LOG="${FM_AXI_LOG:?}"
   for a in "$@"; do printf '\x1f%s' "$a"; done
   printf '\n'
 } >> "$LOG"
-if [ "${1:-}" = spawn ]; then
+if [ "${1:-}" = spawn ] && [ -n "${FM_AXI_SPAWN_ERROR:-}" ]; then
+  # A refusal shaped like the real CLI's --json error envelope.
+  printf '{"error":{"message":"%s","help":["Resolve the ledger conflict before you retry the spawn."]}}\n' "$FM_AXI_SPAWN_ERROR" >&2
+  exit 1
+elif [ "${1:-}" = spawn ]; then
   # A spawn --json response naming the new tab/pane the shim must echo back.
-  printf '{"workspace":{"label":"firstmate","id":"w9"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"w9","target":"w9:p5"}}\n'
+  ws=${FM_AXI_SPAWN_WS:-w9}
+  printf '{"workspace":{"label":"firstmate","id":"%s"},"spawn":{"action":"spawned","taskId":"axi1","slot":{"tab":1,"slot":1},"paneId":"w9:p5","tabId":"w9:t3","workspaceId":"%s","target":"w9:p5"}}\n' "$ws" "$ws"
 elif [ "${1:-}" = list ]; then
   if [ -n "${FM_AXI_LIST_JSON:-}" ]; then
     printf '%s\n' "$FM_AXI_LIST_JSON"
@@ -5320,6 +5327,60 @@ EOF
   assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "delegated create_task must not run native herdr tab create"
   assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''list' "delegated create_task must not run the native duplicate scan"
   pass "fm_backend_herdr_create_task: delegates to agent-axi spawn and echoes its tab/pane byte-identically"
+}
+
+# A --secondmate launch (other-home) resolves its workspace from the owning
+# home's label, so it must not pin agent-axi to a workspace id: after a reboot
+# re-creates that workspace, the home's ledger is still bound to the old id and
+# agent-axi refuses any exact target. The spawn must still pass the owning home
+# and land in the verified container's workspace.
+test_create_task_other_home_lets_agent_axi_resolve_by_label() {
+  local dir hlog resp fb axilog axifb out err
+  dir="$TMP_ROOT/axi-create-other-home"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  out=$( PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_AXI_SPAWN_WS=w1 FM_HOME="/home/cap/sm-home" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-sm1 /tmp/sm-home "" other-home' "$ROOT" ) \
+    || fail "an other-home create_task should succeed when agent-axi lands in the verified workspace"
+  [ "$out" = "w9:t3 w9:p5" ] || fail "an other-home create_task should echo agent-axi's tab/pane ids, got '$out'"
+  assert_contains "$(cat "$axilog")" $'\x1f''spawn'$'\x1f''sm1'$'\x1f''--session'$'\x1f''fmtest'$'\x1f''--cwd'$'\x1f''/tmp/sm-home'$'\x1f''--json'$'\x1f''--'$'\x1f''sleep'$'\x1f''600' \
+    "an other-home create_task did not invoke agent-axi spawn with the label-resolved argv"
+  assert_not_contains "$(cat "$axilog")" "--workspace-id" "an other-home create_task must not pin agent-axi to a workspace id"
+  assert_contains "$(cat "$axilog")" "FM_HOME=/home/cap/sm-home" "an other-home create_task did not pass the owning home to agent-axi"
+  pass "fm_backend_herdr_create_task: an other-home spawn passes the owning home and lets agent-axi resolve the workspace by label"
+
+  : > "$axilog"
+  err=$( PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_AXI_SPAWN_WS=w9 FM_HOME="/home/cap/sm-home" FM_BACKEND_HERDR_AXI_BIN=agent-axi \
+    FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-sm1 /tmp/sm-home "" other-home' "$ROOT" 2>&1 >/dev/null ) \
+    && fail "an other-home create_task must refuse when agent-axi lands outside the verified workspace"
+  assert_contains "$err" "in workspace 'w9', not this home's workspace w1" \
+    "the misplaced-spawn refusal did not name both workspaces"
+  assert_contains "$err" "w9:p5" "the misplaced-spawn refusal did not name the pane to close"
+  pass "fm_backend_herdr_create_task: an other-home spawn refuses when agent-axi lands outside the verified workspace"
+}
+
+# When agent-axi refuses a spawn, the operator must see agent-axi's own reason,
+# not only this layer's summary line.
+test_create_task_surfaces_agent_axi_refusal() {
+  local dir hlog resp fb axilog axifb err
+  dir="$TMP_ROOT/axi-create-refusal"; mkdir -p "$dir/responses"; hlog="$dir/hlog"; resp="$dir/responses"; : > "$hlog"
+  axilog="$dir/axilog"; : > "$axilog"
+  fb=$(make_herdr_fakebin "$dir")
+  axifb=$(make_agent_axi_fakebin "$dir")
+  err=$( PATH="$axifb:$fb:$PATH" FM_HERDR_LOG="$hlog" FM_HERDR_RESPONSES="$resp" \
+    FM_AXI_LOG="$axilog" FM_AXI_SPAWN_ERROR='the home ledger is bound to workspace firstmate (w3A), but the exact target is firstmate (w3E)' \
+    FM_HOME="/home/cap/fmhome" FM_BACKEND_HERDR_AXI_BIN=agent-axi FM_BACKEND_HERDR_AXI_LAUNCH='sleep 600' \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_create_task fmtest:w1 fm-axi1 /tmp/proj ""' "$ROOT" 2>&1 >/dev/null ) \
+    && fail "create_task must fail when agent-axi refuses the spawn"
+  assert_contains "$err" "agent-axi spawn failed for fm-axi1 (session fmtest): the home ledger is bound to workspace firstmate (w3A), but the exact target is firstmate (w3E)" \
+    "create_task did not surface agent-axi's own refusal text"
+  assert_not_contains "$(cat "$hlog")" $'\x1f''tab'$'\x1f''create' "a refused delegated spawn must not fall back to a native tab create"
+  pass "fm_backend_herdr_create_task: surfaces agent-axi's own refusal text when the delegated spawn fails"
 }
 
 test_create_task_fallback_when_agent_axi_absent() {
@@ -5468,6 +5529,8 @@ test_adopted_workspace_never_prunes_default_tab
 test_label_collision_startup_workspace_leaves_live_tab_alone
 test_prune_refuses_a_working_agent_pane_defense_in_depth
 test_create_task_delegates_to_agent_axi
+test_create_task_other_home_lets_agent_axi_resolve_by_label
+test_create_task_surfaces_agent_axi_refusal
 test_create_task_fallback_when_agent_axi_absent
 test_list_live_delegates_to_agent_axi
 test_list_live_excludes_secondmate_supervisor
