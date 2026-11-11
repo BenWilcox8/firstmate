@@ -180,6 +180,7 @@ firstmate's herdr adapter delegates the pane lifecycle to it; the adapter now ow
 
 `fm_backend_herdr_create_task` and `fm_backend_herdr_kill` delegate to `agent-axi spawn` / `agent-axi teardown` when an agent-axi executable is resolvable (phase-0 shim, slice s6; `fm_backend_herdr_axi_available`, gated by `FM_BACKEND_HERDR_AXI_BIN`, default `agent-axi`, empty forces the native fallback).
 The returned target string (`"<session>:<pane_id>"`), the `"<tab_id> <pane_id>"` create echo, the `fm-<id>` label, and every meta field stay byte-identical, so `fm-spawn`, `fm-teardown`, the watcher, crew-state, and every existing caller are unaffected.
+The one addition is a trailing ` reused` on the create echo when agent-axi hands back a pane it already held for the task instead of opening one, which `fm-spawn` reads to treat that pane's reported location as unproven.
 `bin/fm-spawn.sh`'s herdr branch no longer has a split path or a `config/herdr-layout` read: it only ensures the home's workspace and calls `create_task`, which delegates placement to agent-axi's ledger.
 
 ### What was deleted (phase 1, slice s7, 2026-07-20)

@@ -1394,12 +1394,17 @@ fm_backend_herdr_pid_is_bare_shell() {  # <ps-bin> <pid>
 # samples), so the proof retries strict single samples for a bounded settle
 # window and succeeds on the first fully clean one; a genuinely busy pane
 # fails every sample and still refuses.
+# With the `foreground` scope, the proven shell is the pane's foreground
+# process group leader instead of its root shell, so an idle shell nested in
+# the pane (a Treehouse subshell) qualifies; every other condition holds as
+# stated, applied to that shell.
 # This is the single owner of the idle-shell proof; the session-start
-# projection cleanup and every pane-death close path both rely on it.
-fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
+# projection cleanup, every pane-death close path, and fm-spawn's wait on a
+# pane agent-axi handed back all rely on it.
+fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id> [foreground]
   local attempt=0 max_attempts=${FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS:-10}
   while :; do
-    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2"; then
+    if fm_backend_herdr_pane_idle_shell_sample "$1" "$2" "${3:-}"; then
       return 0
     fi
     attempt=$((attempt + 1))
@@ -1411,7 +1416,7 @@ fm_backend_herdr_pane_idle_shell_pid() {  # <session> <pane-id>
 # fm_backend_herdr_pane_idle_shell_sample: one strict instantaneous
 # observation for fm_backend_herdr_pane_idle_shell_pid, which owns the proof
 # contract and the settle retry.
-fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
+fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id> [foreground]
   local session=$1 pane=$2 info shell_pid foreground_pgid count
   local process_pid name argv0 shell_name rows stat ps_bin
   info=$(fm_backend_herdr_cli "$session" pane process-info --pane "$pane" 2>/dev/null) || return 1
@@ -1423,6 +1428,7 @@ fm_backend_herdr_pane_idle_shell_sample() {  # <session> <pane-id>
     '.result.process_info.shell_pid | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
   foreground_pgid=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_process_group_id | select(type == "number" and . > 1) | floor' 2>/dev/null) || return 1
+  [ "${3:-}" != foreground ] || shell_pid=$foreground_pgid
   [ "$foreground_pgid" = "$shell_pid" ] || return 1
   count=$(printf '%s' "$info" | jq -er \
     '.result.process_info.foreground_processes | select(type == "array") | length' 2>/dev/null) || return 1
@@ -2649,6 +2655,9 @@ fm_backend_herdr_agent_alive() {  # <target>
 # string ("<session>:<pane_id>"), the "<tab_id> <pane_id>" create echo, the
 # `fm-<id>` label, and every meta field stay byte-identical, so fm-spawn,
 # fm-teardown, the watcher, crew-state, and every existing test are unaffected.
+# The one addition is a trailing " reused" on the create echo when agent-axi
+# hands back a pane it already held for the task instead of opening one, so a
+# caller reading the echo must read a third field rather than only tab and pane.
 # When agent-axi is NOT resolvable the two functions fall back, byte-identically,
 # to the native implementations below.
 #
@@ -2681,10 +2690,13 @@ FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}
 
 # fm_backend_herdr_create_task_delegate: create the task's pane through
 # `agent-axi spawn` and echo "<tab_id> <pane_id>" byte-identically to the native
-# fm_backend_herdr_create_task. The 4th native arg (seeded_default_tab_id) is
-# intentionally not consulted: agent-axi keeps the workspace's supervisor/seeded
-# pane as its slot anchor rather than pruning it, so there is nothing to thread
-# through. Session and workspace id come from the verified container. The task
+# fm_backend_herdr_create_task. When agent-axi hands back a pane it already held
+# for this task (its `noop` action) instead of opening one, the echo is followed
+# by " reused"; the native path always opens a new tab. The 4th native arg
+# (seeded_default_tab_id) is intentionally not consulted: agent-axi keeps the
+# workspace's supervisor/seeded pane as its slot anchor rather than pruning it,
+# so there is nothing to thread through. Session and workspace id come from the
+# verified container. The task
 # id is the label with its `fm-` prefix stripped (agent-axi re-derives the
 # identical `fm-<id>` pane label from it).
 fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
@@ -2710,6 +2722,7 @@ fm_backend_herdr_create_task_delegate() {  # <container> <label> <cwd>
     return 1
   fi
   printf '%s %s' "$tab_id" "$pane_id"
+  [ "$(printf '%s' "$out" | jq -r '.spawn.action // empty' 2>/dev/null)" != noop ] || printf ' reused'
 }
 
 fm_backend_herdr_single_pane_for_tab() {
@@ -2733,7 +2746,8 @@ fm_backend_herdr_replacement_rollback() {
 }
 
 # fm_backend_herdr_create_task: create the task's pane in <container>
-# ("session:workspace_id") and echo "<tab_id> <pane_id>".
+# ("session:workspace_id") and echo "<tab_id> <pane_id>", followed by " reused"
+# only when the agent-axi delegate below hands back a pane it already held.
 #
 # The primary path DELEGATES to agent-axi (phase-0 shim above): agent-axi owns
 # the durable per-home slot ledger, counts occupancy by live agent, reaps husks,
