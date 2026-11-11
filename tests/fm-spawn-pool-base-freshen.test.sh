@@ -922,7 +922,9 @@ case "${1:-} ${2:-}" in
     fi
     printf '{"result":{"pane":{"pane_id":"%s","foreground_cwd":"%s"}}}\n' "${3:-}" "$(cat "$fake/$where")" ;;
   'pane run')
-    if [ "${4:-}" = 'treehouse get' ] && [ ! -e "$fake/get-sent" ]; then
+    typed_get=0
+    case "${4:-}" in "TREEHOUSE_ROOT='"*"' treehouse get") typed_get=1 ;; esac
+    if [ "$typed_get" -eq 1 ] && [ ! -e "$fake/get-sent" ]; then
       : > "$fake/get-sent"
       start_late_owner
       [ "$(cat "$fake/after")" = "$(cat "$fake/during")" ] || "$fake/own" "$(cat "$fake/after")" >/dev/null

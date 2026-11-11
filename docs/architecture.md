@@ -270,6 +270,7 @@ Codex App support is recorded in `docs/codex-app-backend.md`; it is not selectab
 ## Worktrees, not branches in your checkout
 
 Crewmates never intentionally touch your project clone; [treehouse](https://github.com/kunchenguid/treehouse) pools clean worktrees for tmux, herdr, zellij, and cmux tasks, while existing Orca records retain their separately managed worktrees.
+Each Firstmate home takes those worktrees from its own treehouse pool, so homes that each clone one project never share slots; `fm_treehouse_home_root` in [`bin/fm-wake-lib.sh`](../bin/fm-wake-lib.sh) owns where that pool lives and why.
 For ship and scout work, `fm-spawn.sh` refuses to launch unless the resolved task path is a real git worktree root that is distinct from the project primary checkout.
 `fm-spawn.sh` also owns the base-freshness boundary for every fresh ship and scout: no worker starts until its clean task worktree matches the fetched tip of origin's resolved default branch, or the primary checkout's own default-branch tip when the repo has no origin remote, and any unsafe or unverifiable base stops the spawn.
 Its header owns the exact refusal mechanics, while `tests/fm-spawn-pool-base-freshen.test.sh` owns the portable regression coverage.
