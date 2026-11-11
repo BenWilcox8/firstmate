@@ -717,8 +717,11 @@ test_registered_agent_with_an_unreadable_process_view_is_unknown() {
     '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w9:p9","shell_pid":4242,"foreground_process_group_id":4242,"foreground_processes":[{"pid":4242,"name":"zsh","argv0":"zsh"}]}}}')
   [ "$out" = "unknown unreadable refused" ] \
     || fail "a process view for a different pane must read unknown/unreadable, got '$out'"
+  # 4194304 is above every kernel PID limit (Linux PID_MAX_LIMIT, macOS
+  # PID_MAX), so no live process can hold it and the descendant walk always
+  # reads the shell as absent from the process table.
   out=$(stale_registration_case unreadable-no-foreground idle \
-    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4242,"foreground_process_group_id":4242,"foreground_processes":[]}}}')
+    '{"result":{"type":"pane_process_info","process_info":{"pane_id":"w1:p2","shell_pid":4194304,"foreground_process_group_id":4194304,"foreground_processes":[]}}}')
   [ "$out" = "unknown unreadable refused" ] \
     || fail "an empty foreground list must read unknown/unreadable, got '$out'"
   pass "herdr stale registration: an unreadable process view refuses instead of guessing either way"
