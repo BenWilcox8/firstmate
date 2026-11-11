@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Behavior tests for tests/lib.sh's shared fixture-tempdir helper
 # (fm_test_tmproot / fm_test_cleanup / fm_test_reap_orphans) and its fixture
-# process registry (fm_test_track_pid / fm_test_reap_pids).
+# process registry (fm_test_track_pid / fm_test_reap_pids), plus fm_test_stop_child.
 #
 # The near-universal call pattern across this suite is
 # `TMP_ROOT=$(fm_test_tmproot prefix)`, which forks a subshell to capture the
@@ -262,6 +262,39 @@ test_registered_fixture_processes_reaped_after_sigterm() {
   pass "registered fixture processes are reaped when their suite is terminated"
 }
 
+
+# --- stopping a background child ---------------------------------------------
+#
+# fm_test_stop_child must stop a child even when the first TERM is lost, which
+# is what bash does to a TERM that lands while it parses a command substitution.
+# The stand-ins below swallow TERMs in their trap instead, which loses the first
+# signal in the same observable way without depending on that race.
+
+test_stop_child_resends_a_lost_term() {
+  local pid status
+  bash -c 'n=0; trap '\''n=$((n + 1)); [ "$n" -ge 2 ] && exit 7'\'' TERM; while :; do sleep 0.1; done' &
+  pid=$!
+  sleep 0.3
+  status=0
+  fm_test_stop_child "$pid" || status=$?
+  ! fm_test_process_running "$pid" || fail "a child that swallowed its first TERM was still running"
+  [ "$status" = 7 ] \
+    || fail "a child that swallowed its first TERM did not exit through a second TERM (status $status)"
+  pass "fm_test_stop_child re-sends TERM when the first one is lost"
+}
+
+test_stop_child_kills_a_child_that_ignores_term() {
+  local pid status
+  bash -c 'trap "" TERM; while :; do sleep 0.1; done' &
+  pid=$!
+  sleep 0.3
+  status=0
+  fm_test_stop_child "$pid" 20 || status=$?
+  ! fm_test_process_running "$pid" || fail "a child that ignores TERM was still running after its bound"
+  [ "$status" = 137 ] || fail "a child that ignores TERM was not killed at its bound (status $status)"
+  pass "fm_test_stop_child kills a child that ignores TERM once its bound passes"
+}
+
 test_fixture_root_gone_after_normal_exit
 test_fixture_root_gone_after_sigterm
 test_cleanup_registry_resists_precreation
@@ -271,3 +304,5 @@ test_orphan_sweep_reaps_read_only_package_tree
 test_registered_fixture_processes_reaped_after_normal_exit
 test_registered_fixture_processes_reaped_after_failure
 test_registered_fixture_processes_reaped_after_sigterm
+test_stop_child_resends_a_lost_term
+test_stop_child_kills_a_child_that_ignores_term

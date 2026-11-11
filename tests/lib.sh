@@ -192,6 +192,29 @@ fm_test_process_running() {  # <pid>: alive and not a zombie
   return 0
 }
 
+# fm_test_stop_child <pid> [term-ticks]: stop a background child of this shell
+# and reap it, returning the child's exit status. One TERM is not always enough:
+# bash can drop a TERM that arrives while it parses a command substitution (it
+# reports a `trap: ... unexpected EOF` parse error and keeps running), and a bare
+# `kill; wait` then blocks until the child ends on its own. So TERM is re-sent
+# every second until the child exits, and KILL ends it after [term-ticks] tenths
+# of a second (default 300). The PID stays reserved until `wait`, so a recycled
+# PID is never signaled.
+fm_test_stop_child() {
+  local pid=$1 limit=${2:-300} i=0
+  kill -TERM "$pid" 2>/dev/null || true
+  while fm_test_process_running "$pid"; do
+    if [ "$i" -ge "$limit" ]; then
+      kill -KILL "$pid" 2>/dev/null || true
+      break
+    fi
+    sleep 0.1
+    i=$((i + 1))
+    if [ $((i % 10)) -eq 0 ]; then kill -TERM "$pid" 2>/dev/null || true; fi
+  done
+  wait "$pid" 2>/dev/null
+}
+
 # fm_test_track_pid <pid> [pid|group]: reap <pid> at teardown. `group` also
 # signals the process group <pid> leads; use it only when the fixture started
 # <pid> as a group leader (set -m), or the signal would reach this suite.

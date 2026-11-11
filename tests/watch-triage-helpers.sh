@@ -142,7 +142,7 @@ seen_sig() {
   esac
 }
 
-reap() { kill "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+reap() { fm_test_stop_child "$1" || true; }
 
 # --- pure classifier predicates (fm-classify-lib.sh) ------------------------
 
