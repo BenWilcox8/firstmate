@@ -1416,7 +1416,8 @@ test_hazard_scan_accepts_body_for_do_loop_var() {
 set -u
 claim_all() {
   local lock
-  lock=unused
+  lock=outer
+  printf '%s\n' "$lock"
   bash -c '
     for lock do
       printf "%s\n" "$lock"
