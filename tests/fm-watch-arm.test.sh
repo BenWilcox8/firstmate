@@ -1697,10 +1697,13 @@ test_attached_arm_exits_when_its_root_is_removed() {
 # An owned arm whose home is removed while it still waits to confirm its child
 # must reap that child before it releases the child's captured stderr: the
 # watcher writes its last diagnostic while it is dying, and a release ahead of
-# the reap drops that line. The child is a stand-in watcher that never takes
-# the lock, so the arm stays in its confirmation window, and its TERM handler
-# writes one diagnostic after a short delay. The arm runs from a bin directory
-# of links to this checkout's bin, with only the watcher replaced.
+# the reap drops that line. The child is a stand-in watcher. Like a real
+# watcher, it publishes the startup safe point (the claimed pid and the three
+# identity records) after it installs its trap, so the arm may forward its
+# stop. Its identity is a placeholder, so the arm never confirms it and stays in
+# its confirmation window. Its TERM handler writes one diagnostic after a short
+# delay. The arm runs from a bin directory of links to this checkout's bin,
+# with only the watcher replaced.
 test_owned_arm_reaps_its_child_before_reporting_removed_ground() {
   local dir bin home state armout status f i=0
   dir=$(make_case confirm-ground-removed)
@@ -1716,6 +1719,12 @@ test_owned_arm_reaps_its_child_before_reporting_removed_ground() {
   cat > "$bin/fm-watch.sh" <<'SH'
 #!/usr/bin/env bash
 trap 'sleep 0.5; echo "watcher: stand-in diagnostic written while dying" >&2; exit 143' TERM
+lock="$FM_STATE_OVERRIDE/.watch.lock"
+mkdir -p "$lock"
+printf '%s' "$$" > "$lock/pid"
+printf '%s' "$FM_HOME" > "$lock/fm-home"
+printf '%s' "$0" > "$lock/watcher-path"
+printf 'stand-in-placeholder-identity' > "$lock/pid-identity"
 : > "$FM_TEST_STANDIN_STARTED"
 while :; do sleep 0.1; done
 SH
