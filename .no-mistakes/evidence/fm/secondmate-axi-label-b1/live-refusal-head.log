@@ -1,0 +1,11 @@
+workspace W1=w1 launcher pane=w1:p1
+== worker wa from W1: rc=0
+warning: /tmp/fm-refusal-lab.ZgIuNt/primary/data/wa/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+wa recorded workspace: w1
+== close W1 (simulated reboot of the home workspace)
+re-created workspace W2=w2 launcher pane=w2:p1
+== worker wb from W2 (launcher-home, pins --workspace-id): rc=1
+--- fm-spawn stderr ---
+warning: /tmp/fm-refusal-lab.ZgIuNt/primary/data/wb/launch-brief.md records no delivery contract line (scaffolded before ship briefs recorded one); launching on the explicit --mode no-mistakes - confirm its definition of done matches
+error: agent-axi spawn failed for fm-wb (session fm-lab-fm-refusal-2260839-9066): the home ledger is bound to workspace firstmate (w1), but the exact target is firstmate (w2)
+teardown exit=0

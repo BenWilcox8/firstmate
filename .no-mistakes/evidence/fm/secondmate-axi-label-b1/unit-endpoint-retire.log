@@ -1,0 +1,18 @@
+ok - endpoint retire: a Herdr husk pane is closed and proven gone
+ok - endpoint retire: an unconfirmed Herdr close is never reported as retired
+ok - endpoint retire: a live agent's endpoint is reported, never closed
+ok - endpoint retire: an authoritatively absent endpoint is already retired
+ok - endpoint retire: an agent-free tmux window is closed and proven gone
+ok - endpoint retire: a tmux window that survives its close is reported, not claimed gone
+ok - endpoint retire: a backend that cannot prove a close never closes or reports one
+ok - replacement spawn: the previous endpoint is closed before the new window is recorded
+ok - replacement spawn: an endpoint the replacement reuses is never closed
+ok - replacement spawn: a leftover pane is named by id instead of passing silently
+ok - replacement spawn: a Herdr pane the create path never reaps is still retired
+ok - endpoint retire: a state that does not license recovery is never closed
+ok - endpoint retire: the close addresses one endpoint, never the task's ledger slot
+ok - replacement spawn: a live previous endpoint refuses before anything is created
+ok - replacement spawn: an endpoint that cannot be classified refuses, untouched
+ok - replacement spawn: a delegated Herdr replacement retires the old pane and keeps its own
+ok - relaunch: the endpoint is adopted, so the task still holds exactly one pane
+ok - relaunch: an unverified Herdr pane refuses and the task still holds exactly the pane its record named
