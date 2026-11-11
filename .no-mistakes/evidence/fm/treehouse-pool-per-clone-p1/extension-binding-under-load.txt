@@ -1,0 +1,7 @@
+CPU load: 72 busy 'yes' processes on 24 cores (3x oversubscribed)
+run 1 base: crash-silent wait elapsed: 24s ok - inner result.silent host crash releases the parent lifecycle lock before terminal retry real	1m19.716s exit=0 
+run 1 fix: crash-silent wait elapsed: 20s not ok - inner host crash during result.silent wedged its runner before result.terminal real	1m8.725s exit=1 
+run 2 base: crash-silent wait elapsed: 23s ok - inner result.silent host crash releases the parent lifecycle lock before terminal retry real	1m18.310s exit=0 
+run 2 fix: crash-silent wait elapsed: 20s not ok - inner host crash during result.silent wedged its runner before result.terminal real	1m2.624s exit=1 
+run 3 base: crash-silent wait elapsed: 25s ok - inner result.silent host crash releases the parent lifecycle lock before terminal retry real	1m17.816s exit=0 
+run 3 fix: crash-silent wait elapsed: 20s not ok - inner host crash during result.silent wedged its runner before result.terminal real	1m4.962s exit=1 

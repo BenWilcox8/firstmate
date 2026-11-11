@@ -1,0 +1,13 @@
+== no extra load
+base: crash-silent wait elapsed: 4s real	0m10.131s exit=0 
+fix: crash-silent wait elapsed: 3s real	0m9.875s exit=0 
+== load: 24 busy 'yes' processes on 24 cores
+run 1 base: crash-silent wait elapsed: 10s real	0m32.615s exit=0 
+run 1 fix: crash-silent wait elapsed: 10s real	0m31.929s exit=0 
+run 2 base: crash-silent wait elapsed: 9s real	0m31.631s exit=0 
+run 2 fix: crash-silent wait elapsed: 11s real	0m34.266s exit=0 
+== load: 36 busy 'yes' processes on 24 cores
+run 1 base: crash-silent wait elapsed: 16s real	0m45.395s exit=0 
+run 1 fix: crash-silent wait elapsed: 14s real	0m45.180s exit=0 
+run 2 base: crash-silent wait elapsed: 13s real	0m42.031s exit=0 
+run 2 fix: crash-silent wait elapsed: 12s real	0m39.829s exit=0 

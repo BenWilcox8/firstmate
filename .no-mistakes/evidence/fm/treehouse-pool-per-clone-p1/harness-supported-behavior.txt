@@ -1,0 +1,19 @@
+# fm_control_harness_supported via bin/fm-quota-choose.sh (fixed tree vs base tree), empty quota snapshot
+claude:x               base       rc=1  none
+claude:x               fix        rc=1  none
+agy:x                  base       rc=2  error: unknown harness: agy
+agy:x                  fix        rc=2  error: unknown harness: agy
+omp:ollama/qwen3:8b    base       rc=2  error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: ollama/qwen3:8b
+omp:ollama/qwen3:8b    fix        rc=2  error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: ollama/qwen3:8b
+bogus:x                base       rc=2  error: unknown harness: bogus
+bogus:x                fix        rc=2  error: unknown harness: bogus
+:x                     base       rc=2  error: invalid candidate: :x
+:x                     fix        rc=2  error: invalid candidate: :x
+claude-extra:x         base       rc=2  error: unknown harness: claude-extra
+claude-extra:x         fix        rc=2  error: unknown harness: claude-extra
+cla:x                  base       rc=2  error: unknown harness: cla
+cla:x                  fix        rc=2  error: unknown harness: cla
+
+# direct library check of every listed harness plus non-members
+base: claude=0 codex=0 opencode=0 pi=0 pi-signed=0 grok=0 kimi=0 cursor=0 gemini=0 muse=0 rovo=0 omp=0 agy=0 <empty>=1 bogus=1 CLAUDE=1 claude =1 pi-=1 
+fix: claude=0 codex=0 opencode=0 pi=0 pi-signed=0 grok=0 kimi=0 cursor=0 gemini=0 muse=0 rovo=0 omp=0 agy=0 <empty>=1 bogus=1 CLAUDE=1 claude =1 pi-=1 

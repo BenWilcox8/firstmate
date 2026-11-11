@@ -1,0 +1,3 @@
+root=/tmp/fmbase calls=4800 mismatched_stderr=306
+distinct extra stderr lines (count line):
+    306 /tmp/fmbase/bin/fm-control-lib.sh: line 68: printf: write error: Broken pipe

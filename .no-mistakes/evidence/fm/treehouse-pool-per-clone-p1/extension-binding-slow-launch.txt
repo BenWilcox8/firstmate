@@ -1,0 +1,12 @@
+== each PATH-resolved node launch delayed 0.5s (bash polling at normal speed)
+base: crash-silent wait elapsed: 5s real	0m17.142s exit=0 
+fix: crash-silent wait elapsed: 5s real	0m16.934s exit=0 
+== each PATH-resolved node launch delayed 1s (bash polling at normal speed)
+base: crash-silent wait elapsed: 6s real	0m24.526s exit=0 
+fix: crash-silent wait elapsed: 6s real	0m24.561s exit=0 
+== each PATH-resolved node launch delayed 2s (bash polling at normal speed)
+base: crash-silent wait elapsed: 7s not ok - inner host crash during result.silent wedged its runner before result.terminal real	0m27.607s exit=1 
+fix: crash-silent wait elapsed: 9s real	0m39.566s exit=0 
+== each PATH-resolved node launch delayed 3s (bash polling at normal speed)
+base: crash-silent wait elapsed: 6s not ok - inner host crash during result.silent wedged its runner before result.terminal real	0m35.783s exit=1 
+fix: crash-silent wait elapsed: 11s real	0m54.683s exit=0 

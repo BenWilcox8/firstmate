@@ -1,0 +1,10 @@
+tests/fm-quota-choose.test.sh, SIGPIPE ignored, 24 busy processes + 24 concurrent copies of the test, 3 rounds
+fmbase: failed runs 32 / 72
+      4 not ok - bare omp candidate returned: error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: default
+      5 not ok - trailing empty model returned: error: invalid candidate: claude:
+      3 not ok - trailing unsupported harness returned: error: unknown harness: rovo
+     15 not ok - trailing unsupported harness returned: /tmp/fmbase/bin/fm-control-lib.sh: line 68: printf: write error: Broken pipe
+      5 not ok - unmapped omp prefix returned: error: omp quota mapping covers only the openai-codex and claude-bridge prefixes: ollama/qwen3:8b
+     15 not ok - trailing unsupported harness returned: <root>/bin/fm-control-lib.sh: line 68: printf: write error: Broken pipe
+    224 <root>/bin/fm-control-lib.sh: line 68: printf: write error: Broken pipe
+fmfix: failed runs 0 / 72
