@@ -44,6 +44,15 @@ setTimeout(() => process.exit(0), Number(process.argv[2]) * 1000)
 // so draw an empty composer box with the cursor inside it.
 const w = Math.max(20, (process.stdout.columns || 80) - 2)
 process.stdout.write(`\x1b[2J\x1b[H╭${'─'.repeat(w)}╮\n│${' '.repeat(w)}│\n╰${'─'.repeat(w)}╯\x1b[2;3H`)
+// Fork: the Cursor screen rules of Herdr 0.8.2 detect only working and
+// blocked states, so Herdr learns an idle Cursor pane only from the Cursor hook
+// integration. Report idle once, as that integration does. Without the report
+// the pane reads `unknown`, and teardown can neither stop the agent nor close
+// its pane.
+const report = require('path').join(__dirname, 'agent-report-idle')
+if (process.env.HERDR_PANE_ID && require('fs').existsSync(report)) {
+  require('child_process').spawnSync(report, [process.env.HERDR_PANE_ID], { stdio: 'ignore' })
+}
 require('readline').createInterface({ input: process.stdin })
   .on('line', (line) => { if (line.trim() === '/exit') process.exit(0) })
 JS
@@ -326,6 +335,13 @@ herdr_forget_inherited_pane
 HERDR_LAB_SESSION=$(PATH="$HERDR_ORIGINAL_PATH" \
   "$HERDR_LAB_HELPER" name fm-herdr-presentation-projection)
 export HERDR_SESSION="$HERDR_LAB_SESSION" HERDR_LAB_SESSION
+# Fork: the stand-in agent's idle report goes through the guarded lab helper,
+# scoped to this lab session.
+cat > "$TMP_ROOT/agent-report-idle" <<REPORT
+#!/usr/bin/env bash
+exec env PATH=$(printf %q "$HERDR_ORIGINAL_PATH") $(printf %q "$HERDR_LAB_HELPER") run $(printf %q "$HERDR_LAB_SESSION") pane report-agent "\$1" --source fm-test-stand-in --agent cursor --state idle >/dev/null 2>&1
+REPORT
+chmod +x "$TMP_ROOT/agent-report-idle"
 LAB_READY=0
 RECORDED_WORKTREES=""
 LOCK_CONTENTION_OWNER_PID=
