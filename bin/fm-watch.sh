@@ -2537,6 +2537,27 @@ busy_stream_snapshot_current() {  # <task> <observed snapshot>
   [ "$(( $(date +%s) - ts ))" -ge "$STREAM_SILENT_MAX_SECS" ]
 }
 
+# 0 when an unchanged paused declaration with no usable declared time is due its
+# recheck and config/paused-recheck-silent says to run it without a wake: the
+# agent is confirmed alive and no decision is open. Advances <marker>, the file that
+# records which declaration its last recheck belonged to.
+# The cheap age and marker reads run first, so the backend probe and the status
+# fold happen only when silence would replace a wake.
+# Fork: the caller names that file, because handle_paused_stale keeps its
+# declaration in .paused-nudged-<key> while surface_nonterminal_stale keeps it in
+# .paused-resurfaced-<key>.
+paused_recheck_silent() {  # <window> <statusf> <marker> <declaration> <status-age>
+  local win=$1 statusf=$2 marker=$3 declaration=$4 age=$5
+  [ -e "$CONFIG/paused-recheck-silent" ] \
+    && [ "$age" -ge "$PAUSE_RESURFACE_SECS" ] \
+    && [ "$(cat "$marker" 2>/dev/null || true)" = "$declaration" ] \
+    && [ "$(age_of "$marker")" -ge "$PAUSE_RESURFACE_SECS" ] \
+    && { [ "$(window_kind "$win")" = secondmate ] || [ "$(fm_backend_agent_alive "$(window_backend "$win")" "$win" 2>/dev/null || true)" = alive ]; } \
+    && [ -z "$(status_own_open_decisions "$statusf")" ] \
+    || return 1
+  printf '%s' "$declaration" > "$marker"
+}
+
 # Absorb a stale pane under a declared external-wait pause (paused:) or a
 # dead-agent captain-held transfer. Non-overdue waits re-surface every
 # PAUSE_RESURFACE_SECS; an overdue pause opens a keyed blocked decision and stays
@@ -2571,7 +2592,7 @@ busy_stream_snapshot_current() {  # <task> <observed snapshot>
 # wake it used to get.
 handle_paused_stale() {  # <window> <task> <hash> [<class>]
   local win=$1 task=$2 h=$3 class=${4-} key statusf mtime age detail reason
-  local last until now min_age rc snapshot pause_age
+  local last until now min_age rc snapshot pause_age silent=0
   local owed='' nudge_id nudge_file throttlef
   key=$(window_key "$win")
   pause_overdue_reconcile "$task" "$STATE/$task.status"; rc=$?
@@ -2610,6 +2631,7 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
       return 0
     elif [ "$now" -lt "$until" ]; then
       detail="paused, declared time beyond recheck cadence"
+      silent=1
       reason="paused ${age}s, awaiting external - the declared time is beyond the recheck cadence; confirm the wait still holds"
     else
       # The declared time has passed: recheck now, once per declaration, then
@@ -2620,6 +2642,7 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
     fi
   else
     detail="paused, awaiting external"
+    silent=1
     reason="paused ${age}s, awaiting external - declared pause, rechecked on a long cadence not a wedge; confirm the wait still holds"
   fi
   [ "$class" = paused-report ] && owed=owed
@@ -2640,6 +2663,15 @@ handle_paused_stale() {  # <window> <task> <hash> [<class>]
   throttlef="$STATE/.paused-resurfaced-$key"
   nudge_id="$detail|$(fm_wake_signal_sig "$statusf" 2>/dev/null || true)"
   nudge_file="$STATE/.paused-nudged-$key"
+  # Upstream's opt-in quiet recheck (config/paused-recheck-silent) reads this
+  # fork's declaration record: a recheck already delivered for this same
+  # declaration, a full window ago, is run again without a wake. The throttle
+  # takes the record's clock, as the duplicate absorb in resurface_absorbed does.
+  if [ "$silent" = 1 ] && paused_recheck_silent "$win" "$statusf" "$nudge_file" "$nudge_id" "$age"; then
+    touch -r "$nudge_file" "$throttlef" 2>/dev/null || true
+    triage_log "absorbed stale (${detail}, unchanged declaration rechecked without a wake, age ${age}s): $win"
+    return 0
+  fi
   if [ "$detail" = "paused, wait overdue" ]; then
     resurface_absorbed "$win" "$throttlef" "$age" "stale: $win ($reason)" '' "$min_age" "$statusf" "blocked [key=paused-overdue-$task]: paused ${pause_age}s, wait overdue - decide or release" "$STATE/.paused-overdue-$task" "$snapshot" \
       "$owed" "$nudge_file" "$nudge_id"
@@ -3189,8 +3221,10 @@ surface_nonterminal_stale() {  # <window> <hash> [dialog-name]
         STALE_WAIT_DECLARATION="$STALE_WAIT_DECLARATION:due"
         stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" && throttled=0
       fi
-    else
-      stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" && throttled=0
+    elif stale_wait_throttled "$key" "$STALE_WAIT_DECLARATION" \
+      || paused_recheck_silent "$win" "$STATE/$task.status" "$STATE/.paused-resurfaced-$key" "$STALE_WAIT_DECLARATION" \
+        "$(( $(date +%s) - $(stat_mtime "$STATE/$task.status") ))"; then
+      throttled=0
     fi
   elif status_is_captain_held "$last"; then
     declared=0

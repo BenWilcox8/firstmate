@@ -648,15 +648,19 @@ fm_afk_launch_reconcile() {
   fi
 }
 
-# The session-scoped delivery artifacts a launch backs up and a failed launch
-# restores: bin/fm-afk-start.sh's FM_AFK_DELIVERY_ARTIFACTS list plus every
-# unknown-state warning marker present in <dir>, one name per line.
+# The session-scoped files a launch backs up and a failed launch restores:
+# bin/fm-afk-start.sh's FM_AFK_DELIVERY_ARTIFACTS list plus every per-task
+# marker of its FM_AFK_SESSION_MARKERS families present in <dir>, one name per
+# line.
 fm_afk_launch_delivery_artifacts() {  # <dir>
-  local marker
+  local prefix marker
   printf '%s\n' "$FM_AFK_DELIVERY_ARTIFACTS"
-  for marker in "$1"/.subsuper-reported-stale-*; do
-    [ -e "$marker" ] && printf '%s\n' "${marker##*/}"
-  done
+  while IFS= read -r prefix; do
+    [ -n "$prefix" ] || continue
+    for marker in "$1/$prefix"*; do
+      [ -e "$marker" ] && printf '%s\n' "${marker##*/}"
+    done
+  done <<<"$FM_AFK_SESSION_MARKERS"
   return 0
 }
 
@@ -968,6 +972,14 @@ fm_afk_launch_stop() {
   # posture ends only once every daemon-side artifact is down.
   if ! rm -f "$FM_AFK_LAUNCH_STATE/.afk"; then
     fm_afk_launch_log "failed to clear away-mode flag"
+    result=1
+  fi
+  # The session's per-task supervision markers are episode state that ends with
+  # it: left behind, the NEXT session's first housekeeping reads the stale/pause
+  # clocks as its own and reports a possible wedge whose duration never
+  # happened. A wait that still stands is re-declared and re-windowed fresh.
+  if ! fm_afk_clear_session_markers "$FM_AFK_LAUNCH_STATE"; then
+    fm_afk_launch_log "failed to clear the session's per-task supervision markers"
     result=1
   fi
   if [ "$result" -eq 0 ] && fm_afk_contract_present "$FM_AFK_LAUNCH_STATE"; then

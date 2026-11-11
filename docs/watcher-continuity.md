@@ -580,7 +580,7 @@ It checks that a newly appended keyed decision is classified without rereading e
 - An unconfirmed successor reported in the banner without withholding the wake.
 - The [session-bound HUP/TERM/INT failure handoff](turnend-guard.md#failure-progression-and-block-budget) and replacement-session notice isolation.
 
-It also covers generation-claim single-flight, stuck-claim supersession, superseded-owner silence, notice-marker refusal and retry, ownership-atomic episode reset, and the legacy upgrade shim.
+It also covers generation-claim single-flight, stuck-claim and earlier-session supersession, superseded-owner silence, notice-marker refusal and retry, ownership-atomic episode reset, and the legacy upgrade shim.
 [`turnend-guard.md`](turnend-guard.md) owns those behavior contracts.
 The auto-arm suite's one real-arm case runs the actual arm and watcher so the claim is checked against the reason line the arm really produces: a cycle that queued its wake and then closed nonzero must rewake the session with that wake, not raise the broken-mechanism notice.
 

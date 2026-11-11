@@ -241,9 +241,11 @@ The single-line format makes submission unambiguous across harnesses; the carrie
 
 Treat `state/.subsuper-escalations`, its `.since` sidecar, `state/.subsuper-inject-wedged`, `state/.subsuper-unknown-acked`, and the ladder's own records (`state/.subsuper-inject-busy-since`, `state/.subsuper-inject-verdict`, `state/.subsuper-inject-fallback`) as session-scoped delivery artifacts, not as the durable work record.
 `bin/fm-afk-start.sh`'s `FM_AFK_DELIVERY_ARTIFACTS` is the one list of them.
+The per-task markers `state/.subsuper-stale-<task>`, `.subsuper-reported-stale-<task>`, `.subsuper-dialog-<task>`, `.subsuper-paused-<task>`, and `.subsuper-pause-until-due-<task>` are the same kind of session-scoped episode state: a still-true condition is re-derived fresh by the next session, and a declared wait spanning two away sessions restarts its recheck window at re-entry.
+`bin/fm-afk-start.sh`'s `FM_AFK_SESSION_MARKERS` is the one list of those families.
 A digest that reached the durable captain inbox is the exception: that note is a real work record and is acknowledged with `bin/fm-inbox.sh drain --ack <id>` like any other.
-Always enter through `bin/fm-afk-launch.sh`, which clears prior-session artifacts only for a fresh entry and preserves the current session's buffer on refresh.
-Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` present through the daemon's shutdown flush, clears it, and archives the posture record last.
+Always enter through `bin/fm-afk-launch.sh`, which clears prior-session artifacts and markers only for a fresh entry and preserves the current session's buffer on refresh.
+Always exit through `bin/fm-afk-launch.sh stop`, which keeps `state/.afk` present through the daemon's shutdown flush, clears it with the session's per-task markers, and archives the posture record last.
 `docs/herdr-backend.md` "Away-mode supervisor support" and `docs/t3code-backend.md` "Away mode" own the backend mechanisms, and `docs/verification/runtime-backends.md` "Away-mode transport" owns active evidence.
 
 ### Reliability properties
