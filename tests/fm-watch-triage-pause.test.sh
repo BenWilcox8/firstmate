@@ -1890,6 +1890,30 @@ test_paused_bg_job_until_timeout_rechecks_after_the_job_ends() {
   pass "until set to a background job's timeout rechecks the worker paused on it once the job must have ended"
 }
 
+# A status log archived after the watcher read its paused declaration, and
+# before it read the log's age, must not stop the watch loop: the age counts as
+# 0, which the quiet recheck refuses, so the stale wake is still delivered.
+test_status_log_archived_after_the_read_keeps_the_watch_loop() {
+  local dir state out
+  dir=$(silent_recheck_fixture archived-after-read "$(( $(date +%s) + 86400 ))" 500); state="$dir/state"
+  : > "$dir/config/paused-recheck-silent"
+  out=$(FM_HOME="$dir" FM_STATE_OVERRIDE="$state" FM_CONFIG_OVERRIDE="$dir/config" bash -c '
+    . "$1/bin/fm-watch.sh"
+    rm -f "$STATE/until.status"
+    status_declared_wait_line() { printf "%s\n" "paused: rate limit resets, then resuming"; }
+    paused_recheck_silent() { printf "%s\n" "$5" > "$STATE/recheck-age"; return 1; }
+    wake_queue_append() { printf "%s\n" "$*" >> "$STATE/queued"; }
+    wake() { printf "WAKE: %s\n" "$1"; }
+    surface_nonterminal_stale test:fm-until 0123abcd
+    echo "returned rc=$?"' _ "$ROOT" 2>&1)
+  assert_not_contains "$out" "arithmetic syntax error" "an archived status log raised an arithmetic error: $out"
+  assert_contains "$out" "returned rc=0" "an archived status log stopped the watcher: $out"
+  [ "$(cat "$state/recheck-age" 2>/dev/null)" = 0 ] \
+    || fail "the quiet recheck did not get age 0 for an archived status log: '$(cat "$state/recheck-age" 2>&1)'"
+  assert_contains "$out" "WAKE: stale: test:fm-until" "the stale wake was not delivered after the archive: $out"
+  pass "a status log archived after the read gives age 0 and keeps the watch loop and its wake"
+}
+
 test_required_captain_hold_tests_fail_without_tasks_axi() {
   local name out
   out="$TMP_ROOT/missing-tasks-axi.out"
@@ -1974,5 +1998,6 @@ fm_test_run \
   test_silent_recheck_flag_on_absorbs_a_ticking_pane_for_a_live_ship_agent \
   test_silent_recheck_flag_on_wakes_when_the_agent_exited \
   test_silent_recheck_flag_on_wakes_when_declared_time_is_due \
+  test_status_log_archived_after_the_read_keeps_the_watch_loop \
   test_paused_bg_job_without_until_stays_silent_after_the_job_ends \
   test_paused_bg_job_until_timeout_rechecks_after_the_job_ends

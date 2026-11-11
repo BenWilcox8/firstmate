@@ -1941,12 +1941,21 @@ fm_treehouse_project_lock_path() {  # <project-dir>
 # path, so cleanup releases old and new slots alike. Idle slots left in the old
 # shared pools are only disk space, and `treehouse destroy <pool> --all` removes
 # the disposable ones while it keeps every slot that holds work.
+#
+# An isolated lab sets FM_TREEHOUSE_HOMES_BASE (an absolute path) in place of
+# ~/.treehouse/firstmate-homes, so its homes' pools stay inside the lab
+# (bin/fm-live-lab.sh). Plain TREEHOUSE_ROOT is not read here: a worker shell
+# that `treehouse get` starts inherits its home's root in that variable.
 fm_treehouse_home_root() {  # [home]
-  local home=${1:-$FM_HOME} key
-  [ -n "${HOME:-}" ] || return 1
+  local home=${1:-$FM_HOME} key base=${FM_TREEHOUSE_HOMES_BASE:-}
+  if [ -z "$base" ]; then
+    [ -n "${HOME:-}" ] || return 1
+    base="$HOME/.treehouse/firstmate-homes"
+  fi
+  case "$base" in /*) ;; *) return 1 ;; esac
   home=$(CDPATH='' cd -- "$home" 2>/dev/null && pwd -P) || return 1
   key=$(printf '%s' "$home" | git hash-object --stdin 2>/dev/null) || return 1
-  printf '%s/.treehouse/firstmate-homes/%s\n' "$HOME" "${key:0:12}"
+  printf '%s/%s\n' "${base%/}" "${key:0:12}"
 }
 
 # A Treehouse slot has the managed pool's fixed <pool>/<slot>/<repo> layout.

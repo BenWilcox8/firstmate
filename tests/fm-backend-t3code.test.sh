@@ -124,7 +124,7 @@ make_treehouse_fakebin() {  # <dir> -> echoes fakebin dir
   cat > "$fb/treehouse" <<'SH'
 #!/usr/bin/env bash
 set -u
-printf '{"tool":"treehouse","args":"%s","cwd":"%s"}\n' "$*" "$PWD" >> "${FM_T3_TREEHOUSE_LOG:?}"
+printf '{"tool":"treehouse","args":"%s","cwd":"%s","root":"%s"}\n' "$*" "$PWD" "${TREEHOUSE_ROOT:-}" >> "${FM_T3_TREEHOUSE_LOG:?}"
 case "${1:-}" in
   get)
     # FM_T3_TREEHOUSE_GET_WORLD changes the fake T3 world while the slot is
@@ -1512,7 +1512,7 @@ test_codex_cleanup_without_journal_needs_no_python() {
 }
 
 test_spawn_leases_slot_creates_thread_and_starts_launch_turn() {
-  local proj wt data state id out fb thread
+  local proj wt data state id out fb thread home_root
   id=$(t3_uid t3spawnz1)
   t3_task_id "$id"
   t3_case spawn
@@ -1542,6 +1542,10 @@ test_spawn_leases_slot_creates_thread_and_starts_launch_turn() {
   [ "$(t3_dispatch_types)" = "t3_thread_launch t3_thread_send" ] || fail "spawn must launch an idle thread, then send the brief, got '$(t3_dispatch_types)'"
   [ "$(t3_log_line_of 'r.tool === "treehouse" && r.args === "get --lease --lease-holder '"$id"'" && r.cwd === "'"$proj"'"')" -gt 0 ] \
     || fail "spawn must lease the slot with treehouse get --lease --lease-holder <id> from the project"
+  home_root=$(FM_HOME="$CASE_DIR/home" HOME="$SPAWN_HOME" FM_STATE_OVERRIDE="$state" "$ROOT/bin/fm-treehouse.sh" --print-root) \
+    || fail "could not resolve the home's own Treehouse root"
+  [ "$(t3_log_line_of 'r.tool === "treehouse" && r.args === "get --lease --lease-holder '"$id"'" && r.root === "'"$home_root"'"')" -gt 0 ] \
+    || fail "the T3 Code lease must run in this home's own Treehouse root ($home_root)"
   local create turn
   create=$(t3_log_line_of 'r.tool === "t3_thread_launch"')
   turn=$(t3_log_line_of 'r.tool === "t3_thread_send"')

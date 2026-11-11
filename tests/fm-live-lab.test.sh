@@ -660,6 +660,7 @@ for (( n=0; n<30; n++ )); do
   sleep 0.1
 done
 [ -n "${pid:-}" ] || exit 1
+printf '%s\n' "${FM_TREEHOUSE_HOMES_BASE:-}" > "$FM_HOME/state/$id.treehouse-homes-base"
 printf 'window=firstmate:fm-%s\n' "$id" > "$FM_HOME/state/$id.meta"
 printf 'working [at=1]: setting up\n' > "$FM_HOME/state/$id.status"
 SH
@@ -673,6 +674,9 @@ assert_contains "$out" "primary: claude" "the unparked worker did not block prim
 assert_contains "$out" "gate: $W/home/data/" "up shows the gate path"
 assert_contains "$out" "then message the worker to resume" "up explains the release message"
 worker_id=$(sed -n 's/^worker_id=//p' "$W/.fm-live-lab")
+# Each home's own Treehouse pool must sit inside the lab, never in ~/.treehouse.
+[ "$(cat "$W/home/state/$worker_id.treehouse-homes-base" 2>/dev/null)" = "$W/treehouse/firstmate-homes" ] \
+  || fail "the worker spawn did not get the lab's per-home pool base: $(cat "$W/home/state/$worker_id.treehouse-homes-base" 2>&1)"
 brief=$(<"$W/home/data/$worker_id/brief.md")
 assert_contains "$brief" "append one paused status line naming the gate file" "worker declares its wait"
 assert_contains "$brief" "and end your turn" "worker ends its waiting turn"

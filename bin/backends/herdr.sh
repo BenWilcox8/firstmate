@@ -2868,11 +2868,12 @@ fm_backend_herdr_axi_available() {
   [ -n "$FM_BACKEND_HERDR_AXI_BIN" ] && command -v "$FM_BACKEND_HERDR_AXI_BIN" >/dev/null 2>&1
 }
 
-# The launch argv agent-axi runs in the delegated pane. Phase-0 keeps fm-spawn
-# untouched: it still drives `treehouse get` and the harness launch into the
-# pane by typed input, exactly as it does the native tab's shell, so the
-# delegated pane must run an interactive login shell (the native `tab create`
-# pane runs the operator's shell too). Overridable so the unit and lab tests can
+# The launch argv agent-axi runs in the delegated pane. fm-spawn leases the task
+# copy outside the pane (`treehouse get --lease`, spawn_lease_herdr_slot), then
+# types a `cd` into that copy and the harness launch into the pane, exactly as
+# it does the native tab's shell, so the delegated pane must run an interactive
+# login shell (the native `tab create` pane runs the operator's shell too).
+# Overridable so the unit and lab tests can
 # substitute a dummy agent (e.g. `sleep 600`), which is all a bare-pane spawn
 # needs to exercise the ledger + target-string contract.
 FM_BACKEND_HERDR_AXI_LAUNCH=${FM_BACKEND_HERDR_AXI_LAUNCH:-}

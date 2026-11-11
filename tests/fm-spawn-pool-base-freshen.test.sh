@@ -1536,6 +1536,9 @@ printf '%s\n' "$*" >> "$fake/calls"
 case "${1:-} ${2:-}" in
   'status --json')
     printf '%s\n' '{"client":{"version":"0.9.0","protocol":22},"server":{"running":true,"version":"0.9.0","protocol":22}}' ;;
+  'session list')
+    # A running session with a socket lets a pane close take its presentation lock.
+    printf '{"sessions":[{"name":"fmtest","default":false,"running":true,"socket_path":"%s/fmtest.sock"}]}\n' "$fake" ;;
   'workspace list') printf '%s\n' '{"result":{"workspaces":[]}}' ;;
   'workspace create') printf '%s\n' '{"result":{"workspace":{"workspace_id":"w1"},"tab":{"tab_id":"w1:t1"}}}' ;;
   'pane process-info')
@@ -1575,12 +1578,12 @@ end_reused_pane_shell() {
   wait "$pid" 2>/dev/null || true
 }
 
-run_herdr_spawn() { # <id>
+run_herdr_spawn() { # <id> [spawn-arg...]
   (
     unset HERDR_ENV HERDR_PANE_ID HERDR_TAB_ID HERDR_WORKSPACE_ID HERDR_SOCKET_PATH
     FM_BACKEND=herdr HERDR_SESSION=fmtest FM_BACKEND_HERDR_AXI_BIN=agent-axi \
       FM_FAKE_HERDR_DIR="$CASE_DIR/herdr" \
-      run_spawn "$1" --mode no-mistakes --yolo off
+      run_spawn "$1" --mode no-mistakes --yolo off "${@:2}"
   )
 }
 
@@ -1683,31 +1686,53 @@ test_retry_in_a_reused_pane_refuses_and_leaves_it_open() {
 # agent-axi hands back a pane where an earlier attempt's worker still runs.
 # The retry must type nothing there and lease no copy: it waits for an idle
 # shell to hold the pane's foreground, then refuses and leaves the pane open.
+# A polytoken spawn that fails before its launch closes the endpoint it opened;
+# the handed-back pane is not one, so its refusal must not close it either.
 test_retry_in_a_reused_pane_with_a_live_worker_refuses_before_typing() {
-  local id out status
-  id="pool-reused-pane-live-worker-r1"
-  make_reused_pane_case "reused-pane-live-worker" "$id"
-  use_reused_herdr_pane "$LEFTOVER" cd 3 kimi
-  out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 run_herdr_spawn "$id")
-  status=$?
-  end_reused_pane_shell
-  [ "$status" -ne 0 ] || fail "live-worker: a retry typed into a pane where an earlier worker still runs"$'\n'"$out"
+  local harness id out status
+  local -a harness_args
+  for harness in claude polytoken; do
+    id="pool-reused-pane-live-$harness-r1"
+    make_reused_pane_case "reused-pane-live-$harness" "$id"
+    harness_args=()
+    if [ "$harness" = polytoken ]; then
+      cat > "$FAKEBIN_DIR/polytoken" <<'SH'
+#!/usr/bin/env bash
+case "$*" in
+  *"print models"*) printf 'zai/glm-5.3-flash\nzai/glm-5.3-flash(low)\n' ;;
+esac
+exit 0
+SH
+      chmod +x "$FAKEBIN_DIR/polytoken"
+      harness_args=(--harness polytoken --model zai/glm-5.3-flash --effort low)
+    fi
+    use_reused_herdr_pane "$LEFTOVER" cd 3 kimi
+    out=$(FM_BACKEND_HERDR_IDLE_SHELL_PROOF_POLLS=1 run_herdr_spawn "$id" ${harness_args[@]+"${harness_args[@]}"})
+    status=$?
+    end_reused_pane_shell
+    assert_live_worker_refusal "$harness" "$id" "$status" "$out"
+  done
+}
+
+assert_live_worker_refusal() { # <harness> <id> <status> <output>
+  local harness=$1 id=$2 status=$3 out=$4
+  [ "$status" -ne 0 ] || fail "live-worker ($harness): a retry typed into a pane where an earlier worker still runs"$'\n'"$out"
   assert_contains "$out" "pane fmtest:w1:p7 was left behind by an earlier attempt for task $id" \
-    "live-worker: the refusal did not name the handed-back pane"
+    "live-worker ($harness): the refusal did not name the handed-back pane"
   assert_contains "$out" "no idle shell held its foreground" \
-    "live-worker: the refusal did not say why it refused"
+    "live-worker ($harness): the refusal did not say why it refused"
   ! grep -q '^pane run' "$CASE_DIR/herdr/calls" \
-    || fail "live-worker: the retry typed into the handed-back pane: $(grep '^pane run' "$CASE_DIR/herdr/calls")"
+    || fail "live-worker ($harness): the retry typed into the handed-back pane: $(grep '^pane run' "$CASE_DIR/herdr/calls")"
   ! grep -q 'get --lease' "$CASE_DIR/herdr/treehouse-calls" \
-    || fail "live-worker: the retry leased a copy for a pane it refused"
+    || fail "live-worker ($harness): the retry leased a copy for a pane it refused"
   grep -q '^pane process-info' "$CASE_DIR/herdr/calls" \
-    || fail "live-worker: setup is wrong: the spawn never read the pane's foreground"
-  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "live-worker: the refused retry published a task record"
+    || fail "live-worker ($harness): setup is wrong: the spawn never read the pane's foreground"
+  [ ! -e "$HOME_DIR/state/$id.meta" ] || fail "live-worker ($harness): the refused retry published a task record"
   ! grep -q 'pane close' "$CASE_DIR/herdr/calls" \
-    || fail "live-worker: the refused retry closed the handed-back pane"
+    || fail "live-worker ($harness): the refused retry closed the handed-back pane"
   ! grep -q '^teardown' "$CASE_DIR/herdr/axi-calls" \
-    || fail "live-worker: the refused retry tore down the handed-back pane through agent-axi"
-  pass "live-worker: a retry refuses before typing into or leasing for a pane where an earlier worker still runs"
+    || fail "live-worker ($harness): the refused retry tore down the handed-back pane through agent-axi"
+  pass "live-worker ($harness): a retry refuses before typing into or leasing for a pane where an earlier worker still runs"
 }
 
 if command -v jq >/dev/null 2>&1; then

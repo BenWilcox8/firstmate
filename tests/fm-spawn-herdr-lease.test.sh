@@ -47,6 +47,7 @@ make_lease_case() {
 set -u
 D=$FM_FAKE_DIR
 printf '%s\n' "$*" >> "$D/treehouse-log"
+printf '%s root=%s\n' "$*" "${TREEHOUSE_ROOT:-}" >> "$D/treehouse-root-log"
 case "$*" in
   'get --lease '*) [ ! -f "$D/lease-fails" ] || { echo 'lease failed' >&2; exit 1; }
     printf '%s\n' "$FM_FAKE_SLOT" ;;
@@ -145,13 +146,17 @@ run_lease_spawn() {  # <case-dir> <id> [extra spawn args...]
 }
 
 test_fresh_spawn_leases_and_moves_the_top_level_shell() {
-  local id=lease-top-level dir out status
+  local id=lease-top-level dir out status home_root
   dir=$(make_lease_case "$id")
   out=$(run_lease_spawn "$dir" "$id")
   status=$?
   expect_code 0 "$status" "spawn should succeed"$'\n'"$out"
   assert_grep "get --lease --lease-holder $id" "$dir/fake/treehouse-log" \
     "the task copy was not leased durably under the task id"
+  home_root=$(FM_HOME="$dir/home" HOME="$dir/user-home" FM_STATE_OVERRIDE="$dir/home/state" \
+    "$ROOT/bin/fm-treehouse.sh" --print-root) || fail "could not resolve the home's own Treehouse root"
+  grep -Fxq "get --lease --lease-holder $id root=$home_root" "$dir/fake/treehouse-root-log" \
+    || fail "the lease did not run in this home's own Treehouse root ($home_root): $(cat "$dir/fake/treehouse-root-log")"
   ! grep -qx 'get' "$dir/fake/treehouse-log" \
     || fail "the interactive treehouse get opened a nested shell the restore cannot see"
   [ "$(cat "$dir/fake/cwd")" = "$dir/slot" ] \

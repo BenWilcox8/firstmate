@@ -6588,6 +6588,9 @@ elif [ "$KIND" != secondmate ] && [ "$BACKEND" != orca ]; then
         fi
       done
       if [ "$reused_pane_idle" -eq 0 ]; then
+        # The polytoken abort cleanup closes an endpoint this spawn opened; this
+        # pane holds an earlier worker, so the refusal must not close it.
+        SPAWN_FRESH_ENDPOINT_OPENED=0
         echo "error: pane $T was left behind by an earlier attempt for task $ID, and no idle shell held its foreground within about 30s, so an earlier worker or command may still run there; refusing before typing into it or leasing a copy, and leaving that pane as it is; inspect window $T" >&2
         exit 1
       fi
