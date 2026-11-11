@@ -27,7 +27,7 @@ docs/verification/runtime-backends.md	243	pane-cleanup-on-exit	tests/fm-local-pa
 tests/fm-control-herdr-smoke.test.sh	350	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
 tests/fm-teardown.test.sh	560	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	84	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
-tests/fm-backend-herdr-presentation-e2e.test.sh	55	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
+tests/fm-backend-herdr-presentation-e2e.test.sh	71	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	57	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 bin/fm-teardown.sh	511	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
@@ -276,8 +276,8 @@ tests/fm-herdr-lab.test.sh	58	herdr-lab-session-scope	tests/fm-herdr-lab.test.sh
 tests/fm-herdr-pi-stale-registration-live-e2e.test.sh	16	herdr-layout	tests/fm-herdr-pi-stale-registration-live-e2e.test.sh	personal: Herdr recovery needs an exact, stable process proof	retain
 tests/fm-host-mirror.test.sh	2	nixos-test-portability	tests/fm-host-mirror.test.sh	generic: resolve bash through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-kimi-harness.test.sh	2	nixos-test-portability	tests/fm-kimi-harness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
-tests/fm-lint.test.sh	381	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions, heavy roots run alone), upstreamable	retain
-tests/fm-lint.test.sh	381	lint-hazard-scan	tests/fm-lint.test.sh	generic: lint guard against FHS-only tool paths and unexported bash -c variables, upstreamable	retain
+tests/fm-lint.test.sh	382	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions, heavy roots run alone), upstreamable	retain
+tests/fm-lint.test.sh	382	lint-hazard-scan	tests/fm-lint.test.sh	generic: lint guard against FHS-only tool paths and unexported bash -c variables, upstreamable	retain
 tests/fm-live-gate.test.sh	5	nixos-test-portability	tests/fm-live-gate.test.sh	generic: core-tool links in the restricted guard PATH, upstreamable	retain
 tests/fm-mail.test.sh	4	nixos-test-portability	tests/fm-mail.test.sh	generic: env shebang on non-FHS hosts, upstreamable	retain
 tests/fm-omp-harness.test.sh	7	nixos-test-portability	tests/fm-omp-harness.test.sh	generic: resolve bash through PATH on non-FHS hosts, upstreamable	retain
@@ -375,8 +375,8 @@ tests/herdr-test-safety.sh	17	herdr-layout	tests/fm-backend-herdr.test.sh	person
 tests/lib.sh	50	nixos-test-portability	tests/fm-local-restart-recovery.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/remote-herdr-fixture.sh	40	herdr-layout	tests/fm-remote-secondmate-lifecycle-e2e.test.sh	personal: fork Herdr recovery liveness family	retain
 tests/wake-helpers.sh	21	pane-hash-owner	tests/fm-watch-triage.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
-tests/fm-watch-triage-pause.test.sh	122	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: fork declared-wait recheck bound and duplicate suppression	retain
-tests/fm-watch-triage-pause.test.sh	122	pane-hash-owner	tests/fm-watch-triage-pause.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
+tests/fm-watch-triage-pause.test.sh	132	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: fork declared-wait recheck bound and duplicate suppression	retain
+tests/fm-watch-triage-pause.test.sh	132	pane-hash-owner	tests/fm-watch-triage-pause.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
 tests/fm-merge-local.test.sh	2	merge-authority-guard	tests/fm-merge-local.test.sh	personal: yolo merge-authority guard	retain
 tests/fm-herdr-projected-cd-live-e2e.test.sh	5	raw-launch-literal	tests/fm-herdr-projected-cd-live-e2e.test.sh	personal: raw launch keeps literal words and refuses nested shells	retain
 bin/fm-spawn.sh	998	claude-account-pin	tests/fm-spawn-dispatch-profile.test.sh	personal: a cswap --account pin and a config/claude-accounts entry share the flag by value shape	retain
