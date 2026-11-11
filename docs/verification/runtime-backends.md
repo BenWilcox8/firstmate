@@ -504,6 +504,44 @@ The lab home was deleted and the test entry was removed from the store and verif
 That automated spawn case runs against a fake claude, so it asserts the store entry and the launch command and nothing more; the live arms above are what establish that the entry actually suppresses the dialog.
 The composer-classification record below observes the same gate from the other side, where an untrusted worktree left Claude, Grok, and Muse unverified because the guard reads a first-launch trust dialog as an unreadable composer.
 
+## Claude secondmate acknowledgement pre-approval
+
+Verified 2026-10-14 on Claude Code 2.1.300.
+A Claude secondmate launch carries a `permissions.allow` list for only its own home's `bin/fm-wake-drain.sh` and `bin/fm-ping-ack.sh` in its per-launch `--settings` JSON; `claude_settings_json()` in `bin/fm-spawn.sh` owns the list.
+These arms ran in a scratch directory whose `bin/fm-wake-drain.sh` and `bin/fm-ping-ack.sh` were stubs that print their arguments.
+
+The rules match the command shapes secondmates run.
+Under `--permission-mode dontAsk`, which refuses every tool call that no rule approves, the same prompt asked Claude to run `bin/fm-wake-drain.sh --ack-through 7 --recovery-generation g1.x 2>&1 | tail -3`, the bare absolute `<dir>/bin/fm-wake-drain.sh`, and `cd <dir>; bin/fm-wake-drain.sh --ack-through 8 --recovery-generation g2 && bin/fm-ping-ack.sh --origin script --wake w1`.
+
+```sh
+claude -p "$PROMPT" --model claude-sonnet-5-5 --permission-mode dontAsk --output-format text
+claude -p "$PROMPT" --model claude-sonnet-5-5 --permission-mode dontAsk --settings "$RULES" --output-format text
+```
+
+```
+# control, no rules
+1. DENIED
+2. DENIED
+3. DENIED
+# with the drain and ping-ack rules
+1. DRAIN_RAN --ack-through 7 --recovery-generation g1.x
+2. DRAIN_RAN
+3. DRAIN_RAN --ack-through 8 --recovery-generation g2, then PING_RAN --origin script --wake w1 .
+```
+
+Auto mode keeps these narrow rules and skips its classifier for a matched command.
+The debug log of `claude -p ... --permission-mode auto --settings "$RULES" --debug-file <log>`, with `Bash(python3 *)` added as a known-dangerous comparison rule, showed:
+
+```
+Applying permission update: Adding 3 allow rule(s) to destination 'flagSettings': ["Bash(bin/fm-wake-drain.sh)","Bash(bin/fm-wake-drain.sh *)","Bash(python3 *)"]
+Ignoring dangerous permission Bash(python3 *) from ... (bypasses classifier)
+Applying permission update: Removing 1 allow rule(s) from source 'flagSettings': ["Bash(python3 *)"]
+[Stall] tool_dispatch_start tool=Bash ... permissionDecisionMs=4
+```
+
+The same auto-mode run without `--settings` rules decided the same `bin/fm-wake-drain.sh --ack-through 9 --recovery-generation g3` command in `permissionDecisionMs=2293`, which is the classifier round trip that the rule removes.
+`tests/fm-secondmate-harness.test.sh` pins the exact list a seeded secondmate home's launch carries; rerun the arms above after a Claude Code upgrade to refresh this record.
+
 ## Codex hook trust
 
 Verified 2026-09-16 on codex-cli 0.151.0, macOS arm64, in a fresh linked worktree of this repository.
