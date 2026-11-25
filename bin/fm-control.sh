@@ -1484,18 +1484,24 @@ one_line() {  # <text>: a meta value is one line
 
 # park_meta_write [key=value]...: replace every park key in this task's record
 # with exactly the given lines, atomically under the task's meta lock. No
-# arguments clears the park record.
+# arguments clears the park record. The lines go before the first pr= line, so
+# the PR region stays the record's tail that fm_pr_metadata_identity_parse
+# (bin/fm-pr-lib.sh) requires; a park key after it would stop an armed merge
+# poll from validating, and a merge made during the park would go unseen.
 park_meta_write() {
   local lock tmp status=0
   lock=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$lock"
   tmp=$(mktemp "$STATE/.$ID.meta.park.XXXXXX") || { fm_lock_release "$lock"; return 1; }
-  awk -F= -v keys="$PARK_KEYS" '
-    BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) drop[k[i]] = 1 }
-    !($1 in drop)' "$META" > "$tmp" || status=1
-  if [ "$status" -eq 0 ] && [ "$#" -gt 0 ]; then
-    printf '%s\n' "$@" >> "$tmp" || status=1
-  fi
+  FM_PARK_META_LINES=$(if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi) awk -F= -v keys="$PARK_KEYS" '
+    BEGIN {
+      n = split(keys, k, " "); for (i = 1; i <= n; i++) drop[k[i]] = 1
+      lines = ENVIRON["FM_PARK_META_LINES"]
+    }
+    $1 in drop { next }
+    !placed && $1 == "pr" { if (lines != "") print lines; placed = 1 }
+    { print }
+    END { if (!placed && lines != "") print lines }' "$META" > "$tmp" || status=1
   if [ "$status" -eq 0 ]; then
     mv -f "$tmp" "$META" || status=1
   fi

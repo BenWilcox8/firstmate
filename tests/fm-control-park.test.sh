@@ -362,6 +362,33 @@ test_park_records_the_session_and_closes_only_the_endpoint() {
   pass "park: the proven session and reason are recorded, the Atlas ticket is parked, and only the endpoint closes"
 }
 
+# An armed merge poll trusts the record only while its PR region is the tail
+# (fm_pr_metadata_identity_parse). Park and resume rewrite the record, so both
+# must keep every park key ahead of pr=, or a merge made during the park is
+# never seen.
+pr_region_parses() {  # <case-dir>
+  bash -c '. "$1/bin/fm-pr-lib.sh" && fm_pr_metadata_identity_parse "$2" && [ "$FM_PR_META_NUMBER" = 7 ]' \
+    _ "$ROOT" "$1/home/state/t1.meta"
+}
+
+test_park_and_resume_keep_the_pr_region_last() {
+  local dir out rc head
+  dir=$(new_case park-pr-tail)
+  head=$(printf '%040d' 7)
+  printf 'pr=https://github.com/example/repo/pull/7\npr_head=%s\n' "$head" >> "$dir/home/state/t1.meta"
+  pr_region_parses "$dir" || fail "setup error: the fixture PR region must parse before the park"
+  out=$(run_control "$dir" t1 park --reason "waits on review" --on c12); rc=$?
+  expect_code 0 "$rc" "park should succeed"$'\n'"$out"
+  [ -n "$(meta_field "$dir" parked)" ] || fail "park should record the park"
+  pr_region_parses "$dir" \
+    || fail "park must keep the PR region last so the armed merge poll still validates: $(cat "$dir/home/state/t1.meta")"
+  out=$(run_control "$dir" t1 resume --note "review done"); rc=$?
+  expect_code 0 "$rc" "resume should succeed"$'\n'"$out"
+  pr_region_parses "$dir" \
+    || fail "resume must keep the PR region last: $(cat "$dir/home/state/t1.meta")"
+  pass "park and resume keep the PR region as the record's tail, so an armed merge poll keeps validating"
+}
+
 test_park_codex_records_the_open_rollout() {
   local dir out rc
   dir=$(new_case park-codex codex)
@@ -873,6 +900,7 @@ test_park_refuses_unverified_harnesses_and_secondmates
 test_park_withdraws_when_the_worker_does_not_stop
 test_park_refuses_a_session_its_resume_would_not_find
 test_park_retry_accepts_the_identical_park_already_in_force
+test_park_and_resume_keep_the_pr_region_last
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
 test_resume_closes_its_own_leftover_pane_first
