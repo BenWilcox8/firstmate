@@ -25,6 +25,9 @@
 #                                   (bin/fm-control.sh park); it stays down,
 #                                   and `bin/fm-control.sh <id> resume` reopens
 #                                   its native session when its wait clears
+#                                   or state/<id>.review-park exists
+#                                   (bin/fm-park.sh), whose tick relaunches
+#                                   it on review activity
 #                  gone             its recorded worktree is missing
 #                  finished         its validation run (attributed by
 #                                   bin/fm-crew-state.sh) passed or failed, or,
@@ -272,6 +275,14 @@ wr_classify() {
   if [ -n "$(fm_meta_get "$meta" parked)" ]; then
     WR_CLASS=parked
     WR_REASON="parked: $(fm_meta_get "$meta" parked_reason)"
+    return 0
+  fi
+  # A lane parked on review (bin/fm-park.sh) stopped its agent on purpose, and
+  # the park tick relaunches it on review activity; restoring it here would
+  # defeat the park and race the tick.
+  if [ -e "$STATE/$id.review-park" ]; then
+    WR_CLASS=parked
+    WR_REASON="parked on review; bin/fm-park.sh tick relaunches it"
     return 0
   fi
   wt=$(fm_meta_get "$meta" worktree)

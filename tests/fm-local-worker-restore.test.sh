@@ -246,6 +246,23 @@ test_a_pr_with_no_ci_checks_or_a_cancelled_run_stays_down() {
   pass "a PR with no CI checks, or a cancelled run, after a done or failed line stays down"
 }
 
+# A lane parked on review (bin/fm-park.sh) has a dead endpoint, no parked= key,
+# and a paused: line; its park tick, not restart recovery, brings it back.
+test_a_lane_parked_on_review_stays_down() {
+  local w out
+  w=$(new_world review-park)
+  add_worker "$w" w-review 'paused: parked on review: PR https://example.invalid/pull/9'
+  printf 'pr=https://example.invalid/pull/9\nparked_at=1790000000\n' > "$w/home/state/w-review.review-park"
+  add_worker "$w" w-busy 'working: building'
+  out=$(wr "$w" classify 2>&1)
+  [ "$(class_of "$out" w-review)" = parked ] || fail "a lane parked on review must classify parked: $out"
+  [ "$(class_of "$out" w-busy)" = working ] || fail "setup error: the control worker must classify working: $out"
+  out=$(wr "$w" run --key review-park-1 --restart 'a Herdr restart' 2>&1) || fail "run failed: $out"
+  [ "$(awk '{ print $1 }' "$w/fake/control.log" | tr '\n' ' ')" = "w-busy " ] \
+    || fail "restart recovery must leave a lane parked on review to its park tick: $(cat "$w/fake/control.log")"
+  pass "a lane parked on review stays down after a restart"
+}
+
 # A live agent at another record's endpoint counts as occupying the worktree
 # unless its pane is proven to sit elsewhere.
 test_lease_check_counts_a_live_agent_whose_location_cannot_be_read() {
@@ -408,6 +425,7 @@ test_record_starts_worker_restore_once_for_a_restart() {
 test_classify_names_each_worker_class
 test_classify_orders_finished_first_and_an_active_run_over_a_decision
 test_a_pr_with_no_ci_checks_or_a_cancelled_run_stays_down
+test_a_lane_parked_on_review_stays_down
 test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own
 test_lease_check_counts_a_live_agent_whose_location_cannot_be_read
 test_run_relaunches_only_working_workers_once_per_restart

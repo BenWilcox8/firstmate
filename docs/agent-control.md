@@ -89,6 +89,7 @@ Their native resume is not deterministic: grok, gemini, devin, commandcode, cort
 The captain can then close that worker's pane and pick the same conversation up later with no information loss.
 `bin/fm-control.sh`'s header owns the exact verbs, the six task-record keys, and every refusal.
 [`bin/fm-native-session-lib.sh`](../bin/fm-native-session-lib.sh) owns which adapters have a native session, how each session is proven from the running worker, how it is found again, and the launch that reopens it.
+Review parking ([`bin/fm-park.sh`](../bin/fm-park.sh), [Park on review](configuration.md#park-on-review)) is a separate, opt-in mechanism: it keeps no native session, never sets these keys, and `resume` does not apply to it.
 
 A park proves the session before it changes anything, because a wrong id is worse than none: it resumes another conversation, or silently a fresh one.
 Each proof comes from evidence the harness itself keeps for the exact running process, never from a guess such as the newest session file in the directory.
