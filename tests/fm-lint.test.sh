@@ -267,7 +267,7 @@ test_four_canonical_partitions_preserve_full_lint() {
     [ "$(LC_ALL=C sort -u "$mode")" = on ] || fail "partition $part disabled full analysis"
   done
   [ "$(LC_ALL=C sort "$tmp/union")" = "$all" ] || fail "four lint partitions lose or duplicate canonical roots"
-  for option in 0of4 5of4 1of8; do
+  for option in 0of4 5of4 1of0; do
     rc=0
     "$LINT" --partition "$option" --list-files > "$tmp/refused" 2>&1 || rc=$?
     [ "$rc" = 2 ] || fail "invalid partition $option was not refused"
