@@ -166,6 +166,30 @@ test_fresh_spawn_leases_and_moves_the_top_level_shell() {
   pass "a fresh herdr spawn leases the copy and moves the pane's top-level shell into it"
 }
 
+test_local_secondmate_leases_from_its_own_pool() {
+  local id=lease-secondmate-pool dir out status root parent_root
+  dir=$(make_lease_case "$id")
+  mkdir -p "$dir/parent-home/state"
+  printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
+    "$dir/parent-home" > "$dir/home/.fm-secondmate-parent"
+  root=$(FM_HOME="$dir/home" HOME="$dir/user-home" bash "$ROOT/bin/fm-treehouse.sh" --print-root) \
+    || fail "could not resolve the secondmate's own Treehouse root"
+  [ -n "$root" ] || fail "a local secondmate pool root was empty"
+  parent_root=$(FM_HOME="$dir/parent-home" HOME="$dir/user-home" bash "$ROOT/bin/fm-treehouse.sh" --print-root) \
+    || fail "could not resolve the parent home's Treehouse root"
+  [ "$root" != "$parent_root" ] \
+    || fail "a local secondmate shares its parent's Treehouse root ($root)"
+  out=$(run_lease_spawn "$dir" "$id")
+  status=$?
+  expect_code 0 "$status" "a local secondmate's herdr spawn should succeed"$'\n'"$out"
+  grep -Fxq "get --lease --lease-holder $id root=$root" "$dir/fake/treehouse-root-log" \
+    || fail "a local secondmate's lease did not come from its own pool ($root): $(cat "$dir/fake/treehouse-root-log")"
+  ! grep -Fq "root=$parent_root" "$dir/fake/treehouse-root-log" \
+    || fail "a local secondmate leased from its parent's pool: $(cat "$dir/fake/treehouse-root-log")"
+  assert_grep "worktree=$dir/slot" "$dir/home/state/$id.meta" "meta did not record the leased copy"
+  pass "a local secondmate's herdr spawn leases its copy from a pool of its own"
+}
+
 test_failed_lease_refuses_without_a_record() {
   local id=lease-refused dir out status
   dir=$(make_lease_case "$id")
@@ -299,6 +323,7 @@ test_dropped_worktree_entry
 test_never_moving_worktree_entry
 
 test_fresh_spawn_leases_and_moves_the_top_level_shell
+test_local_secondmate_leases_from_its_own_pool
 test_failed_lease_refuses_without_a_record
 test_aborted_spawn_names_the_lease_it_keeps
 test_rolled_back_spawn_after_launch_names_the_lease_it_keeps

@@ -24,7 +24,7 @@ Repeated provably-working stale escalations on the same unchanged pane add an es
 A plain stale wake, or the final wedge escalation, for a pane that shows a recognised dialog also ends its reason with `blocked-on-prompt:` and the dialog's name, on the unchanged triage and schedule; `bin/fm-watch.sh`'s header owns the wording.
 The deferral, dead-record, and declared-wait recheck reasons described below do not carry the name.
 In the same branch that is about to escalate, the pane's own account of its quiet is consulted first: the worker's declared `paused:` or verified `captain-held` status line.
-That declaration defers the escalation to the `FM_PAUSE_RESURFACE_SECS` recheck cadence instead, because a lane waiting on something it named is silent for a reason the escalation would misreport, and the ladder would otherwise climb for as long as the wait lasts.
+That declaration defers the escalation to the `FM_PAUSE_RESURFACE_SECS` recheck cadence while the wait still explains the authoritative current state; the optional foreground-watcher supersession is documented in [`configuration.md`](configuration.md#superseded-declared-wait-wake-configpaused-wait-supersession).
 A declared clearing time (`paused: ... until <UTC ISO 8601>`) that has already passed stops counting as that account, so a lane whose own wait is over is judged by the records below exactly as a lane that never declared one, and either keeps the unchanged escalation schedule, reason and `demand-deep-inspection` wording unless one of them holds.
 When the status line accounts for nothing, the task's backlog captain hold recorded by `bin/fm-captain-hold.sh` is read next, because the worker's line never shows that hold; it defers to the same recheck naming the captain, and publishes no wait age because the line predates the hold.
 In a home that armed the default-off `config/wedge-defer-worker-wait` flag, the worker's own still-open newest `blocked:` or `needs-decision:` line is also that account, because that line already woke firstmate and the lane is owed firstmate's answer; its recheck names the verb's clearing action, and any newer status line or a newer acknowledged inbox record ends it (`status_worker_wait_verb` in `bin/fm-classify-lib.sh` owns which lines count).
@@ -270,6 +270,10 @@ Text for a worker to read and commands that drive a worker's process are separat
 ### Task status archives
 
 When [status archival is enabled](configuration.md#task-status-archive-configstatus-archive), teardown preserves the complete status stream in `data/<task>/status.log`, using a separate `status.<N>.log` for reused IDs without overwriting earlier histories.
+When [record hygiene is enabled](configuration.md#record-hygiene-report-configrecord-hygiene), session-start bootstrap and the watcher heartbeat report home-local record inconsistencies: status logs without metadata older than 24 hours, in-flight rows without metadata, metadata without a tab, and duplicate `pr=` references across records.
+Only the mutating, locked session-start bootstrap archives orphan status logs older than 24 hours to `data/<id>/status.log`; a detect-only bootstrap and the heartbeat do not archive them.
+The scan is limited to the current home's records and is a report, not a general cleanup sweep.
+The shared report implementation is [`fm-record-hygiene-lib.sh`](../bin/fm-record-hygiene-lib.sh).
 Forced secondmate retirement stores descendant logs under the surviving parent's `data/<secondmate>/children/<child>/` tree.
 These archives are cold evidence: presentation, wake classification, and fleet snapshots consume live `state/` records and never read archived logs.
 Ordinary child teardown uses its own home's configuration; retiring a whole home still removes older archives stored inside that home.
@@ -348,9 +352,9 @@ Each Firstmate home takes those worktrees from its own treehouse pool, so homes 
 A fresh ship or scout starts only when its clean task worktree matches the fetched tip of its base on origin, or the primary checkout's own default-branch tip when the repo has no origin remote.
 That base is the task's `--base-branch` when one is given, else origin's resolved default branch.
 A repo with no origin remote refuses `--base-branch`, and any unsafe or unverifiable base stops the spawn.
-The [`fm-spawn.sh` header](../bin/fm-spawn.sh) owns ship/scout worktree isolation and fresh-base refusal rules, including spawns from linked homes.
+The [`fm-spawn.sh` header](../bin/fm-spawn.sh) owns ship/scout worktree isolation, pool choice, and fresh-base refusal rules, including spawns from linked and secondmate homes.
 A home can opt in to starting a local-only ship or a scout from the primary checkout's default branch instead of origin's tip ([`configuration.md`](configuration.md#spawn-base-from-the-primary-checkout-configspawn-base-primary-checkout)).
-Portable regressions live in [`tests/fm-spawn-pool-base-freshen.test.sh`](../tests/fm-spawn-pool-base-freshen.test.sh) for spawn isolation and base freshness, and [`tests/fm-control-relaunch.test.sh`](../tests/fm-control-relaunch.test.sh) for preserving the recorded copy on relaunch.
+Portable regressions live in [`tests/fm-spawn-pool-base-freshen.test.sh`](../tests/fm-spawn-pool-base-freshen.test.sh) for spawn isolation and base freshness, [`tests/fm-treehouse.test.sh`](../tests/fm-treehouse.test.sh) and [`tests/fm-spawn-secondmate-pool.test.sh`](../tests/fm-spawn-secondmate-pool.test.sh) for each home's own pool, and [`tests/fm-control-relaunch.test.sh`](../tests/fm-control-relaunch.test.sh) for preserving the recorded copy on relaunch.
 
 The firstmate repo has one extra exposure because it can dispatch crewmates to work on itself.
 Its operating checkout (`FM_ROOT`) and the disposable crewmate worktrees are all linked git worktrees of the same repository, so the valid discriminator is branch state, not whether the checkout is linked.
