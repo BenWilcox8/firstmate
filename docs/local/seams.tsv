@@ -1,57 +1,57 @@
 # path	line_budget	seam_id	owning_test	upstream	disposition
-# Budgets count the fork delta in the file against upstream bb3b2d69, the last merged upstream commit: added plus removed lines of `git diff --numstat bb3b2d69 HEAD -- <path>`. Every row of one path carries the whole delta of that path.
+# Budgets count the fork delta in the file against upstream 2f000eb4, the last merged upstream commit: added plus removed lines of `git diff --numstat 2f000eb4 HEAD -- <path>`. Every row of one path carries the whole delta of that path.
 bin/fm-send.sh	39	send-provenance-context	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-watch.sh	505	send-provenance-re-ring	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-watch.sh	517	send-provenance-re-ring	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-tmux-lib.sh	1	send-provenance-tmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/herdr.sh	861	send-provenance-herdr	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/zellij.sh	1	send-provenance-zellij	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/cmux.sh	1	send-provenance-cmux	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/backends/orca.sh	1	send-provenance-orca	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-teardown.sh	511	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-teardown.sh	535	send-provenance-teardown	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-backend.sh	212	send-provenance-dispatch	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-composer-lib.sh	248	codex-idle-animation	tests/fm-local-codex-idle-frames.test.sh	https://github.com/kunchenguid/firstmate/pull/4532	retain
-bin/fm-lint.sh	421	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions plus the hazard scan; every root runs alone through upstream's per-root model), upstreamable	retain
-.github/workflows/ci.yml	52	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
-bin/fm-spawn.sh	998	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-control.sh	585	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-lint.sh	419	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory (four partitions plus the hazard scan; every root runs alone through upstream's per-root model), upstreamable	retain
+.github/workflows/ci.yml	67	lint-four-partitions-ci	tests/fm-ci-workflow.test.sh	generic: lint memory, upstreamable	retain
+bin/fm-spawn.sh	1018	typing-provenance-launch	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
+bin/fm-control.sh	591	typing-provenance-exit	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
 bin/fm-supervise-daemon.sh	458	typing-provenance-digest	tests/fm-local-typing-provenance.test.sh	personal: dashboard attribution	retain
-bin/fm-bootstrap.sh	78	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: guarded bootstrap cleanup	retain
-bin/fm-control.sh	585	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: exit and relaunch cleanup	retain
-bin/fm-spawn.sh	998	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: fresh relaunch pane	retain
-bin/fm-teardown.sh	511	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: proven close and retained records	retain
-bin/fm-test-run.sh	110	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
-bin/fm-watch.sh	505	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
-docs/agent-control.md	132	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: Herdr endpoint exception	retain
+bin/fm-bootstrap.sh	77	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: guarded bootstrap cleanup	retain
+bin/fm-control.sh	591	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: exit and relaunch cleanup	retain
+bin/fm-spawn.sh	1018	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: fresh relaunch pane	retain
+bin/fm-teardown.sh	535	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: proven close and retained records	retain
+bin/fm-test-run.sh	71	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: fork test family sidecar	retain
+bin/fm-watch.sh	517	pane-cleanup-on-exit	tests/fm-local-pane-recovery.test.sh	personal: prompt cleanup on poll	retain
+docs/agent-control.md	133	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: Herdr endpoint exception	retain
 docs/herdr-backend.md	312	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: pane cleanup contract	retain
 docs/verification/runtime-backends.md	243	pane-cleanup-on-exit	tests/fm-local-pane-cleanup-e2e.test.sh	personal: version-scoped cleanup evidence	retain
 tests/fm-control-herdr-smoke.test.sh	350	pane-cleanup-on-exit	tests/fm-control-herdr-smoke.test.sh	personal: MAIN approved existing-test-contract	retain
-tests/fm-teardown.test.sh	560	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
+tests/fm-teardown.test.sh	636	pane-cleanup-on-exit	tests/fm-teardown.test.sh	personal: MAIN approved teardown-test-contract	retain
 tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	84	pane-cleanup-on-exit	tests/fm-backend-herdr-launcher-workspace-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-presentation-e2e.test.sh	71	pane-cleanup-on-exit	tests/fm-backend-herdr-presentation-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
 tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	57	pane-cleanup-on-exit	tests/fm-backend-herdr-workspace-per-home-e2e.test.sh	personal: teardown fixture stand-in honors the harness exit	retain
-bin/fm-teardown.sh	511	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
+bin/fm-teardown.sh	535	cleanup-slot-return-gates	tests/fm-local-cleanup-slot.test.sh	personal: generic teardown ordering fix, not yet proposed upstream	retain
 bin/fm-inactive-reconcile.sh	54	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: generic retry for a late outcome teardown could not deliver, not yet proposed upstream	retain
 docs/secondmate-parent-channel.md	14	cleanup-late-outcome-retry	tests/fm-local-cleanup-slot.test.sh	personal: documents the late outcome retry, not yet proposed upstream	retain
 bin/fm-session-start.sh	95	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
-bin/fm-bootstrap.sh	78	secondmate-liveness-skip,secondmate-liveness-serial	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
-bin/fm-spawn.sh	998	worktree-lease	tests/fm-local-worker-restore.test.sh	personal: relaunch and resume lease re-check for fork park and fresh-pane relaunch	retain
+bin/fm-bootstrap.sh	77	secondmate-liveness-skip,secondmate-liveness-serial	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+bin/fm-spawn.sh	1018	worktree-lease	tests/fm-local-worker-restore.test.sh	personal: relaunch and resume lease re-check for fork park and fresh-pane relaunch	retain
 tests/fm-pending-reply.test.sh	65	lint-pending-reply-source-edge	tests/fm-lint.test.sh	generic: lint memory, upstream candidate; ShellCheck of this root alone: fork 14.65 GB (killed at a 14 GB cap) and upstream aec043c7 12.69 GB with the library followed, 6.36 GB after the edge cut; the library stays its own lint root (4.85 GB)	retain
-bin/fm-watch.sh	505	secondmate-liveness-skip	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
-bin/fm-watch.sh	505	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	personal: name an endpoint that a relaunch could not retire	retain
-bin/fm-watch.sh	505	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: fork declared-wait recheck bound and duplicate suppression; the opt-in quiet recheck reads the fork declaration record	retain
-bin/fm-spawn.sh	998	raw-launch-literal	tests/fm-worker-account.test.sh	personal: literal raw launch words feed the account pin check	retain
-bin/fm-spawn.sh	998	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
-bin/fm-spawn.sh	998	claude-persistence-name	tests/fm-spawn-claude-persistence.test.sh	personal: Claude persistence prefix and --name	retain
-bin/fm-spawn.sh	998	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
-bin/fm-spawn.sh	998	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas dispatch identity and hooks	retain
-bin/fm-control.sh	585	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
-bin/fm-teardown.sh	511	atlas-integration	tests/fm-local-cleanup-slot.test.sh	personal: Atlas close-out gate	retain
+bin/fm-watch.sh	517	secondmate-liveness-skip	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+bin/fm-watch.sh	517	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	personal: name an endpoint that a relaunch could not retire	retain
+bin/fm-watch.sh	517	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: fork declared-wait recheck bound and duplicate suppression; the opt-in quiet recheck reads the fork declaration record	retain
+bin/fm-spawn.sh	1018	raw-launch-literal	tests/fm-worker-account.test.sh	personal: literal raw launch words feed the account pin check	retain
+bin/fm-spawn.sh	1018	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
+bin/fm-spawn.sh	1018	claude-persistence-name	tests/fm-spawn-claude-persistence.test.sh	personal: Claude persistence prefix and --name	retain
+bin/fm-spawn.sh	1018	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
+bin/fm-spawn.sh	1018	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas dispatch identity and hooks	retain
+bin/fm-control.sh	591	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
+bin/fm-teardown.sh	535	atlas-integration	tests/fm-local-cleanup-slot.test.sh	personal: Atlas close-out gate	retain
 bin/backends/herdr.sh	861	herdr-layout	tests/fm-backend-herdr-recovery-state.test.sh	personal: agent-axi placement and the Herdr recovery liveness family	retain
-bin/fm-test-run.sh	110	test-shards-hints	tests/fm-test-run.test.sh	personal: a twelfth serial shard and fork timing hints for fork-only scripts	retain
-bin/fm-test-run.sh	110	browser-reap	tests/fm-test-run.test.sh	personal: a watcher change selects the browser-reap suite	retain
-.github/workflows/ci.yml	52	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: a twelfth serial shard	retain
-tests/fm-teardown.test.sh	560	atlas-integration	tests/fm-teardown.test.sh	personal: Atlas landing evidence names the base branch	retain
-docs/agent-control.md	132	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
+bin/fm-test-run.sh	71	test-shards-hints	tests/fm-test-run.test.sh	personal: a twentieth serial shard (one more than upstream) and fork-only timing rows from tests/fm-local-ci-timings.tsv	retain
+bin/fm-test-run.sh	71	browser-reap	tests/fm-test-run.test.sh	personal: a watcher change selects the browser-reap suite	retain
+.github/workflows/ci.yml	67	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: a twentieth serial shard (one more than upstream), and every action pinned to a commit id	retain
+tests/fm-teardown.test.sh	636	atlas-integration	tests/fm-teardown.test.sh	personal: Atlas landing evidence names the base branch	retain
+docs/agent-control.md	133	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-supervise-daemon.sh	458	away-daemon	tests/fm-daemon-staged-digest-stability.test.sh	personal: stable staged digest and Codex short wakes	retain
 .agents/skills/afk/SKILL.md	30	away-daemon	tests/fm-daemon.test.sh	generic: busy-pane max-defer ladder with durable inbox handoff, upstreamable	retain
 .agents/skills/afk/SKILL.md	30	merge-authority-guard	tests/fm-pr-merge.test.sh	personal: away posture alone never grants merge authority	retain
@@ -76,17 +76,17 @@ bin/fm-supervise-daemon.sh	458	away-daemon	tests/fm-daemon-staged-digest-stabili
 .agents/skills/harness-adapters/references/harness/pi.md	13	pane-cleanup-on-exit	tests/fm-control-relaunch.test.sh	personal: flat Herdr fresh-pane relaunch stays a fresh session	retain
 .agents/skills/harness-adapters/references/harness/pi.md	13	park-resume	tests/fm-native-session.test.sh	personal: native-session park and resume	retain
 .agents/skills/harness-adapters/references/harness/rovo.md	77	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
-.agents/skills/operational-home-layout/SKILL.md	13	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
-.agents/skills/operational-home-layout/SKILL.md	13	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas repo pointer	retain
-.agents/skills/operational-home-layout/SKILL.md	13	browser-reap	tests/fm-browser-reap.test.sh	personal: headless-browser reap ledger	retain
-.agents/skills/operational-home-layout/SKILL.md	13	dashboard-signals	tests/fm-ping-ack.test.sh	personal: dashboard routine-wake close-out record	retain
-.agents/skills/operational-home-layout/SKILL.md	13	herdr-layout	tests/fm-herdr-layout-lib.test.sh	personal: agent-axi layout drift marker	retain
-.agents/skills/operational-home-layout/SKILL.md	13	park-resume	tests/fm-native-session.test.sh	personal: Pi native-session record	retain
-.agents/skills/operational-home-layout/SKILL.md	13	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
-.agents/skills/operational-home-layout/SKILL.md	13	retire-reassigned	tests/fm-local-cleanup-slot.test.sh	personal: archive of finished tasks whose slot was reassigned	retain
-.agents/skills/operational-home-layout/SKILL.md	13	secondmate-dormant	tests/fm-local-restart-recovery.test.sh	personal: captain-ordered dormant second mates	retain
-.agents/skills/operational-home-layout/SKILL.md	13	send-provenance-layout	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
-.agents/skills/operational-home-layout/SKILL.md	13	worker-restore	tests/fm-local-worker-restore.test.sh	personal: post-restart worker restore	retain
+.agents/skills/operational-home-layout/SKILL.md	15	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
+.agents/skills/operational-home-layout/SKILL.md	15	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas repo pointer	retain
+.agents/skills/operational-home-layout/SKILL.md	15	browser-reap	tests/fm-browser-reap.test.sh	personal: headless-browser reap ledger	retain
+.agents/skills/operational-home-layout/SKILL.md	15	dashboard-signals	tests/fm-ping-ack.test.sh	personal: dashboard routine-wake close-out record	retain
+.agents/skills/operational-home-layout/SKILL.md	15	herdr-layout	tests/fm-herdr-layout-lib.test.sh	personal: agent-axi layout drift marker	retain
+.agents/skills/operational-home-layout/SKILL.md	15	park-resume	tests/fm-native-session.test.sh	personal: Pi native-session record	retain
+.agents/skills/operational-home-layout/SKILL.md	15	restart-record	tests/fm-local-restart-recovery.test.sh	personal: fleet restart recovery	retain
+.agents/skills/operational-home-layout/SKILL.md	15	retire-reassigned	tests/fm-local-cleanup-slot.test.sh	personal: archive of finished tasks whose slot was reassigned	retain
+.agents/skills/operational-home-layout/SKILL.md	15	secondmate-dormant	tests/fm-local-restart-recovery.test.sh	personal: captain-ordered dormant second mates	retain
+.agents/skills/operational-home-layout/SKILL.md	15	send-provenance-layout	tests/fm-local-send-provenance.test.sh	personal: dashboard attribution	retain
+.agents/skills/operational-home-layout/SKILL.md	15	worker-restore	tests/fm-local-worker-restore.test.sh	personal: post-restart worker restore	retain
 .agents/skills/quota-array-dispatch/SKILL.md	19	quota-dispatch-owner	tests/fm-quota-array-dispatch-live-e2e.test.sh	personal: after the AGENTS.md section 4 trim the skill is the only owner of selection, and firstmate breaks ranked ties	retain
 .agents/skills/secondmate-provisioning/SKILL.md	4	secondmate-dormant	tests/fm-local-restart-recovery.test.sh	personal: captain-ordered dormant second mates	retain
 .agents/skills/session-start-recovery/SKILL.md	4	herdr-layout	tests/fm-bootstrap.test.sh	personal: bootstrap Herdr layout repair sweep	retain
@@ -126,9 +126,9 @@ bin/fm-classify-lib.sh	20	watcher-waits	tests/fm-watch-triage-pause.test.sh	pers
 bin/fm-config-inherit-lib.sh	5	agent-limit	tests/fm-agent-count.test.sh	personal: Herdr concurrent agent limit	retain
 bin/fm-control-lib.sh	41	park-resume	tests/fm-control-park.test.sh	personal: park and resume	retain
 bin/fm-control-lib.sh	41	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
-bin/fm-crew-state.sh	45	crew-state-printf-v	tests/fm-crew-state.test.sh	personal: fork lint repair from e5bf75fd; ShellCheck 0.11.0 reports nothing on the upstream form	review
-bin/fm-crew-state.sh	45	park-resume	tests/fm-crew-state.test.sh	personal: park and resume	retain
-bin/fm-crew-state.sh	45	worker-restore	tests/fm-crew-state.test.sh	personal: worker restore after restart	retain
+bin/fm-crew-state.sh	47	crew-state-printf-v	tests/fm-crew-state.test.sh	personal: fork lint repair from e5bf75fd; ShellCheck 0.11.0 reports nothing on the upstream form	review
+bin/fm-crew-state.sh	47	park-resume	tests/fm-crew-state.test.sh	personal: park and resume	retain
+bin/fm-crew-state.sh	47	worker-restore	tests/fm-crew-state.test.sh	personal: worker restore after restart	retain
 bin/fm-dod-lib.sh	85	brief-intent	tests/fm-task-delivery.test.sh	personal: complete accepted validation intent	retain
 bin/fm-extension.mjs	10	nixos-system-path	tests/fm-extension-binding.test.sh	generic: NixOS system profile in the sanitized PATH, upstreamable	retain
 bin/fm-fleet-snapshot.sh	12	park-resume	tests/fm-fleet-view.test.sh	personal: park and resume	retain
@@ -156,24 +156,24 @@ bin/fm-task-inbox-lib.sh	6	dashboard-signals	tests/fm-ping-ack.test.sh	personal:
 bin/fm-turnend-guard-grok.sh	2	grok-guard-dead-fallback	tests/fm-turnend-guard.test.sh	personal: dead-code cleanup of the CLAUDE_PROJECT_DIR fallback	review
 bin/fm-watch-arm.sh	111	watcher-delivered-wake	tests/fm-claude-stop-autoarm.test.sh	generic: name a delivered wake on any cycle end, upstreamable	retain
 bin/fm-worker-account-lib.sh	134	park-resume	tests/fm-worker-account.test.sh	personal: park and resume with Claude account pins	retain
-docs/architecture.md	38	browser-reap	tests/fm-browser-reap.test.sh	personal: orphaned browser sweep	retain
-docs/architecture.md	38	merge-authority-guard	tests/fm-pr-merge.test.sh	personal: yolo guard at the merge tool boundary	retain
-docs/architecture.md	38	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca dispatch retired	retain
-docs/architecture.md	38	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	generic: remoteless pool freshness, upstreamable	retain
-docs/architecture.md	38	watcher-waits	tests/fm-watch-triage-pause.test.sh	generic: one recheck per declared wait, upstreamable	retain
+docs/architecture.md	40	browser-reap	tests/fm-browser-reap.test.sh	personal: orphaned browser sweep	retain
+docs/architecture.md	40	merge-authority-guard	tests/fm-pr-merge.test.sh	personal: yolo guard at the merge tool boundary	retain
+docs/architecture.md	40	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca dispatch retired	retain
+docs/architecture.md	40	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	generic: remoteless pool freshness, upstreamable	retain
+docs/architecture.md	40	watcher-waits	tests/fm-watch-triage-pause.test.sh	generic: one recheck per declared wait, upstreamable	retain
 docs/captain-hold-lifecycle.md	11	captain-hold-archive	tests/fm-captain-hold-lifecycle.test.sh	generic: archive-aware captain-hold reads, upstreamable	retain
-docs/configuration.md	198	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
-docs/configuration.md	198	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas work map	retain
-docs/configuration.md	198	brief-intent	tests/fm-brief.test.sh	personal: subagent model tier block	retain
-docs/configuration.md	198	browser-reap	tests/fm-browser-reap.test.sh	personal: orphaned browser sweep	retain
-docs/configuration.md	198	claude-account-pin	tests/fm-cswap.test.sh	personal: cswap Claude account pins	retain
-docs/configuration.md	198	herdr-layout	tests/fm-backend-herdr.test.sh	personal: agent-axi Herdr layout	retain
-docs/configuration.md	198	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca dispatch retired	retain
-docs/configuration.md	198	park-resume	tests/fm-control-park.test.sh	personal: park and resume native sessions	retain
-docs/configuration.md	198	raw-launch-literal	tests/fm-rovo-harness.test.sh	generic: literal raw launch argv, upstreamable	retain
-docs/configuration.md	198	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
-docs/configuration.md	198	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	generic: report unretired endpoints after relaunch, upstreamable	retain
-docs/configuration.md	198	startup-memory-budget	tests/fm-bootstrap.test.sh	generic: over-budget startup memory diagnostic, upstreamable	retain
+docs/configuration.md	197	agent-limit	tests/fm-spawn-agent-limit.test.sh	personal: Herdr concurrent agent limit	retain
+docs/configuration.md	197	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas work map	retain
+docs/configuration.md	197	brief-intent	tests/fm-brief.test.sh	personal: subagent model tier block	retain
+docs/configuration.md	197	browser-reap	tests/fm-browser-reap.test.sh	personal: orphaned browser sweep	retain
+docs/configuration.md	197	claude-account-pin	tests/fm-cswap.test.sh	personal: cswap Claude account pins	retain
+docs/configuration.md	197	herdr-layout	tests/fm-backend-herdr.test.sh	personal: agent-axi Herdr layout	retain
+docs/configuration.md	197	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca dispatch retired	retain
+docs/configuration.md	197	park-resume	tests/fm-control-park.test.sh	personal: park and resume native sessions	retain
+docs/configuration.md	197	raw-launch-literal	tests/fm-rovo-harness.test.sh	generic: literal raw launch argv, upstreamable	retain
+docs/configuration.md	197	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
+docs/configuration.md	197	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	generic: report unretired endpoints after relaunch, upstreamable	retain
+docs/configuration.md	197	startup-memory-budget	tests/fm-bootstrap.test.sh	generic: over-budget startup memory diagnostic, upstreamable	retain
 docs/documentation-audiences.json	68	atlas-integration	tests/fm-documentation-audiences.test.sh	personal: Atlas work map	retain
 docs/documentation-audiences.json	68	brief-intent	tests/fm-documentation-audiences.test.sh	personal: brief blocks goldens	review
 docs/documentation-audiences.json	68	dashboard-signals	tests/fm-documentation-audiences.test.sh	personal: dashboard attribution	retain
@@ -182,8 +182,8 @@ docs/documentation-audiences.json	68	herdr-layout	tests/fm-documentation-audienc
 docs/documentation-audiences.json	68	pi-co-primary	tests/fm-documentation-audiences.test.sh	personal: Pi co-primary presentation	review
 docs/documentation-audiences.json	68	rovo-disabled	tests/fm-documentation-audiences.test.sh	personal: Rovo dispatch disabled	retain
 docs/extension-bindings.md	2	harness-coverage-docs	tests/fm-extension-binding.test.sh	generic: harness list accuracy, upstreamable	retain
-docs/fm-test-portable-shards.md	39	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory, upstreamable	retain
-docs/fm-test-portable-shards.md	39	test-shards-hints	tests/fm-test-run.test.sh	personal: fork serial shard count and timing hints	retain
+docs/fm-test-portable-shards.md	23	lint-four-partitions	tests/fm-lint.test.sh	generic: lint memory, upstreamable	retain
+docs/fm-test-portable-shards.md	23	test-shards-hints	tests/fm-test-run.test.sh	personal: fork serial shard count and timing hints	retain
 docs/orca-backend.md	43	orca-retired	tests/fm-backend-orca.test.sh	personal: new Orca dispatch retired	retain
 docs/pi-supervision-branch.md	2	merge-authority-guard	tests/fm-pr-merge.test.sh	personal: yolo guard at the merge tool boundary	retain
 docs/scripts.md	12	atlas-integration	tests/fm-atlas-hook.test.sh	personal: Atlas work map	retain
@@ -222,18 +222,18 @@ tests/fm-backlog-read-bound.test.sh	2	nixos-test-portability	tests/fm-backlog-re
 tests/fm-bearings-snapshot.test.sh	54	nixos-test-portability	tests/fm-bearings-snapshot.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-bearings-snapshot.test.sh	54	park-resume	tests/fm-bearings-snapshot.test.sh	personal: native session park and resume	retain
 tests/fm-bootstrap-network-parallel.test.sh	5	nixos-test-portability	tests/fm-bootstrap-network-parallel.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
-tests/fm-bootstrap.test.sh	117	herdr-layout	tests/fm-bootstrap.test.sh	personal: agent-axi Herdr layout repair sweep	retain
-tests/fm-bootstrap.test.sh	117	nixos-test-portability	tests/fm-bootstrap.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
-tests/fm-bootstrap.test.sh	117	orca-retired	tests/fm-bootstrap.test.sh	personal: new Orca tasks retired	retain
-tests/fm-bootstrap.test.sh	117	startup-memory-budget	tests/fm-bootstrap.test.sh	personal: startup memory budget diagnostic	retain
+tests/fm-bootstrap.test.sh	112	herdr-layout	tests/fm-bootstrap.test.sh	personal: agent-axi Herdr layout repair sweep	retain
+tests/fm-bootstrap.test.sh	112	nixos-test-portability	tests/fm-bootstrap.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
+tests/fm-bootstrap.test.sh	112	orca-retired	tests/fm-bootstrap.test.sh	personal: new Orca tasks retired	retain
+tests/fm-bootstrap.test.sh	112	startup-memory-budget	tests/fm-bootstrap.test.sh	personal: startup memory budget diagnostic	retain
 tests/fm-branch-supervision.test.sh	15	merge-authority-guard	tests/fm-branch-supervision.test.sh	personal: away posture never authorizes a merge	retain
 tests/fm-brief.test.sh	62	brief-intent	tests/fm-brief.test.sh	personal: complete accepted intent and shared worker rules	retain
 tests/fm-brief.test.sh	62	dashboard-signals	tests/fm-brief.test.sh	personal: secondmate charter names the signalling owner	retain
 tests/fm-brief.test.sh	62	nixos-test-portability	tests/fm-brief.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-busy-adapter-wiring.test.sh	6	raw-launch-literal	tests/fm-busy-adapter-wiring.test.sh	personal: raw launch keeps literal words and refuses nested shells	retain
 tests/fm-capacity.test.sh	2	nixos-test-portability	tests/fm-capacity.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
-tests/fm-captain-hold-lifecycle.test.sh	202	captain-hold-archive	tests/fm-captain-hold-lifecycle.test.sh	generic: archive reads in hold, answer, and answers beyond upstream #6094, upstreamable	retain
-tests/fm-captain-hold-lifecycle.test.sh	202	merge-authority-guard	tests/fm-captain-hold-lifecycle.test.sh	personal: away posture never authorizes a merge	retain
+tests/fm-captain-hold-lifecycle.test.sh	158	captain-hold-archive	tests/fm-captain-hold-lifecycle.test.sh	generic: archive reads in hold, answer, and answers beyond upstream #6094, upstreamable	retain
+tests/fm-captain-hold-lifecycle.test.sh	158	merge-authority-guard	tests/fm-captain-hold-lifecycle.test.sh	personal: away posture never authorizes a merge	retain
 tests/fm-claude-stop-autoarm-live-e2e.test.sh	2	nixos-test-portability	tests/fm-claude-stop-autoarm-live-e2e.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-claude-stop-autoarm.test.sh	64	nixos-test-portability	tests/fm-claude-stop-autoarm.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-claude-stop-autoarm.test.sh	64	watcher-waits	tests/fm-claude-stop-autoarm.test.sh	generic: a cycle that queued its wake is continuity, upstreamable	retain
@@ -280,13 +280,13 @@ tests/fm-lint.test.sh	382	lint-four-partitions	tests/fm-lint.test.sh	generic: li
 tests/fm-lint.test.sh	382	lint-hazard-scan	tests/fm-lint.test.sh	generic: lint guard against FHS-only tool paths and unexported bash -c variables, upstreamable	retain
 tests/fm-live-gate.test.sh	5	nixos-test-portability	tests/fm-live-gate.test.sh	generic: core-tool links in the restricted guard PATH, upstreamable	retain
 tests/fm-mail.test.sh	4	nixos-test-portability	tests/fm-mail.test.sh	generic: env shebang on non-FHS hosts, upstreamable	retain
-tests/fm-omp-harness.test.sh	7	nixos-test-portability	tests/fm-omp-harness.test.sh	generic: resolve bash through PATH on non-FHS hosts, upstreamable	retain
+tests/fm-omp-harness.test.sh	11	nixos-test-portability	tests/fm-omp-harness.test.sh	generic: resolve bash through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-on.test.sh	13	nixos-test-portability	tests/fm-on.test.sh	generic: core-tool links in the doctor PATH, upstreamable	retain
 tests/fm-operational-input.test.sh	9	marker-lib-retired	tests/fm-operational-input.test.sh	generic: retire the fm-marker-lib.sh shim and use fm-operational-input.sh, upstreamable	retain
 tests/fm-polytoken-harness.test.sh	2	nixos-test-portability	tests/fm-polytoken-harness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
 tests/fm-polytoken-signals-live-e2e.test.sh	6	nixos-test-portability	tests/fm-polytoken-signals-live-e2e.test.sh	generic: resolve the lab shell through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-pr-check-security.test.sh	8	merge-authority-guard	tests/fm-pr-check-security.test.sh	personal: merge authority guard (yolo=off needs the captain's word)	retain
-tests/fm-pr-check-security.test.sh	8	nixos-test-portability	tests/fm-pr-check-security.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
+tests/fm-pr-check-security.test.sh	10	merge-authority-guard	tests/fm-pr-check-security.test.sh	personal: merge authority guard (yolo=off needs the captain's word)	retain
+tests/fm-pr-check-security.test.sh	10	nixos-test-portability	tests/fm-pr-check-security.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
 tests/fm-pr-merge.test.sh	126	merge-authority-guard	tests/fm-pr-merge.test.sh	personal: merge authority guard (yolo=off needs the captain's word)	retain
 tests/fm-procevent-when.test.sh	2	nixos-test-portability	tests/fm-procevent-when.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
 tests/fm-procevent.test.sh	49	nixos-test-portability	tests/fm-procevent.test.sh	generic: PATH tool lookup and subreaper-safe orphan check, upstreamable	retain
@@ -309,18 +309,18 @@ tests/fm-remote-transport-lanes.test.sh	12	test-failure-diagnostics	tests/fm-rem
 tests/fm-rovo-harness.test.sh	705	raw-launch-literal	tests/fm-rovo-harness.test.sh	generic: raw launch parsing keeps literal arguments and session names, upstreamable	retain
 tests/fm-rovo-harness.test.sh	705	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
 tests/fm-rovo-signals-live-e2e.test.sh	366	rovo-disabled	tests/fm-rovo-signals-live-e2e.test.sh	personal: Rovo dispatch disabled	retain
-tests/fm-secondmate-harness.test.sh	4	nixos-test-portability	tests/fm-secondmate-harness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
-tests/fm-secondmate-liveness.test.sh	395	herdr-layout	tests/fm-secondmate-liveness.test.sh	personal: Herdr recovery needs an exact, stable process proof	retain
-tests/fm-secondmate-liveness.test.sh	395	nixos-test-portability	tests/fm-secondmate-liveness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
-tests/fm-secondmate-liveness.test.sh	395	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	generic: retire and name the replaced endpoint before a liveness respawn, upstreamable	retain
-tests/fm-secondmate-liveness.test.sh	395	tmux-pi-liveness	tests/fm-secondmate-liveness.test.sh	generic: pins the exact pi match against pip in tmux liveness, upstreamable	retain
+tests/fm-secondmate-harness.test.sh	2	nixos-test-portability	tests/fm-secondmate-harness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
+tests/fm-secondmate-liveness.test.sh	393	herdr-layout	tests/fm-secondmate-liveness.test.sh	personal: Herdr recovery needs an exact, stable process proof	retain
+tests/fm-secondmate-liveness.test.sh	393	nixos-test-portability	tests/fm-secondmate-liveness.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
+tests/fm-secondmate-liveness.test.sh	393	secondmate-endpoint-retire	tests/fm-secondmate-liveness.test.sh	generic: retire and name the replaced endpoint before a liveness respawn, upstreamable	retain
+tests/fm-secondmate-liveness.test.sh	393	tmux-pi-liveness	tests/fm-secondmate-liveness.test.sh	generic: pins the exact pi match against pip in tmux liveness, upstreamable	retain
 tests/fm-secondmate-restart.test.sh	25	nixos-test-portability	tests/fm-secondmate-restart.test.sh	generic: PATH-resolved real tools in shims and an order-tolerant overlap check, upstreamable	retain
 tests/fm-secondmate-safety.test.sh	2	nixos-test-portability	tests/fm-secondmate-safety.test.sh	generic: resolve true through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-secondmate-sync.test.sh	19	herdr-layout	tests/fm-secondmate-sync.test.sh	personal: Herdr recovery needs an exact, stable process proof	retain
-tests/fm-secondmate-sync.test.sh	19	nixos-test-portability	tests/fm-secondmate-sync.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
+tests/fm-secondmate-sync.test.sh	17	herdr-layout	tests/fm-secondmate-sync.test.sh	personal: Herdr recovery needs an exact, stable process proof	retain
+tests/fm-secondmate-sync.test.sh	17	nixos-test-portability	tests/fm-secondmate-sync.test.sh	generic: core-tool links in the restricted base PATH, upstreamable	retain
 tests/fm-self-repo-role.test.sh	2	nixos-test-portability	tests/fm-self-repo-role.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-send-inbox.test.sh	10	marker-lib-retired	tests/fm-send-inbox.test.sh	personal: fork retired the bin/fm-marker-lib.sh compatibility shim (fork PR #7)	retain
-tests/fm-send-inbox.test.sh	10	nixos-test-portability	tests/fm-send-inbox.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
+tests/fm-send-inbox.test.sh	20	marker-lib-retired	tests/fm-send-inbox.test.sh	personal: fork retired the bin/fm-marker-lib.sh compatibility shim (fork PR #7)	retain
+tests/fm-send-inbox.test.sh	20	nixos-test-portability	tests/fm-send-inbox.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-send-remote-delivery.test.sh	25	marker-lib-retired	tests/fm-send-remote-delivery.test.sh	personal: fork retired the bin/fm-marker-lib.sh compatibility shim (fork PR #7)	retain
 tests/fm-send-remote-delivery.test.sh	25	nixos-test-portability	tests/fm-send-remote-delivery.test.sh	generic: tests resolve core tools through PATH and stay off host tools, upstreamable	retain
 tests/fm-send-resolve-key.test.sh	2	marker-lib-retired	tests/fm-send-resolve-key.test.sh	personal: fork retired the bin/fm-marker-lib.sh compatibility shim (fork PR #7)	retain
@@ -328,10 +328,10 @@ tests/fm-send-secondmate-marker-herdr-e2e.test.sh	2	marker-lib-retired	tests/fm-
 tests/fm-send-secondmate-marker.test.sh	4	marker-lib-retired	tests/fm-send-secondmate-marker.test.sh	personal: fork retired the bin/fm-marker-lib.sh compatibility shim (fork PR #7)	retain
 tests/fm-send-strict.test.sh	134	herdr-bare-id	tests/fm-send-strict.test.sh	generic: Herdr 0.8.2 bare pane-id target contract, upstreamable	retain
 tests/fm-session-lock-ancestry.test.sh	40	nixos-test-portability	tests/fm-session-lock-ancestry.test.sh	generic: orphan reaper can be a systemd user subreaper, not pid 1, upstreamable	retain
-tests/fm-session-start.test.sh	146	herdr-layout	tests/fm-session-start.test.sh	personal: fork Herdr recovery liveness family	retain
-tests/fm-session-start.test.sh	146	nixos-test-portability	tests/fm-session-start.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-session-start.test.sh	146	park-resume	tests/fm-session-start.test.sh	personal: park and resume of a worker's native session	retain
-tests/fm-session-start.test.sh	146	token-lean-digest	tests/fm-session-start.test.sh	personal: token-lean session-start digest by default (fork commit 0f583185)	retain
+tests/fm-session-start.test.sh	144	herdr-layout	tests/fm-session-start.test.sh	personal: fork Herdr recovery liveness family	retain
+tests/fm-session-start.test.sh	144	nixos-test-portability	tests/fm-session-start.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
+tests/fm-session-start.test.sh	144	park-resume	tests/fm-session-start.test.sh	personal: park and resume of a worker's native session	retain
+tests/fm-session-start.test.sh	144	token-lean-digest	tests/fm-session-start.test.sh	personal: token-lean session-start digest by default (fork commit 0f583185)	retain
 tests/fm-sessionstart-nudge.test.sh	21	nixos-test-portability	tests/fm-sessionstart-nudge.test.sh	generic: tests resolve core tools through PATH and tolerate newer Node warnings, upstreamable	retain
 tests/fm-shared-captain-inheritance.test.sh	2	nixos-test-portability	tests/fm-shared-captain-inheritance.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-spawn-compact-adviser-disable.test.sh	55	raw-launch-literal	tests/fm-spawn-compact-adviser-disable.test.sh	personal: fork raw launch takes one executable with literal arguments	retain
@@ -343,7 +343,7 @@ tests/fm-spawn-dispatch-profile.test.sh	292	ultracode-retired	tests/fm-spawn-dis
 tests/fm-spawn-orca-worktree.test.sh	11	nixos-test-portability	tests/fm-spawn-orca-worktree.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-spawn-orca-worktree.test.sh	11	orca-retired	tests/fm-spawn-orca-worktree.test.sh	personal: new Orca tasks retired	retain
 tests/fm-spawn-pool-base-freshen.test.sh	369	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	personal: local default-branch content stays authoritative for remoteless projects	retain
-tests/fm-startup-memory-budget.test.sh	4	nixos-test-portability	tests/fm-startup-memory-budget.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
+tests/fm-startup-memory-budget.test.sh	2	nixos-test-portability	tests/fm-startup-memory-budget.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-startup-network.test.sh	22	nixos-test-portability	tests/fm-startup-network.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-stow-cascade.test.sh	2	nixos-test-portability	tests/fm-stow-cascade.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-supervision-host-live-e2e.test.sh	2	nixos-test-portability	tests/fm-supervision-host-live-e2e.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
@@ -351,38 +351,38 @@ tests/fm-task-delivery.test.sh	111	brief-intent	tests/fm-task-delivery.test.sh	p
 tests/fm-task-delivery.test.sh	111	merge-authority-guard	tests/fm-task-delivery.test.sh	personal: a local landing needs yolo=on or an explicit captain authorization	retain
 tests/fm-task-inbox.test.sh	24	park-resume	tests/fm-task-inbox.test.sh	personal: park and resume of a worker's native session	retain
 tests/fm-tasks-axi.test.sh	2	nixos-test-portability	tests/fm-tasks-axi.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-test-run.test.sh	80	browser-reap	tests/fm-test-run.test.sh	personal: watcher starts bin/fm-browser-reap.sh	retain
-tests/fm-test-run.test.sh	80	nixos-test-portability	tests/fm-test-run.test.sh	generic: coverage comparisons stay locale-independent, upstreamable	retain
-tests/fm-test-run.test.sh	80	root-doc-no-selection	tests/fm-test-run.test.sh	generic: root VISION.md and GROK_BOT.md are documentation and select no tests, upstreamable	retain
-tests/fm-test-run.test.sh	80	test-family-sidecar	tests/fm-test-run.test.sh	personal: fork suites registered in their test families	retain
-tests/fm-test-run.test.sh	80	test-shards-hints	tests/fm-test-run.test.sh	personal: fork serial shard count and timing hints	retain
+tests/fm-test-run.test.sh	105	browser-reap	tests/fm-test-run.test.sh	personal: watcher starts bin/fm-browser-reap.sh	retain
+tests/fm-test-run.test.sh	105	nixos-test-portability	tests/fm-test-run.test.sh	generic: coverage comparisons stay locale-independent, upstreamable	retain
+tests/fm-test-run.test.sh	105	root-doc-no-selection	tests/fm-test-run.test.sh	generic: root VISION.md and GROK_BOT.md are documentation and select no tests, upstreamable	retain
+tests/fm-test-run.test.sh	105	test-family-sidecar	tests/fm-test-run.test.sh	personal: fork suites registered in their test families	retain
+tests/fm-test-run.test.sh	105	test-shards-hints	tests/fm-test-run.test.sh	personal: fork serial shard count and timing hints	retain
 tests/fm-turnend-foreign-owner-repro.py	4	nixos-test-portability	tests/fm-turnend-foreign-owner-arm-fix.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-turnend-guard.test.sh	23	nixos-test-portability	tests/fm-turnend-guard.test.sh	generic: tests tolerate newer Node and non-FHS hosts, upstreamable	retain
 tests/fm-usage-warner.test.sh	2	nixos-test-portability	tests/fm-usage-warner.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-vendor-auth-probe.test.sh	2	nixos-test-portability	tests/fm-vendor-auth-probe.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/fm-watch-arm.test.sh	58	watcher-delivered-wake	tests/fm-watch-arm.test.sh	generic: completes the fork's captured watcher stderr from fork PR #25 by reaping before release, upstreamable with it	retain
 tests/fm-watch-checkpoint.test.sh	2	nixos-test-portability	tests/fm-watch-checkpoint.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
-tests/fm-watch-triage.test.sh	39	pane-hash-owner	tests/fm-watch-triage.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
-tests/fm-watch-triage.test.sh	39	watcher-delivered-wake	tests/fm-watch-triage.test.sh	generic: a queued wake keeps its delivery record when stdout fails, upstreamable	retain
+tests/fm-watch-triage.test.sh	30	pane-hash-owner	tests/fm-watch-triage.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
+tests/fm-watch-triage.test.sh	30	watcher-delivered-wake	tests/fm-watch-triage.test.sh	generic: a queued wake keeps its delivery record when stdout fails, upstreamable	retain
 tests/fm-watch-wedge-cap.test.sh	9	watcher-waits	tests/fm-watch-wedge-cap.test.sh	personal: fork watcher owes one labeled recheck on first sight of a live declared wait	retain
 tests/fm-watcher-lock.test.sh	25	lint-hazard-scan	tests/fm-watcher-lock.test.sh	personal: satisfies the fork lint hazard scan for unexported bash -c variables (fork PR #26)	retain
 tests/fm-watcher-lock.test.sh	25	pid-identity-tz	tests/fm-watcher-lock.test.sh	https://github.com/kunchenguid/firstmate/pull/7265	review
 tests/fm-worker-account.test.sh	119	park-resume	tests/fm-worker-account.test.sh	personal: park and resume read the same Claude store the launch uses	retain
 tests/fm-worker-account.test.sh	119	raw-launch-literal	tests/fm-worker-account.test.sh	personal: fork raw launch parser runs env forms and quoted assignments	retain
-tests/fm-x-mode.test.sh	21	nixos-test-portability	tests/fm-x-mode.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
+tests/fm-x-mode.test.sh	19	nixos-test-portability	tests/fm-x-mode.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/herdr-client-pair-fixture.sh	9	herdr-layout	tests/fm-backend-herdr.test.sh	personal: fork Herdr recovery liveness family	retain
 tests/herdr-test-safety.sh	17	herdr-layout	tests/fm-backend-herdr.test.sh	personal: Herdr suites isolated from an inherited worker FM_HOME	retain
-tests/lib.sh	50	nixos-test-portability	tests/fm-local-restart-recovery.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
+tests/lib.sh	56	nixos-test-portability	tests/fm-local-restart-recovery.test.sh	generic: tests resolve core tools through PATH on non-FHS hosts, upstreamable	retain
 tests/remote-herdr-fixture.sh	40	herdr-layout	tests/fm-remote-secondmate-lifecycle-e2e.test.sh	personal: fork Herdr recovery liveness family	retain
 tests/wake-helpers.sh	21	pane-hash-owner	tests/fm-watch-triage.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
 tests/fm-watch-triage-pause.test.sh	132	watcher-waits	tests/fm-watch-triage-pause.test.sh	personal: fork declared-wait recheck bound and duplicate suppression	retain
 tests/fm-watch-triage-pause.test.sh	132	pane-hash-owner	tests/fm-watch-triage-pause.test.sh	generic: one owner for the watcher pane-hash derivation with footer normalization, upstreamable	retain
 tests/fm-merge-local.test.sh	2	merge-authority-guard	tests/fm-merge-local.test.sh	personal: yolo merge-authority guard	retain
 tests/fm-herdr-projected-cd-live-e2e.test.sh	5	raw-launch-literal	tests/fm-herdr-projected-cd-live-e2e.test.sh	personal: raw launch keeps literal words and refuses nested shells	retain
-bin/fm-spawn.sh	998	claude-account-pin	tests/fm-spawn-dispatch-profile.test.sh	personal: a cswap --account pin and a config/claude-accounts entry share the flag by value shape	retain
-bin/fm-spawn.sh	998	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	generic: remoteless pool freshness, upstreamable	retain
-bin/fm-spawn.sh	998	orca-retired	tests/fm-spawn-orca-worktree.test.sh	personal: new Orca tasks retired	retain
-bin/fm-spawn.sh	998	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
+bin/fm-spawn.sh	1018	claude-account-pin	tests/fm-spawn-dispatch-profile.test.sh	personal: a cswap --account pin and a config/claude-accounts entry share the flag by value shape	retain
+bin/fm-spawn.sh	1018	remoteless-pool-freshness	tests/fm-spawn-pool-base-freshen.test.sh	generic: remoteless pool freshness, upstreamable	retain
+bin/fm-spawn.sh	1018	orca-retired	tests/fm-spawn-orca-worktree.test.sh	personal: new Orca tasks retired	retain
+bin/fm-spawn.sh	1018	rovo-disabled	tests/fm-rovo-harness.test.sh	personal: Rovo dispatch disabled	retain
 tests/fm-capacity-auto.test.sh	2	nixos-test-portability	tests/fm-capacity-auto.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-hermes-signals-live-e2e.test.sh	2	nixos-test-portability	tests/fm-hermes-signals-live-e2e.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 tests/fm-kiro-harness.test.sh	2	nixos-test-portability	tests/fm-kiro-harness.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
@@ -394,24 +394,30 @@ tests/fm-supervision-host-drain.test.sh	6	nixos-test-portability	tests/fm-superv
 tests/supervision-host-helpers.sh	2	nixos-test-portability	tests/fm-supervision-host.test.sh	generic: tool lookup through PATH for NixOS hosts, upstreamable	retain
 bin/fm-backlog-transition-lib.sh	145	retire-reassigned	tests/fm-backlog-atomicity.test.sh	personal: a row that retention moved to the Done archive counts as closed (fork PR #64); this library owns the archive path and the archived-row read that fm-captain-hold.sh also uses	retain
 tests/fm-backlog-atomicity.test.sh	47	retire-reassigned	tests/fm-backlog-atomicity.test.sh	personal: archived-Done close cases (fork PR #64)	retain
-bin/fm-install-treehouse.sh	20	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-bin/fm-wake-lib.sh	42	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-bin/fm-spawn.sh	998	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-bin/fm-bootstrap.sh	78	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-bin/fm-teardown.sh	511	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-docs/architecture.md	38	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-docs/configuration.md	198	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+bin/fm-install-treehouse.sh	6	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+bin/fm-wake-lib.sh	87	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+bin/fm-spawn.sh	1018	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+bin/fm-bootstrap.sh	77	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+bin/fm-teardown.sh	535	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+docs/architecture.md	40	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+docs/configuration.md	197	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 docs/scripts.md	12	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 .agents/skills/bootstrap-diagnostics/SKILL.md	6	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 .agents/skills/stuck-crewmate-recovery/SKILL.md	10	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-tests/fm-bootstrap.test.sh	117	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
+tests/fm-bootstrap.test.sh	112	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 tests/fm-tangle-guard.test.sh	10	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
 tests/fm-spawn-pool-base-freshen.test.sh	369	per-home-treehouse-pool	tests/fm-treehouse.test.sh	personal: each home takes worktrees from its own treehouse pool (fork PR #63)	retain
-bin/fm-spawn.sh	998	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
+bin/fm-spawn.sh	1018	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
 bin/backends/herdr.sh	861	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
 docs/herdr-backend.md	312	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
 tests/fm-spawn-pool-base-freshen.test.sh	369	reused-pane-guard	tests/fm-spawn-pool-base-freshen.test.sh	personal: a retry types nothing into a pane agent-axi hands back until an idle shell holds it (fork PR #66 guard)	retain
 bin/fm-live-lab.sh	8	per-home-treehouse-pool	tests/fm-live-lab.test.sh	personal: the lab keeps each home's own treehouse pool inside the lab root (fork PR #63)	retain
 tests/fm-live-lab.test.sh	4	per-home-treehouse-pool	tests/fm-live-lab.test.sh	personal: the lab keeps each home's own treehouse pool inside the lab root (fork PR #63)	retain
-tests/fm-spawn-herdr-lease.test.sh	7	per-home-treehouse-pool	tests/fm-spawn-herdr-lease.test.sh	personal: the Herdr lease runs in the home's own treehouse pool (fork PR #63)	retain
+tests/fm-spawn-herdr-lease.test.sh	32	per-home-treehouse-pool	tests/fm-spawn-herdr-lease.test.sh	personal: the Herdr lease runs in the home's own treehouse pool (fork PR #63)	retain
 tests/fm-backend-t3code.test.sh	11	per-home-treehouse-pool	tests/fm-backend-t3code.test.sh	personal: the T3 Code lease runs in the home's own treehouse pool (fork PR #63)	retain
+tests/captain-hold-helpers.sh	14	captain-hold-archive	tests/fm-captain-hold-lifecycle.test.sh	generic: archive-call fixtures (run_captain_data, extra meta lines in write_origin_meta) moved with upstream's helper split, upstreamable	retain
+tests/fm-captain-hold-teardown.test.sh	30	merge-authority-guard	tests/fm-captain-hold-teardown.test.sh	personal: merge authority guard (yolo=off needs the captain's word), moved with upstream's test split	retain
+tests/fm-ci-workflow.test.sh	2	test-shards-hints	tests/fm-ci-workflow.test.sh	personal: fork serial shard count (20)	retain
+tests/fm-park.test.sh	6	nixos-test-portability	tests/fm-park.test.sh	generic: fakes resolve core tools through fm_test_tool on non-FHS hosts, upstreamable	retain
+tests/fm-spawn-secondmate-pool.test.sh	259	per-home-treehouse-pool	tests/fm-spawn-secondmate-pool.test.sh	personal: every home spawns from its own treehouse pool (fork PR #63), in place of upstream's root-home default pool	retain
+tests/fm-watch-triage-busy.test.sh	11	pane-hash-owner	tests/fm-watch-triage-busy.test.sh	generic: the busy-pane fixture rotates words because the fork pane hash ignores counter digits, upstreamable	retain
