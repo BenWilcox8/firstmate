@@ -455,6 +455,12 @@ trap 'fm_test_cleanup; exit 131' QUIT
 
 TREEHOUSE_ROOT=$(fm_test_tmproot fm-treehouse-pool)
 export TREEHOUSE_ROOT
+# Fork: each home's own pool root (bin/fm-wake-lib.sh fm_treehouse_home_root)
+# sits under this base, outside every fixture home, so no test reaches the
+# real ~/.treehouse/firstmate-homes, and a fixture HOME inside its home is not
+# refused as an in-home pool root.
+FM_TREEHOUSE_HOMES_BASE="$TREEHOUSE_ROOT/firstmate-homes"
+export FM_TREEHOUSE_HOMES_BASE
 
 # fm_test_reap_orphans: best-effort sweep for fixture roots left behind by a
 # prior run that was killed hard enough to skip the traps above (e.g. a

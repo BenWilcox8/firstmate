@@ -1,18 +1,26 @@
 #!/usr/bin/env bash
 # Regression tests for which Treehouse pool a ship or scout spawn draws from.
 #
-# Treehouse names a pool from the repository basename and origin URL alone, so a
-# secondmate home's standalone clone of a project resolves to the same default
-# pool as the root home's clone, and that pool's slots are worktrees of the root
-# home's clone. A secondmate spawn that took one was refused at Claude trust
-# registration as "not a worktree of project". These tests drive the real spawn
-# path with a fake terminal that answers the typed `treehouse get` the way
-# Treehouse resolves pools: the default root hands out the shared pool's slot,
-# and an explicit --root grows a slot from the pane's clone under that root.
+# Treehouse names a pool from the repository basename and origin URL alone, so
+# two homes that each hold a clone of one project would share one pool, and a
+# slot of that pool could be a worktree of the other home's clone. A spawn that
+# took one was refused at Claude trust registration as "not a worktree of
+# project". The fork gives every home, the root home included, its own pool
+# root (bin/fm-wake-lib.sh fm_treehouse_home_root), and the spawn runs
+# `treehouse get` with TREEHOUSE_ROOT set to it. These tests drive the real
+# spawn path with a fake terminal that answers the typed
+# `TREEHOUSE_ROOT='<root>' treehouse get` the way Treehouse does: it grows a
+# slot from the pane's clone under that root. Any other form of the command
+# leaves the pane where it was, so the spawn stops.
+# Every case keeps its pool base under its own case folder, never the real
+# ~/.treehouse.
 set -u
 
 # shellcheck source=tests/fixtures.sh
 . "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
+
+# A worker pane from bin/fm-spawn.sh inherits its home's TREEHOUSE_ROOT.
+unset TREEHOUSE_ROOT
 
 TMP_ROOT=$(fm_test_tmproot fm-spawn-secondmate-pool)
 
@@ -56,20 +64,19 @@ case "${1:-}" in
   send-keys)
     text=${4:-}
     case "$text" in
-      'treehouse get')
+      "TREEHOUSE_ROOT='"*"' treehouse get")
         printf '%s\n' "$text" >> "$FM_FAKE_TREEHOUSE_LOG"
-        printf '%s\n' "$FM_FAKE_DEFAULT_SLOT" > "$FM_FAKE_PANE_FILE"
-        ;;
-      "treehouse --root '"*"' get")
-        printf '%s\n' "$text" >> "$FM_FAKE_TREEHOUSE_LOG"
-        root=${text#"treehouse --root '"}
-        root=${root%"' get"}
+        root=${text#"TREEHOUSE_ROOT='"}
+        root=${root%"' treehouse get"}
         pool="$root/.treehouse/project-pool"
         slot="$pool/1/project"
         mkdir -p "$pool"
         printf '{"worktrees":[]}\n' > "$pool/treehouse-state.json"
         git -C "$FM_FAKE_PANE_PATH" worktree add --quiet --detach "$slot" >/dev/null 2>&1 || exit 1
         printf '%s\n' "$slot" > "$FM_FAKE_PANE_FILE"
+        ;;
+      'treehouse'*|*'treehouse get'*)
+        printf 'unexpected: %s\n' "$text" >> "$FM_FAKE_TREEHOUSE_LOG"
         ;;
     esac
     exit 0
@@ -82,17 +89,16 @@ SH
   printf '%s\n' "$fakebin"
 }
 
-make_main_home() {  # <case-dir>
-  local case_dir=$1 main pool slot
-  main="$case_dir/main-home"
-  pool="$case_dir/treehouse/project-pool"
-  slot="$pool/1/project"
+make_origin() {  # <case-dir>
+  local origin="$1/origin-src"
+  fm_git_init_commit "$origin"
+  fm_git_add_origin "$origin" "$1/origin.git"
+}
+
+make_root_home() {  # <case-dir>
+  local case_dir=$1 main="$1/main-home"
   fm_test_spawn_home "$main" claude
-  fm_git_init_commit "$main/projects/project"
-  fm_git_add_origin "$main/projects/project" "$case_dir/origin.git"
-  mkdir -p "$pool"
-  printf '{"worktrees":[]}\n' > "$pool/treehouse-state.json"
-  git -C "$main/projects/project" worktree add --quiet --detach "$slot"
+  git clone --quiet "file://$case_dir/origin.git" "$main/projects/project"
 }
 
 make_mate_home() {  # <case-dir> <route>
@@ -109,14 +115,28 @@ make_mate_home() {  # <case-dir> <route>
   fi
 }
 
-run_pool_spawn() {  # <case-dir> <home> <id>
-  local case_dir=$1 home=$2 id=$3
+# The pool base of a case: every home's pool root sits under it.
+homes_base_of() {  # <case-dir>
+  printf '%s\n' "$1/homes-base"
+}
+
+# The home's pool root as bin/fm-treehouse.sh prints it, with the case's base.
+home_root_of() {  # <case-dir> <home>
+  local case_dir=$1 home=$2
+  FM_HOME="$home" HOME="$case_dir/user-home" FM_STATE_OVERRIDE="$home/state" \
+    FM_TREEHOUSE_HOMES_BASE="$(homes_base_of "$case_dir")" \
+    "$ROOT/bin/fm-treehouse.sh" --print-root
+}
+
+run_pool_spawn() {  # <case-dir> <home> <id> [homes-base]
+  local case_dir=$1 home=$2 id=$3 base=${4:-}
+  [ -n "$base" ] || base=$(homes_base_of "$case_dir")
   fm_test_spawn_brief "$home" "$id"
   : > "$case_dir/treehouse.log"
   rm -f "$case_dir/pane"
   FM_FAKE_PANE_FILE="$case_dir/pane" \
     FM_FAKE_TREEHOUSE_LOG="$case_dir/treehouse.log" \
-    FM_FAKE_DEFAULT_SLOT="$case_dir/treehouse/project-pool/1/project" \
+    FM_TREEHOUSE_HOMES_BASE="$base" \
     fm_test_run_spawn "$home" "$home/projects/project" "$case_dir/fake/fakebin" \
     "$id" "$home/projects/project" --scout
 }
@@ -129,58 +149,39 @@ meta_worktree() {  # <home> <id>
   sed -n 's/^worktree=//p' "$1/state/$2.meta"
 }
 
-spawn_root_for() {  # <home>
-  local home=$1
-  FM_HOME="$home" /bin/bash -c '. "$1" && fm_treehouse_spawn_root "$2"' \
-    _ "$ROOT/bin/fm-wake-lib.sh" "$home"
-}
-
-test_local_secondmate_pool_root_is_outside_the_home() {
-  local case_dir mate home_real root slot dir
-  case_dir="$TMP_ROOT/outside-home"
-  make_main_home "$case_dir"
-  make_mate_home "$case_dir" local
-  mate="$case_dir/mate-home"
-  printf '%s\n' '@AGENTS.md' > "$mate/CLAUDE.md"
-  printf '%s\n' '# secondmate supervisor contract' > "$mate/AGENTS.md"
-  home_real=$(CDPATH='' cd -- "$mate" && pwd -P)
-  root=$(spawn_root_for "$mate")
-  [ -n "$root" ] || fail "a local secondmate spawn root was empty"
-  case "$root" in
-    "$home_real"|"$home_real"/*) fail "spawn root $root is inside the firstmate home $home_real" ;;
+# fail unless <path> and none of its ancestors is the home or under it.
+assert_outside_home() {  # <home> <path> <label>
+  local home_real=$1 path=$2 label=$3 dir
+  home_real=$(CDPATH='' cd -- "$home_real" && pwd -P)
+  case "$path" in
+    "$home_real"|"$home_real"/*) fail "$label $path is inside the firstmate home $home_real" ;;
   esac
-  slot="$root/.treehouse/project-pool/1/project"
-  case "$slot" in
-    "$home_real"|"$home_real"/*) fail "slot $slot is inside the firstmate home $home_real" ;;
-  esac
-  dir=$slot
+  dir=$path
   while [ -n "$dir" ] && [ "$dir" != / ]; do
-    if [ -e "$dir/CLAUDE.md" ] || [ -L "$dir/CLAUDE.md" ]; then
+    if [ -e "$dir/CLAUDE.md" ] || [ -L "$dir/CLAUDE.md" ] ||
+      [ -e "$dir/AGENTS.md" ] || [ -L "$dir/AGENTS.md" ]; then
       case "$dir" in
-        "$home_real"|"$home_real"/*) fail "ancestor $dir of $slot contains the home's CLAUDE.md" ;;
+        "$home_real"|"$home_real"/*) fail "ancestor $dir of $label $path holds the home's CLAUDE.md or AGENTS.md" ;;
       esac
     fi
-    if [ -e "$dir/AGENTS.md" ] || [ -L "$dir/AGENTS.md" ]; then
-      case "$dir" in
-        "$home_real"|"$home_real"/*) fail "ancestor $dir of $slot contains the home's AGENTS.md" ;;
-      esac
-    fi
-    [ "$(dirname "$dir")" != "$dir" ] || break
     dir=$(dirname "$dir")
   done
-  pass "a local secondmate pool root and slot sit outside the home's CLAUDE.md and AGENTS.md"
 }
 
-test_local_secondmate_spawns_from_its_own_clone_pool() {
+test_local_secondmate_spawns_from_its_own_pool_outside_the_home() {
   local case_dir id out status wt mate root
   case_dir="$TMP_ROOT/local-mate"
   id='mate-pool-own-clone-s1'
   make_pool_fakebin "$case_dir/fake" >/dev/null
-  make_main_home "$case_dir"
+  make_origin "$case_dir"
+  make_root_home "$case_dir"
   make_mate_home "$case_dir" local
   mate="$case_dir/mate-home"
-  root=$(spawn_root_for "$mate")
-  [ -n "$root" ] || fail "a local secondmate spawn root was empty"
+  printf '%s\n' '@AGENTS.md' > "$mate/CLAUDE.md"
+  printf '%s\n' '# secondmate supervisor contract' > "$mate/AGENTS.md"
+  root=$(home_root_of "$case_dir" "$mate") || fail "could not resolve the secondmate home's pool root"
+  [ -n "$root" ] || fail "a local secondmate pool root was empty"
+  assert_outside_home "$mate" "$root" "pool root"
 
   out=$(run_pool_spawn "$case_dir" "$mate" "$id")
   status=$?
@@ -188,100 +189,110 @@ test_local_secondmate_spawns_from_its_own_clone_pool() {
   assert_contains "$out" "spawned $id" "the secondmate spawn did not report success"
   assert_not_contains "$out" "not a worktree of project" \
     "the secondmate spawn was handed another clone's slot"
-  [ "$(cat "$case_dir/treehouse.log")" = "treehouse --root '$root' get" ] \
-    || fail "the secondmate spawn did not root its pool outside the home: $(cat "$case_dir/treehouse.log")"
+  [ "$(cat "$case_dir/treehouse.log")" = "TREEHOUSE_ROOT='$root' treehouse get" ] \
+    || fail "the secondmate spawn did not root its pool in the home's own root: $(cat "$case_dir/treehouse.log")"
   wt=$(meta_worktree "$mate" "$id")
   case "$wt" in
     "$root/"*) ;;
     *) fail "the secondmate spawn recorded a worktree outside its own pool: $wt" ;;
   esac
+  assert_outside_home "$mate" "$wt" "slot"
   [ "$(common_dir_of "$wt")" = "$(common_dir_of "$mate/projects/project")" ] \
     || fail "the secondmate slot is not a worktree of the secondmate's own clone"
   [ -f "$(dirname "$wt")/.fm-slot-owner" ] \
     || fail "the secondmate spawn did not claim its own pool slot"
-  pass "a local secondmate spawn takes its slot from a pool of its own clone"
+  pass "a local secondmate spawn takes its slot from its own clone's pool, outside the home"
 }
 
-test_root_home_keeps_the_default_pool() {
-  local case_dir id out status main
+test_root_home_spawns_from_its_own_pool() {
+  local case_dir id out status main root wt
   case_dir="$TMP_ROOT/root-home"
-  id='main-pool-default-s2'
+  id='main-pool-own-s2'
   make_pool_fakebin "$case_dir/fake" >/dev/null
-  make_main_home "$case_dir"
+  make_origin "$case_dir"
+  make_root_home "$case_dir"
+  make_mate_home "$case_dir" local
   main="$case_dir/main-home"
+  root=$(home_root_of "$case_dir" "$main") || fail "could not resolve the root home's pool root"
+  [ "$root" != "$(home_root_of "$case_dir" "$case_dir/mate-home")" ] \
+    || fail "the root home and a secondmate home resolved the same pool root $root"
 
   out=$(run_pool_spawn "$case_dir" "$main" "$id")
   status=$?
-  expect_code 0 "$status" "a root-home spawn should launch from the default pool"$'\n'"$out"
-  [ "$(cat "$case_dir/treehouse.log")" = "treehouse get" ] \
-    || fail "the root-home spawn changed its pool command: $(cat "$case_dir/treehouse.log")"
-  assert_grep "worktree=$case_dir/treehouse/project-pool/1/project" "$main/state/$id.meta" \
-    "the root-home spawn did not take the default pool's slot"
-  [ ! -e "$main/state/treehouse" ] || fail "the root-home spawn created a home-scoped pool root"
-  pass "a root-home spawn keeps Treehouse's default pool"
+  expect_code 0 "$status" "a root-home spawn should launch from its own pool"$'\n'"$out"
+  [ "$(cat "$case_dir/treehouse.log")" = "TREEHOUSE_ROOT='$root' treehouse get" ] \
+    || fail "the root-home spawn did not use its own pool root: $(cat "$case_dir/treehouse.log")"
+  wt=$(meta_worktree "$main" "$id")
+  case "$wt" in
+    "$root/"*) ;;
+    *) fail "the root-home spawn recorded a worktree outside its own pool: $wt" ;;
+  esac
+  assert_outside_home "$main" "$wt" "slot"
+  pass "a root-home spawn takes its slot from the root home's own pool, apart from a secondmate's"
 }
 
-test_remote_seeded_home_keeps_the_default_pool() {
-  local case_dir id out status mate
+test_remote_seeded_home_spawns_from_its_own_pool() {
+  local case_dir id out status mate main root wt
   case_dir="$TMP_ROOT/remote-mate"
-  id='remote-pool-default-s3'
+  id='remote-pool-own-s3'
   make_pool_fakebin "$case_dir/fake" >/dev/null
-  make_main_home "$case_dir"
+  make_origin "$case_dir"
+  make_root_home "$case_dir"
   make_mate_home "$case_dir" remote
   mate="$case_dir/mate-home"
+  main="$case_dir/main-home"
+  root=$(home_root_of "$case_dir" "$mate") || fail "could not resolve the remote-seeded home's pool root"
+  [ "$root" != "$(home_root_of "$case_dir" "$main")" ] \
+    || fail "a remote-seeded home resolved the root home's pool root $root"
 
   out=$(run_pool_spawn "$case_dir" "$mate" "$id")
   status=$?
-  [ "$(cat "$case_dir/treehouse.log")" = "treehouse get" ] \
-    || fail "a remote-seeded home, the root of its own machine, left the default pool: $(cat "$case_dir/treehouse.log")"
-  [ ! -e "$mate/state/treehouse" ] || fail "a remote-seeded home created a home-scoped pool root"
-  [ "$status" -ne 0 ] || fail "the shared default slot here belongs to another clone and must still be refused"
-  assert_contains "$out" "not a worktree of project" \
-    "a slot of another clone was not refused by the worktree-of-project check"
-  pass "a remote-seeded home keeps the default pool and the worktree-of-project check stays intact"
+  expect_code 0 "$status" "a remote-seeded home's spawn should launch from its own pool"$'\n'"$out"
+  assert_not_contains "$out" "not a worktree of project" \
+    "the remote-seeded spawn was handed another clone's slot"
+  [ "$(cat "$case_dir/treehouse.log")" = "TREEHOUSE_ROOT='$root' treehouse get" ] \
+    || fail "a remote-seeded home did not use its own pool root: $(cat "$case_dir/treehouse.log")"
+  wt=$(meta_worktree "$mate" "$id")
+  case "$wt" in
+    "$root/"*) ;;
+    *) fail "the remote-seeded spawn recorded a worktree outside its own pool: $wt" ;;
+  esac
+  [ "$(common_dir_of "$wt")" = "$(common_dir_of "$mate/projects/project")" ] \
+    || fail "the remote-seeded slot is not a worktree of the home's own clone"
+  pass "a remote-seeded home spawns from its own pool, apart from the root home's"
 }
 
-test_relative_treehouse_root_is_ignored() {
-  local case_dir mate home_real user root
-  case_dir="$TMP_ROOT/relative-root"
-  make_main_home "$case_dir"
-  make_mate_home "$case_dir" local
-  mate="$case_dir/mate-home"
-  user="$case_dir/user-home"
-  mkdir -p "$user"
-  home_real=$(CDPATH='' cd -- "$mate" && pwd -P)
-  root=$(HOME="$user" TREEHOUSE_ROOT=. spawn_root_for "$mate")
-  [ -n "$root" ] || fail "a relative TREEHOUSE_ROOT left the spawn root empty"
-  case "$root" in
-    "$user/.treehouse/fm-secondmate/"*) ;;
-    *) fail "relative TREEHOUSE_ROOT was not ignored: $root" ;;
-  esac
-  case "$root" in
-    "$home_real"|"$home_real"/*) fail "ignored relative TREEHOUSE_ROOT still sat under the home: $root" ;;
-  esac
-  pass "a relative TREEHOUSE_ROOT is ignored in favor of \$HOME/.treehouse"
-}
-
-test_treehouse_root_under_the_home_is_refused() {
-  local case_dir mate root status
-  case_dir="$TMP_ROOT/under-home-root"
-  make_main_home "$case_dir"
+test_pool_base_under_the_home_is_refused() {
+  local case_dir id out status mate root
+  case_dir="$TMP_ROOT/under-home-base"
+  id='mate-pool-refused-s4'
+  make_pool_fakebin "$case_dir/fake" >/dev/null
+  make_origin "$case_dir"
+  make_root_home "$case_dir"
   make_mate_home "$case_dir" local
   mate="$case_dir/mate-home"
   mkdir -p "$mate/inside"
+
   root=
   status=0
-  root=$(TREEHOUSE_ROOT="$mate/inside" spawn_root_for "$mate") || status=$?
-  [ "$status" -ne 0 ] || fail "absolute TREEHOUSE_ROOT under the home was accepted: $root"
-  [ -z "$root" ] || fail "a refused spawn root still printed: $root"
-  pass "an absolute TREEHOUSE_ROOT under the home is refused"
+  root=$(FM_HOME="$mate" FM_TREEHOUSE_HOMES_BASE="$mate/inside" \
+    bash -c '. "$1" && fm_treehouse_home_root "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$mate") || status=$?
+  [ "$status" -ne 0 ] || fail "a pool base under the home was accepted: $root"
+  [ -z "$root" ] || fail "a refused pool root still printed: $root"
+
+  out=$(run_pool_spawn "$case_dir" "$mate" "$id" "$mate/inside")
+  status=$?
+  [ "$status" -ne 0 ] || fail "a spawn with a pool base under the home went on"$'\n'"$out"
+  assert_contains "$out" "could not resolve this home's own Treehouse root" \
+    "the refused spawn did not name the unresolved pool root"
+  [ ! -s "$case_dir/treehouse.log" ] || fail "a refused spawn still ran treehouse: $(cat "$case_dir/treehouse.log")"
+  [ ! -e "$mate/state/$id.meta" ] || fail "a refused spawn published task metadata"
+  pass "a pool base that resolves inside the home is refused and the spawn stops"
 }
 
-test_local_secondmate_pool_root_is_outside_the_home
-test_relative_treehouse_root_is_ignored
-test_treehouse_root_under_the_home_is_refused
-test_local_secondmate_spawns_from_its_own_clone_pool
-test_root_home_keeps_the_default_pool
-test_remote_seeded_home_keeps_the_default_pool
+test_local_secondmate_spawns_from_its_own_pool_outside_the_home
+test_root_home_spawns_from_its_own_pool
+test_remote_seeded_home_spawns_from_its_own_pool
+test_pool_base_under_the_home_is_refused
 
 echo "# all fm-spawn-secondmate-pool tests passed"

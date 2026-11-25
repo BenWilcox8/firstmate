@@ -12,6 +12,8 @@ set -u
 # A worker pane from bin/fm-spawn.sh inherits its home's TREEHOUSE_ROOT.
 unset TREEHOUSE_ROOT
 
+# These cases check the default base under HOME, so drop the base tests/lib.sh sets.
+unset FM_TREEHOUSE_HOMES_BASE
 HELPER="$ROOT/bin/fm-treehouse.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse)
 USER_HOME="$TMP_ROOT/user-home"

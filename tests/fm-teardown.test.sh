@@ -2405,14 +2405,18 @@ test_forced_secondmate_dirty_child_return_warns_and_completes() {
   pass "a forced secondmate teardown warns about a dirty child return and still completes"
 }
 
-test_secondmate_teardown_removes_its_pool_root_and_leaves_a_sibling() {
-  local case_dir home sibling pool_root sibling_root rc
-  case_dir=$(make_case secondmate-pool-root)
-  write_meta "$case_dir" local-only secondmate
+# Seeds a parent case with a secondmate home (task-x1) and a sibling home.
+# It points HOME and the pool base at folders under the test temp root.
+# The teardown run resolves its own home to the repository root, so that home owns own_root.
+# It sets home, sibling, pools_base, pool_root, sibling_root, and own_root.
+seed_secondmate_pool_roots() {  # <case-dir> <label>
+  local case_dir=$1 label=$2
+  pools_base="$TMP_ROOT/$label-pools"
   home="$case_dir/secondmate-home"
   sibling="$case_dir/sibling-home"
   mkdir -p "$home/state" "$home/data" "$home/config" "$home/projects" \
-    "$sibling/state" "$sibling/data" "$sibling/config" "$sibling/projects"
+    "$sibling/state" "$sibling/data" "$sibling/config" "$sibling/projects" \
+    "$case_dir/home" "$pools_base"
   printf '%s\n' task-x1 > "$home/.fm-secondmate-home"
   printf '%s\n' sibling-x > "$sibling/.fm-secondmate-home"
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
@@ -2420,25 +2424,64 @@ test_secondmate_teardown_removes_its_pool_root_and_leaves_a_sibling() {
   printf 'schema=fm-secondmate-parent.v1\nroute=local\nparent_home=%s\n' \
     "$case_dir" > "$sibling/.fm-secondmate-parent"
   printf '%s\n' "home=$home" >> "$case_dir/state/task-x1.meta"
-  pool_root=$(FM_HOME="$home" /bin/bash -c '. "$1" && fm_treehouse_spawn_root "$2"' \
-    _ "$ROOT/bin/fm-wake-lib.sh" "$home")
-  sibling_root=$(FM_HOME="$sibling" /bin/bash -c '. "$1" && fm_treehouse_spawn_root "$2"' \
-    _ "$ROOT/bin/fm-wake-lib.sh" "$sibling")
-  [ -n "$pool_root" ] || fail "secondmate-pool-root: spawn root for the home under teardown was empty"
-  [ -n "$sibling_root" ] || fail "secondmate-pool-root: spawn root for the sibling home was empty"
-  [ "$pool_root" != "$sibling_root" ] || fail "secondmate-pool-root: sibling home shared the teardown home's pool root"
-  mkdir -p "$pool_root" "$sibling_root"
-  printf 'drop\n' > "$pool_root/marker"
+  pool_root=$(HOME="$case_dir/home" FM_TREEHOUSE_HOMES_BASE="$pools_base" \
+    bash -c '. "$1" && fm_treehouse_home_root "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$home")
+  sibling_root=$(HOME="$case_dir/home" FM_TREEHOUSE_HOMES_BASE="$pools_base" \
+    bash -c '. "$1" && fm_treehouse_home_root "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$sibling")
+  own_root=$(HOME="$case_dir/home" FM_TREEHOUSE_HOMES_BASE="$pools_base" \
+    bash -c '. "$1" && fm_treehouse_home_root "$2"' _ "$ROOT/bin/fm-wake-lib.sh" "$ROOT")
+  [ -n "$pool_root" ] || fail "$label: pool root for the home under teardown was empty"
+  [ -n "$sibling_root" ] || fail "$label: pool root for the sibling home was empty"
+  [ -n "$own_root" ] || fail "$label: pool root for the root home was empty"
+  [ "$pool_root" != "$sibling_root" ] || fail "$label: sibling home shared the teardown home's pool root"
+  [ "$pool_root" != "$own_root" ] || fail "$label: root home shared the teardown home's pool root"
+  case "$pool_root" in "$pools_base"/*) ;; *) fail "$label: pool root $pool_root is outside the test temp root" ;; esac
+  mkdir -p "$pool_root" "$sibling_root" "$own_root"
   printf 'keep\n' > "$sibling_root/marker"
+  printf 'keep\n' > "$own_root/marker"
+}
+
+test_secondmate_teardown_removes_its_pool_root_and_leaves_a_sibling() {
+  local case_dir home sibling pool_root sibling_root own_root pools_base rc
+  case_dir=$(make_case secondmate-pool-root)
+  write_meta "$case_dir" local-only secondmate
+  seed_secondmate_pool_roots "$case_dir" secondmate-pool-root
+  printf 'drop\n' > "$pool_root/marker"
 
   rc=0
-  run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+  HOME="$case_dir/home" FM_TREEHOUSE_HOMES_BASE="$pools_base" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
 
   expect_code 0 "$rc" "secondmate-pool-root: forced secondmate teardown should succeed: $(cat "$case_dir/stderr")"
   assert_absent "$home" "secondmate-pool-root: secondmate home was not removed"
   assert_absent "$pool_root" "secondmate-pool-root: per-home pool root survived teardown"
   assert_present "$sibling_root/marker" "secondmate-pool-root: sibling home's pool root was removed"
-  pass "secondmate teardown removes that home's pool root and leaves a sibling's untouched"
+  assert_present "$own_root/marker" "secondmate-pool-root: root home's own pool root was removed"
+  pass "secondmate teardown removes that home's pool root and keeps a sibling's and the root home's"
+}
+
+test_secondmate_teardown_keeps_a_pool_root_with_a_leased_slot() {
+  local case_dir home sibling pool_root sibling_root own_root pools_base rc
+  case_dir=$(make_case secondmate-pool-leased)
+  write_meta "$case_dir" local-only secondmate
+  seed_secondmate_pool_roots "$case_dir" secondmate-pool-leased
+  mkdir -p "$pool_root/.treehouse/repo-abc"
+  printf '{"worktrees":[{"name":"1","path":"%s/1/repo","leased":true}]}\n' "$pool_root" \
+    > "$pool_root/.treehouse/repo-abc/treehouse-state.json"
+  printf 'busy\n' > "$pool_root/marker"
+
+  rc=0
+  HOME="$case_dir/home" FM_TREEHOUSE_HOMES_BASE="$pools_base" \
+    run_teardown "$case_dir" --force > "$case_dir/stdout" 2> "$case_dir/stderr" || rc=$?
+
+  expect_code 0 "$rc" "secondmate-pool-leased: forced secondmate teardown should succeed: $(cat "$case_dir/stderr")"
+  assert_absent "$home" "secondmate-pool-leased: secondmate home was not removed"
+  assert_present "$pool_root/marker" "secondmate-pool-leased: pool root with a leased slot was removed"
+  assert_grep "kept the Treehouse pool $pool_root" "$case_dir/stderr" \
+    "secondmate-pool-leased: no warning that the pool was kept"
+  assert_present "$sibling_root/marker" "secondmate-pool-leased: sibling home's pool root was removed"
+  assert_present "$own_root/marker" "secondmate-pool-leased: root home's own pool root was removed"
+  pass "secondmate teardown keeps a pool root that records a leased slot and warns"
 }
 
 test_return_that_removes_copy_warns_cannot_verify() {
@@ -7225,6 +7268,7 @@ test_dirty_return_warns_even_when_a_later_step_refuses
 test_forced_secondmate_child_scout_nested_clone_returns_clean
 test_forced_secondmate_dirty_child_return_warns_and_completes
 test_secondmate_teardown_removes_its_pool_root_and_leaves_a_sibling
+test_secondmate_teardown_keeps_a_pool_root_with_a_leased_slot
 test_return_that_removes_copy_warns_cannot_verify
 test_scout_ignored_files_survive_scratch_clean
 test_gh_error_and_content_absent_refuses
