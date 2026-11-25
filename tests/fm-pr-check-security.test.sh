@@ -4382,7 +4382,7 @@ test_merged_poll_stays_armed_when_cleanup_queue_fails() {
 #!/usr/bin/env bash
 dest=\${!#}
 [ "\$dest" != "$state/task-a.review-park-land" ] || exit 1
-exec /bin/mv "\$@"
+exec "$(fm_test_tool mv)" "\$@"
 SH
   chmod +x "$dir/fakebin/mv"
   set +e

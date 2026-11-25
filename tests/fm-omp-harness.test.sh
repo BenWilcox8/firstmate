@@ -127,8 +127,8 @@ test_lock_identity_and_liveness_classification() {
 make_bun_shapes() {  # <dir> -> echoes <dir>
   local dir=$1 script
   mkdir -p "$dir/bin" "$dir/scripts/Agent Tools/bin"
-  ln -sf /bin/bash "$dir/bin/bun"
-  ln -sf /bin/bash "$dir/bin/claude"
+  ln -sf "$(fm_test_tool bash)" "$dir/bin/bun"
+  ln -sf "$(fm_test_tool bash)" "$dir/bin/claude"
   for script in omp ompd comp prompt.sh "Agent Tools/bin/omp" "Agent Tools/bin/ompd"; do
     # shellcheck disable=SC2016 # the body expands inside the script that runs it
     printf '%s\n' 'printf "%s\n" "$$" > "$1"; shift; "$@"; :' > "$dir/scripts/$script"

@@ -125,7 +125,7 @@ SH
   cat > "$fakebin/ps" <<SH
 #!/usr/bin/env bash
 case " \$* " in *" -t ttysfake "*) echo "1 1 1 claude"; exit 0 ;; esac
-exec /bin/ps "\$@"
+exec "$(fm_test_tool ps)" "\$@"
 SH
   cat > "$fakebin/fm-crew-state.sh" <<SH
 #!/usr/bin/env bash
@@ -592,7 +592,7 @@ test_failed_park_record_write_leaves_the_agent_running() {
 dest=
 for arg; do dest=\$arg; done
 [ "\$dest" != "$w/state/lane.review-park" ] || exit 1
-exec /bin/mv "\$@"
+exec "$(fm_test_tool mv)" "\$@"
 SH
   chmod +x "$w/fakebin/mv"
   out=$(run_park "$w" park lane 2>&1) || rc=$?
@@ -977,7 +977,7 @@ test_land_queue_fails_when_cleanup_request_cannot_be_written() {
 dest=
 for arg; do dest=\$arg; done
 [ "\$dest" != "$w/state/lane.review-park-land" ] || exit 1
-exec /bin/mv "\$@"
+exec "$(fm_test_tool mv)" "\$@"
 SH
   chmod +x "$w/fakebin/mv"
   out=$(run_park "$w" land lane --if-eligible --queue 2>&1) || rc=$?

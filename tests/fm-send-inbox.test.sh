@@ -419,16 +419,18 @@ test_delivery_lock_serializes_enqueue() {
   . "$ROOT/bin/fm-task-inbox-lib.sh"
   lock=$(fm_task_inbox_delivery_lock_path "$dir/home/state" t1)
   fm_task_inbox_lock_acquire "$lock" || fail "could not acquire the inbox delivery lock"
-  cat > "$dir/fakebin/sleep" <<'SH'
-#!/usr/bin/env bash
+  # The real sleep is resolved once from PATH (tests/lib.sh fm_test_tool): NixOS
+  # has no /bin/sleep.
+  { printf '#!/usr/bin/env bash\nreal_sleep=%s\n' "$(fm_test_tool sleep)"; cat <<'SH'
 [ "${FM_TEST_DELIVERY_LOCK_WAITING:-}" = "" ] || : > "$FM_TEST_DELIVERY_LOCK_WAITING"
-exec /bin/sleep "$@"
+exec "$real_sleep" "$@"
 SH
+  } > "$dir/fakebin/sleep"
   chmod +x "$dir/fakebin/sleep"
   run_send "$dir" "$err" FM_TASK_INBOX_LOCK_WAIT_SECS=10 FM_TEST_DELIVERY_LOCK_WAITING="$waiting" -- t1 "arrived during parking" &
   sender=$!
   while [ ! -e "$waiting" ] && [ "$i" -lt 200 ]; do
-    /bin/sleep 0.01
+    sleep 0.01
     i=$((i + 1))
   done
   [ -e "$waiting" ] || {
