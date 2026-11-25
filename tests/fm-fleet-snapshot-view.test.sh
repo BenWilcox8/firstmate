@@ -155,8 +155,8 @@ test_empty_fleet_json() {
 if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = backlog ] && [ "$#" -eq 5 ] && [ "$1" = -n ] && [ "$2" = --arg ] && [ "$3" = path ]; then
   exit 0
 fi
-if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = tasks ] && [ "$1" = -s ]; then
-  cat >/dev/null
+# An empty fleet's task producer is jq -n '[]', the first such call of a snapshot.
+if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = tasks ] && [ "$#" -eq 2 ] && [ "$1" = -n ] && [ "$2" = "[]" ]; then
   exit 0
 fi
 exec "${FM_TEST_REAL_JQ:?}" "$@"
