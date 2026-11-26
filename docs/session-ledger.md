@@ -82,6 +82,7 @@ If the pane is gone, the restore creates the workspace, tab, split arrangement, 
 The restore starts three sessions at a time, waits until each one runs, and then pauses 20 seconds before the next three (`--batch`, `--wait`, `--pause`).
 A session that already runs is left alone, so a second restore run does nothing.
 A session whose transcript is missing is reported and is never replaced by a fresh session.
+An entry of a named Herdr session that no longer exists, for example a finished lab, is reported and removed.
 
 For a fleet agent, the restore moves the task record in its home to the new pane when the pane changed, and sets its busy state to idle.
 A fleet worker or second mate that was working at the crash then gets one short message in its steering inbox.

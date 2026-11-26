@@ -60,7 +60,8 @@
 #              a missing transcript (never replaced by a fresh session), a
 #              fleet task whose record no longer exists in its home, an agent
 #              type with no verified resume, and a Herdr session that is not
-#              running. Sessions launch --batch at a time (default 3) with a
+#              running. An entry of a named Herdr session whose directory no
+#              longer exists (a deleted lab) is reported and removed. Sessions launch --batch at a time (default 3) with a
 #              --pause (default 20 s) between batches, and each launch waits
 #              up to --wait seconds (default 90) for the resumed session to
 #              run. After a fleet agent runs again, its task record in its own
@@ -839,7 +840,7 @@ cmd_restore() {
 
   # Classify every entry.
   local plan=() i entry key sid agent session transcript reason class ws tab pane wslabel live
-  local n_running=0 n_missing=0 n_closed=0 n_unsupported=0 n_down=0
+  local n_running=0 n_missing=0 n_closed=0 n_unsupported=0 n_down=0 n_deleted=0 sockdir
   local report=()
   for ((i = 0; i < total; i++)); do
     entry=$(printf '%s' "$entries" | jq -c ".[$i]")
@@ -848,6 +849,16 @@ cmd_restore() {
     session=$(printf '%s' "$entry" | jq -r '.herdr.session')
     transcript=$(printf '%s' "$entry" | jq -r '.transcript // empty')
     key="$agent $sid"
+    # A named Herdr session whose directory is gone was deleted (a finished
+    # lab, for example): nothing can be restored there, so its entry goes.
+    sockdir=$(printf '%s' "$entry" | jq -r '.herdr.socket // empty')
+    sockdir=${sockdir%/*}
+    if [ "$session" != default ] && [ -n "$sockdir" ] && [ ! -d "$sockdir" ]; then
+      report+=("deleted      $key: Herdr session $session no longer exists; entry $( [ "$dry" = 1 ] && printf 'would be' || printf 'was' ) removed")
+      n_deleted=$((n_deleted + 1))
+      [ "$dry" = 1 ] || rm -f -- "$ENTRIES/$agent-$sid.json"
+      continue
+    fi
     if [ "$agent" != claude ] || ! printf '%s' "$entry" | jq -e '.resume_argv | type == "array" and length > 2' >/dev/null; then
       report+=("unsupported  $key: no verified resume for agent type $agent; restore it by hand")
       n_unsupported=$((n_unsupported + 1))
@@ -916,7 +927,7 @@ cmd_restore() {
   done
 
   if [ "$dry" = 1 ]; then
-    echo "restore summary (dry run): ${#plan[@]} would resume, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running; nothing was changed"
+    echo "restore summary (dry run): ${#plan[@]} would resume, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running, $n_deleted in a deleted Herdr session; nothing was changed"
     return 0
   fi
 
@@ -1059,7 +1070,7 @@ cmd_restore() {
   for line in ${summary_lines[@]+"${summary_lines[@]}"}; do
     echo "  $line"
   done
-  local summary="restore summary: $resumed resumed, $failed failed, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running; $rebound fleet records moved, $messaged carry-on messages"
+  local summary="restore summary: $resumed resumed, $failed failed, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running, $n_deleted in a deleted Herdr session; $rebound fleet records moved, $messaged carry-on messages"
   echo "$summary"
   mkdir -p "$LEDGER" 2>/dev/null && ledger_log restore.log "$summary"
   [ "$failed" = 0 ]
@@ -1069,7 +1080,7 @@ cmd_restore() {
 # fleet record and send the carry-on message when it was working. Uses and
 # updates cmd_restore's locals through bash dynamic scope.
 ledger_restore_settle() {  # <entry-index>
-  local idx=$1
+  local idx=$1 send_opts=()
   entry=$(printf '%s' "$entries" | jq -c ".[$idx]")
   sid=$(printf '%s' "$entry" | jq -r '.session_id')
   session=$(printf '%s' "$entry" | jq -r '.herdr.session')
@@ -1098,7 +1109,12 @@ ledger_restore_settle() {  # <entry-index>
         fi
         "$SCRIPT_DIR/fm-busy-event.sh" apply "$home/state" "$task" idle --current-gen --source fm-recovery --event ledger-restore >/dev/null 2>&1 || true
         if ledger_carry_on_wanted "$entry" "${CLASSES[$home]:-}"; then
-          if FM_HOME=$home "$SCRIPT_DIR/fm-send.sh" "$task" "$(ledger_carry_on_text)" >/dev/null 2>&1; then
+          # A second mate would otherwise owe a routed reply to a message
+          # that asks for none, so its carry-on is sent fire-and-forget.
+          send_opts=()
+          [ "$role" != secondmate ] \
+            || send_opts=(--fire-and-forget "$(printf 'ledger-restore %s %s' "$sid" "$(date +%s%N)" | sha256sum | cut -c1-16)")
+          if FM_HOME=$home "$SCRIPT_DIR/fm-send.sh" "$task" ${send_opts[@]+"${send_opts[@]}"} "$(ledger_carry_on_text)" >/dev/null 2>&1; then
             messaged=$((messaged + 1))
             summary_lines+=("carry-on     $task: sent the interrupted-task message")
           else

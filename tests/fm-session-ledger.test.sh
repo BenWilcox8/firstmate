@@ -283,6 +283,9 @@ setup_plan_fixture() {
   make_entry "$SID3" w1:p3 w1:t1 w1 fleet "$CFG/projects/p/$SID3.jsonl" idle
   make_entry "$SID4" w9:p2 w9:t1 w9 gone "$CFG/projects/p/$SID4.jsonl" idle
   make_entry "$SID5" w1:p3 w1:t1 w1 fleet "$CFG/projects/p/$SID5.jsonl" idle
+  # An entry of a named Herdr session that was deleted since (a finished lab).
+  make_entry "$SID6" w5:p1 w5:t1 w5 lab "$CFG/projects/p/$SID1.jsonl" idle
+  jq '.herdr.session = "fm-lab-gone" | .herdr.socket = "/nonexistent/sessions/fm-lab-gone/herdr.sock"' "$(entry_file "$SID6")" >"$TMP_ROOT/e6" && mv "$TMP_ROOT/e6" "$(entry_file "$SID6")"
   : >"$HERDR_DIR/busy-w1:p2"
   # SID5 runs now.
   rm -f "$CFG"/sessions/*.json
@@ -302,6 +305,8 @@ test_restore_dry_run_plans_and_changes_nothing() {
   assert_contains "$out" "missing      claude $SID3: transcript" "a missing transcript is reported"
   assert_contains "$out" "--resume $SID1" "the planned command resumes the exact session"
   assert_contains "$out" "3 would resume, 1 already running, 1 missing transcript" "dry-run summary"
+  assert_contains "$out" "deleted      claude $SID6: Herdr session fm-lab-gone no longer exists; entry would be removed" "a deleted Herdr session is reported"
+  assert_present "$(entry_file "$SID6")" "dry run keeps the deleted session's entry"
   assert_no_grep "pane run" "$HERDR_DIR/calls.log" "dry run types nothing"
   assert_no_grep "create" "$HERDR_DIR/calls.log" "dry run creates nothing"
   assert_no_grep "split" "$HERDR_DIR/calls.log" "dry run splits nothing"
@@ -332,6 +337,7 @@ test_restore_resumes_only_recorded_sessions() {
   assert_grep "pane split w1:p2 --direction right" "$HERDR_DIR/calls.log" "the busy pane is left alone and split"
   assert_grep "pane run wN:p103 cd -- /tmp" "$HERDR_DIR/calls.log" "the rebuilt session resumes in its own rebuilt pane"
   assert_contains "$out" "restore summary: 0 resumed, 3 failed" "launches that never run are reported as failed"
+  assert_absent "$(entry_file "$SID6")" "a real run removes the entry of a deleted Herdr session"
   pass "restore types only native resumes of recorded sessions and rebuilds the layout"
 }
 
