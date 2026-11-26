@@ -42,6 +42,7 @@ tests/fm-park-resume-live-e2e.test.sh	107
 tests/fm-ping-ack.test.sh	4877
 tests/fm-secondmate-registry-lib.test.sh	115
 tests/fm-send-busy-doorbell.test.sh	7822
+tests/fm-session-ledger.test.sh	7940
 tests/fm-spawn-agent-limit.test.sh	6805
 tests/fm-spawn-claude-persistence.test.sh	37121
 tests/fm-spawn-session-name.test.sh	37643

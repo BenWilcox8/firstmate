@@ -854,9 +854,17 @@ ledger_rebind_record() {  # <home> <task> <session> <workspace> <tab> <pane>
     lock=$(fm_meta_lock_path "$meta") || exit 1
     fm_lock_acquire_wait_bounded "$lock" 30 || exit 1
     tmp=$(mktemp "$STATE/.ledger-meta.XXXXXX") || { fm_lock_release "$lock"; exit 1; }
-    awk -F= '$1 != "window" && $1 != "herdr_session" && $1 != "herdr_workspace_id" && $1 != "herdr_tab_id" && $1 != "herdr_pane_id"' "$meta" >"$tmp" \
-      && printf 'window=%s:%s\nherdr_session=%s\nherdr_workspace_id=%s\nherdr_tab_id=%s\nherdr_pane_id=%s\n' \
-        "$session" "$pane" "$session" "$ws" "$tab" "$pane" >>"$tmp" \
+    # The pane keys go before the first pr= line, so the PR region stays the
+    # record's tail that fm_pr_metadata_identity_parse (bin/fm-pr-lib.sh)
+    # requires; a key after it would stop an armed merge poll from validating.
+    lines=$(printf 'window=%s:%s\nherdr_session=%s\nherdr_workspace_id=%s\nherdr_tab_id=%s\nherdr_pane_id=%s' \
+      "$session" "$pane" "$session" "$ws" "$tab" "$pane")
+    FM_LEDGER_META_LINES=$lines awk -F= '
+      BEGIN { lines = ENVIRON["FM_LEDGER_META_LINES"] }
+      $1 == "window" || $1 == "herdr_session" || $1 == "herdr_workspace_id" || $1 == "herdr_tab_id" || $1 == "herdr_pane_id" { next }
+      !placed && $1 == "pr" { print lines; placed = 1 }
+      { print }
+      END { if (!placed) print lines }' "$meta" >"$tmp" \
       && chmod --reference="$meta" "$tmp" 2>/dev/null; true
     if [ -s "$tmp" ] && mv -f -- "$tmp" "$meta"; then
       rc=0
