@@ -78,7 +78,10 @@
 #                     seconds. A held liveness lock means that the watcher's
 #                     liveness tick, a session start sweep, or a cleanup
 #                     owns that second mate now, so the pass skips it with
-#                     a note;
+#                     a note. A second mate the session ledger can resume
+#                     (bin/fm-session-ledger.sh can-resume) is never
+#                     relaunched here: the pass notes the one manual restore
+#                     command instead;
 #                  6. relaunches the primary firstmate last, in its recorded
 #                     pane when that pane holds only a shell in the recorded
 #                     home, else in a new tab of the recorded workspace, else
@@ -95,6 +98,8 @@
 #                     relaunch), and nothing is launched. The pass checks this
 #                     again right before it types the launch. Only Claude
 #                     primaries are relaunched;
+#                     A primary the session ledger can resume is not
+#                     relaunched either; the pass notes the restore command;
 #                  7. writes a pass record under state/restart-recovery/ and
 #                     appends one `check` wake for firstmate.
 #                The second mates go first so that the relaunched primary's
@@ -115,6 +120,9 @@
 #                A dormant skip prints a BOOTSTRAP_INFO fact only under
 #                FM_BOOTSTRAP_VERBOSE_FACTS=1; a skip for a running pass
 #                always prints one. The watcher discards that output.
+#                It also exits 0 for a second mate the session ledger can
+#                resume, and prints one SECONDMATE_LIVENESS line naming the
+#                restore command, so neither reader starts it fresh.
 #   status       Print the recent pass ledger and the newest pass record.
 #   launch-line  Print the command a relaunch would type into the primary
 #                pane for the current primary endpoint record, and on stderr
@@ -141,6 +149,7 @@
 #   FM_RESTART_BOOT_ID_FILE  boot id source (/proc/sys/kernel/random/boot_id)
 #   FM_RESTART_USER_MANAGER_ID  literal user manager invocation id; when unset
 #                            it is read from systemctl
+#   FM_RESTART_SESSION_LEDGER  session ledger (bin/fm-session-ledger.sh); tests only
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -603,6 +612,18 @@ rr_first_line() {
   printf '%s\n' "$1" | awk 'NF { print; exit }'
 }
 
+# The session ledger (bin/fm-session-ledger.sh) is the one owner of bringing
+# back an agent's exact session after a restart, and its restore runs only on
+# request. An agent it can resume is never relaunched by this pass.
+RR_SESSION_LEDGER=${FM_RESTART_SESSION_LEDGER:-$SCRIPT_DIR/fm-session-ledger.sh}
+rr_ledger_resumable() {  # can-resume arguments...
+  "$RR_SESSION_LEDGER" can-resume "$@" >/dev/null 2>&1 </dev/null
+}
+
+rr_ledger_note() {  # <who>
+  rr_note "$1: not relaunched: the session ledger can resume its own session; restore with $("$RR_SESSION_LEDGER" restore-command 2>/dev/null)"
+}
+
 rr_secondmates() {  # <class>
   local class=$1 meta id reason backend target state out
   for meta in "$STATE"/*.meta; do
@@ -635,6 +656,11 @@ rr_secondmates() {  # <class>
     state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
     case "$state" in
       dead|missing)
+        if rr_ledger_resumable --task "$id" --home "$FM_HOME"; then
+          rr_ledger_note "second mate $id"
+          rr_secondmate_unlock
+          continue
+        fi
         if rr_secondmate_relaunch_hold "$id"; then
           state=$(fm_backend_agent_state "$backend" "$target" 2>/dev/null) || state=unreadable
         else
@@ -822,6 +848,10 @@ rr_primary() {
     rr_note "primary firstmate: not relaunched: restart recovery relaunches only a Claude primary, and this one ran '$harness'"
     return 0
   fi
+  if rr_ledger_resumable --primary "$FM_HOME"; then
+    rr_ledger_note "primary firstmate"
+    return 0
+  fi
   lock_pid=$(cat "$STATE/.lock" 2>/dev/null || true)
   if [ -n "$lock_pid" ] && fm_harness_pid_alive "$lock_pid" \
     && [ "$lock_pid" = "$(fm_meta_get "$record" harness_pid)" ] \
@@ -989,6 +1019,10 @@ cmd_liveness_skip() {
   fi
   if rr_pass_active; then
     printf 'BOOTSTRAP_INFO: secondmate %s left to the running restart recovery pass\n' "$id"
+    return 0
+  fi
+  if rr_ledger_resumable --task "$id" --home "$FM_HOME"; then
+    printf 'SECONDMATE_LIVENESS: secondmate %s: skipped: the session ledger can resume its own session, so it is not relaunched fresh; restore with %s\n' "$id" "$("$RR_SESSION_LEDGER" restore-command 2>/dev/null)"
     return 0
   fi
   return 1

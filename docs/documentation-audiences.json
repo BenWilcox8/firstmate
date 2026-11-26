@@ -466,6 +466,10 @@
       "audience": "maintainer-architecture"
     },
     {
+      "path": "docs/session-ledger.md",
+      "audience": "operator-current"
+    },
+    {
       "path": "docs/orca-backend.md",
       "audience": "operator-current"
     },

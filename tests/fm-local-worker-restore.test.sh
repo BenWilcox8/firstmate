@@ -115,6 +115,8 @@ wr() {  # <world> <args...>
     PATH="$w/fakebin:$PATH" FM_HOME="$w/home" FM_FAKE_DIR="$w/fake" \
     FM_WORKER_RESTORE_CONTROL="$w/fakebin/control" \
     FM_WORKER_RESTORE_CREW_STATE="$w/fakebin/crew-state" \
+    FM_WORKER_RESTORE_SESSION_LEDGER="${WR_SESSION_LEDGER_STUB:-$ROOT/bin/fm-session-ledger.sh}" \
+    FM_SESSION_LEDGER_DIR="$w/session-ledger" \
     "$WR" "$@"
 }
 
@@ -342,6 +344,31 @@ test_run_reports_a_failed_relaunch_with_its_reason() {
   pass "run reports a failed relaunch with its reason and continues"
 }
 
+test_run_leaves_a_ledger_resumable_worker_for_the_restore() {
+  local w out
+  w=$(new_world ledger)
+  add_worker "$w" w-a 'working: a'
+  add_worker "$w" w-b 'working: b'
+  # A stand-in session ledger that can resume w-a's own session only.
+  cat > "$w/fakebin/session-ledger" <<'SH'
+#!/usr/bin/env bash
+case "$1" in
+  can-resume) [ "$3" = w-a ] && { echo "/x/fm-session-ledger.sh restore"; exit 0; }; exit 1 ;;
+  restore-command) echo "/x/fm-session-ledger.sh restore" ;;
+esac
+SH
+  chmod +x "$w/fakebin/session-ledger"
+  out=$(WR_SESSION_LEDGER_STUB="$w/fakebin/session-ledger" wr "$w" run --key k1 --restart 'a Herdr restart' 2>&1)
+  if grep -q '^w-a ' "$w/fake/control.log"; then
+    fail "a worker the session ledger can resume must never be relaunched fresh: $(cat "$w/fake/control.log")"
+  fi
+  grep -q '^w-b relaunch --note ' "$w/fake/control.log" || fail "a worker with no resumable session is still relaunched"
+  assert_contains "$out" "restored 1 (w-b)" "the other worker is still restored"
+  assert_contains "$out" "resumable from the session ledger 1 (w-a), not relaunched fresh; restore with /x/fm-session-ledger.sh restore" \
+    "the summary names the resumable worker and the one restore command"
+  pass "run leaves a ledger-resumable worker for the manual restore"
+}
+
 test_lease_check_reports_a_live_treehouse_owner() {
   local w out
   w=$(new_world lease)
@@ -430,6 +457,7 @@ test_a_recorded_pane_that_sits_elsewhere_is_not_the_workers_own
 test_lease_check_counts_a_live_agent_whose_location_cannot_be_read
 test_run_relaunches_only_working_workers_once_per_restart
 test_run_reports_a_failed_relaunch_with_its_reason
+test_run_leaves_a_ledger_resumable_worker_for_the_restore
 test_lease_check_reports_a_live_treehouse_owner
 test_lease_check_sees_records_in_sibling_homes
 test_spawn_relaunch_refuses_a_reused_worktree

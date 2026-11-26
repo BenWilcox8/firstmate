@@ -1162,6 +1162,9 @@ The session file may not exist any more: Pi creates it at exactly that path, so 
 The read grants no send, close, or lifecycle authority of its own - it is a read of Herdr's record.
 The portable halves are pinned by `tests/fm-backend-herdr.test.sh` (the read, against a canned CLI) and `tests/fm-control.test.sh` (the per-adapter rule), and `tests/fm-control-herdr-smoke.test.sh` exercises the relaunch path against the real binary; the versioned live measurement, including the reproduction and the resume that lifts it, is [`verification/runtime-backends.md`](verification/runtime-backends.md) "Pane status authority across a relaunch".
 
+After a Herdr crash or a reboot, the agent session ledger resumes each live agent in its own session and pane, on one manual command.
+[session-ledger.md](session-ledger.md) owns that procedure and the automatic-recovery contract.
+
 ## Push events and polling fallback
 
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.

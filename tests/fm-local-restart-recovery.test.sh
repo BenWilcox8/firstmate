@@ -127,6 +127,8 @@ rr() {
     FM_RESTART_BOOT_ID_FILE="$w/boot_id" \
     FM_RESTART_USER_MANAGER_ID="$(cat "$w/user_manager")" \
     FM_TEST_HERDR_DIR="$w/herdr" \
+    FM_RESTART_SESSION_LEDGER="${RR_SESSION_LEDGER_STUB:-$ROOT/bin/fm-session-ledger.sh}" \
+    FM_SESSION_LEDGER_DIR="$w/session-ledger" \
     FM_RESTART_HERDR_WAIT="${FM_RESTART_HERDR_WAIT:-5}" FM_RESTART_POLL=0.2 \
     "$RR" "$@"
 }
@@ -495,6 +497,48 @@ test_run_ignores_a_claude_process_older_than_herdr() {
   assert_contains "$out" "primary firstmate: not relaunched: its pane default:w9:p3 reads" \
     "the pass did not go on to read the recorded pane: $out"
   pass "run: a Claude process older than the Herdr server is not read as a manual relaunch"
+}
+
+# A stand-in session ledger that can resume exactly the agents named in
+# <world>/resumable, one "--task <id>" or "--primary" per line.
+make_ledger_stub() {  # <world>
+  local w=$1
+  cat > "$w/session-ledger-stub" <<SH
+#!/usr/bin/env bash
+case "\$1" in
+  can-resume) grep -qxF -- "\$2\${3:+ \$3}" "$w/resumable" 2>/dev/null || grep -qxF -- "\$2" "$w/resumable" 2>/dev/null || exit 1; echo "/x/fm-session-ledger.sh restore" ;;
+  restore-command) echo "/x/fm-session-ledger.sh restore" ;;
+esac
+SH
+  chmod +x "$w/session-ledger-stub"
+  : > "$w/resumable"
+}
+
+test_ledger_resumable_agents_are_never_relaunched_fresh() {
+  local w out rc
+  w=$(new_world ledger-gate)
+  make_ledger_stub "$w"
+  # Startup liveness sweep seam: a second mate the ledger can resume is skipped
+  # with the restore command; any other one is left to the sweep.
+  printf -- '--task sm-ledger\n' > "$w/resumable"
+  out=$(RR_SESSION_LEDGER_STUB="$w/session-ledger-stub" rr "$w" liveness-skip sm-ledger 2>&1)
+  rc=$?
+  expect_code 0 "$rc" "liveness-skip leaves a ledger-resumable second mate alone"
+  assert_contains "$out" "SECONDMATE_LIVENESS: secondmate sm-ledger: skipped: the session ledger can resume its own session, so it is not relaunched fresh; restore with /x/fm-session-ledger.sh restore" \
+    "the sweep names the restore command"
+  RR_SESSION_LEDGER_STUB="$w/session-ledger-stub" rr "$w" liveness-skip sm-other >/dev/null 2>&1
+  expect_code 1 "$?" "liveness-skip leaves an unrecorded second mate to the sweep"
+  # Recovery pass: a primary the ledger can resume is not relaunched.
+  rr "$w" record >/dev/null
+  fm_write_meta "$w/home/state/.primary-endpoint" backend=herdr herdr_session=default \
+    pane=w9:p3 workspace=w9 "cwd=$w/home" harness=claude harness_pid=1 boot_id=boot-1
+  printf -- '--primary\n' > "$w/resumable"
+  printf 'boot-2\n' > "$w/boot_id"
+  out=$(RR_SESSION_LEDGER_STUB="$w/session-ledger-stub" rr "$w" run 2>&1)
+  assert_contains "$out" "primary firstmate: not relaunched: the session ledger can resume its own session; restore with /x/fm-session-ledger.sh restore" \
+    "the pass leaves a ledger-resumable primary for the manual restore: $out"
+  [ ! -s "$w/herdr/unexpected" ] || fail "the pass touched Herdr panes for a ledger-resumable primary: $(cat "$w/herdr/unexpected")"
+  pass "restart recovery and the liveness sweep never relaunch a ledger-resumable agent fresh"
 }
 
 test_dormant_marker_cli() {
@@ -927,6 +971,7 @@ for t in \
   test_run_rechecks_for_a_primary_right_before_typing \
   test_run_ignores_a_claude_process_older_than_herdr \
   test_dormant_marker_cli \
+  test_ledger_resumable_agents_are_never_relaunched_fresh \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \
   test_liveness_sweep_relaunches_one_at_a_time \
