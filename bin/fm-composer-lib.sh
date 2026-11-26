@@ -2180,20 +2180,27 @@ _fm_composer_bare_is_popup_selection() {  # <plain-screen> <screen> <styled> <ro
 }
 
 # _fm_composer_bare_rule_sandwich: 0 when bare agent-glyph <row> sits in its
-# own titled composer: a titled rule directly above it and the screen's only
-# unmatched separator directly below it, which is that composer's closing rule.
+# own titled composer: a titled rule directly above the glyph row, and the
+# screen's only unmatched separator directly below <last-row>, which is that
+# composer's closing rule. <last-row> is the last row of the bare composer's
+# wrap region (the glyph row itself when the input fits on one row), as the
+# cursorless selector's wrap walk found it.
 #
 # The cursorless staleness rule reads an unmatched separator BELOW a candidate
 # as proof the candidate is scrollback. A titled top rule never opens the
 # separator pair, so the composer's own closing rule becomes that unmatched
 # separator and a genuinely idle composer read `unknown`. Adjacency on BOTH
 # edges keeps the staleness rule intact everywhere else: a glyph stranded in
-# scrollback has transcript rows, not its own rules, around it.
-_fm_composer_bare_rule_sandwich() {  # <plain-screen> <row>
-  local plain=$1 row=$2 above below
-  [ "$row" -ge 1 ] || return 1
-  [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -eq "$((row + 1))" ] || return 1
-  below=$(_fm_composer_screen_row "$((row + 1))" "$plain")
+# scrollback has transcript rows, not its own rules, around it. The closing
+# rule is adjacent to the END of the wrap region, not to the glyph row:
+# typed input longer than the composer is wide wraps onto continuation rows
+# between the two rules, and a closing rule held to the glyph row made every
+# wrapped draft in a titled composer read `unknown`.
+_fm_composer_bare_rule_sandwich() {  # <plain-screen> <row> <last-row>
+  local plain=$1 row=$2 last=$3 above below
+  [ "$row" -ge 1 ] && [ "$last" -ge "$row" ] || return 1
+  [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -eq "$((last + 1))" ] || return 1
+  below=$(_fm_composer_screen_row "$((last + 1))" "$plain")
   fm_composer_normalize_trim_var below
   _fm_composer_pi_separator_row "$below" || return 1
   above=$(_fm_composer_screen_row "$((row - 1))" "$plain")
@@ -2255,21 +2262,10 @@ _fm_composer_select_cursorless() {  # <plain-screen> <screen> <styled>
     FM_COMPOSER_SELECTED_FIRST=$((FM_COMPOSER_SCAN_PI_OPEN + 1))
     FM_COMPOSER_SELECTED_LAST=$((FM_COMPOSER_SCAN_PI_CLOSE - 1))
   fi
-  if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 0 ] \
-     && [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -gt "$generic" ]; then
-    # Spare only a bare glyph inside its own titled composer rules; see
-    # _fm_composer_bare_rule_sandwich for why that shape is not scrollback.
-    if ! { [ "$FM_COMPOSER_SELECTED_KIND" = bare ] \
-           && [ "$generic" = "$FM_COMPOSER_SCAN_BARE_ROW" ] \
-           && _fm_composer_bare_rule_sandwich "$plain" "$FM_COMPOSER_SCAN_BARE_ROW"; }; then
-      FM_COMPOSER_SELECTED_KIND=
-      return 1
-    fi
-  fi
-  if [ "$FM_COMPOSER_SCAN_SHELL_ROW" -gt "$generic" ]; then
-    FM_COMPOSER_SELECTED_KIND=
-    return 1
-  fi
+  # A bare composer's wrap region: the contiguous non-blank, non-structural
+  # rows below its glyph row. It is found before the staleness probes below,
+  # because the titled-rule sandwich proves its closing rule against the END
+  # of this region. `generic` stays the glyph row for those probes.
   if [ "$FM_COMPOSER_SELECTED_KIND" = bare ]; then
     next=$((FM_COMPOSER_SELECTED_LAST + 1))
     # In the kiro scope a hinted idle placeholder is the whole composer, so the
@@ -2295,6 +2291,22 @@ _fm_composer_select_cursorless() {  # <plain-screen> <screen> <styled>
       FM_COMPOSER_SELECTED_LAST=$next
       next=$((next + 1))
     done
+  fi
+  if [ "$FM_COMPOSER_SCAN_PI_PAIR_FOUND" = 0 ] \
+     && [ "$FM_COMPOSER_SCAN_PI_LAST_SEPARATOR" -gt "$generic" ]; then
+    # Spare only a bare glyph inside its own titled composer rules; see
+    # _fm_composer_bare_rule_sandwich for why that shape is not scrollback.
+    if ! { [ "$FM_COMPOSER_SELECTED_KIND" = bare ] \
+           && [ "$generic" = "$FM_COMPOSER_SCAN_BARE_ROW" ] \
+           && _fm_composer_bare_rule_sandwich "$plain" "$FM_COMPOSER_SCAN_BARE_ROW" \
+                "$FM_COMPOSER_SELECTED_LAST"; }; then
+      FM_COMPOSER_SELECTED_KIND=
+      return 1
+    fi
+  fi
+  if [ "$FM_COMPOSER_SCAN_SHELL_ROW" -gt "$generic" ]; then
+    FM_COMPOSER_SELECTED_KIND=
+    return 1
   fi
   if [ "$FM_COMPOSER_SELECTED_KIND" = box ] \
      || [ "$FM_COMPOSER_SELECTED_KIND" = leftbar ]; then

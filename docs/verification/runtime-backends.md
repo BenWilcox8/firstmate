@@ -1059,6 +1059,13 @@ ok - claude-named (2.1.284 (Claude Code)): real idle composer classifies empty
 ok - claude-named (2.1.284 (Claude Code)): the same idle pane read cursorless is not pending (verdict: empty)
 ```
 
+On 2026-11-26 (Herdr 0.8.2, Claude Code, named second-mate panes) the sandwich still failed for a draft that wraps onto two or more rows, which every steering doorbell does.
+The closing rule was required directly under the glyph row, so a wrapped draft had no selected composer, and the Herdr payload proof cleared each doorbell as unsent.
+The closing rule is now proven against the last row of the bare composer's wrap region.
+The real capture is `tests/fixtures/claude-titled-composer/claude-titled-wrapped-doorbell.ansi`, with private names replaced by neutral names of the same length.
+`test_matrix_claude_titled_rule_wrapped_draft` in `tests/fm-composer-lib.test.sh` pins that capture plus one-, two-, three-, and four-row drafts at 128 and 62 columns, and `test_send_text_submit_claude_titled_wrapped_doorbell_is_proven_and_submitted` in `tests/fm-backend-herdr.test.sh` pins the payload proof on it.
+The composer-matrix guard's `claude-named` arm reads an idle pane only, so it does not yet exercise a wrapped draft.
+
 ### 2026-09-15 codex-cli 0.154.0 idle starfield and status footer through Herdr
 
 Verified on 2026-09-15 on macOS arm64 (Darwin 25.5.0) against codex-cli 0.154.0 (model gpt-6-astra, fast mode) running as a Codex second mate inside a Herdr pane, read through Herdr's ANSI capture with its exact capability descriptor (`styled=1`, `cursor=0`, `identity=1`, `rows=20`).
