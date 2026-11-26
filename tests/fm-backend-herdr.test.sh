@@ -5763,6 +5763,30 @@ test_send_text_submit_claude_2_1_291_marked_popup_row_is_proven_and_submitted() 
   pass "fm_backend_herdr_send_text_submit: a slash command behind Claude 2.1.291's marked popup row is proven and submitted"
 }
 
+# A named Claude session draws its name into the composer's top rule, and a
+# steering doorbell is long enough to wrap onto two rows. The payload proof
+# found no composer in that shape, so every doorbell to a named Claude agent
+# was cleared and reported send-failed. The screen is a real capture (Herdr
+# 0.8.2, Claude Code) with private names replaced by neutral ones.
+test_send_text_submit_claude_titled_wrapped_doorbell_is_proven_and_submitted() {
+  local dir log resp fb out enter_count text
+  text=": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 'demo-mate-1.inbox' steering inbox, read and act on"
+  text+=" each in numeric order, then mv each into its handled/. %%dash-ping: agent%%"
+  dir="$TMP_ROOT/submit-claude-titled-wrapped-doorbell"; mkdir -p "$dir/responses"; log="$dir/log"; resp="$dir/responses"; : > "$log"
+  herdr_submit_claude_prefix "$resp" "$text"
+  cat "$ROOT/tests/fixtures/claude-titled-composer/claude-titled-wrapped-doorbell.ansi" > "$resp/4.out"
+  printf '{"result":{"agent":{"agent":"claude","agent_status":"idle"}}}\n' > "$resp/5.out"
+  printf '{"result":{"agent":{"agent_status":"working"}}}\n' > "$resp/7.out"
+  fb=$(make_herdr_fakebin "$dir")
+  out=$( PATH="$fb:$PATH" FM_HERDR_LOG="$log" FM_HERDR_RESPONSES="$resp" FM_BACKEND_HERDR_SUBMIT_POLLS=1 \
+    bash -c '. "$0/bin/backends/herdr.sh"; fm_backend_herdr_send_text_submit default:w1:p2 "$1" 3 0.01 0.01' "$ROOT" "$text" )
+  [ "$out" = empty ] || fail "a wrapped doorbell in a titled Claude composer must be proven and submitted, got '$out'"
+  enter_count=$(grep -c $'\x1f''pane'$'\x1f''send-keys'$'\x1f''w1:p2'$'\x1f''enter' "$log")
+  [ "$enter_count" -eq 1 ] || fail "the proven doorbell should be submitted once, sent $enter_count Enter(s)"
+  [ "$(herdr_ctrl_u_count "$log")" -eq 0 ] || fail "a proven doorbell must not be cleared"
+  pass "fm_backend_herdr_send_text_submit: a wrapped doorbell in a titled Claude composer is proven and submitted"
+}
+
 # The marked popup row must not weaken the head-truncation protection: a
 # composer holding only a suffix, a paste placeholder followed by a literal
 # remainder, or only a prefix of the payload is still refused and cleared while
@@ -7066,6 +7090,7 @@ test_composer_state_claude_slash_popup_pushes_composer_above_tail_window
 test_send_text_submit_claude_slash_popup_composer_is_still_proven_and_submitted
 test_composer_content_claude_2_1_291_marked_popup_row_is_not_the_composer
 test_send_text_submit_claude_2_1_291_marked_popup_row_is_proven_and_submitted
+test_send_text_submit_claude_titled_wrapped_doorbell_is_proven_and_submitted
 test_send_text_submit_claude_2_1_291_popup_still_refuses_a_partial_payload
 test_send_text_submit_claude_grey_slash_command_is_proven_and_submitted
 test_send_text_submit_lone_paste_placeholder_submits_the_long_payload

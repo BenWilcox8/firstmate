@@ -1,0 +1,42 @@
+
+[0m[38;2;153;153;153m✻ Baked for 47s · done 5:24 PM[0m
+
+[0m[38;2;255;255;255m● [0mStop hook feedback
+
+  [0m[38;2;153;153;153mRan [0m[1m[38;2;153;153;153m2[0m[38;2;153;153;153m shell commands [0m
+  
+[0m[38;2;255;255;255m● [0m%%dash-ping: script%% no worker was active; held work untouched
+
+[0m[38;2;153;153;153m✻ Baked for 12s · done 5:24 PM[0m
+
+[0m[38;2;153;153;153m[48;2;55;55;55m❯ [0m[38;2;255;255;255m[48;2;55;55;55m: Firstmate instruction waiting: list '/home/usr/firstmate/state/demo-mate-1.inbox'/*.msg and, in numeric order, read and act[0m[48;2;55;55;55m [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mon each, then mv each handled file to '/home/usr/firstmate/state/demo-mate-1.inbox'/handled/. %%dash-ping: agent%%[0m[48;2;55;55;55m            [0m
+
+  [0m[38;2;153;153;153mRan [0m[1m[38;2;153;153;153m2[0m[38;2;153;153;153m shell commands [0m
+  
+[0m[38;2;255;255;255m● [0mCaptain, the demo-mate home is stopped for the Claude usage window: no worker was running here and nothing was in progress, so
+  there was nothing to save.
+  I confirmed the stop to the main firstmate and will start nothing until its resume message arrives after the 20:59 reset.
+  
+  %%dash-fin%%
+  
+[0m[38;2;153;153;153m✻ Cooked for 9s · done Wednesday 5:36 PM[0m
+
+[0m[38;2;153;153;153m[48;2;55;55;55m❯ [0m[38;2;255;255;255m[48;2;55;55;55m: Firstmate instruction waiting: list '/home/usr/firstmate/state/demo-mate-1.inbox'/*.msg and, in numeric order, read and act[0m[48;2;55;55;55m [0m
+[0m[48;2;55;55;55m  [0m[38;2;255;255;255m[48;2;55;55;55mon each, then mv each handled file to '/home/usr/firstmate/state/demo-mate-1.inbox'/handled/. %%dash-ping: agent%%[0m[48;2;55;55;55m            [0m
+
+  [0m[38;2;153;153;153mRan [0m[1m[38;2;153;153;153m2[0m[38;2;153;153;153m shell commands [0m
+  
+[0m[38;2;255;255;255m● [0m%%dash-ping: agent%% resume received, nothing to resume
+
+[0m[38;2;153;153;153m✻ Churned for 7s · done Wednesday 9:02 PM[0m
+
+[0m[38;2;153;153;153m● example-plugin: plugin.json changed — reloaded (modules: hooks/register.ts unchanged; 5 hooks: session.start, [0m
+  [0m[38;2;153;153;153mcommand.run, config.set, turn.step, ui.render)[0m
+                                                                                        [0m[38;2;153;153;153mnew task? [0m[38;2;177;185;249m/clear[0m[38;2;153;153;153m to save [0m[38;2;177;185;249m130.5k tokens[0m
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────── Secondmate, demo-mate-1 ─[0m
+❯ : Firstmate instruction waiting: list "$FM_TASK_INBOX"/*.msg in your 'demo-mate-1.inbox' steering inbox, read and act on
+  each in numeric order, then mv each into its handled/. %%dash-ping: agent%%
+[0m[38;2;136;136;136m────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────[0m
+  [0m[38;2;153;153;153mFable 5.2 | 130.484k (13%)[0m
+  [0m[38;2;255;107;128m⏵⏵ bypass permissions on[0m[38;2;153;153;153m (shift+tab to cycle)[0m

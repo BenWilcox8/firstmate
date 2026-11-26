@@ -1316,6 +1316,102 @@ test_matrix_claude_titled_top_rule() {
   pass "matrix: claude's titled top rule proves an idle composer empty and a draft pending (#5601, #5558)"
 }
 
+# _titled_rule <width> <label>: a Claude composer top rule <width> columns wide
+# with <label> right-aligned in it, `───…─── <label> ─`.
+_titled_rule() {
+  local width=$1 label=$2 dashes
+  dashes=$((width - ${#label} - 3))
+  printf '%s %s ─' "$(printf '%*s' "$dashes" '' | sed 's/ /─/g')" "$label"
+}
+
+test_matrix_claude_titled_rule_wrapped_draft() {
+  # A named Claude session's composer, with typed input that wraps onto two or
+  # more rows. The titled-rule sandwich held the closing rule to the row
+  # directly under the glyph row, so every wrapped draft in a named session
+  # had no selected composer: extraction returned 1 and the verdict read
+  # `unknown`. The herdr send proof reads the composer through that same
+  # extraction, so every steering doorbell to a named Claude agent was
+  # cleared and reported as a failed send.
+  local fixture caps_cap screen out want rule top narrow_rule narrow_top
+  local one two three idle stale blankgap scrollback
+  fixture="$ROOT/tests/fixtures/claude-titled-composer/claude-titled-wrapped-doorbell.ansi"
+  [ -f "$fixture" ] || fail "missing fixture $fixture"
+  # Real Claude Code capture through herdr (named session, 128 columns), with
+  # private names replaced by neutral names of the same length. The
+  # capability set and the zero ghost ceiling are the ones the failing herdr
+  # send proof used.
+  caps_cap=$'styled=1\ncursor=0\nidentity=0'
+  screen=$(cat "$fixture")
+  want=": Firstmate instruction waiting: list \"\$FM_TASK_INBOX\"/*.msg in your 'demo-mate-1.inbox' steering inbox, read and act on"
+  want+=" each in numeric order, then mv each into its handled/. %%dash-ping: agent%%"
+  out=$(FM_COMPOSER_GHOST_LUMA_MAX=0 fm_composer_extract_selected_content "$caps_cap" "$screen") \
+    || fail "captured titled wrapped draft: extraction returned non-zero"
+  [ "$out" = "$want" ] || fail "captured titled wrapped draft: extracted '$out'"
+  out=$(fm_composer_extract_selected_content "$caps_cap" "$screen") \
+    || fail "captured titled wrapped draft (default ghost ceiling): extraction returned non-zero"
+  [ "$out" = "$want" ] || fail "captured titled wrapped draft (default ghost ceiling): extracted '$out'"
+  assert_screen "captured titled wrapped draft" pending "$caps_cap" "$screen"
+
+  # Synthetic shapes at the captured geometry: one, two, and three rows.
+  rule=$(printf '%*s' 128 '' | sed 's/ /─/g')
+  top=$(_titled_rule 128 'Secondmate, demo-mate-1')
+  one="transcript line"$'\n'"$top"$'\n'"❯ read the inbox"$'\n'"$rule"$'\n  ⏵⏵ bypass permissions on'
+  two="transcript line"$'\n'"$top"$'\n'"❯ read the inbox and act on"$'\n'"  each message in order"$'\n'"$rule"$'\n  ⏵⏵ bypass permissions on'
+  three="transcript line"$'\n'"$top"$'\n'"❯ read the inbox and act on"$'\n'"  each message in order, then"$'\n'"  move each into handled/"$'\n'"$rule"$'\n  ⏵⏵ bypass permissions on'
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$one") || fail "titled one-row draft: extraction returned non-zero"
+  [ "$out" = 'read the inbox' ] || fail "titled one-row draft: extracted '$out'"
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$two") || fail "titled two-row draft: extraction returned non-zero"
+  [ "$out" = 'read the inbox and act on each message in order' ] || fail "titled two-row draft: extracted '$out'"
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$three") || fail "titled three-row draft: extraction returned non-zero"
+  [ "$out" = 'read the inbox and act on each message in order, then move each into handled/' ] \
+    || fail "titled three-row draft: extracted '$out'"
+  for screen in "$one" "$two" "$three"; do
+    assert_screen "titled draft on herdr" pending "$CAPS_STYLED" "$screen" '' "$(printf 'claude\tidle')"
+    assert_screen "titled draft on zellij" pending "$CAPS_STYLED_NOID" "$screen"
+    assert_screen "titled draft on cmux/orca" unknown "$CAPS_PLAIN" "$screen"
+    # The unlabelled composer keeps the same reads.
+    assert_screen "untitled draft on zellij" pending "$CAPS_STYLED_NOID" "${screen/"$top"/"$rule"}"
+  done
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "${three/"$top"/"$rule"}") \
+    || fail "untitled three-row draft: extraction returned non-zero"
+  [ "$out" = 'read the inbox and act on each message in order, then move each into handled/' ] \
+    || fail "untitled three-row draft: extracted '$out'"
+  idle="transcript line"$'\n'"$top"$'\n'"❯$NBSP"$'\n'"$rule"$'\n  ⏵⏵ bypass permissions on'
+  assert_screen "titled idle at the captured width" empty "$CAPS_STYLED_NOID" "$idle"
+
+  # Narrow pane: 62 columns, where the label takes most of the rule and the
+  # same draft wraps onto four rows.
+  narrow_rule=$(printf '%*s' 62 '' | sed 's/ /─/g')
+  narrow_top=$(_titled_rule 62 'Secondmate, upstream reconcile follow-up')
+  screen="transcript line"$'\n'"$narrow_top"$'\n'"❯ : Firstmate instruction waiting: list the inbox, read and"
+  screen+=$'\n'"  act on each in numeric order, then mv each into its"
+  screen+=$'\n'"  handled/ directory when the message is complete and the"
+  screen+=$'\n'"  work it asks for is done. %%dash-ping: agent%%"
+  screen+=$'\n'"$narrow_rule"$'\n  ⏵⏵ bypass permissions on'
+  out=$(fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$screen") \
+    || fail "narrow titled wrapped draft: extraction returned non-zero"
+  want=': Firstmate instruction waiting: list the inbox, read and act on each in numeric order, then mv each into its'
+  want+=' handled/ directory when the message is complete and the work it asks for is done. %%dash-ping: agent%%'
+  [ "$out" = "$want" ] || fail "narrow titled wrapped draft: extracted '$out'"
+  assert_screen "narrow titled wrapped draft" pending "$CAPS_STYLED_NOID" "$screen"
+  assert_screen "narrow titled idle" empty "$CAPS_STYLED_NOID" \
+    "transcript line"$'\n'"$narrow_top"$'\n'"❯$NBSP"$'\n'"$narrow_rule"
+
+  # The staleness rule still holds for the wrapped shape: the closing rule
+  # must sit directly under the last wrapped row. A blank row before the rule,
+  # or the whole composer stranded above later transcript output, is unknown.
+  blankgap="$top"$'\n'"❯ read the inbox and act on"$'\n'"  each message in order"$'\n\n'"$rule"
+  assert_screen "titled wrapped draft with a gap before the rule" unknown "$CAPS_STYLED_NOID" "$blankgap"
+  ! fm_composer_extract_selected_content "$CAPS_STYLED_NOID" "$blankgap" >/dev/null \
+    || fail "titled wrapped draft with a gap before the rule: extraction must refuse"
+  scrollback="${two%$'\n'*}"$'\nlater transcript output\n'"$rule"$'\nmore output'
+  assert_screen "titled wrapped sandwich in scrollback" unknown "$CAPS_STYLED_NOID" "$scrollback"
+  # Width is still proven against the closing rule, whatever the row count.
+  stale="$(_titled_rule 120 'Secondmate, demo-mate-1')"$'\n'"❯ read the inbox and act on"$'\n'"  each message in order"$'\n'"$rule"
+  assert_screen "mismatched titled rule width over a wrapped draft" unknown "$CAPS_STYLED_NOID" "$stale"
+  pass "matrix: a titled claude composer proves one-row and wrapped drafts, wide and narrow; staleness and width proofs hold"
+}
+
 test_matrix_grok_144_approval_titled_bottom_border() {
   # Grok 1.0.44 draws the title inside a bottom border exactly as wide as the
   # top border and appends its approval mode (` · always-approve`). The mid-dot
@@ -1853,6 +1949,7 @@ test_matrix_opencode_leftbar_cwd_furniture
 test_matrix_opencode_leftbar_abs_cwd_furniture
 test_matrix_grok_titled_bottom_border
 test_matrix_claude_titled_top_rule
+test_matrix_claude_titled_rule_wrapped_draft
 test_matrix_grok_144_approval_titled_bottom_border
 test_matrix_grok_1077_fast_model_title
 test_matrix_kimi_bordered_shell_glyph_box
