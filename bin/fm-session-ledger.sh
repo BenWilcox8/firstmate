@@ -127,6 +127,7 @@
 #   FM_SESSION_LEDGER_DIR            ledger directory (above)
 #   FM_SESSION_LEDGER_HERDR          Herdr CLI (default: HERDR_BIN_PATH from the
 #                                    pane, else herdr)
+#   FM_SESSION_LEDGER_HERDR_TIMEOUT  seconds one Herdr call may take (10)
 #   FM_SESSION_LEDGER_PRIMARY_HOME   the primary firstmate home (default: this
 #                                    script's code root)
 #   FM_SESSION_LEDGER_PROC           /proc override, for tests only
