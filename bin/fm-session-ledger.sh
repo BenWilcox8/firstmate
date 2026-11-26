@@ -94,8 +94,14 @@
 # transcript, the launch arguments without the initial prompt, the resume
 # arguments, the launch environment (the allowlist in ledger_env_filter), the
 # fleet identity (worker, second mate, or primary, with its record home), and
-# the busy state. A new session in the same pane under the same server start
-# (/clear, /resume, a new agent) replaces the older entry of that pane.
+# the busy state. The primary is only the session that the primary home's
+# endpoint record (state/.primary-endpoint) names by pane or harness process;
+# another session in that home is a session opened by hand. A new session in
+# the same pane under the same server start (/clear, /resume, a new agent)
+# replaces the older entry of that pane. Events of a non-interactive Claude
+# run (-p or --print) and of an agent that another agent process started
+# write nothing, so a `claude -p` that an agent runs in its pane never
+# replaces that agent's entry.
 # UserPromptSubmit sets the state to working; Stop and StopFailure set idle.
 # SessionEnd removes the entry only for a deliberate end: /exit or an end of
 # input (prompt_input_exit), logout, clear, resume, or
@@ -205,6 +211,16 @@ ledger_claude_config() {
   printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 }
 
+# True when <config>/sessions/<pid>.json describes the process that runs as
+# <pid> now (its recorded procStart matches), not a stale record of a process
+# that a crash stopped.
+ledger_claude_record_live() {  # <config> <pid>
+  local file="$1/sessions/$2.json" start
+  [ -f "$file" ] || return 1
+  start=$(sed -n 's/.*"procStart":"\{0,1\}\([0-9][0-9]*\).*/\1/p' "$file" 2>/dev/null | head -n 1)
+  [ -z "$start" ] || [ "$start" = "$(ledger_proc_start "$2" 2>/dev/null)" ]
+}
+
 # The agent process a hook runs under: the nearest ancestor that the agent
 # itself marks. Claude Code keeps <config>/sessions/<pid>.json for each live
 # process; codex and pi are matched by the executable name.
@@ -214,7 +230,7 @@ ledger_agent_pid() {  # <agent> <start-pid>
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 12 ]; do
     case "$agent" in
       claude)
-        if [ -f "$cfg/sessions/$pid.json" ]; then
+        if ledger_claude_record_live "$cfg" "$pid"; then
           printf '%s' "$pid"
           return 0
         fi
@@ -227,6 +243,34 @@ ledger_agent_pid() {  # <agent> <start-pid>
         fi
         ;;
     esac
+    pid=$(ledger_proc_ppid "$pid") || return 1
+    depth=$((depth + 1))
+  done
+  return 1
+}
+
+# True when an agent process is not the own agent of its pane: a
+# non-interactive Claude run (-p or --print), or an agent that another agent
+# process started (a tool call or a test that runs `claude -p` in the pane).
+# Such a session cannot be resumed in the pane, and it must never replace the
+# entry of the agent that started it.
+ledger_nested_session() {  # <agent> <pid>
+  local agent=$1 pid=$2 depth=0 cfg arg name
+  [ "$pid" != 0 ] || return 1
+  if [ "$agent" = claude ]; then
+    while IFS= read -r -d '' arg; do
+      case "$arg" in
+        -p | --print) return 0 ;;
+        --) break ;;
+      esac
+    done 2>/dev/null <"$PROC/$pid/cmdline"
+  fi
+  cfg=$(ledger_claude_config)
+  pid=$(ledger_proc_ppid "$pid") || return 1
+  while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 12 ]; do
+    ! ledger_claude_record_live "$cfg" "$pid" || return 0
+    name=; read -r name <"$PROC/$pid/comm" 2>/dev/null
+    case "$name" in codex | pi) return 0 ;; esac
     pid=$(ledger_proc_ppid "$pid") || return 1
     depth=$((depth + 1))
   done
@@ -351,9 +395,30 @@ ledger_write_entry() {  # <file> <json>
   return 1
 }
 
+# The primary identity, as JSON (null when none). The primary is the session
+# that its home's endpoint record (state/.primary-endpoint) names: its pane in
+# this Herdr session, or its harness process. Any other session in the primary
+# home is a session opened by hand.
+ledger_primary_json() {  # <cwd> <herdr-session> <pane-id> <pid>
+  local cwd=$1 session=$2 pane=$3 pid=$4 endpoint="$PRIMARY_HOME/state/.primary-endpoint" esession hpid hstart
+  if [ -f "$endpoint" ] && [ ! -f "$PRIMARY_HOME/.fm-secondmate-home" ] \
+    && [ "$(ledger_realpath "$cwd")" = "$(ledger_realpath "$PRIMARY_HOME")" ]; then
+    esession=$(sed -n 's/^herdr_session=//p' "$endpoint" | head -n 1)
+    hpid=$(sed -n 's/^harness_pid=//p' "$endpoint" | head -n 1)
+    hstart=$(sed -n 's/^harness_start=//p' "$endpoint" | head -n 1)
+    if { [ "${esession:-default}" = "$session" ] && [ "$(sed -n 's/^pane=//p' "$endpoint" | head -n 1)" = "$pane" ]; } \
+      || { [ "$pid" != 0 ] && [ "$hpid" = "$pid" ] \
+        && { [ -z "$hstart" ] || [ "$hstart" = "$(ledger_proc_start "$pid" 2>/dev/null)" ]; }; }; then
+      jq -cn --arg home "$PRIMARY_HOME" '{role: "primary", task_id: null, home: $home, kind: "primary"}'
+      return 0
+    fi
+  fi
+  printf 'null'
+}
+
 # The fleet identity of a launch environment, as JSON (null when none).
-ledger_fleet_json() {  # <env-json> <cwd> <pane-id>
-  local env=$1 cwd=$2 pane=$3 task home fhome parent sm_id kind cand meta found=
+ledger_fleet_json() {  # <env-json> <cwd> <herdr-session> <pane-id> <pid>
+  local env=$1 cwd=$2 session=$3 pane=$4 pid=$5 task home fhome parent sm_id kind cand meta found=
   task=$(printf '%s' "$env" | jq -r '.FM_TASK_ID // empty')
   fhome=$(printf '%s' "$env" | jq -r '.FM_HOME // empty')
   if [ -n "$task" ]; then
@@ -385,11 +450,7 @@ ledger_fleet_json() {  # <env-json> <cwd> <pane-id>
       '{role: "secondmate", task_id: $task, home: (if $home == "" then null else $home end), kind: "secondmate", own_home: $own}'
     return 0
   fi
-  if [ "$(ledger_realpath "$cwd")" = "$(ledger_realpath "$PRIMARY_HOME")" ] && [ ! -f "$PRIMARY_HOME/.fm-secondmate-home" ]; then
-    jq -cn --arg home "$PRIMARY_HOME" '{role: "primary", task_id: null, home: $home, kind: "primary"}'
-    return 0
-  fi
-  printf 'null'
+  ledger_primary_json "$cwd" "$session" "$pane" "$pid"
 }
 
 # The Herdr location of a pane from one live snapshot, as JSON.
@@ -435,7 +496,7 @@ ledger_build_entry() {  # <agent> <payload-json> <pid> <seq> <state> <old-entry-
   fi
   cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty')
   [ -n "$cwd" ] || cwd=$(readlink "$PROC/$pid/cwd" 2>/dev/null || true)
-  fleet=$(ledger_fleet_json "$env_json" "$cwd" "$HERDR_PANE_ID")
+  fleet=$(ledger_fleet_json "$env_json" "$cwd" "$session" "$HERDR_PANE_ID" "$pid")
   jq -cn \
     --arg schema "$LEDGER_SCHEMA" --arg agent "$agent" --argjson payload "$payload" \
     --argjson seq "$seq" --arg state "$state" --arg pid "$pid" --arg pid_start "$pid_start" \
@@ -511,6 +572,7 @@ ledger_pane_closed_by_hand() {  # <session> <pane-id>
 
 cmd_record() {  # <agent> <payload-file> <pid> <seq>
   local agent=$1 payload_file=$2 pid=$3 seq=$4 payload fields event sid source reason subagent name file old state entry
+  local primary unclassified cwd hsession pane epid
   # shellcheck disable=SC2064 # Expand the payload path now.
   trap "rm -f -- '$payload_file'" EXIT
   payload=$(jq -c 'if type == "object" then . else error("not an object") end' "$payload_file" 2>/dev/null) || return 0
@@ -519,6 +581,7 @@ cmd_record() {  # <agent> <payload-file> <pid> <seq>
   [ -z "$subagent" ] || return 0
   case "$sid" in '' | *[!A-Za-z0-9._:-]*) return 0 ;; esac
   [ "${#sid}" -le 200 ] || return 0
+  ! ledger_nested_session "$agent" "$pid" || return 0
   mkdir -p "$ENTRIES" || return 0
   name=$(ledger_entry_name "$agent" "$sid")
   file="$ENTRIES/$name.json"
@@ -545,7 +608,17 @@ cmd_record() {  # <agent> <payload-file> <pid> <seq>
       [ "$event" != UserPromptSubmit ] || state=working
       if [ -n "$old" ]; then
         entry=$(ledger_apply_state "$old" "$state" "$seq" "$event") || return 0
+        # The primary's session start writes its endpoint record after this
+        # entry was built, so a primary in a new pane is recognized here.
+        primary=null
+        IFS=$'\x1f' read -r unclassified cwd hsession pane epid < <(printf '%s' "$old" \
+          | jq -r '[(.fleet == null | tostring), .cwd // "", .herdr.session // "", .herdr.pane_id // "", (.pid // 0 | tostring)] | join("\u001f")')
+        [ "$unclassified" != true ] || primary=$(ledger_primary_json "$cwd" "$hsession" "$pane" "$epid")
+        if [ "$primary" != null ]; then
+          entry=$(printf '%s' "$entry" | jq -c --argjson fleet "$primary" '.fleet = $fleet') || return 0
+        fi
         ledger_write_entry "$file" "$entry" || return 0
+        [ "$primary" = null ] || ledger_dedupe_pane "$name" "$entry"
       else
         # Hooks installed mid-session: the first event builds the entry.
         entry=$(ledger_build_entry "$agent" "$payload" "$pid" "$seq" "$state" "") || return 0

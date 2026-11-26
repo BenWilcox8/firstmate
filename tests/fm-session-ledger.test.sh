@@ -101,12 +101,12 @@ EOF
 write_snapshot
 
 # fake_agent <pid> <start> <cwd> <env-lines> <arg...>: a fake /proc entry and
-# the Claude per-process session record for it.
+# the Claude per-process session record for it. FAKE_PPID sets its parent.
 fake_agent() {
   local pid=$1 start=$2 cwd=$3 envs=$4 i
   shift 4
   mkdir -p "$FAKE_PROC/$pid"
-  printf '%s (claude) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 %s 0 0\n' "$pid" "$start" >"$FAKE_PROC/$pid/stat"
+  printf '%s (claude) S %s 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 %s 0 0\n' "$pid" "${FAKE_PPID:-1}" "$start" >"$FAKE_PROC/$pid/stat"
   : >"$FAKE_PROC/$pid/cmdline"
   for i in "$@"; do printf '%s\0' "$i" >>"$FAKE_PROC/$pid/cmdline"; done
   : >"$FAKE_PROC/$pid/environ"
@@ -235,6 +235,88 @@ test_a_fresh_relaunch_replaces_the_fleet_entry() {
   hook_event 4104 w1:p3 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID6\",\"transcript_path\":\"$CFG/projects/p/$SID6.jsonl\",\"cwd\":\"$TMP_ROOT/wt1\"}" >/dev/null
   wait_for "[ -f '$(entry_file "$SID6")' ] && [ ! -f '$(entry_file "$SID1")' ]" "the fresh session replaces the task's older entry"
   pass "a fresh relaunch of a fleet agent replaces its older entry"
+}
+
+SID7=77777777-7777-4777-8777-777777777777
+SID8=88888888-8888-4888-8888-888888888888
+SID9=99999999-9999-4999-8999-999999999999
+SIDA=aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa
+SIDB=bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb
+
+# Every detached writer removes its event payload when it finishes.
+writers_done() {
+  wait_for "! ls '$FM_SESSION_LEDGER_DIR'/.event.* >/dev/null 2>&1" "detached writers"
+}
+
+test_a_nested_print_session_never_replaces_the_agent() {
+  mkdir -p "$TMP_ROOT/wt2"
+  printf 'kind=ship\nworktree=%s\nherdr_session=default\nherdr_pane_id=w1:p2\nwindow=default:w1:p2\n' "$TMP_ROOT/wt2" \
+    >"$FM_SESSION_LEDGER_PRIMARY_HOME/state/task-n.meta"
+  fake_agent 4501 781 "$TMP_ROOT/wt2" 'FM_TASK_ID=task-n' /usr/bin/claude --model haiku
+  session_record 4501 781 "$SID7"
+  hook_event 4501 w1:p2 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID7\",\"transcript_path\":\"$CFG/projects/p/$SID7.jsonl\",\"cwd\":\"$TMP_ROOT/wt2\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SID7")' ]" "the worker's entry"
+  # The worker runs `claude -p` through its Bash tool: the child inherits the
+  # pane and the fleet environment, and its hooks fire in the same pane.
+  FAKE_PPID=4501 fake_agent 4502 782 "$TMP_ROOT/wt2" 'FM_TASK_ID=task-n' /usr/bin/claude -p "check the hook"
+  session_record 4502 782 "$SID8"
+  hook_event 4502 w1:p2 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID8\",\"transcript_path\":\"$CFG/projects/p/$SID8.jsonl\",\"cwd\":\"$TMP_ROOT/wt2\"}" >/dev/null
+  hook_event 4502 w1:p2 "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$SID8\"}" >/dev/null
+  # An interactive agent that another agent started is nested too.
+  FAKE_PPID=4501 fake_agent 4503 783 "$TMP_ROOT/wt2" 'FM_TASK_ID=task-n' /usr/bin/claude --model haiku
+  session_record 4503 783 "$SID9"
+  hook_event 4503 w1:p2 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID9\",\"transcript_path\":\"$CFG/projects/p/$SID9.jsonl\",\"cwd\":\"$TMP_ROOT/wt2\"}" >/dev/null
+  # A print-mode run straight from a pane shell has no resumable session.
+  fake_agent 4504 784 /tmp/b '' /usr/bin/claude --print "one shot"
+  session_record 4504 784 "$SIDA"
+  hook_event 4504 w1:p8 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SIDA\",\"transcript_path\":\"$CFG/projects/p/$SIDA.jsonl\",\"cwd\":\"/tmp/b\"}" >/dev/null
+  writers_done
+  assert_present "$(entry_file "$SID7")" "the worker keeps its entry"
+  assert_equals "worker task-n" "$(jq -r '[.fleet.role, .fleet.task_id] | join(" ")' "$(entry_file "$SID7")")" "the entry is still the worker's own session"
+  assert_absent "$(entry_file "$SID8")" "a nested print session writes no entry"
+  assert_absent "$(entry_file "$SID9")" "an agent that another agent started writes no entry"
+  assert_absent "$(entry_file "$SIDA")" "a print-mode run writes no entry"
+  rm -f "$CFG"/sessions/*.json
+  pass "a nested or print-mode session never replaces the pane's agent"
+}
+
+test_the_primary_comes_from_its_endpoint_record() {
+  local home=$FM_SESSION_LEDGER_PRIMARY_HOME
+  printf 'backend=herdr\nherdr_session=default\npane=w1:p1\nharness=claude\nharness_pid=99999\n' >"$home/state/.primary-endpoint"
+  fake_agent 4601 785 "$home" '' /usr/bin/claude
+  session_record 4601 785 "$SID9"
+  hook_event 4601 w1:p1 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID9\",\"transcript_path\":\"$CFG/projects/p/$SID9.jsonl\",\"cwd\":\"$home\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SID9")' ]" "the primary's entry"
+  assert_equals primary "$(jq -r '.fleet.role' "$(entry_file "$SID9")")" "the session in the endpoint pane is the primary"
+  # The captain opens another Claude session in the primary home by hand.
+  fake_agent 4602 786 "$home" '' /usr/bin/claude
+  session_record 4602 786 "$SIDA"
+  hook_event 4602 w1:p8 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SIDA\",\"transcript_path\":\"$CFG/projects/p/$SIDA.jsonl\",\"cwd\":\"$home\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SIDA")' ]" "the hand session's entry"
+  writers_done
+  assert_equals null "$(jq -c .fleet "$(entry_file "$SIDA")")" "another session in the primary home is opened by hand"
+  assert_present "$(entry_file "$SID9")" "a hand session never replaces the primary's entry"
+  # The primary is relaunched fresh in a new pane. Its session start writes
+  # the endpoint record after the ledger built the entry, so the next busy
+  # event makes it the primary and replaces the older primary entry.
+  fake_agent 4603 787 "$home" '' /usr/bin/claude
+  session_record 4603 787 "$SIDB"
+  hook_event 4603 w1:p7 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SIDB\",\"transcript_path\":\"$CFG/projects/p/$SIDB.jsonl\",\"cwd\":\"$home\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SIDB")' ]" "the relaunched primary's entry"
+  printf 'backend=herdr\nherdr_session=default\npane=w1:p7\nharness=claude\nharness_pid=99998\n' >"$home/state/.primary-endpoint"
+  hook_event 4603 w1:p7 "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$SIDB\"}" >/dev/null
+  wait_for "[ \"\$(jq -r '.fleet.role // empty' '$(entry_file "$SIDB")')\" = primary ] && [ ! -f '$(entry_file "$SID9")' ]" "the relaunched primary replaces the older one"
+  assert_equals null "$(jq -c .fleet "$(entry_file "$SIDA")")" "the hand session stays opened by hand"
+  # After a crash, can-resume answers for the primary from the primary's entry.
+  : >"$CFG/projects/p/$SIDB.jsonl"
+  rm -f "$CFG"/sessions/*.json
+  "$LEDGER_BIN" can-resume --primary "$home" >/dev/null
+  expect_code 0 "$?" "the stopped primary can resume"
+  rm -f "$CFG/projects/p/$SIDB.jsonl"
+  "$LEDGER_BIN" can-resume --primary "$home" >/dev/null
+  expect_code 1 "$?" "the hand session's entry never answers for the primary"
+  rm -f "$home/state/.primary-endpoint"
+  pass "the primary is the session its endpoint record names"
 }
 
 test_hook_is_silent_and_never_fails() {
@@ -380,6 +462,8 @@ test_busy_events_update_the_state
 test_clear_replaces_the_pane_entry
 test_session_end_keeps_a_crash_and_removes_a_deliberate_exit
 test_a_fresh_relaunch_replaces_the_fleet_entry
+test_a_nested_print_session_never_replaces_the_agent
+test_the_primary_comes_from_its_endpoint_record
 test_hook_is_silent_and_never_fails
 test_restore_dry_run_plans_and_changes_nothing
 test_restore_resumes_only_recorded_sessions

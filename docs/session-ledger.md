@@ -23,6 +23,10 @@ A crash also sends `SessionEnd`, with the reason `other`, because the dying term
 The ledger keeps the entry for that reason, so a crash leaves every live session restorable.
 It removes such an entry only when Herdr still answers, the pane is gone, and nothing is stopping, which is a pane closed by hand.
 A new session in the same pane, or a fresh relaunch of the same fleet agent, replaces the older entry.
+The primary is only the session that the endpoint record of the primary home (`state/.primary-endpoint`) names by its pane or its process.
+Another session in the primary home is a session opened by hand.
+A non-interactive run (`claude -p`) and an agent that another agent starts, for example from a tool call, are not recorded.
+Thus a `claude -p` that an agent runs in its pane does not replace the entry of that agent.
 
 Each hook returns in about 20 ms and hands the write to a detached writer.
 The hook prints nothing, always exits 0, and does not need python3.
@@ -118,10 +122,14 @@ The same restore works on Herdr 0.9.5.
 
 On 2026-11-25 the kernel killed one runaway `shellcheck` process that ran in a Herdr pane.
 Because `herdr-server.service` used the default `OOMPolicy=stop`, systemd then stopped the whole unit and every agent in it.
-The guard in the dotfiles unit has two parts:
+The guard is a proposed change to `herdr-server.service` in the dotfiles.
+It is not applied yet, so the unit still uses `OOMPolicy=stop`, and one runaway job can still stop the Herdr server.
+The change restarts the live Herdr server when it is activated, and the rebuild needs sudo, so the ledger change does not apply it.
+The exact diff is in the pull request that added the ledger.
+The proposed change has two parts:
 
 - `OOMPolicy=continue` keeps the unit and every other agent alive when the kernel kills one process in it.
-- `MemoryHigh` and `MemoryMax` on the unit make the kernel act inside the unit before the whole machine runs out of memory.
+- `MemoryHigh`, `MemoryMax`, and `MemorySwapMax` on the unit make the kernel act inside the unit before the whole machine runs out of memory.
   It then kills the largest process in the unit, which is the runaway job and not the small Herdr server.
 
 `OOMScoreAdjust` is not part of the guard.
