@@ -62,6 +62,11 @@
 #                slot was just taken, is left alone. The note tells the new
 #                worker that a restart stopped the previous one and where to
 #                pick up.
+#                A working worker whose exact session the session ledger can
+#                resume (`bin/fm-session-ledger.sh can-resume`) is never
+#                relaunched here: it is reported as resumable, with the one
+#                manual restore command, because only that restore brings back
+#                its own conversation.
 #                It prints one summary line - restored, skipped by class, and
 #                failed, with reasons - and queues it as one `check` wake.
 #                With --key, a restart is restored once: a second run for the
@@ -93,6 +98,8 @@
 #   FM_WORKER_RESTORE_CONTROL      control plane (bin/fm-control.sh); tests only
 #   FM_WORKER_RESTORE_CREW_STATE   current-state reader (bin/fm-crew-state.sh);
 #                                  tests only
+#   FM_WORKER_RESTORE_SESSION_LEDGER  session ledger (bin/fm-session-ledger.sh);
+#                                  tests only
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -113,6 +120,7 @@ export FM_HOME
 . "$SCRIPT_DIR/fm-local-treehouse-lib.sh"
 
 WR_CONTROL=${FM_WORKER_RESTORE_CONTROL:-$SCRIPT_DIR/fm-control.sh}
+WR_SESSION_LEDGER=${FM_WORKER_RESTORE_SESSION_LEDGER:-$SCRIPT_DIR/fm-session-ledger.sh}
 WR_CREW_STATE=${FM_WORKER_RESTORE_CREW_STATE:-$SCRIPT_DIR/fm-crew-state.sh}
 WR_LOCK="$STATE/.worker-restore.lock"
 WR_LEDGER="$STATE/.worker-restore.log"
@@ -351,7 +359,7 @@ wr_list() {
 
 cmd_run() {
   local key='' label='a restart' id out summary class skipped='' c
-  local -a working=() restored=() failed=() order=(running unreadable parked gone finished captain-waiting slot-reused)
+  local -a working=() restored=() failed=() order=(running unreadable parked gone finished captain-waiting slot-reused ledger)
   local -A by_class=()
   while [ "$#" -gt 0 ]; do
     case "$1" in
@@ -387,6 +395,12 @@ cmd_run() {
       by_class[$WR_CLASS]+="$id${WR_REASON:+: $WR_REASON}"$'\n'
       continue
     fi
+    # The session ledger resumes this worker's exact session on request;
+    # never start a fresh one in its place (bin/fm-session-ledger.sh).
+    if "$WR_SESSION_LEDGER" can-resume --task "$id" --home "$FM_HOME" >/dev/null 2>&1 </dev/null; then
+      by_class[ledger]+="$id"$'\n'
+      continue
+    fi
     if out=$(FM_HOME="$FM_HOME" FM_SPAWN_NO_GUARD=1 "$WR_CONTROL" "$id" relaunch --note "$WR_NOTE" 2>&1 </dev/null); then
       restored+=("$id")
     else
@@ -398,6 +412,7 @@ cmd_run() {
     c=$(printf '%s' "${by_class[$class]}" | grep -c .)
     case "$class" in
       running|finished|parked) skipped="$skipped${skipped:+; }$class $c" ;;
+      ledger) skipped="$skipped${skipped:+; }resumable from the session ledger $c ($(printf '%s' "${by_class[$class]}" | paste -sd'|' - | sed 's/|/; /g')), not relaunched fresh; restore with $("$WR_SESSION_LEDGER" restore-command 2>/dev/null)" ;;
       *) skipped="$skipped${skipped:+; }$class $c ($(printf '%s' "${by_class[$class]}" | paste -sd'|' - | sed 's/|/; /g'))" ;;
     esac
   done

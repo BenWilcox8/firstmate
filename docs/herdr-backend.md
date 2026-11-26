@@ -557,6 +557,9 @@ The [verification record](verification/runtime-backends.md#agent-lifecycle-contr
 The session-start sweep uses this probe.
 Mid-session secondmate agent-process liveness is not implemented because idle secondmates are deliberately exempt from stale-pane escalation and need a separate periodic identity signal.
 
+After a Herdr crash or a reboot, the agent session ledger resumes each live agent in its own session and pane, on one manual command.
+[session-ledger.md](session-ledger.md) owns that procedure and the automatic-recovery contract.
+
 ## Push events and polling fallback
 
 Protocol 16 can subscribe to `pane.agent_status_changed` over one bounded Unix-socket reader.

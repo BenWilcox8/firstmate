@@ -223,6 +223,20 @@ test_session_end_keeps_a_crash_and_removes_a_deliberate_exit() {
   pass "SessionEnd keeps a crash-class end and removes a deliberate one"
 }
 
+SID6=66666666-6666-4666-8666-666666666666
+
+test_a_fresh_relaunch_replaces_the_fleet_entry() {
+  # task-a's agent is relaunched fresh in another pane: the older entry of the
+  # same fleet agent can never be restored beside it.
+  fake_agent 4104 780 "$TMP_ROOT/wt1" 'FM_TASK_ID=task-a' /usr/bin/claude --model haiku
+  session_record 4104 780 "$SID6"
+  printf 'kind=ship\nworktree=%s\nherdr_session=default\nherdr_pane_id=w1:p3\nwindow=default:w1:p3\n' "$TMP_ROOT/wt1" \
+    >"$FM_SESSION_LEDGER_PRIMARY_HOME/state/task-a.meta"
+  hook_event 4104 w1:p3 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SID6\",\"transcript_path\":\"$CFG/projects/p/$SID6.jsonl\",\"cwd\":\"$TMP_ROOT/wt1\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SID6")' ] && [ ! -f '$(entry_file "$SID1")' ]" "the fresh session replaces the task's older entry"
+  pass "a fresh relaunch of a fleet agent replaces its older entry"
+}
+
 test_hook_is_silent_and_never_fails() {
   local out rc
   out=$(printf 'not json' | HERDR_PANE_ID=w1:p1 HERDR_SOCKET_PATH="$HERDR_DIR/herdr.sock" "$LEDGER_BIN" hook claude 2>&1)
@@ -359,6 +373,7 @@ test_session_start_writes_the_full_entry
 test_busy_events_update_the_state
 test_clear_replaces_the_pane_entry
 test_session_end_keeps_a_crash_and_removes_a_deliberate_exit
+test_a_fresh_relaunch_replaces_the_fleet_entry
 test_hook_is_silent_and_never_fails
 test_restore_dry_run_plans_and_changes_nothing
 test_restore_resumes_only_recorded_sessions

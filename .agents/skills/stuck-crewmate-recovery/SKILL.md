@@ -35,6 +35,9 @@ Never recover or relaunch it fresh.
 When its work continues, resume it with `bin/fm-control.sh <id> resume`, which reopens that exact session in the same worktree.
 `relaunch` of a parked task does the same.
 
+An agent that a Herdr crash or a reboot stopped is not relaunched fresh either when the session ledger can resume it (`bin/fm-session-ledger.sh can-resume --task <id> --home <home>` exits 0).
+Tell the captain that the one restore command brings it back in its own conversation, and run that restore only on the captain's word ([`docs/session-ledger.md`](../../../docs/session-ledger.md)).
+
 Treat the digest's endpoint result as a presence signal, not proof that the task's work or validation run is gone.
 Read the targeted current state with `bin/fm-crew-state.sh <id>` before deciding to relaunch.
 A no-mistakes run matched to the crew's branch and current code remains authoritative when the endpoint is dead: handle a terminal or parked run through the normal lifecycle, and keep supervising an active run instead of creating a duplicate worker.

@@ -182,7 +182,7 @@ ledger_log() {  # <file> <line>
 # Field 22 of /proc/<pid>/stat (process start time), parsed after the last ')'.
 ledger_proc_start() {  # <pid>
   local stat rest
-  stat=$(cat "$PROC/$1/stat" 2>/dev/null) || return 1
+  read -r stat <"$PROC/$1/stat" 2>/dev/null || return 1
   rest=${stat##*) }
   # shellcheck disable=SC2086 # Word splitting of the stat fields is intended.
   set -- $rest
@@ -192,7 +192,7 @@ ledger_proc_start() {  # <pid>
 
 ledger_proc_ppid() {  # <pid>
   local stat rest
-  stat=$(cat "$PROC/$1/stat" 2>/dev/null) || return 1
+  read -r stat <"$PROC/$1/stat" 2>/dev/null || return 1
   rest=${stat##*) }
   # shellcheck disable=SC2086 # Word splitting of the stat fields is intended.
   set -- $rest
@@ -218,7 +218,7 @@ ledger_agent_pid() {  # <agent> <start-pid>
         fi
         ;;
       codex | pi)
-        name=$(cat "$PROC/$pid/comm" 2>/dev/null || true)
+        name=; read -r name <"$PROC/$pid/comm" 2>/dev/null
         if [ "$name" = "$agent" ]; then
           printf '%s' "$pid"
           return 0
@@ -469,17 +469,23 @@ ledger_apply_state() {  # <old-entry> <state> <seq> <event>
     '.state = $state | .seq = $seq | .event = $event | .updated_at = ($seq / 1000000000 | floor) | .updated = ($seq / 1000000000 | floor | todate)'
 }
 
-# Remove older entries of the same pane under the same server start: a new
-# session in a pane replaces the one it followed there.
+# Remove the older entries a new session replaces: one of the same pane under
+# the same server start (/clear, /resume, a new agent in that pane), and one
+# of the same fleet agent (a task or second mate record in a home, or a home's
+# primary), which runs as exactly one session, wherever it was relaunched.
 ledger_dedupe_pane() {  # <keep-name> <entry-json>
   local keep=$1 entry=$2 file
   for file in "$ENTRIES"/*.json; do
     [ -f "$file" ] || continue
     [ "${file##*/}" != "$keep.json" ] || continue
-    if jq -e --argjson e "$entry" '.herdr.session == $e.herdr.session and .herdr.pane_id == $e.herdr.pane_id
-        and .herdr.server_start == $e.herdr.server_start and .seq < $e.seq' "$file" >/dev/null 2>&1; then
+    if jq -e --argjson e "$entry" '.seq < $e.seq and (
+        (.herdr.session == $e.herdr.session and .herdr.pane_id == $e.herdr.pane_id
+          and .herdr.server_start == $e.herdr.server_start)
+        or ($e.fleet != null and .fleet != null and $e.fleet.home != null
+          and .fleet.home == $e.fleet.home and .fleet.role == $e.fleet.role
+          and .fleet.task_id == $e.fleet.task_id))' "$file" >/dev/null 2>&1; then
       rm -f -- "$file"
-      ledger_log events.log "replaced ${file##*/} by $keep.json (same pane)"
+      ledger_log events.log "replaced ${file##*/} by $keep.json (same pane or same fleet agent)"
     fi
   done
 }
@@ -917,6 +923,8 @@ cmd_restore() {
   # Placement: resolve a target pane for every planned entry.
   local -A PANEMAP=() WSMAP=() TABMAP=() TARGET=() TTAB=() TWS=()
   local out newpane newtab newws ops root from new dir ratio label tabcwd tablabel
+  local resumed=0 failed=0 messaged=0 rebound=0 cmd role task home newp b
+  local summary_lines=() pending=() batchset=()
   for line in "${plan[@]}"; do
     cls=${line%%$'\t'*}
     idx=${line#*$'\t'}
@@ -976,7 +984,7 @@ cmd_restore() {
             newws=$(printf '%s' "$out" | jq -r '.result.workspace.workspace_id // empty' 2>/dev/null)
             newtab=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
             newpane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
-            [ -n "$newws" ] || { report+=("failed       $(printf '%s' "$entry" | jq -r '"\(.agent) \(.session_id)"'): could not create workspace"); continue; }
+            [ -n "$newws" ] || { summary_lines+=("failed       $(printf '%s' "$entry" | jq -r '"\(.agent) \(.session_id)"'): could not create workspace"); failed=$((failed + 1)); continue; }
             WSMAP[$session|$ws]=$newws
           else
             newws=${WSMAP[$session|$ws]:-$ws}
@@ -984,7 +992,7 @@ cmd_restore() {
             newtab=$(printf '%s' "$out" | jq -r '.result.tab.tab_id // empty' 2>/dev/null)
             newpane=$(printf '%s' "$out" | jq -r '.result.root_pane.pane_id // empty' 2>/dev/null)
           fi
-          [ -n "$newtab" ] && [ -n "$newpane" ] || { report+=("failed       $(printf '%s' "$entry" | jq -r '"\(.agent) \(.session_id)"'): could not create tab"); continue; }
+          [ -n "$newtab" ] && [ -n "$newpane" ] || { summary_lines+=("failed       $(printf '%s' "$entry" | jq -r '"\(.agent) \(.session_id)"'): could not create tab"); failed=$((failed + 1)); continue; }
           [ -z "$tablabel" ] || ledger_herdr "$session" tab rename "$newtab" "$tablabel" >/dev/null 2>&1 || true
           TABMAP[$session|$tab]=$newtab
           PANEMAP[$session|$root]=$newpane
@@ -1013,8 +1021,6 @@ cmd_restore() {
 
   # Launch in batches: type up to --batch resumes, wait for each to run, then
   # reconcile its fleet record, and pause before the next batch.
-  local resumed=0 failed=0 messaged=0 rebound=0 cmd role task home newp b
-  local summary_lines=() pending=() batchset=()
   for line in "${plan[@]}"; do
     idx=${line#*$'\t'}
     if [ -z "${TARGET[$idx]:-}" ]; then
@@ -1050,7 +1056,7 @@ cmd_restore() {
     done
   done
 
-  for line in ${summary_lines[@]+"${summary_lines[@]}"} ${report[@]+"${report[@]}"}; do
+  for line in ${summary_lines[@]+"${summary_lines[@]}"}; do
     echo "  $line"
   done
   local summary="restore summary: $resumed resumed, $failed failed, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running; $rebound fleet records moved, $messaged carry-on messages"
@@ -1149,6 +1155,7 @@ cmd_install_hooks() {
   local file=
   [ "${1:-}" != --settings ] || file=${2:-}
   file=$(ledger_settings_file "$file")
+  # shellcheck disable=SC2016 # jq program text, not shell.
   ledger_settings_rewrite "$file" "$LEDGER_JQ_UNHOOK"'
     unhook
     | reduce ("SessionStart", "UserPromptSubmit", "Stop", "StopFailure", "SessionEnd") as $ev (.;
