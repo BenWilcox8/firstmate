@@ -319,6 +319,82 @@ test_the_primary_comes_from_its_endpoint_record() {
   pass "the primary is the session its endpoint record names"
 }
 
+SIDC=cccccccc-cccc-4ccc-8ccc-cccccccccccc
+SIDD=dddddddd-dddd-4ddd-8ddd-dddddddddddd
+SIDE=eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee
+SIDF=ffffffff-ffff-4fff-8fff-ffffffffffff
+
+# A setsid that removes the agent's /proc entry before the detached writer
+# starts, as a short-lived process that exits right after its hook does.
+REAL_SETSID=$(command -v setsid)
+mkdir -p "$TMP_ROOT/racebin"
+cat >"$TMP_ROOT/racebin/setsid" <<'EOF'
+#!/usr/bin/env bash
+[ "$1" != -f ] || [ "$3" != record ] || rm -rf "${RACE_PROC:?}/$6"
+exec "$REAL_SETSID" "$@"
+EOF
+chmod +x "$TMP_ROOT/racebin/setsid"
+
+race_hook_event() {  # <pid> <pane> <json>
+  (
+    export PATH="$TMP_ROOT/racebin:$PATH" RACE_PROC="$FAKE_PROC" REAL_SETSID
+    hook_event "$@"
+  )
+}
+
+test_an_agent_that_exits_before_the_writer_never_replaces_an_entry() {
+  mkdir -p "$TMP_ROOT/wt3"
+  printf 'kind=ship\nworktree=%s\nherdr_session=default\nherdr_pane_id=w1:p6\nwindow=default:w1:p6\n' "$TMP_ROOT/wt3" \
+    >"$FM_SESSION_LEDGER_PRIMARY_HOME/state/task-r.meta"
+  fake_agent 4701 790 "$TMP_ROOT/wt3" 'FM_TASK_ID=task-r' /usr/bin/claude --model haiku
+  session_record 4701 790 "$SIDC"
+  hook_event 4701 w1:p6 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SIDC\",\"transcript_path\":\"$CFG/projects/p/$SIDC.jsonl\",\"cwd\":\"$TMP_ROOT/wt3\"}" >/dev/null
+  wait_for "[ -f '$(entry_file "$SIDC")' ]" "the worker's entry"
+  # The worker's `claude -p` child ends its turn and exits before the writer
+  # of its Stop event runs.
+  FAKE_PPID=4701 fake_agent 4702 791 "$TMP_ROOT/wt3" 'FM_TASK_ID=task-r' /usr/bin/claude -p "check the hook"
+  session_record 4702 791 "$SIDD"
+  race_hook_event 4702 w1:p6 "{\"hook_event_name\":\"Stop\",\"session_id\":\"$SIDD\"}" >/dev/null
+  # A pane's own agent that exits before its writer runs leaves no entry
+  # built from a process that is gone.
+  fake_agent 4703 792 /tmp/c '' /usr/bin/claude
+  session_record 4703 792 "$SIDE"
+  race_hook_event 4703 w1:p5 "{\"hook_event_name\":\"Stop\",\"session_id\":\"$SIDE\"}" >/dev/null
+  writers_done
+  assert_present "$(entry_file "$SIDC")" "the worker keeps its entry"
+  assert_equals "worker task-r" "$(jq -r '[.fleet.role, .fleet.task_id] | join(" ")' "$(entry_file "$SIDC")")" "the entry is still the worker's own session"
+  assert_absent "$(entry_file "$SIDD")" "the exited nested child writes no entry"
+  assert_absent "$(entry_file "$SIDE")" "an exited agent writes no new entry"
+  # An existing entry still takes the busy state of an agent that is gone.
+  race_hook_event 4701 w1:p6 "{\"hook_event_name\":\"UserPromptSubmit\",\"session_id\":\"$SIDC\"}" >/dev/null
+  wait_for "[ \"\$(jq -r .state '$(entry_file "$SIDC")')\" = working ]" "state of an existing entry"
+  rm -f "$CFG"/sessions/*.json
+  pass "an agent that exits before the writer runs never replaces an entry"
+}
+
+test_a_resumed_primary_in_a_new_pane_stays_the_primary() {
+  local home=$FM_SESSION_LEDGER_PRIMARY_HOME
+  printf 'backend=herdr\nherdr_session=default\npane=w1:p1\nharness=claude\nharness_pid=99999\n' >"$home/state/.primary-endpoint"
+  fake_agent 4801 793 "$home" '' /usr/bin/claude
+  session_record 4801 793 "$SIDF"
+  hook_event 4801 w1:p1 "{\"hook_event_name\":\"SessionStart\",\"source\":\"startup\",\"session_id\":\"$SIDF\",\"transcript_path\":\"$CFG/projects/p/$SIDF.jsonl\",\"cwd\":\"$home\"}" >/dev/null
+  wait_for "[ \"\$(jq -r '.fleet.role // empty' '$(entry_file "$SIDF")' 2>/dev/null)\" = primary ]" "the primary's entry"
+  # After a reboot the restore resumes the primary in a rebuilt pane with a
+  # new id. The endpoint record still names the old pane and process.
+  rm -f "$CFG"/sessions/*.json
+  fake_agent 4802 794 "$home" '' /usr/bin/claude --resume "$SIDF"
+  session_record 4802 794 "$SIDF"
+  hook_event 4802 w1:p4 "{\"hook_event_name\":\"SessionStart\",\"source\":\"resume\",\"session_id\":\"$SIDF\",\"transcript_path\":\"$CFG/projects/p/$SIDF.jsonl\",\"cwd\":\"$home\"}" >/dev/null
+  wait_for "[ \"\$(jq -r .herdr.pane_id '$(entry_file "$SIDF")')\" = w1:p4 ]" "the resumed primary's entry"
+  assert_equals primary "$(jq -r '.fleet.role' "$(entry_file "$SIDF")")" "the resumed primary keeps its identity in the new pane"
+  : >"$CFG/projects/p/$SIDF.jsonl"
+  rm -f "$CFG"/sessions/*.json
+  "$LEDGER_BIN" can-resume --primary "$home" >/dev/null
+  expect_code 0 "$?" "can-resume still answers for the resumed primary"
+  rm -f "$home/state/.primary-endpoint"
+  pass "a resumed primary in a new pane stays the primary"
+}
+
 test_hook_is_silent_and_never_fails() {
   local out rc
   out=$(printf 'not json' | HERDR_PANE_ID=w1:p1 HERDR_SOCKET_PATH="$HERDR_DIR/herdr.sock" "$LEDGER_BIN" hook claude 2>&1)
@@ -464,6 +540,8 @@ test_session_end_keeps_a_crash_and_removes_a_deliberate_exit
 test_a_fresh_relaunch_replaces_the_fleet_entry
 test_a_nested_print_session_never_replaces_the_agent
 test_the_primary_comes_from_its_endpoint_record
+test_an_agent_that_exits_before_the_writer_never_replaces_an_entry
+test_a_resumed_primary_in_a_new_pane_stays_the_primary
 test_hook_is_silent_and_never_fails
 test_restore_dry_run_plans_and_changes_nothing
 test_restore_resumes_only_recorded_sessions

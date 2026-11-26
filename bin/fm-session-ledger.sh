@@ -100,8 +100,11 @@
 # the same pane under the same server start (/clear, /resume, a new agent)
 # replaces the older entry of that pane. Events of a non-interactive Claude
 # run (-p or --print) and of an agent that another agent process started
-# write nothing, so a `claude -p` that an agent runs in its pane never
-# replaces that agent's entry.
+# write nothing: the hook decides this while the agent process waits on it,
+# so a `claude -p` that an agent runs in its pane never replaces that
+# agent's entry. The writer builds an entry from /proc only while the
+# agent process still runs with the start time the hook saw. A resumed or
+# compacted primary session keeps its primary identity.
 # UserPromptSubmit sets the state to working; Stop and StopFailure set idle.
 # SessionEnd removes the entry only for a deliberate end: /exit or an end of
 # input (prompt_input_exit), logout, clear, resume, or
@@ -187,24 +190,25 @@ ledger_log() {  # <file> <line>
   return 0
 }
 
-# Field 22 of /proc/<pid>/stat (process start time), parsed after the last ')'.
-ledger_proc_start() {  # <pid>
+# Read /proc/<pid>/stat with shell builtins only, because the hook runs this on
+# the agent's clock: sets LEDGER_STAT_PPID (field 4) and LEDGER_STAT_START
+# (field 22, the process start time), parsed after the last ')'.
+ledger_stat() {  # <pid>
   local stat rest
+  LEDGER_STAT_PPID=''
+  LEDGER_STAT_START=''
   read -r stat <"$PROC/$1/stat" 2>/dev/null || return 1
   rest=${stat##*) }
   # shellcheck disable=SC2086 # Word splitting of the stat fields is intended.
   set -- $rest
   [ "$#" -ge 20 ] || return 1
-  printf '%s' "${20}"
+  LEDGER_STAT_PPID=$2
+  LEDGER_STAT_START=${20}
 }
 
-ledger_proc_ppid() {  # <pid>
-  local stat rest
-  read -r stat <"$PROC/$1/stat" 2>/dev/null || return 1
-  rest=${stat##*) }
-  # shellcheck disable=SC2086 # Word splitting of the stat fields is intended.
-  set -- $rest
-  printf '%s' "${2:-}"
+ledger_proc_start() {  # <pid>
+  ledger_stat "$1" || return 1
+  printf '%s' "$LEDGER_STAT_START"
 }
 
 ledger_claude_config() {
@@ -213,37 +217,33 @@ ledger_claude_config() {
 
 # True when <config>/sessions/<pid>.json describes the process that runs as
 # <pid> now (its recorded procStart matches), not a stale record of a process
-# that a crash stopped.
+# that a crash stopped. Call ledger_stat <pid> first.
 ledger_claude_record_live() {  # <config> <pid>
-  local file="$1/sessions/$2.json" start
+  local file="$1/sessions/$2.json" json=
   [ -f "$file" ] || return 1
-  start=$(sed -n 's/.*"procStart":"\{0,1\}\([0-9][0-9]*\).*/\1/p' "$file" 2>/dev/null | head -n 1)
-  [ -z "$start" ] || [ "$start" = "$(ledger_proc_start "$2" 2>/dev/null)" ]
+  IFS= read -r -d '' json <"$file" 2>/dev/null
+  [[ $json =~ \"procStart\":\"?([0-9]+) ]] || return 0
+  [ "${BASH_REMATCH[1]}" = "$LEDGER_STAT_START" ]
 }
 
 # The agent process a hook runs under: the nearest ancestor that the agent
 # itself marks. Claude Code keeps <config>/sessions/<pid>.json for each live
-# process; codex and pi are matched by the executable name.
+# process; codex and pi are matched by the executable name. Sets
+# LEDGER_AGENT_PID (0 when none) and LEDGER_AGENT_START, with builtins only.
 ledger_agent_pid() {  # <agent> <start-pid>
-  local agent=$1 pid=$2 depth=0 cfg name
-  cfg=$(ledger_claude_config)
+  local agent=$1 pid=$2 depth=0 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude} name
+  LEDGER_AGENT_PID=0
+  LEDGER_AGENT_START=
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 12 ]; do
-    case "$agent" in
-      claude)
-        if ledger_claude_record_live "$cfg" "$pid"; then
-          printf '%s' "$pid"
-          return 0
-        fi
-        ;;
-      codex | pi)
-        name=; read -r name <"$PROC/$pid/comm" 2>/dev/null
-        if [ "$name" = "$agent" ]; then
-          printf '%s' "$pid"
-          return 0
-        fi
-        ;;
-    esac
-    pid=$(ledger_proc_ppid "$pid") || return 1
+    ledger_stat "$pid" || return 1
+    name=
+    [ "$agent" = claude ] || read -r name <"$PROC/$pid/comm" 2>/dev/null
+    if { [ "$agent" = claude ] && ledger_claude_record_live "$cfg" "$pid"; } || [ "$name" = "$agent" ]; then
+      LEDGER_AGENT_PID=$pid
+      LEDGER_AGENT_START=$LEDGER_STAT_START
+      return 0
+    fi
+    pid=$LEDGER_STAT_PPID
     depth=$((depth + 1))
   done
   return 1
@@ -253,9 +253,10 @@ ledger_agent_pid() {  # <agent> <start-pid>
 # non-interactive Claude run (-p or --print), or an agent that another agent
 # process started (a tool call or a test that runs `claude -p` in the pane).
 # Such a session cannot be resumed in the pane, and it must never replace the
-# entry of the agent that started it.
+# entry of the agent that started it. The hook decides this while the agent
+# still waits on it, so the process is alive; builtins only.
 ledger_nested_session() {  # <agent> <pid>
-  local agent=$1 pid=$2 depth=0 cfg arg name
+  local agent=$1 pid=$2 depth=0 cfg=${CLAUDE_CONFIG_DIR:-$HOME/.claude} arg name
   [ "$pid" != 0 ] || return 1
   if [ "$agent" = claude ]; then
     while IFS= read -r -d '' arg; do
@@ -265,13 +266,14 @@ ledger_nested_session() {  # <agent> <pid>
       esac
     done 2>/dev/null <"$PROC/$pid/cmdline"
   fi
-  cfg=$(ledger_claude_config)
-  pid=$(ledger_proc_ppid "$pid") || return 1
+  ledger_stat "$pid" || return 1
+  pid=$LEDGER_STAT_PPID
   while [ -n "$pid" ] && [ "$pid" -gt 1 ] 2>/dev/null && [ "$depth" -lt 12 ]; do
+    ledger_stat "$pid" || return 1
     ! ledger_claude_record_live "$cfg" "$pid" || return 0
     name=; read -r name <"$PROC/$pid/comm" 2>/dev/null
     case "$name" in codex | pi) return 0 ;; esac
-    pid=$(ledger_proc_ppid "$pid") || return 1
+    pid=$LEDGER_STAT_PPID
     depth=$((depth + 1))
   done
   return 1
@@ -361,18 +363,22 @@ def replay_ops:
 # hook: the agent-side entry point. Fast, silent, never fails the agent.
 
 cmd_hook() {  # <agent>
-  local agent=${1:-} payload pid seq
+  local agent=${1:-} payload seq
   if [ "${FM_SESSION_LEDGER:-on}" = off ] || [ -z "${HERDR_PANE_ID:-}" ] || [ -z "${HERDR_SOCKET_PATH:-}" ]; then
     cat >/dev/null 2>&1
     return 0
   fi
   case "$agent" in claude | codex | pi) ;; *) cat >/dev/null 2>&1; return 0 ;; esac
+  ledger_agent_pid "$agent" "$PPID" 2>/dev/null || true
+  if ledger_nested_session "$agent" "$LEDGER_AGENT_PID" 2>/dev/null; then
+    cat >/dev/null 2>&1
+    return 0
+  fi
   mkdir -p "$ENTRIES" 2>/dev/null || { cat >/dev/null 2>&1; return 0; }
   payload=$(mktemp "$LEDGER/.event.XXXXXX" 2>/dev/null) || { cat >/dev/null 2>&1; return 0; }
   cat >"$payload" 2>/dev/null || true
   seq=$(date +%s%N)
-  pid=$(ledger_agent_pid "$agent" "$PPID" 2>/dev/null) || pid=0
-  setsid -f "$SELF" record "$agent" "$payload" "$pid" "$seq" </dev/null >/dev/null 2>&1 \
+  setsid -f "$SELF" record "$agent" "$payload" "$LEDGER_AGENT_PID" "$seq" "$LEDGER_AGENT_START" </dev/null >/dev/null 2>&1 \
     || rm -f "$payload" 2>/dev/null
   return 0
 }
@@ -479,24 +485,28 @@ ledger_location_json() {  # <session> <socket> <pane-id>
 }
 
 # Build the full entry for a session event.
-ledger_build_entry() {  # <agent> <payload-json> <pid> <seq> <state> <old-entry-or-empty>
-  local agent=$1 payload=$2 pid=$3 seq=$4 state=$5 old=$6
-  local session socket location cmdline_json env_json fleet pid_start cwd
+ledger_build_entry() {  # <agent> <payload-json> <pid> <pid-start> <seq> <state> <old-entry-or-empty>
+  local agent=$1 payload=$2 pid=$3 pid_start=$4 seq=$5 state=$6 old=$7
+  local session socket location cmdline_json env_json fleet cwd
   socket=$HERDR_SOCKET_PATH
   session=$(ledger_session_from_socket "$socket")
   location=$(ledger_location_json "$session" "$socket" "$HERDR_PANE_ID")
   cmdline_json='[]'
   env_json='{}'
-  pid_start=
-  if [ "$pid" != 0 ] && [ -r "$PROC/$pid/cmdline" ]; then
-    cmdline_json=$(jq -Rsc 'split("\u0000") | if length > 0 and .[-1] == "" then .[:-1] else . end' <"$PROC/$pid/cmdline" 2>/dev/null) || cmdline_json='[]'
-    env_json=$(jq -Rsc "$LEDGER_JQ_ENV"'split("\u0000") | map(select(test("^[A-Za-z_][A-Za-z0-9_]*=")) | capture("^(?<key>[^=]+)=(?<value>.*)$"; "s")) | from_entries | ledger_env_filter' \
-      <"$PROC/$pid/environ" 2>/dev/null) || env_json='{}'
-    pid_start=$(ledger_proc_start "$pid" 2>/dev/null) || pid_start=
-  fi
   cwd=$(printf '%s' "$payload" | jq -r '.cwd // empty')
-  [ -n "$cwd" ] || cwd=$(readlink "$PROC/$pid/cwd" 2>/dev/null || true)
-  fleet=$(ledger_fleet_json "$env_json" "$cwd" "$session" "$HERDR_PANE_ID" "$pid")
+  if [ "$pid" != 0 ]; then
+    cmdline_json=$(jq -Rsc 'split("\u0000") | if length > 0 and .[-1] == "" then .[:-1] else . end' <"$PROC/$pid/cmdline" 2>/dev/null) || return 1
+    env_json=$(jq -Rsc "$LEDGER_JQ_ENV"'split("\u0000") | map(select(test("^[A-Za-z_][A-Za-z0-9_]*=")) | capture("^(?<key>[^=]+)=(?<value>.*)$"; "s")) | from_entries | ledger_env_filter' \
+      <"$PROC/$pid/environ" 2>/dev/null) || return 1
+    [ -n "$cwd" ] || cwd=$(readlink "$PROC/$pid/cwd" 2>/dev/null || true)
+    [ "$(ledger_proc_start "$pid" 2>/dev/null)" = "$pid_start" ] || return 1
+  fi
+  if [ -n "$old" ] && [ "$(printf '%s' "$old" | jq -r '.fleet.role // empty')" = primary ] \
+    && [ "$(ledger_realpath "$cwd")" = "$(ledger_realpath "$PRIMARY_HOME")" ]; then
+    fleet=$(printf '%s' "$old" | jq -c '.fleet')
+  else
+    fleet=$(ledger_fleet_json "$env_json" "$cwd" "$session" "$HERDR_PANE_ID" "$pid")
+  fi
   jq -cn \
     --arg schema "$LEDGER_SCHEMA" --arg agent "$agent" --argjson payload "$payload" \
     --argjson seq "$seq" --arg state "$state" --arg pid "$pid" --arg pid_start "$pid_start" \
@@ -570,8 +580,8 @@ ledger_pane_closed_by_hand() {  # <session> <pane-id>
   [ "$code" = pane_not_found ]
 }
 
-cmd_record() {  # <agent> <payload-file> <pid> <seq>
-  local agent=$1 payload_file=$2 pid=$3 seq=$4 payload fields event sid source reason subagent name file old state entry
+cmd_record() {  # <agent> <payload-file> <pid> <seq> <pid-start>
+  local agent=$1 payload_file=$2 pid=$3 seq=$4 pid_start=${5:-} payload fields event sid source reason subagent name file old state entry
   local primary unclassified cwd hsession pane epid
   # shellcheck disable=SC2064 # Expand the payload path now.
   trap "rm -f -- '$payload_file'" EXIT
@@ -581,7 +591,6 @@ cmd_record() {  # <agent> <payload-file> <pid> <seq>
   [ -z "$subagent" ] || return 0
   case "$sid" in '' | *[!A-Za-z0-9._:-]*) return 0 ;; esac
   [ "${#sid}" -le 200 ] || return 0
-  ! ledger_nested_session "$agent" "$pid" || return 0
   mkdir -p "$ENTRIES" || return 0
   name=$(ledger_entry_name "$agent" "$sid")
   file="$ENTRIES/$name.json"
@@ -598,7 +607,7 @@ cmd_record() {  # <agent> <payload-file> <pid> <seq>
       if [ -n "$old" ] && [ "$source" = compact ]; then
         state=$(printf '%s' "$old" | jq -r '.state // "idle"')
       fi
-      entry=$(ledger_build_entry "$agent" "$payload" "$pid" "$seq" "$state" "$old") || return 0
+      entry=$(ledger_build_entry "$agent" "$payload" "$pid" "$pid_start" "$seq" "$state" "$old") || return 0
       ledger_write_entry "$file" "$entry" || return 0
       ledger_dedupe_pane "$name" "$entry"
       ledger_log events.log "$event/$source $name pane=${HERDR_PANE_ID} state=$state"
@@ -621,7 +630,7 @@ cmd_record() {  # <agent> <payload-file> <pid> <seq>
         [ "$primary" = null ] || ledger_dedupe_pane "$name" "$entry"
       else
         # Hooks installed mid-session: the first event builds the entry.
-        entry=$(ledger_build_entry "$agent" "$payload" "$pid" "$seq" "$state" "") || return 0
+        entry=$(ledger_build_entry "$agent" "$payload" "$pid" "$pid_start" "$seq" "$state" "") || return 0
         ledger_write_entry "$file" "$entry" || return 0
         ledger_dedupe_pane "$name" "$entry"
       fi

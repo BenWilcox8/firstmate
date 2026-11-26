@@ -25,6 +25,7 @@ It removes such an entry only when Herdr still answers, the pane is gone, and no
 A new session in the same pane, or a fresh relaunch of the same fleet agent, replaces the older entry.
 The primary is only the session that the endpoint record of the primary home (`state/.primary-endpoint`) names by its pane or its process.
 Another session in the primary home is a session opened by hand.
+A resumed or compacted primary session stays the primary, also in a new pane.
 A non-interactive run (`claude -p`) and an agent that another agent starts, for example from a tool call, are not recorded.
 Thus a `claude -p` that an agent runs in its pane does not replace the entry of that agent.
 
