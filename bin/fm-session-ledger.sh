@@ -61,7 +61,8 @@
 #              fleet task whose record no longer exists in its home, an agent
 #              type with no verified resume, and a Herdr session that is not
 #              running. An entry of a named Herdr session whose directory no
-#              longer exists (a deleted lab) is reported and removed. Sessions launch --batch at a time (default 3) with a
+#              longer exists (a deleted lab) is reported and removed.
+#              Sessions launch --batch at a time (default 3) with a
 #              --pause (default 20 s) between batches, and each launch waits
 #              up to --wait seconds (default 90) for the resumed session to
 #              run. After a fleet agent runs again, its task record in its own
