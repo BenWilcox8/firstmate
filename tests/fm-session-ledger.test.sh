@@ -499,6 +499,46 @@ test_restore_resumes_only_recorded_sessions() {
   pass "restore types only native resumes of recorded sessions and rebuilds the layout"
 }
 
+# Live repro (Herdr 0.8.2 lab): the worker classify probes the recorded Herdr
+# endpoint, and that probe starts the server of a deleted named session again.
+# The stub classify does the same to its recorded session directory, so a
+# restore that classified before it planned would see the session as present
+# and never prune it. Oracle: the restore contract - a deleted named session's
+# entries are reported and removed, and a dry run changes nothing.
+test_restore_never_wakes_a_deleted_session_through_classify() {
+  local home="$TMP_ROOT/labhome" sockdir="$TMP_ROOT/herdr-sessions/fm-lab-gone2" out
+  rm -f "$FM_SESSION_LEDGER_DIR"/entries/*.json "$HERDR_DIR/typed.log"
+  rm -rf "$home" "$sockdir"
+  mkdir -p "$home/bin" "$home/state"
+  printf 'kind=ship\nherdr_session=fm-lab-gone2\nherdr_pane_id=w1:p1\n' >"$home/state/task-z.meta"
+  cat >"$home/bin/fm-local-worker-restore.sh" <<EOF
+#!/usr/bin/env bash
+echo "\$*" >>"$TMP_ROOT/classify.log"
+mkdir -p "$sockdir" && : >"$sockdir/herdr.sock"
+printf 'task-z\tworking\tit was working when it stopped\n'
+EOF
+  chmod +x "$home/bin/fm-local-worker-restore.sh"
+  rm -f "$TMP_ROOT/classify.log"
+  : >"$CFG/projects/p/$SID1.jsonl"
+  make_entry "$SID1" w1:p1 w1:t1 w1 fleet "$CFG/projects/p/$SID1.jsonl" working \
+    "{\"role\":\"worker\",\"task_id\":\"task-z\",\"home\":\"$home\",\"kind\":\"ship\"}"
+  jq --arg sock "$sockdir/herdr.sock" '.herdr.session = "fm-lab-gone2" | .herdr.socket = $sock' "$(entry_file "$SID1")" >"$TMP_ROOT/e1" \
+    && mv "$TMP_ROOT/e1" "$(entry_file "$SID1")"
+
+  out=$("$LEDGER_BIN" restore --dry-run)
+  assert_contains "$out" "deleted      claude $SID1: Herdr session fm-lab-gone2 no longer exists; entry would be removed" "dry run reports the deleted session"
+  assert_absent "$TMP_ROOT/classify.log" "a dry run never runs the worker classify"
+  assert_absent "$sockdir" "a dry run leaves the deleted session deleted"
+
+  out=$("$LEDGER_BIN" restore --wait 0 --pause 0)
+  assert_contains "$out" "deleted      claude $SID1: Herdr session fm-lab-gone2 no longer exists; entry was removed" "the restore prunes the deleted session"
+  assert_absent "$(entry_file "$SID1")" "the entry is gone"
+  assert_absent "$TMP_ROOT/classify.log" "a worker of a deleted session is never classified"
+  assert_absent "$sockdir" "the restore never brings the deleted session back"
+  assert_absent "$HERDR_DIR/typed.log" "nothing was typed"
+  pass "the restore never wakes a deleted Herdr session through the worker classify"
+}
+
 test_can_resume_gates_automatic_recovery() {
   setup_plan_fixture
   local out rc
@@ -545,5 +585,6 @@ test_a_resumed_primary_in_a_new_pane_stays_the_primary
 test_hook_is_silent_and_never_fails
 test_restore_dry_run_plans_and_changes_nothing
 test_restore_resumes_only_recorded_sessions
+test_restore_never_wakes_a_deleted_session_through_classify
 test_can_resume_gates_automatic_recovery
 test_install_and_uninstall_are_idempotent

@@ -910,17 +910,6 @@ cmd_restore() {
     fi
   done
 
-  # Worker classes per fleet home, read before anything launches.
-  local -A CLASSES=()
-  local h
-  for h in $(printf '%s' "$entries" | jq -r '[.[] | select(.fleet.role == "worker" and .fleet.home != null) | .fleet.home] | unique[]'); do
-    if [ -x "$h/bin/fm-local-worker-restore.sh" ]; then
-      CLASSES[$h]=$(FM_HOME=$h "$h/bin/fm-local-worker-restore.sh" classify 2>/dev/null || true)
-    else
-      CLASSES[$h]=$(FM_HOME=$h "$SCRIPT_DIR/fm-local-worker-restore.sh" classify 2>/dev/null || true)
-    fi
-  done
-
   # Classify every entry.
   local plan=() i entry key sid agent session transcript reason class ws tab pane wslabel live
   local n_running=0 n_missing=0 n_closed=0 n_unsupported=0 n_down=0 n_deleted=0 sockdir
@@ -1013,6 +1002,21 @@ cmd_restore() {
     echo "restore summary (dry run): ${#plan[@]} would resume, $n_running already running, $n_missing missing transcript, $n_closed fleet record gone, $n_unsupported unsupported, $n_down Herdr not running, $n_deleted in a deleted Herdr session; nothing was changed"
     return 0
   fi
+
+  # Worker classes per fleet home, read before anything launches. Only the
+  # homes of planned workers are read, and never on a dry run: the classify
+  # probe of a Herdr endpoint can start the server of a stopped or deleted
+  # named session, which the restore must not do.
+  local -A CLASSES=()
+  local h
+  for h in $(for line in ${plan[@]+"${plan[@]}"}; do printf '%s\n' "${line#*$'\t'}"; done \
+    | jq -rn --argjson e "$entries" '[inputs | $e[.] | select(.fleet.role == "worker" and .fleet.home != null) | .fleet.home] | unique[]'); do
+    if [ -x "$h/bin/fm-local-worker-restore.sh" ]; then
+      CLASSES[$h]=$(FM_HOME=$h "$h/bin/fm-local-worker-restore.sh" classify 2>/dev/null || true)
+    else
+      CLASSES[$h]=$(FM_HOME=$h "$SCRIPT_DIR/fm-local-worker-restore.sh" classify 2>/dev/null || true)
+    fi
+  done
 
   # Placement: resolve a target pane for every planned entry.
   local -A PANEMAP=() WSMAP=() TABMAP=() TARGET=() TTAB=() TWS=()
