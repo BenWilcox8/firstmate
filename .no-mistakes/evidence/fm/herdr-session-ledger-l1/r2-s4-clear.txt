@@ -1,0 +1,9 @@
+## r2 before /clear in hand pane w1:p2
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude f6efa482-062a-4421-94b4-402c04082841  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:01:49Z
+## after /clear (no further prompt)
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:02:38Z
+claude-62e27172-cf26-49ea-9872-cbb4b690fcaf.json
+claude-cb59df9f-fff0-40aa-8e1c-3d346fae498d.json
+claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0.json
+1795669358	SessionEnd/clear claude-f6efa482-062a-4421-94b4-402c04082841 removed (deliberate end)
+1795669358	SessionStart/clear claude-cb59df9f-fff0-40aa-8e1c-3d346fae498d pane=w1:p2 state=idle

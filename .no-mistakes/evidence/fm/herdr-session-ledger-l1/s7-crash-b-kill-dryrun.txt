@@ -1,0 +1,20 @@
+## crash B: ledger before
+fm-lab-ledger-2567101-14557 fleet/work/w1:p1 (worker-a)  claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd  working  worker:task-a  /tmp/fmlab-ledger/worker-wt  updated 2026-11-26T04:44:40Z
+fm-lab-ledger-2567101-14557 fleet/work/w1:p2 (by-hand)  claude bc9427a5-5773-4b3e-9a2f-415829d7b04f  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:43:49Z
+fm-lab-ledger-2567101-14557 fleet/prime/w1:p3  claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1  idle  primary  /tmp/fmlab-ledger/primary  updated 2026-11-26T04:43:49Z
+## task-a record before:
+herdr_session=fm-lab-ledger-2567101-14557
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=w1:p1
+window=fm-lab-ledger-2567101-14557:w1:p1
+## kill -KILL lab server 3063892 (herdr server --session fm-lab-ledger-2567101-14557), then remove the lab's saved layout ~/.config/herdr/sessions/fm-lab-ledger-2567101-14557/session.json
+## lab server restarted with no saved layout
+## snapshot after restart:
+{"ws":[],"tabs":[],"panes":[]}
+## restore --dry-run:
+restore plan (3 to resume, 3 in ledger):
+  rebuild workspace     claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd [worker:task-a, working] fm-lab-ledger-2567101-14557 fleet/work/w1:p1
+  rebuild workspace     claude bc9427a5-5773-4b3e-9a2f-415829d7b04f [hand, idle] fm-lab-ledger-2567101-14557 fleet/work/w1:p2
+  rebuild workspace     claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 [primary, idle] fm-lab-ledger-2567101-14557 fleet/prime/w1:p3
+restore summary (dry run): 3 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed

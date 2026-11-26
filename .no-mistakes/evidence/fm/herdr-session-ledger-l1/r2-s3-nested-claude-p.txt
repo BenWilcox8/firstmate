@@ -1,0 +1,19 @@
+## r2: worker task-a (pane w1:p1) ran a nested 'claude -p' through its Bash tool; worker pane tail:
+❯ Use your Bash tool to run exactly this command and show me its output: claude -p 'Reply
+  with only the word nested' --model haiku
+  nested
+  The command returned nested. The first line is a warning from the CLI that your sign-in
+## transcripts in the worker project dir (child session ran):
+62e27172-cf26-49ea-9872-cbb4b690fcaf.jsonl
+61956eef-a074-4796-8be3-7a8d06600571.jsonl
+## ledger after (only the worker's own session in w1:p1):
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  idle  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:01:55Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude f6efa482-062a-4421-94b4-402c04082841  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:01:49Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:01:49Z
+## applied events (no child session id):
+1795669308	UserPromptSubmit claude-f6efa482-062a-4421-94b4-402c04082841 state=working
+1795669308	UserPromptSubmit claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0 state=working
+1795669308	UserPromptSubmit claude-62e27172-cf26-49ea-9872-cbb4b690fcaf state=working
+1795669309	Stop claude-f6efa482-062a-4421-94b4-402c04082841 state=idle
+1795669309	Stop claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0 state=idle
+1795669315	Stop claude-62e27172-cf26-49ea-9872-cbb4b690fcaf state=idle

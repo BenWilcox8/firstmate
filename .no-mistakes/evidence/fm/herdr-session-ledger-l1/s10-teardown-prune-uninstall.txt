@@ -1,0 +1,28 @@
+## teardown lab fm-lab-ledger-2567101-14557
+teardown exit=0
+## lab dir present? no
+## lab claude processes left: 3
+## restore --dry-run after the lab was deleted:
+restore plan (0 to resume, 3 in ledger):
+  herdr-down   claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+  herdr-down   claude bc9427a5-5773-4b3e-9a2f-415829d7b04f: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+  herdr-down   claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+restore summary (dry run): 0 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 3 Herdr not running, 0 in a deleted Herdr session; nothing was changed
+## restore:
+restore plan (3 to resume, 3 in ledger):
+  rebuild workspace     claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd [worker:task-a, idle] fm-lab-ledger-2567101-14557 fleet/work/w2:p1
+  rebuild workspace     claude bc9427a5-5773-4b3e-9a2f-415829d7b04f [hand, idle] fm-lab-ledger-2567101-14557 fleet/work/w2:p2
+  rebuild workspace     claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 [primary, idle] fm-lab-ledger-2567101-14557 fleet/prime/w2:p3
+  resumed      claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd in fm-lab-ledger-2567101-14557 pane w1:p1
+  record       task-a in /tmp/fmlab-ledger/primary now names pane w1:p1
+  resumed      claude bc9427a5-5773-4b3e-9a2f-415829d7b04f in fm-lab-ledger-2567101-14557 pane w1:p2
+  resumed      claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 in fm-lab-ledger-2567101-14557 pane w1:p3
+restore summary: 3 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 1 fleet records moved, 0 carry-on messages
+exit=0
+## entries left: 3
+## uninstall-hooks twice on the disposable settings file:
+removed the session ledger hooks from /tmp/fmlab-ledger/settings.json
+removed the session ledger hooks from /tmp/fmlab-ledger/settings.json
+{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"true # other hook"}]}]},"model":"haiku"}
+## default Herdr session untouched:
+{"name":"default","running":true}

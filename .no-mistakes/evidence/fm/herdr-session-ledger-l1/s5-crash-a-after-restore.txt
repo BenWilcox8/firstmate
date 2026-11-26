@@ -1,0 +1,29 @@
+## which session each lab pane runs now (pane -> claude pid -> ~/.claude/sessions/<pid>.json sessionId)
+w1:p1 fg_pid=3088517 sessionId=ba68b577-01f7-4f3b-9f88-2df0f02ff4bd cmd=claude --settings /tmp/fmlab-ledger/settings.json --model haiku --resume ba68b577-01f7-4f3b-9f88-2df0f02ff4bd 
+w1:p2 fg_pid=3088665 sessionId=bc9427a5-5773-4b3e-9a2f-415829d7b04f cmd=claude --settings /tmp/fmlab-ledger/settings.json --model haiku --resume bc9427a5-5773-4b3e-9a2f-415829d7b04f 
+w1:p3 fg_pid=3088844 sessionId=bd1503d2-129b-4c6c-9f9e-55b28412e9b1 cmd=claude --settings /tmp/fmlab-ledger/settings.json --model haiku --resume bd1503d2-129b-4c6c-9f9e-55b28412e9b1 
+
+## worker pane w1:p1 shows its original conversation:
+  ./build.sh (foreground, timeout 600000 ms). Wait
+## primary pane w1:p3:
+❯ Reply with exactly the word PRIMARY.
+● PRIMARY
+## by-hand pane w1:p2:
+  AFTERCLEAR.
+● AFTERCLEAR
+
+## steering inbox of task-a (no carry-on expected in this run, see note):
+ls: cannot access '/tmp/fmlab-ledger/primary/state/task-a.inbox': No such file or directory
+
+## second restore run (idempotence):
+restore plan (0 to resume, 3 in ledger):
+  running      claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd: already running; left alone
+  running      claude bc9427a5-5773-4b3e-9a2f-415829d7b04f: already running; left alone
+  running      claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1: already running; left alone
+restore summary: 0 resumed, 0 failed, 3 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+exit=0
+
+## ledger now:
+fm-lab-ledger-2567101-14557 fleet/work/w1:p1 (worker-a)  claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd  idle  worker:task-a  /tmp/fmlab-ledger/worker-wt  updated 2026-11-26T04:43:48Z
+fm-lab-ledger-2567101-14557 fleet/work/w1:p2 (by-hand)  claude bc9427a5-5773-4b3e-9a2f-415829d7b04f  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:43:49Z
+fm-lab-ledger-2567101-14557 fleet/prime/w1:p3  claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1  idle  primary  /tmp/fmlab-ledger/primary  updated 2026-11-26T04:43:49Z

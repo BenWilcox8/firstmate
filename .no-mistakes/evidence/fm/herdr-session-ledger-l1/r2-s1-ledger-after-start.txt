@@ -1,0 +1,18 @@
+## r2: three real Claude sessions started in lab fm-lab-r2ledger-1421776-5214 (worker task-a w1:p1, hand split w1:p2, primary tab prime w1:p3); ledger list:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  idle  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:01:27Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude f6efa482-062a-4421-94b4-402c04082841  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:01:27Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:01:27Z
+## entries (argv/env/fleet/transcript):
+{"argv":["claude","--settings","/tmp/fmlab-r2/settings.json","--model","haiku"],"env":{"COMPACT_ADVISER_DISABLE":"1","FM_SESSION_LEDGER_DIR":"/tmp/fmlab-r2/ledger","FM_SESSION_LEDGER_PRIMARY_HOME":"/tmp/fmlab-r2/primary","FM_TASK_ID":"task-a","FM_HOME":"/tmp/fmlab-r2/primary"},"fleet":{"role":"worker","task_id":"task-a","home":"/tmp/fmlab-r2/primary","kind":"ship"},"herdr":{"session":"fm-lab-r2ledger-1421776-5214","ws":"fleet","tab":"work","pane":"w1:p1","label":"worker-a"},"state":"idle","transcript":"~/.claude/projects/-tmp-fmlab-r2-worker-wt/62e27172-cf26-49ea-9872-cbb4b690fcaf.jsonl"}
+{"argv":["claude","--settings","/tmp/fmlab-r2/settings.json","--model","haiku"],"env":{"COMPACT_ADVISER_DISABLE":"1","FM_SESSION_LEDGER_DIR":"/tmp/fmlab-r2/ledger","FM_SESSION_LEDGER_PRIMARY_HOME":"/tmp/fmlab-r2/primary"},"fleet":{"role":"primary","task_id":null,"home":"/tmp/fmlab-r2/primary","kind":"primary"},"herdr":{"session":"fm-lab-r2ledger-1421776-5214","ws":"fleet","tab":"prime","pane":"w1:p3","label":null},"state":"idle","transcript":"~/.claude/projects/-tmp-fmlab-r2-primary/e5c2b33a-574f-4c28-8552-9dd82a6201c0.jsonl"}
+{"argv":["claude","--settings","/tmp/fmlab-r2/settings.json","--model","haiku"],"env":{"COMPACT_ADVISER_DISABLE":"1","FM_SESSION_LEDGER_DIR":"/tmp/fmlab-r2/ledger","FM_SESSION_LEDGER_PRIMARY_HOME":"/tmp/fmlab-r2/primary"},"fleet":null,"herdr":{"session":"fm-lab-r2ledger-1421776-5214","ws":"fleet","tab":"work","pane":"w1:p2","label":null},"state":"idle","transcript":"~/.claude/projects/-tmp-fmlab-r2-hand/f6efa482-062a-4421-94b4-402c04082841.jsonl"}
+## events:
+1795669242	SessionStart/startup claude-eb252ef2-d24a-4f0c-84fb-9025ed13c243 pane=w1:p1 state=idle
+1795669243	SessionStart/startup claude-9782204b-4d6a-4fd1-8e02-4242ffa755b8 pane=w1:p2 state=idle
+1795669243	SessionStart/startup claude-666a499b-fdf7-4913-a038-0606c7f7f23a pane=w1:p3 state=idle
+1795669273	SessionEnd/prompt_input_exit claude-eb252ef2-d24a-4f0c-84fb-9025ed13c243 removed (deliberate end)
+1795669274	SessionEnd/prompt_input_exit claude-9782204b-4d6a-4fd1-8e02-4242ffa755b8 removed (deliberate end)
+1795669274	SessionEnd/prompt_input_exit claude-666a499b-fdf7-4913-a038-0606c7f7f23a removed (deliberate end)
+1795669287	SessionStart/startup claude-f6efa482-062a-4421-94b4-402c04082841 pane=w1:p2 state=idle
+1795669287	SessionStart/startup claude-62e27172-cf26-49ea-9872-cbb4b690fcaf pane=w1:p1 state=idle
+1795669287	SessionStart/startup claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0 pane=w1:p3 state=idle

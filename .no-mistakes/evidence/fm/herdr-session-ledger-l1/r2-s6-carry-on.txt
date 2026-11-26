@@ -1,0 +1,30 @@
+## crash A (cycle 2, task record now backend=herdr) ledger before:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  working  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:04:49Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:03:54Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:03:54Z
+## kill -KILL lab server 1918159 at 2026-11-25T23:04:59-06:00
+## lab server restarted; restore:
+restore plan (3 to resume, 3 in ledger):
+  resume in same pane   claude 62e27172-cf26-49ea-9872-cbb4b690fcaf [worker:task-a, working] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1
+  resume in same pane   claude cb59df9f-fff0-40aa-8e1c-3d346fae498d [hand, idle] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2
+  resume in same pane   claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 [primary, idle] fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3
+  resumed      claude 62e27172-cf26-49ea-9872-cbb4b690fcaf in fm-lab-r2ledger-1421776-5214 pane w1:p1
+  carry-on     task-a: sent the interrupted-task message
+  resumed      claude cb59df9f-fff0-40aa-8e1c-3d346fae498d in fm-lab-r2ledger-1421776-5214 pane w1:p2
+  resumed      claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 in fm-lab-r2ledger-1421776-5214 pane w1:p3
+restore summary: 3 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 1 carry-on messages
+exit=0
+## inboxes:
+/tmp/fmlab-r2/primary/state/task-a.inbox
+cat: /tmp/fmlab-r2/primary/state/task-a.inbox: Is a directory
+
+## second run:
+restore summary: 0 resumed, 0 failed, 3 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+## task-a steering inbox contents:
+-- /tmp/fmlab-r2/primary/state/task-a.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-11-26T05:05:10Z
+--
+Herdr restarted and stopped you in the middle of your task. This is your original conversation, resumed with its full history. Background shells, servers, and monitors you had started are gone. Check the current state of your work, then carry on.
+## other inboxes (none expected for hand/primary):
+/tmp/fmlab-r2/primary/state/task-a.inbox

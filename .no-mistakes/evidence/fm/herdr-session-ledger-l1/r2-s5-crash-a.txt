@@ -1,0 +1,30 @@
+## r2 ledger before crash A:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  working  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:03:17Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:02:50Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:01:49Z
+## crash A: kill -KILL lab server 1421987 (fm-lab-r2ledger-1421776-5214) at 2026-11-25T23:03:36-06:00
+## lab claude processes still alive: 0
+## ledger right after the crash:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  working ended:other  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:03:17Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle ended:other  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:02:50Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle ended:other  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:01:49Z
+1795669416	SessionEnd/other claude-62e27172-cf26-49ea-9872-cbb4b690fcaf kept (not a deliberate end)
+1795669417	SessionEnd/other claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0 kept (not a deliberate end)
+1795669417	SessionEnd/other claude-cb59df9f-fff0-40aa-8e1c-3d346fae498d kept (not a deliberate end)
+## can-resume (no-fresh-session gate) while Herdr is down:
+{run-worktree}/bin/fm-session-ledger.sh restore
+task exit=0
+{run-worktree}/bin/fm-session-ledger.sh restore
+primary exit=0
+## lab server restarted (provision exit=0)
+## panes after restart:
+[{"pane_id":"w1:p1","label":"worker-a","cwd":"/tmp/fmlab-r2/worker-wt"},{"pane_id":"w1:p2","label":null,"cwd":"/tmp/fmlab-r2/hand"},{"pane_id":"w1:p3","label":null,"cwd":"/tmp/fmlab-r2/primary"}]
+## restore --dry-run:
+restore plan (3 to resume, 3 in ledger):
+  resume in same pane   claude 62e27172-cf26-49ea-9872-cbb4b690fcaf [worker:task-a, working] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1
+      command: cd -- /tmp/fmlab-r2/worker-wt && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID COMPACT_ADVISER_DISABLE=1 FM_SESSION_LEDGER_DIR=/tmp/fmlab-r2/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-r2/primary FM_TASK_ID=task-a FM_HOME=/tmp/fmlab-r2/primary claude --setti
+  resume in same pane   claude cb59df9f-fff0-40aa-8e1c-3d346fae498d [hand, idle] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2
+      command: cd -- /tmp/fmlab-r2/hand && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID COMPACT_ADVISER_DISABLE=1 FM_SESSION_LEDGER_DIR=/tmp/fmlab-r2/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-r2/primary claude --settings /tmp/fmlab-r2/settings.json --model haiku --resum
+  resume in same pane   claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 [primary, idle] fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3
+      command: cd -- /tmp/fmlab-r2/primary && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID COMPACT_ADVISER_DISABLE=1 FM_SESSION_LEDGER_DIR=/tmp/fmlab-r2/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-r2/primary claude --settings /tmp/fmlab-r2/settings.json --model haiku --re
+restore summary (dry run): 3 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed

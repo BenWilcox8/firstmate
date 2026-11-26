@@ -1,0 +1,60 @@
+## crash B ledger before:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  working  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:05:26Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:05:09Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:05:09Z
+## task-a record before:
+herdr_session=fm-lab-r2ledger-1421776-5214
+herdr_workspace_id=w1
+herdr_tab_id=w1:t1
+herdr_pane_id=w1:p1
+window=fm-lab-r2ledger-1421776-5214:w1:p1
+## kill -KILL lab server 2083878, then remove the lab's saved layout ~/.config/herdr/sessions/fm-lab-r2ledger-1421776-5214/session.json
+## lab restarted with no saved layout; snapshot:
+{"ws":[],"panes":[]}
+## restore --dry-run:
+restore plan (3 to resume, 3 in ledger):
+  rebuild workspace     claude 62e27172-cf26-49ea-9872-cbb4b690fcaf [worker:task-a, working] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1
+  rebuild workspace     claude cb59df9f-fff0-40aa-8e1c-3d346fae498d [hand, idle] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2
+  rebuild workspace     claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 [primary, idle] fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3
+restore summary (dry run): 3 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed
+## an unrelated workspace takes id w1 first:
+{"ws":"w1","pane":"w1:p1"}
+## restore (crash B):
+restore plan (3 to resume, 3 in ledger):
+  rebuild workspace     claude 62e27172-cf26-49ea-9872-cbb4b690fcaf [worker:task-a, working] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1
+  rebuild workspace     claude cb59df9f-fff0-40aa-8e1c-3d346fae498d [hand, idle] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2
+  rebuild workspace     claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 [primary, idle] fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3
+  resumed      claude 62e27172-cf26-49ea-9872-cbb4b690fcaf in fm-lab-r2ledger-1421776-5214 pane w2:p1
+  record       task-a in /tmp/fmlab-r2/primary now names pane w2:p1
+  carry-on     task-a: sent the interrupted-task message
+  resumed      claude cb59df9f-fff0-40aa-8e1c-3d346fae498d in fm-lab-r2ledger-1421776-5214 pane w2:p2
+  resumed      claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 in fm-lab-r2ledger-1421776-5214 pane w2:p3
+restore summary: 3 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 1 fleet records moved, 1 carry-on messages
+exit=0
+## snapshot after restore:
+{"ws":[{"workspace_id":"w1","label":"scratch"},{"workspace_id":"w2","label":"fleet"}],"tabs":[{"tab_id":"w1:t1","label":"1"},{"tab_id":"w2:t1","label":"work"},{"tab_id":"w2:t2","label":"prime"}],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","label":null,"cwd":"/tmp"},{"pane_id":"w2:p1","tab_id":"w2:t1","label":"worker-a","cwd":"/tmp/fmlab-r2/worker-wt"},{"pane_id":"w2:p2","tab_id":"w2:t1","label":null,"cwd":"/tmp/fmlab-r2/hand"},{"pane_id":"w2:p3","tab_id":"w2:t2","label":null,"cwd":"/tmp/fmlab-r2/primary"}]}
+## task-a record after:
+window=fm-lab-r2ledger-1421776-5214:w2:p1
+herdr_session=fm-lab-r2ledger-1421776-5214
+herdr_workspace_id=w2
+herdr_tab_id=w2:t1
+herdr_pane_id=w2:p1
+## resumed process per pane:
+pane=w2:p1 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume 62e27172-cf26-49ea-9872-cbb4b690fcaf 
+pane=w2:p2 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume cb59df9f-fff0-40aa-8e1c-3d346fae498d 
+pane=w2:p3 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume e5c2b33a-574f-4c28-8552-9dd82a6201c0 
+## task-a inbox messages:
+002.msg
+handled
+Herdr restarted and stopped you in the middle of your task. This is your original conversation, resumed with its full history. Background shells, servers, and monitors you had started are gone. Check the current state of your work, then carry on.
+## ledger after (primary keeps role primary though the endpoint still names w1:p3):
+herdr_session=fm-lab-r2ledger-1421776-5214
+pane=w1:p3
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  working  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:05:58Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:05:56Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w2:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:05:56Z
+can-resume --primary while running: exit=1
+## second run:
+restore summary: 0 resumed, 0 failed, 3 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+## rebuilt work tab layout:
+[{"splits":[{"direction":"right","id":"split_0_root","ratio":0.5,"rect":{"height":39,"width":94,"x":26,"y":1}}],"panes":[{"pane_id":"w2:p1","rect":{"height":39,"width":47,"x":26,"y":1}},{"pane_id":"w2:p2","rect":{"height":39,"width":47,"x":73,"y":1}}]}]

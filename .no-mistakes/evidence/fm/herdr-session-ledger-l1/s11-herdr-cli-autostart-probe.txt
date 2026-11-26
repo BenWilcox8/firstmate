@@ -1,0 +1,23 @@
+## probe: does a Herdr CLI call on a non-existent named session start a server? (fm-lab-probe-216075-4690)
+prepare exit=0
+before: [] dir=absent
+## the ledger's call shape: timeout 10 herdr pane get w1:p1 --session fm-lab-probe-216075-4690
+{"id":"cli:pane:get","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/fm-lab-probe-216075-4690/herdr.sock; run `herdr session attach fm-lab-probe-216075-4690` to start or attach it"}}
+rc=1
+after pane get: [] dir=absent server=
+## herdr pane list --session fm-lab-probe-216075-4690
+{"id":"cli:pane:list","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/fm-lab-probe-216075-4690/herdr.sock; run `herdr session attach fm-l
+rc=0
+  -> [] dir=absent
+## herdr api snapshot --session fm-lab-probe-216075-4690
+{"id":"cli:api:snapshot","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/fm-lab-probe-216075-4690/herdr.sock; run `herdr session attach f
+rc=0
+  -> [] dir=absent
+## herdr pane read w1:p1 --lines 5 --session fm-lab-probe-216075-4690
+{"id":"cli:pane:read","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/fm-lab-probe-216075-4690/herdr.sock; run `herdr session attach fm-l
+rc=0
+  -> [] dir=absent
+## herdr status --json --session fm-lab-probe-216075-4690
+{"client":{"version":"0.8.2","channel":"stable","protocol":20,"binary":"/nix/store/5j8l3xlsy0fjdfkvm0bzi9c0x7pnjg3m-herdr-0.8.2/bin/herdr","session":"fm-lab-probe-216075-4690"},"server":{"status":"not
+rc=0
+  -> [] dir=absent

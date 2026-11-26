@@ -1,0 +1,18 @@
+## teardown of lab fm-lab-r2ledger-1421776-5214 through bin/fm-herdr-lab.sh:
+teardown exit=0
+dir: absent; lab claude processes: 0; entries: 3
+## restore --dry-run:
+restore plan (0 to resume, 3 in ledger):
+  deleted      claude 62e27172-cf26-49ea-9872-cbb4b690fcaf: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry would be removed
+  deleted      claude cb59df9f-fff0-40aa-8e1c-3d346fae498d: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry would be removed
+  deleted      claude e5c2b33a-574f-4c28-8552-9dd82a6201c0: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry would be removed
+restore summary (dry run): 0 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 3 in a deleted Herdr session; nothing was changed
+dir after dry-run: absent; server: none
+## restore:
+restore plan (0 to resume, 3 in ledger):
+  deleted      claude 62e27172-cf26-49ea-9872-cbb4b690fcaf: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry was removed
+  deleted      claude cb59df9f-fff0-40aa-8e1c-3d346fae498d: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry was removed
+  deleted      claude e5c2b33a-574f-4c28-8552-9dd82a6201c0: Herdr session fm-lab-r2ledger-1421776-5214 no longer exists; entry was removed
+restore summary: 0 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 3 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+exit=0
+entries left: 0; dir: absent; server: none; session listed: []

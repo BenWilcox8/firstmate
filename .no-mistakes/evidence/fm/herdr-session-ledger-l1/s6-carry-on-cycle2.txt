@@ -1,0 +1,48 @@
+## carry-on cycle 2: ledger before
+fm-lab-ledger-2567101-14557 fleet/work/w2:p1 (worker-a)  claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd  working  worker:task-a  /tmp/fmlab-ledger/worker-wt  updated 2026-11-26T04:46:58Z
+fm-lab-ledger-2567101-14557 fleet/work/w2:p2 (by-hand)  claude bc9427a5-5773-4b3e-9a2f-415829d7b04f  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:46:30Z
+fm-lab-ledger-2567101-14557 fleet/prime/w2:p3  claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1  idle  primary  /tmp/fmlab-ledger/primary  updated 2026-11-26T04:46:30Z
+## kill -KILL lab server 3551166
+## lab server restarted (layout kept)
+## restore run from /tmp with NO_MISTAKES_GATE unset (operator shell; disposable fleet home):
+restore plan (3 to resume, 3 in ledger):
+  resume in same pane   claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd [worker:task-a, working] fm-lab-ledger-2567101-14557 fleet/work/w2:p1
+  resume in same pane   claude bc9427a5-5773-4b3e-9a2f-415829d7b04f [hand, idle] fm-lab-ledger-2567101-14557 fleet/work/w2:p2
+  resume in same pane   claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 [primary, idle] fm-lab-ledger-2567101-14557 fleet/prime/w2:p3
+  resumed      claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd in fm-lab-ledger-2567101-14557 pane w2:p1
+  carry-on     task-a: sent the interrupted-task message
+  resumed      claude bc9427a5-5773-4b3e-9a2f-415829d7b04f in fm-lab-ledger-2567101-14557 pane w2:p2
+  resumed      claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 in fm-lab-ledger-2567101-14557 pane w2:p3
+restore summary: 3 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 1 carry-on messages
+exit=0
+## steering inboxes:
+/tmp/fmlab-ledger/primary/state/task-a.inbox
+--- /tmp/fmlab-ledger/primary/state/task-a.inbox/001.msg
+schema=fm-task-inbox.v1
+at=2026-11-26T04:47:25Z
+--
+Herdr restarted and stopped you in the middle of your task. This is your original conversation, resumed with its full history. Background shells, servers, and monitors you had started are gone. Check the current state of your work, then carry on.
+## worker pane w2:p1 after the carry-on:
+  compiling... and then runs exec timeout 580 tail -f
+  /dev/null, which is the 580-second wait from
+  earlier. Exit 137 is the kill signal, so the wait
+  was stopped each time. Memory is fine (about 20 GB
+  available) and dmesg shows no OOM kill. There is
+  nothing to compile in this directory, which holds
+  only build.sh. The real build must live elsewhere,
+  so tell me where it is and I'll run that instead.
+✻ Cogitated for 12s · done 10:47 PM
+─────────────────────────────────────────────────────
+❯
+─────────────────────────────────────────────────────
+  Haiku 5.5 | 56.128k (6%) | [######----] 69% rese…
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 2 agents
+## hand pane w2:p2 and primary pane w2:p3 tails (no message expected):
+❯
+───────────────────────────────────
+  Haiku 5.5 | 51.047k (5%) | [##…
+  ⏵⏵ auto mode on · ← 2 agents
+❯
+─────────────────────────────────────────────────────────────────────────────────────────────
+  Haiku 5.5 | 50.921k (5%)
+  ⏵⏵ auto mode on (shift+tab to cycle) · ← 2 agents

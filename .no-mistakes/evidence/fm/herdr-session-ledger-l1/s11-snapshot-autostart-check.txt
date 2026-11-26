@@ -1,0 +1,5 @@
+## after teardown: dir absent; lab claude procs: 0
+## direct: timeout 10 herdr api snapshot --session fm-lab-ledger-2567101-14557 (agent env, not cleaned)
+{"id":"cli:api:snapshot","error":{"code":"server_not_running","message":"no herdr server is running at ~/.config/herdr/sessions/fm-lab-ledger-2567101-14557/herdr.sock; run `herdr session attach fm-lab-ledger-2567101-14557` to start or attach it"}}
+rc=0
+  -> dir absent running=[]

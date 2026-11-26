@@ -1,0 +1,19 @@
+ok - SessionStart writes the full entry
+ok - UserPromptSubmit and Stop update the busy state
+ok - /clear records the new session id and replaces the old entry
+ok - SessionEnd keeps a crash-class end and removes a deliberate one
+ok - a fresh relaunch of a fleet agent replaces its older entry
+ok - a nested or print-mode session never replaces the pane's agent
+ok - the primary is the session its endpoint record names
+ok - an agent that exits before the writer runs never replaces an entry
+ok - a resumed primary in a new pane stays the primary
+ok - the hook is silent and always exits 0
+ok - restore --dry-run plans every case and changes nothing
+ok - restore types only native resumes of recorded sessions and rebuilds the layout
+not ok - dry run reports the deleted session (missing: 'deleted      claude 11111111-1111-4111-8111-111111111111: Herdr session fm-lab-gone2 no longer exists; entry would be removed')
+--- output ---
+restore plan (1 to resume, 1 in ledger):
+  resume in same pane   claude 11111111-1111-4111-8111-111111111111 [worker:task-z, working] fm-lab-gone2 fleet/crew/w1:p1
+      command: cd -- /tmp && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID FM_TASK_ID=x claude --model haiku --resume 11111111-1111-4111-8111-111111111111
+restore summary (dry run): 1 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed
+before fix exit=1

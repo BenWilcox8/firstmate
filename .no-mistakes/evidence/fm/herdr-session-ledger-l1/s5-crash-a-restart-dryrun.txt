@@ -1,0 +1,23 @@
+## restore while the lab server is down:
+restore plan (0 to resume, 3 in ledger):
+  herdr-down   claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+  herdr-down   claude bc9427a5-5773-4b3e-9a2f-415829d7b04f: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+  herdr-down   claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1: Herdr session fm-lab-ledger-2567101-14557 is not running; start it, then run the restore again
+restore summary: 0 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 3 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+exit=0
+## lab server restarted
+## panes after Herdr restart:
+{"ws":[{"workspace_id":"w1","label":"fleet"}],"tabs":[{"tab_id":"w1:t1","label":"work"},{"tab_id":"w1:t2","label":"prime"}],"panes":[{"pane_id":"w1:p1","tab_id":"w1:t1","label":"worker-a","agent":null},{"pane_id":"w1:p2","tab_id":"w1:t1","label":"by-hand","agent":null},{"pane_id":"w1:p3","tab_id":"w1:t2","label":null,"agent":null}]}
+w1:p1: {"shell_pid":3063933,"foreground_process_group_id":3063933}
+w1:p2: {"shell_pid":3063938,"foreground_process_group_id":3063938}
+w1:p3: {"shell_pid":3063944,"foreground_process_group_id":3063944}
+## restore --dry-run:
+restore plan (3 to resume, 3 in ledger):
+  resume in same pane   claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd [worker:task-a, working] fm-lab-ledger-2567101-14557 fleet/work/w1:p1
+      command: cd -- /tmp/fmlab-ledger/worker-wt && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID FM_SESSION_LEDGER_DIR=/tmp/fmlab-ledger/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-ledger/primary FM_TASK_ID=task-a FM_HOME=/tmp/fmlab-ledger/primary COMPACT_ADVISER_DISABLE=
+  resume in same pane   claude bc9427a5-5773-4b3e-9a2f-415829d7b04f [hand, idle] fm-lab-ledger-2567101-14557 fleet/work/w1:p2
+      command: cd -- /tmp/fmlab-ledger/hand && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID FM_SESSION_LEDGER_DIR=/tmp/fmlab-ledger/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-ledger/primary COMPACT_ADVISER_DISABLE=1 claude --settings /tmp/fmlab-ledger/settings.json --mod
+  resume in same pane   claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1 [primary, idle] fm-lab-ledger-2567101-14557 fleet/prime/w1:p3
+      command: cd -- /tmp/fmlab-ledger/primary && env -u CLAUDECODE -u CLAUDE_CODE_CHILD_SESSION -u CLAUDE_CODE_SESSION_ID -u CLAUDE_PID -u CLAUDE_CODE_MESSAGING_SOCKET -u CLAUDE_CODE_MESSAGING_TOKEN -u CLAUDE_CODE_BRIDGE_SESSION_ID FM_SESSION_LEDGER_DIR=/tmp/fmlab-ledger/ledger FM_SESSION_LEDGER_PRIMARY_HOME=/tmp/fmlab-ledger/primary COMPACT_ADVISER_DISABLE=1 claude --settings /tmp/fmlab-ledger/settings.json --
+restore summary (dry run): 3 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed
+exit=0

@@ -1,0 +1,29 @@
+## AFTER FIX carry-on cycle: ledger before
+fm-lab-ledger2-716216-21697 fleet/1/w1:p1  claude 3ee6ce3e-7b41-482a-a93e-2b945d4f7a68  working  worker:task-a  /tmp/fmlab-ledger/worker-wt  updated 2026-11-26T04:55:54Z
+fm-lab-ledger2-716216-21697 fleet/1/w1:p2  claude 0782c180-f86d-4c8d-afb2-fd49f5212d30  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:55:54Z
+## kill -KILL lab server 716551
+## lab server restarted (layout kept)
+## restore --dry-run (fixed script):
+restore plan (2 to resume, 2 in ledger):
+  resume in same pane   claude 3ee6ce3e-7b41-482a-a93e-2b945d4f7a68 [worker:task-a, working] fm-lab-ledger2-716216-21697 fleet/1/w1:p1
+  resume in same pane   claude 0782c180-f86d-4c8d-afb2-fd49f5212d30 [hand, idle] fm-lab-ledger2-716216-21697 fleet/1/w1:p2
+restore summary (dry run): 2 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; nothing was changed
+## restore (from /tmp, NO_MISTAKES_GATE unset; disposable fleet home):
+restore plan (2 to resume, 2 in ledger):
+  resume in same pane   claude 3ee6ce3e-7b41-482a-a93e-2b945d4f7a68 [worker:task-a, working] fm-lab-ledger2-716216-21697 fleet/1/w1:p1
+  resume in same pane   claude 0782c180-f86d-4c8d-afb2-fd49f5212d30 [hand, idle] fm-lab-ledger2-716216-21697 fleet/1/w1:p2
+  resumed      claude 3ee6ce3e-7b41-482a-a93e-2b945d4f7a68 in fm-lab-ledger2-716216-21697 pane w1:p1
+  carry-on     task-a: sent the interrupted-task message
+  resumed      claude 0782c180-f86d-4c8d-afb2-fd49f5212d30 in fm-lab-ledger2-716216-21697 pane w1:p2
+restore summary: 2 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 1 carry-on messages
+exit=0
+## inboxes:
+/tmp/fmlab-ledger/primary/state/task-a.inbox
+schema=fm-task-inbox.v1
+at=2026-11-26T04:56:29Z
+--
+Herdr restarted and stopped you in the middle of your task. This is your original conversation, resumed with its full history. Background shells, servers, and monitors you had started are gone. Check the current state of your work, then carry on.## panes now:
+w1:p1 sessionId=3ee6ce3e-7b41-482a-a93e-2b945d4f7a68
+w1:p2 sessionId=0782c180-f86d-4c8d-afb2-fd49f5212d30
+## second run:
+restore summary: 0 resumed, 0 failed, 2 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages

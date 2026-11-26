@@ -1,0 +1,12 @@
+## primary entry after crash-B resume into new pane w2:p3 (endpoint still names old pane w1:p3):
+pane=w1:p3
+fm-lab-ledger-2567101-14557 fleet/prime/w2:p3  claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1  idle  primary  /tmp/fmlab-ledger/primary  updated 2026-11-26T04:45:27Z
+1795668229	SessionStart/resume claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 pane=w1:p3 state=idle
+1795668280	UserPromptSubmit claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=working
+1795668304	SessionEnd/other claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd kept (not a deliberate end)
+1795668304	SessionEnd/other claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 kept (not a deliberate end)
+1795668304	SessionEnd/other claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f kept (not a deliberate end)
+1795668327	SessionStart/resume claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd pane=w2:p1 state=idle
+1795668327	SessionStart/resume claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f pane=w2:p2 state=idle
+1795668327	SessionStart/resume claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 pane=w2:p3 state=idle
+{"pane":"w2:p3","fleet":{"role":"primary","task_id":null,"home":"/tmp/fmlab-ledger/primary","kind":"primary"}}

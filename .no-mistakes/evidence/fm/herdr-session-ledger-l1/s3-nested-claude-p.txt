@@ -1,0 +1,25 @@
+## ledger after the worker ran a nested 'claude -p' in its own pane w1:p1
+fm-lab-ledger-2567101-14557 fleet/work/w1:p1 (worker-a)  claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd  idle  worker:task-a  /tmp/fmlab-ledger/worker-wt  updated 2026-11-26T04:40:51Z
+fm-lab-ledger-2567101-14557 fleet/work/w1:p2 (by-hand)  claude 876d4a4c-12ed-462c-80f3-3c55043e5d22  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:40:40Z
+fm-lab-ledger-2567101-14557 fleet/prime/w1:p3  claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1  idle  primary  /tmp/fmlab-ledger/primary  updated 2026-11-26T04:40:41Z
+
+## events.log (applied events)
+1795668003	SessionStart/startup claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 pane=w1:p3 state=idle
+1795668003	SessionStart/startup claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd pane=w1:p1 state=idle
+1795668003	SessionStart/startup claude-876d4a4c-12ed-462c-80f3-3c55043e5d22 pane=w1:p2 state=idle
+1795668005	UserPromptSubmit claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=working
+1795668005	Stop claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=idle
+1795668039	UserPromptSubmit claude-876d4a4c-12ed-462c-80f3-3c55043e5d22 state=working
+1795668040	UserPromptSubmit claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 state=working
+1795668040	UserPromptSubmit claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=working
+1795668040	Stop claude-876d4a4c-12ed-462c-80f3-3c55043e5d22 state=idle
+1795668041	Stop claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 state=idle
+1795668051	Stop claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=idle
+
+## nested child transcripts created in the worker project dir (child sessions that ran):
+ba68b577-01f7-4f3b-9f88-2df0f02ff4bd.jsonl
+5af2bf55-a693-435c-a515-a4826360040c.jsonl
+5af2bf55-a693-435c-a515-a4826360040c
+ba68b577-01f7-4f3b-9f88-2df0f02ff4bd
+memory
+7082b036-e959-49c1-854a-113dfccc79f9

@@ -1,0 +1,7 @@
+teardown exit=0
+## after teardown: dir absent; lab claude procs: 0
+  deleted      claude 3ee6ce3e-7b41-482a-a93e-2b945d4f7a68: Herdr session fm-lab-ledger2-716216-21697 no longer exists; entry was removed
+  deleted      claude 0782c180-f86d-4c8d-afb2-fd49f5212d30: Herdr session fm-lab-ledger2-716216-21697 no longer exists; entry was removed
+restore summary: 0 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 2 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+## dir after restore: absent; entries left: 0
+## default session: {"running":true,"socket_path":"~/.config/herdr/herdr.sock"}

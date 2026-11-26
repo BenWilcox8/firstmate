@@ -1,0 +1,31 @@
+## restore (from /tmp, NO_MISTAKES_GATE unset; disposable fleet home):
+restore plan (3 to resume, 3 in ledger):
+  resume in same pane   claude 62e27172-cf26-49ea-9872-cbb4b690fcaf [worker:task-a, working] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1
+  resume in same pane   claude cb59df9f-fff0-40aa-8e1c-3d346fae498d [hand, idle] fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2
+  resume in same pane   claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 [primary, idle] fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3
+  resumed      claude 62e27172-cf26-49ea-9872-cbb4b690fcaf in fm-lab-r2ledger-1421776-5214 pane w1:p1
+  resumed      claude cb59df9f-fff0-40aa-8e1c-3d346fae498d in fm-lab-r2ledger-1421776-5214 pane w1:p2
+  resumed      claude e5c2b33a-574f-4c28-8552-9dd82a6201c0 in fm-lab-r2ledger-1421776-5214 pane w1:p3
+restore summary: 3 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+exit=0
+## panes after restore (session id each pane runs, from Herdr agent sessions + ledger):
+[{"pane_id":"w1:p1","label":"worker-a","agent":"claude","sid":null},{"pane_id":"w1:p2","label":null,"agent":"claude","sid":null},{"pane_id":"w1:p3","label":null,"agent":"claude","sid":null}]
+w1:p1: 
+w1:p2: 
+w1:p3: 
+## ledger now:
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  idle  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:03:54Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w1:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:03:54Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w1:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:03:54Z
+## inboxes (fixture lacked backend=herdr, classify read 'unreadable', so no carry-on in this cycle):
+ls: cannot access '/tmp/fmlab-r2/primary/state/*.inbox': No such file or directory
+## second restore run (idempotence):
+restore summary: 0 resumed, 0 failed, 3 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 0 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+## resumed process per pane (ps of claude processes with their pane id):
+1937654 pane=w1:p1 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume 62e27172-cf26-49ea-9872-cbb4b690fcaf 
+1937899 pane=w1:p2 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume cb59df9f-fff0-40aa-8e1c-3d346fae498d 
+1938162 pane=w1:p3 cmd=claude --settings /tmp/fmlab-r2/settings.json --model haiku --resume e5c2b33a-574f-4c28-8552-9dd82a6201c0 
+## SessionStart/resume events:
+1795669434	SessionStart/resume claude-62e27172-cf26-49ea-9872-cbb4b690fcaf pane=w1:p1 state=idle
+1795669434	SessionStart/resume claude-cb59df9f-fff0-40aa-8e1c-3d346fae498d pane=w1:p2 state=idle
+1795669434	SessionStart/resume claude-e5c2b33a-574f-4c28-8552-9dd82a6201c0 pane=w1:p3 state=idle

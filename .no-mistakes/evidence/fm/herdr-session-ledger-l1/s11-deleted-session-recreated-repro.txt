@@ -1,0 +1,13 @@
+## repro: teardown of fm-lab-ledger-2567101-14557 while 3 resumed claude sessions run in it (2026-11-25T22:50:45-06:00)
+teardown exit=0
+t+1s: session=[] dir=absent server= claude=3
+t+4s: session=[] dir=absent server= claude=3
+t+8s: session=[] dir=absent server= claude=3
+t+12s: session=[] dir=absent server= claude=3
+## ledger events:
+1795668580	SessionStart/resume claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd pane=w1:p1 state=idle
+1795668580	SessionStart/resume claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f pane=w1:p2 state=idle
+1795668580	SessionStart/resume claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 pane=w1:p3 state=idle
+1795668646	SessionEnd/other claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f kept (not a deliberate end)
+## first API requests of the re-created server:
+## SIGTERM the 3 orphaned lab claude processes: 147127 147146 147150 

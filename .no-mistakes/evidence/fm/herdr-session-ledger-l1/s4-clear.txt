@@ -1,0 +1,15 @@
+## before /clear in by-hand pane
+fm-lab-ledger-2567101-14557 fleet/work/w1:p2 (by-hand)  claude 876d4a4c-12ed-462c-80f3-3c55043e5d22  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:40:40Z
+## after /clear (and one prompt) in by-hand pane
+fm-lab-ledger-2567101-14557 fleet/work/w1:p2 (by-hand)  claude bc9427a5-5773-4b3e-9a2f-415829d7b04f  idle  hand  /tmp/fmlab-ledger/hand  updated 2026-11-26T04:41:46Z
+## entry files
+claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd.json
+claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f.json
+claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1.json
+## events
+1795668041	Stop claude-bd1503d2-129b-4c6c-9f9e-55b28412e9b1 state=idle
+1795668051	Stop claude-ba68b577-01f7-4f3b-9f88-2df0f02ff4bd state=idle
+1795668100	SessionEnd/clear claude-876d4a4c-12ed-462c-80f3-3c55043e5d22 removed (deliberate end)
+1795668100	SessionStart/clear claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f pane=w1:p2 state=idle
+1795668105	UserPromptSubmit claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f state=working
+1795668106	Stop claude-bc9427a5-5773-4b3e-9a2f-415829d7b04f state=idle

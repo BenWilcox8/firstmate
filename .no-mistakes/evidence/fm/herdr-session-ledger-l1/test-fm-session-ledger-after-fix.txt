@@ -1,0 +1,16 @@
+ok - SessionStart writes the full entry
+ok - UserPromptSubmit and Stop update the busy state
+ok - /clear records the new session id and replaces the old entry
+ok - SessionEnd keeps a crash-class end and removes a deliberate one
+ok - a fresh relaunch of a fleet agent replaces its older entry
+ok - a nested or print-mode session never replaces the pane's agent
+ok - the primary is the session its endpoint record names
+ok - an agent that exits before the writer runs never replaces an entry
+ok - a resumed primary in a new pane stays the primary
+ok - the hook is silent and always exits 0
+ok - restore --dry-run plans every case and changes nothing
+ok - restore types only native resumes of recorded sessions and rebuilds the layout
+ok - the restore never wakes a deleted Herdr session through the worker classify
+ok - can-resume answers only for a live, resumable, stopped session
+ok - install-hooks and uninstall-hooks are idempotent and keep other hooks
+after fix exit=0

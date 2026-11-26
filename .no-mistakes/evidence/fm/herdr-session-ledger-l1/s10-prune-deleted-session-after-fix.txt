@@ -1,0 +1,16 @@
+## AFTER FIX - lab fm-lab-ledger-2567101-14557 deleted: dir absent; entries: 3
+## restore --dry-run:
+restore plan (0 to resume, 3 in ledger):
+  deleted      claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry would be removed
+  deleted      claude bc9427a5-5773-4b3e-9a2f-415829d7b04f: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry would be removed
+  deleted      claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry would be removed
+restore summary (dry run): 0 would resume, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 3 in a deleted Herdr session; nothing was changed
+  dir after dry-run: absent
+## restore:
+restore plan (0 to resume, 3 in ledger):
+  deleted      claude ba68b577-01f7-4f3b-9f88-2df0f02ff4bd: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry was removed
+  deleted      claude bc9427a5-5773-4b3e-9a2f-415829d7b04f: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry was removed
+  deleted      claude bd1503d2-129b-4c6c-9f9e-55b28412e9b1: Herdr session fm-lab-ledger-2567101-14557 no longer exists; entry was removed
+restore summary: 0 resumed, 0 failed, 0 already running, 0 missing transcript, 0 fleet record gone, 0 unsupported, 0 Herdr not running, 3 in a deleted Herdr session; 0 fleet records moved, 0 carry-on messages
+exit=0
+## entries left: 0; dir: absent; session listed: []

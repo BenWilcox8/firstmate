@@ -1,0 +1,4 @@
+## dir before classify: absent
+## FM_HOME=<disposable fleet home> fm-local-worker-restore.sh classify   (task-a record names Herdr session fm-lab-ledger-2567101-14557)
+task-a	working	it was working when it stopped
+## dir after classify: present; running=[true]

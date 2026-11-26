@@ -1,0 +1,12 @@
+## a second session opened by hand in the primary home, pane w2:p4 (prime tab):
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  idle  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:06:05Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:05:56Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w2:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:05:56Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w2:p4  claude b6484cdd-1a0c-4ca6-8ffb-c2ad45e882cb  idle  hand  /tmp/fmlab-r2/primary  updated 2026-11-26T05:06:12Z
+## after /exit in w2:p4 (clean exit removes only that entry; primary entry kept):
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p1 (worker-a)  claude 62e27172-cf26-49ea-9872-cbb4b690fcaf  idle  worker:task-a  /tmp/fmlab-r2/worker-wt  updated 2026-11-26T05:06:05Z
+fm-lab-r2ledger-1421776-5214 fleet/work/w2:p2  claude cb59df9f-fff0-40aa-8e1c-3d346fae498d  idle  hand  /tmp/fmlab-r2/hand  updated 2026-11-26T05:05:56Z
+fm-lab-r2ledger-1421776-5214 fleet/prime/w2:p3  claude e5c2b33a-574f-4c28-8552-9dd82a6201c0  idle  primary  /tmp/fmlab-r2/primary  updated 2026-11-26T05:05:56Z
+1795669565	Stop claude-62e27172-cf26-49ea-9872-cbb4b690fcaf state=idle
+1795669572	SessionStart/startup claude-b6484cdd-1a0c-4ca6-8ffb-c2ad45e882cb pane=w2:p4 state=idle
+1795669582	SessionEnd/prompt_input_exit claude-b6484cdd-1a0c-4ca6-8ffb-c2ad45e882cb removed (deliberate end)
