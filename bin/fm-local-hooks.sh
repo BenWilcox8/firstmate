@@ -110,8 +110,8 @@ fm_local_hook() {
     pane-teardown-close)
       # An unforced teardown closes the stopped worker's proven-gone pane before
       # the reap and the slot return, so an unconfirmed close refuses while the
-      # slot is still leased. --force never refuses on the close, so the later
-      # upstream close with its retry notices owns that path unchanged. The
+      # slot is still leased. A forced teardown skips this close, and the later
+      # upstream close with its retry notices then refuses the same way. The
       # close runs under teardown's own session presentation lock, which stays
       # held through the reap, the slot return, and record removal. It makes
       # a fixed 3 attempts, like the backend close; FM_TEARDOWN_HERDR_CLOSE_ATTEMPTS and
@@ -149,13 +149,15 @@ fm_local_hook() {
       fm_local_pane_worker "$META" "$ID" || return 1
       if fm_local_pane_flat "$META" && fm_local_pane_recorded_gone "$META" "$ID" "$T" 2>/dev/null; then
         echo "warning: $ID's recorded pane $T is gone or now belongs to other work, so pane cleanup neither closed nor reports it as this task's pane" >&2
+        TEARDOWN_HERDR_PANE_FOREIGN=1
         return 0
       fi
       fm_local_pane_leak_report "$(teardown_herdr_close_attempts)"
       ;;
     pane-teardown-confirm)
       fm_local_pane_worker "$META" "$ID" || return 0
-      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] || [ "$FORCE" = --force ]
+      [ "$HERDR_CLOSE_CONFIRMED" = 1 ] \
+        || { [ "$TEARDOWN_HERDR_PANE_FOREIGN" = 1 ] && [ "$FORCE" = --force ]; }
       ;;
     pane-teardown-retired)
       rm -f "${META%.meta}.local-pane.json"
@@ -191,6 +193,8 @@ fm_local_hook() {
       echo "BOOTSTRAP_INFO: skipped herdr layout repair; its plan would close recorded task panes that pane cleanup kept: $closes"
       ;;
     # Restart recovery (bin/fm-local-restart-recovery.sh owns both contracts).
+    # secondmate-liveness-skip is read by the startup liveness sweep in
+    # bin/fm-bootstrap.sh and by secondmate_liveness_tick in bin/fm-watch.sh.
     restart-record)
       FM_HOME="$FM_HOME" "$FM_BACKEND_LIB_DIR/fm-local-restart-recovery.sh" record
       ;;

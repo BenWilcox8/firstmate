@@ -54,9 +54,10 @@
 // merge, decision, destination, force, discard, cleanup, credential-use, task
 // mutation, or stronger-operation capability.
 
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants as fsConstants, existsSync, fstat, read } from "node:fs";
 import {
+  access,
   chmod,
   copyFile,
   link,
@@ -77,6 +78,7 @@ import { createHash, randomBytes } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { TextDecoder, promisify } from "node:util";
+import { ExtensionDeadline } from "./fm-extension-deadline.mjs";
 
 const SELF = fileURLToPath(import.meta.url);
 const CODE_ROOT = path.dirname(path.dirname(SELF));
@@ -129,10 +131,11 @@ const fstatAsync = promisify(fstat);
 const readAsync = promisify(read);
 
 class HostError extends Error {
-  constructor(code, message) {
+  constructor(code, message, deadline = null) {
     super(message);
     this.name = "HostError";
     this.code = code;
+    this.deadline = deadline;
   }
 }
 
@@ -846,6 +849,43 @@ function sanitizedPath() {
   return [...new Set(candidates)].join(path.delimiter);
 }
 
+// Node on Windows cannot execute a shell script via its shebang. Resolve and
+// verify the interpreter, keeping the lifecycle child's sanitized environment.
+// POSIX resolves Bash through the sanitized PATH only, as the shebang did.
+async function lifecycleBash(code, message) {
+  const searchPath = process.platform === "win32" ? process.env.PATH || "" : sanitizedPath();
+  const candidates = [
+    ...(process.platform === "win32" && process.env.BASH ? [process.env.BASH] : []),
+    ...searchPath.split(path.delimiter).filter(Boolean).map((directory) =>
+      path.join(directory, process.platform === "win32" ? "bash.exe" : "bash")),
+  ];
+  for (const candidate of new Set(candidates)) {
+    if (!path.isAbsolute(candidate)) continue;
+    try {
+      const executable = await realpath(candidate);
+      await access(executable, fsConstants.X_OK);
+      const marker = "firstmate-lifecycle-bash-probe";
+      const probe = process.platform === "win32"
+        ? `test -n "$BASH_VERSION" && case "$OSTYPE" in msys*|cygwin*) ;; *) exit 1;; esac && printf '%s\\n' '${marker}'`
+        : `test -n "$BASH_VERSION" && printf '%s\\n' '${marker}'`;
+      const { stdout } = await promisify(execFile)(executable, ["--noprofile", "--norc", "-c", probe], {
+        timeout: 5000,
+        env: { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C" },
+      });
+      if (stdout !== `${marker}\n`) throw new Error("lifecycle Bash probe marker missing");
+      return executable;
+    } catch {
+      // A PATH entry may be absent or a different shell (e.g. WSL bash.exe).
+    }
+  }
+  fail(code, message);
+}
+
+function lifecycleScript() {
+  const script = path.join(CODE_ROOT, "bin", "fm-procevent.sh");
+  return process.platform === "win32" ? script.replaceAll("\\", "/") : script;
+}
+
 function effectiveStateRoot(home) {
   return path.resolve(process.env.FM_STATE_OVERRIDE || path.join(home, "state"));
 }
@@ -921,7 +961,8 @@ async function sleep(milliseconds) {
 
 async function capturedProcessOutput(command, args, maxBytes = 8192) {
   const child = spawn(command, args, {
-    env: { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C" },
+    // TZ matches fm_pid_identity in bin/fm-wake-lib.sh, whose identities pidIdentity reads.
+    env: { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C", TZ: "UTC0" },
     shell: false,
     stdio: ["ignore", "pipe", "ignore"],
   });
@@ -1270,9 +1311,9 @@ async function reserveInvocation(home, record, verb, request, statePath) {
 }
 
 async function publishInvocationGroup(invocation, owner) {
-  const deadline = Date.now() + LAUNCH_READY_WAIT_MS;
+  const deadline = new ExtensionDeadline("launch-ready", LAUNCH_READY_WAIT_MS, owner.operation);
   let ready = null;
-  while (Date.now() < deadline) {
+  while (!deadline.expired()) {
     const value = await readPrivateJson(invocation.readyFile, "extension invocation readiness");
     if (value) {
       ready = validateInvocationReady(value, invocation.token);
@@ -1281,7 +1322,7 @@ async function publishInvocationGroup(invocation, owner) {
     if (!pidAlive(invocation.pid)) fail("entrypoint-missing", "extension launch barrier exited before publishing ownership");
     await sleep(INVOCATION_POLL_MS);
   }
-  if (!ready) fail("timeout", "extension launch barrier did not publish ownership in time");
+  if (!ready) throw new HostError("timeout", "extension launch barrier did not publish ownership in time", deadline.evidence());
   if (ready.group_pid !== invocation.pid) fail("process-cleanup-failed", "extension launch barrier published a different process group");
   // The tracked barrier is the exact detached child this host just created.
   // Package code cannot run until after this ready record is accepted and the
@@ -1325,6 +1366,27 @@ async function cleanupRecordedInvocations(home, { sourceId = null, bindingDigest
     await clearInvocationFiles(invocation);
     cleaned += 1;
   }
+  // A readiness record can outlive its owner after interrupted finalization.
+  // It carries no source/binding authority and must never authorize signalling.
+  // Reclaim only the core barrier's exact token after both PID and group are gone.
+  for (const name of (await readdir(root)).filter((entry) => /^[0-9a-f]{64}\.ready\.json$/u.test(entry)).sort()) {
+    const token = `sha256:${name.slice(0, -".ready.json".length)}`;
+    const paths = invocationPaths(root, token);
+    if (await maybeLstat(paths.ownerFile)) continue;
+    const readyValue = await readPrivateJson(paths.readyFile, "extension invocation readiness");
+    if (!readyValue) continue;
+    const ready = validateInvocationReady(readyValue, token);
+    if (ready.group_identity !== `barrier-token:${token}`
+        || await processGroupState(ready.group_pid, ready.group_identity) !== 1) {
+      fail("process-cleanup-failed", "ownerless extension readiness process group cannot be proved gone");
+    }
+    const rechecked = await readPrivateJson(paths.readyFile, "extension invocation readiness");
+    if (canonicalJson(rechecked) !== canonicalJson(ready) || await maybeLstat(paths.ownerFile)) {
+      fail("process-cleanup-failed", "ownerless extension readiness changed before cleanup");
+    }
+    await unlink(paths.readyFile);
+    cleaned += 1;
+  }
   const remaining = await readdir(root);
   const known = new Set();
   for (const name of remaining.filter((entry) => /^[0-9a-f]{64}\.owner\.json$/u.test(entry))) {
@@ -1357,12 +1419,14 @@ async function runExtensionProcess(home, record, verb, request, timeoutMs, state
   const stdout = [];
   let forcedCode = "";
   let forcedMessage = "";
+  let forcedDeadline = null;
   let killTimer = null;
 
-  const forceStop = (code, message) => {
+  const forceStop = (code, message, deadline = null) => {
     if (forcedCode) return;
     forcedCode = code;
     forcedMessage = message;
+    forcedDeadline = deadline;
     signalProcessGroup(invocation, "SIGTERM");
     killTimer = setTimeout(() => signalProcessGroup(invocation, "SIGKILL"), TERMINATE_GRACE_MS);
   };
@@ -1390,7 +1454,8 @@ async function runExtensionProcess(home, record, verb, request, timeoutMs, state
     await finalizeInvocation(invocation);
     throw error;
   }
-  const timeout = setTimeout(() => forceStop("timeout", `extension ${verb} exceeded ${timeoutMs} ms`), timeoutMs);
+  const timeout = new ExtensionDeadline(verb, timeoutMs, verb === "handshake" ? verb : request.operation)
+    .arm((deadline) => forceStop("timeout", `extension ${verb} exceeded ${timeoutMs} ms`, deadline));
   child.stdin.on("error", () => {});
   child.stdin.end(requestBytes);
 
@@ -1398,16 +1463,16 @@ async function runExtensionProcess(home, record, verb, request, timeoutMs, state
   try {
     outcome = await completion;
   } catch (error) {
-    clearTimeout(timeout);
+    timeout.cancel();
     if (killTimer) clearTimeout(killTimer);
     await finalizeInvocation(invocation);
     throw error;
   }
-  clearTimeout(timeout);
+  timeout.cancel();
   if (killTimer) clearTimeout(killTimer);
   const leakedProcessGroup = !forcedCode && groupAlive(invocation.pid);
   await finalizeInvocation(invocation);
-  if (forcedCode) fail(forcedCode, forcedMessage);
+  if (forcedCode) throw new HostError(forcedCode, forcedMessage, forcedDeadline);
   if (leakedProcessGroup) fail("process-leak", `extension ${verb} left a background process in its invocation group`);
   if (outcome.signal || outcome.code !== 0) fail("process-failed", `extension ${verb} exited nonzero`);
   return parseStrictJson(Buffer.concat(stdout), `extension ${verb} response`);
@@ -1747,6 +1812,7 @@ function errorEvidence(error, extensionId, operation) {
     extension_id: safeExtensionId,
     operation,
     code: allowedCode,
+    ...(error instanceof HostError && error.deadline ? { deadline: error.deadline } : {}),
   })}\n`;
 }
 
@@ -2067,6 +2133,8 @@ async function releaseLifecycleLock() {
   const { lockPath, ownerPath } = activeLifecycleLock;
   await unlink(lockPath);
   await unlink(path.join(ownerPath, "pid"));
+  // The holder's start time, which fm_lock_prepare_owner records beside the pid.
+  await unlink(path.join(ownerPath, "pid-start")).catch((error) => error?.code === "ENOENT" ? null : Promise.reject(error));
   await rmdir(ownerPath);
   activeLifecycleLock = null;
 }
@@ -2255,13 +2323,13 @@ async function cmdRetireBindingLocked(args) {
 }
 
 async function runLifecycleRetirement(mode, args) {
-  const command = path.join(CODE_ROOT, "bin", "fm-procevent.sh");
+  const command = await lifecycleBash("retirement-failed", "extension lifecycle retirement could not start");
   const home = await activeHome();
   const env = { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C", HOME: process.env.HOME || home, FM_HOME: home, FM_ROOT_OVERRIDE: CODE_ROOT };
   if (process.env.FM_STATE_OVERRIDE) env.FM_STATE_OVERRIDE = process.env.FM_STATE_OVERRIDE;
   if (process.env.XDG_STATE_HOME) env.XDG_STATE_HOME = process.env.XDG_STATE_HOME;
   if (process.env.FM_PROCEVENT_CLAIM_ROOT) env.FM_PROCEVENT_CLAIM_ROOT = process.env.FM_PROCEVENT_CLAIM_ROOT;
-  const child = spawn(command, ["extension-retirement", mode, ...args], {
+  const child = spawn(command, [lifecycleScript(), "extension-retirement", mode, ...args], {
     cwd: CODE_ROOT,
     env,
     shell: false,
@@ -2291,13 +2359,13 @@ async function runLifecycleRetirement(mode, args) {
 }
 
 async function runLifecycleProcessEvent(args) {
-  const command = path.join(CODE_ROOT, "bin", "fm-procevent.sh");
+  const command = await lifecycleBash("process-event-failed", "extension lifecycle process-event could not start");
   const home = await activeHome();
   const env = { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C", HOME: process.env.HOME || home, FM_HOME: home, FM_ROOT_OVERRIDE: CODE_ROOT };
   if (process.env.FM_STATE_OVERRIDE) env.FM_STATE_OVERRIDE = process.env.FM_STATE_OVERRIDE;
   if (process.env.XDG_STATE_HOME) env.XDG_STATE_HOME = process.env.XDG_STATE_HOME;
   if (process.env.FM_PROCEVENT_CAPTURE_SOURCE_LOCK_HELD === "1") env.FM_PROCEVENT_CAPTURE_SOURCE_LOCK_HELD = "1";
-  const child = spawn(command, ["extension-process-event", ...args], {
+  const child = spawn(command, [lifecycleScript(), "extension-process-event", ...args], {
     cwd: CODE_ROOT,
     env,
     shell: false,
@@ -2329,13 +2397,13 @@ async function runLifecycleProcessEvent(args) {
 }
 
 async function runLifecycleBinding(commandName, args) {
-  const command = path.join(CODE_ROOT, "bin", "fm-procevent.sh");
+  const command = await lifecycleBash("binding-failed", "extension lifecycle binding could not start");
   const home = await activeHome();
   const env = { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C", HOME: process.env.HOME || home, FM_HOME: home, FM_ROOT_OVERRIDE: CODE_ROOT };
   if (process.env.FM_STATE_OVERRIDE) env.FM_STATE_OVERRIDE = process.env.FM_STATE_OVERRIDE;
   if (process.env.XDG_STATE_HOME) env.XDG_STATE_HOME = process.env.XDG_STATE_HOME;
   if (process.env.FM_PROCEVENT_CLAIM_ROOT) env.FM_PROCEVENT_CLAIM_ROOT = process.env.FM_PROCEVENT_CLAIM_ROOT;
-  const child = spawn(command, ["extension-bind", commandName, ...args], {
+  const child = spawn(command, [lifecycleScript(), "extension-bind", commandName, ...args], {
     cwd: CODE_ROOT,
     env,
     shell: false,
@@ -2396,12 +2464,12 @@ async function runInheritedLifecycleRetirement(args) {
 
 async function bindingRetirementPreflight(home, bindingDigest) {
   await cleanupRecordedInvocations(home, { bindingDigest });
-  const command = path.join(CODE_ROOT, "bin", "fm-procevent.sh");
+  const command = await lifecycleBash("retirement-preflight-failed", "process-event retirement preflight could not start");
   const env = { PATH: sanitizedPath(), LANG: "C", LC_ALL: "C", HOME: process.env.HOME || home, FM_HOME: home, FM_ROOT_OVERRIDE: CODE_ROOT };
   if (process.env.FM_STATE_OVERRIDE) env.FM_STATE_OVERRIDE = process.env.FM_STATE_OVERRIDE;
   if (process.env.XDG_STATE_HOME) env.XDG_STATE_HOME = process.env.XDG_STATE_HOME;
   if (process.env.FM_PROCEVENT_CLAIM_ROOT) env.FM_PROCEVENT_CLAIM_ROOT = process.env.FM_PROCEVENT_CLAIM_ROOT;
-  const child = spawn(command, ["binding-retirement-preflight", bindingDigest], {
+  const child = spawn(command, [lifecycleScript(), "binding-retirement-preflight", bindingDigest], {
     cwd: CODE_ROOT,
     env,
     shell: false,

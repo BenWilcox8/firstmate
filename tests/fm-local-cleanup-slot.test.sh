@@ -42,7 +42,8 @@ make_case() {
   printf '{"worktrees":[{"name":"1","path":"%s","created_at":"2026-09-24T00:00:00Z"}]}\n' "$WT" > "$CASE/pool/treehouse-state.json"
   set_slot_owner "$$"
   fm_write_meta "$CASE/home/state/old.meta" "window=fixture:fm-old" "endpoint_task_id=old" \
-    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=old-generation"
+    "worktree=$WT" "project=$CASE/project" "kind=ship" "mode=local-only" "spawn_gen=old-generation" \
+    "local_done_head=$(git -C "$CASE/project" rev-parse fm/old)"
   printf 'done: finished\n' > "$CASE/home/state/old.status"
   cat > "$CASE/fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
@@ -538,9 +539,24 @@ test_retirement_preserves_landed_ship_ref_and_task_artifacts() {
   printf 'old authority\n' > "$CASE/home/state/old.merge-authority"
   printf 'old progress\n' > "$CASE/home/state/old.progress"
   printf 'live authority\n' > "$CASE/home/state/live.merge-authority"
+  # Spawn leaves the per-task hooks directory and the push guard read-only.
+  local dir
+  for dir in old live; do
+    mkdir "$CASE/home/state/$dir.git-hooks"
+    printf '#!/bin/sh\n' > "$CASE/home/state/$dir.git-hooks/commit-msg"
+    chmod 500 "$CASE/home/state/$dir.git-hooks/commit-msg" "$CASE/home/state/$dir.git-hooks"
+  done
+  printf 'guard\n' > "$CASE/home/state/old.push-guard"
+  chmod 400 "$CASE/home/state/old.push-guard"
+  printf 'old devin config\n' > "$CASE/home/state/old.devin-config.json"
   local old_head
   old_head=$(git -C "$CASE/project" rev-parse fm/old)
   run_retire > "$CASE/out" 2> "$CASE/err" || fail "landed ship retirement failed: $(cat "$CASE/err")"
+  assert_absent "$CASE/home/state/old.git-hooks" 'retired read-only hooks directory remains'
+  assert_absent "$CASE/home/state/old.push-guard" 'retired push guard remains'
+  assert_present "$CASE/home/state/live.git-hooks/commit-msg" 'retirement removed the live hooks directory'
+  [ "$(cat "$CASE/home/data/old/retired-reassigned/old.devin-config.json")" = 'old devin config' ] || fail 'retired runtime config was not archived'
+  chmod u+w "$CASE/home/state/live.git-hooks"
   [ "$(git -C "$CASE/project" rev-parse fm/old)" = "$old_head" ] || fail 'retirement deleted the old branch'
   assert_absent "$CASE/home/state/old.check.sh" 'retired check remains active'
   assert_absent "$CASE/home/state/.old.branch-outcome-index" 'retired branch-outcome index remains active'
@@ -555,6 +571,45 @@ test_retirement_preserves_landed_ship_ref_and_task_artifacts() {
   [ "$(cat "$CASE/home/state/live.merge-authority")" = 'live authority' ] || fail 'live merge-authority record changed'
   [ "$(cat "$CASE/home/state/live.check.sh")" = 'live poll' ] || fail 'live check changed'
   pass 'landed ship retirement keeps Git refs and archives only its own task artifacts'
+}
+
+# A plain teardown of a stale ship record on a slot whose claim names the live
+# task is records-only. It proved no landing, so it must not close the old
+# ticket on what the live task's copy shows: dirty edits there must not read as
+# old's landed work, and a clean copy must not read as old's empty leg.
+test_records_only_teardown_records_no_atlas_close_out() {
+  local copy
+  for copy in dirty clean; do
+    make_collision "records-only-$copy"
+    perl -pi -e 's/kind=scout/kind=ship/' "$CASE/home/state/old.meta"
+    [ "$copy" = dirty ] || rm "$WT/sentinel"
+    make_atlas
+    cat > "$CASE/fakebin/atlas-axi" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$CASE/atlas-calls"
+case "$*" in
+  *'ticket show c1 --json') printf '{"change":{"id":"c1","task":"old","state":"started","node":"n1"}}\n' ;;
+  *'ticket list n1 --json') printf '[]\n' ;;
+esac
+exit 0
+SH
+    chmod +x "$CASE/fakebin/atlas-axi"
+    printf 'task=live\nhome=%s\n' "$CASE/home" > "$CASE/pool/1/.fm-slot-owner"
+    cp "$CASE/home/state/live.meta" "$CASE/live.before"
+    cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
+    run_teardown > "$CASE/out" 2> "$CASE/err" || fail "$copy: records-only teardown failed: $(cat "$CASE/err")"
+    assert_absent "$CASE/home/state/old.meta" "$copy: records-only teardown kept the stale record"
+    if grep -Eq 'ticket (complete|abort)|(^| )release n1|(^| )land n1' "$CASE/atlas-calls" 2>/dev/null; then
+      fail "$copy: records-only teardown changed the old ticket: $(cat "$CASE/atlas-calls")"
+    fi
+    assert_contains "$(cat "$CASE/err")" 'its Atlas ticket c1 stays as it is' "$copy: the skipped close-out was not reported"
+    cmp -s "$CASE/live.before" "$CASE/home/state/live.meta" || fail "$copy: records-only teardown changed the live record"
+    cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$copy: records-only teardown changed the live lease"
+    [ "$(git -C "$WT" branch --show-current)" = fm/live ] || fail "$copy: records-only teardown changed the live branch"
+    [ "$copy" = clean ] || [ "$(cat "$WT/sentinel")" = 'live edits' ] || fail "$copy: records-only teardown changed the live edits"
+    kill -0 "$AGENT_PID" 2>/dev/null || fail "$copy: records-only teardown killed the live agent"
+  done
+  pass 'a records-only teardown on a reassigned slot records no Atlas landing or abort from the live copy'
 }
 
 test_retirement_serializes_with_live_task_lifecycle() {
@@ -683,6 +738,44 @@ test_unowned_slot_scans_registered_local_homes() {
   pass 'the unowned-slot scan includes records in registered local secondmate homes'
 }
 
+# --no-live-owner must see every local home that could hold a newer record for
+# the slot, so a home it cannot scan refuses before anything changes.
+test_unowned_slot_refuses_unscannable_registered_homes() {
+  local scenario expect mate_line
+  for scenario in missing-home exec-only-state unsafe-registry malformed-entry; do
+    make_shared_slot "unowned-scan-$scenario" "$TMP_ROOT/unowned-scan-$scenario/mate/state"
+    mate_line=$(printf -- '- mate - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)' "$CASE/mate")
+    printf '%s\n' "$mate_line" > "$CASE/home/data/secondmates.md"
+    case "$scenario" in
+      missing-home)
+        expect='registered local Firstmate home is unavailable'
+        printf -- '- gone - fixture (home: %s; scope: fixture; projects: fixture; added 2026-10-14)\n' "$CASE/gone" \
+          >> "$CASE/home/data/secondmates.md" ;;
+      exec-only-state)
+        expect='cannot read state directory'
+        chmod 100 "$CASE/mate/state" ;;
+      unsafe-registry)
+        expect='local Firstmate registry is unsafe'
+        mv "$CASE/home/data/secondmates.md" "$CASE/registry.real"
+        ln -s "$CASE/registry.real" "$CASE/home/data/secondmates.md" ;;
+      malformed-entry)
+        expect='malformed local Firstmate registry entry'
+        printf -- '- broken entry with no home\n' >> "$CASE/home/data/secondmates.md" ;;
+    esac
+    cp "$CASE/home/state/old.meta" "$CASE/old.before"
+    cp "$CASE/pool/treehouse-state.json" "$CASE/pool.before"
+    if run_retire_unowned > "$CASE/out" 2> "$CASE/err"; then
+      chmod 755 "$CASE/mate/state"
+      fail "$scenario: retirement went on past a home it could not scan"
+    fi
+    chmod 755 "$CASE/mate/state"
+    assert_grep "$expect" "$CASE/err" "$scenario: the refusal did not name the cause"
+    cmp -s "$CASE/old.before" "$CASE/home/state/old.meta" || fail "$scenario: the refused retirement changed the old record"
+    cmp -s "$CASE/pool.before" "$CASE/pool/treehouse-state.json" || fail "$scenario: the refused retirement changed the pool record"
+  done
+  pass 'unowned-slot retirement refuses when a registered local home or its state directory cannot be scanned'
+}
+
 test_unowned_slot_closes_an_archived_backlog_row() {
   make_shared_slot unowned-archived
   printf 'backend = "markdown"\n\n[markdown]\npath = "data/backlog.md"\narchive = "data/done-archive.md"\n' > "$CASE/home/.tasks.toml"
@@ -751,6 +844,7 @@ test_unowned_slot_retires_older_record
 test_unowned_slot_skips_a_legacy_claimant_for_ordering
 test_unowned_slot_proves_the_recorded_owner_stopped
 test_unowned_slot_scans_registered_local_homes
+test_unowned_slot_refuses_unscannable_registered_homes
 test_unowned_slot_closes_an_archived_backlog_row
 test_unowned_slot_refusals_preserve_records
 test_parent_gate_preserves_slot
@@ -769,3 +863,4 @@ test_retirement_closes_only_its_ticket_and_backlog
 test_retirement_lands_a_node_no_open_ticket_holds
 test_retirement_preserves_landed_ship_ref_and_task_artifacts
 test_retirement_serializes_with_live_task_lifecycle
+test_records_only_teardown_records_no_atlas_close_out

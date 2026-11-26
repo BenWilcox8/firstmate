@@ -1,9 +1,7 @@
 ---
 name: atlas-firstmate-bridge
 description: >-
-  Agent-only reference for composing the Atlas ticket doctrine with the AGENTS.md contract.
-  Load in an Atlas-wired home before dispatching, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
-  Owns the dispatch order, the merge-kind mapping, the captain-word recording, the concurrency precedence, the heartbeat headroom duty, the ghost-leg repair, the park act for worker-gone work, and the ledger that names one owner for every known contradiction between the two surfaces.
+  Load in an Atlas-wired home before dispatching, parking, landing, or tearing down ticketed work, and whenever an Atlas instruction and AGENTS.md appear to disagree.
 user-invocable: false
 metadata:
   internal: true
@@ -126,23 +124,35 @@ Where a project genuinely wants the committed agent file, it belongs in that pro
 
 ## Concurrency precedence
 
-AGENTS.md section 7 governs parallelism: dispatch isolated work immediately, with no cap beyond the agent limit, and serialize only for a true semantic dependency or shared mutable state.
-The resource ceiling on the captain's machine is firstmate's concurrent agent limit, not a parallelism doctrine: `bin/fm-agent-count.sh` reads the crewmate agents really open in Herdr against `config/agent-limit`, and `bin/fm-spawn.sh` enforces it ([`docs/configuration.md`](../../../docs/configuration.md) "Concurrent agent limit").
-Read room from that count, not from `atlas-axi limit` or `atlas-axi headroom`, which count started tickets, including parked work and ghost legs.
+AGENTS.md section 7 governs parallelism: dispatch isolated work immediately, with no cap beyond the agent limit and any project capacity the captain declared in `config/project-capacity`, and serialize only for a true semantic dependency or shared mutable state.
+The resource ceilings on the captain's machine are those two limits, not a parallelism doctrine, and `bin/fm-spawn.sh` enforces both.
+Room needs both of these:
+
+- headroom in `bin/fm-agent-count.sh`, which reads the crewmate agents really open in Herdr against `config/agent-limit` ([`docs/configuration.md`](../../../docs/configuration.md) "Concurrent agent limit");
+- a free place under the project's `config/project-capacity` line, when one exists ([`docs/configuration.md`](../../../docs/configuration.md) "Project capacity"; `bin/fm-project-capacity-lib.sh` owns what holds a place).
+
+The spawn's own race-safe admission check is the only read of a project place, so do not add a hand-written pre-count of project places.
+When `config/lane-capacity` exists, `bin/fm-capacity.sh` is the read for open lanes and host headroom.
+Read room from these, not from `atlas-axi limit` or `atlas-axi headroom`, which count started tickets, including parked work and ghost legs.
 Treat a full reading as "no room right now", which is a line in your own report and a reason to wait, never a reason to call independent work dependent.
 Pass `--over-limit` only when the captain asks for more concurrency.
-Neither counter is a liveness fact for one task.
+That flag lifts the agent limit only, never project capacity.
+A room reading is never a liveness fact for one task.
 `bin/fm-crew-state.sh` and the recorded backend endpoint remain the only liveness truth.
 One node holds one crewmate, so two tickets on one node serialize even when the work is independent.
 
 ## The heartbeat headroom duty
 
-`atlas-supervising` adds a dispatch decision to every heartbeat, and AGENTS.md section 8's heartbeat contract does not mention it.
+`atlas-supervising` adds a dispatch decision to every heartbeat, and AGENTS.md section 8 states it only as one line: run `atlas-axi dispositions` and dispatch each ready node.
 Both hold, in this order.
 Run the heartbeat as AGENTS.md states it: review the whole fleet, reconcile suspicious tasks and PR state, and update the backlog.
 Then, if there is room and ready tickets are queued, dispatch the next ready one by the dispatch order above, with no captain prompt.
 Room with nothing ready is nothing to do.
-No room is a line in your own report, never a dispatch you let fail at the gate.
+A full agent limit is a line in your own report, never a dispatch you let fail at the gate.
+A full project shows only at the spawn, and it is the same kind of line in your report.
+A spawn that prints `deferred:` and exits 75 on project capacity launched nothing, created no record, and did not start the Atlas ticket.
+Leave the ticket and its backlog item queued, do not escalate, and do not call that case a dependency.
+Dispatch it again when a holder records its ready PR or is cleaned up (AGENTS.md section 10).
 
 ## Ghost legs
 

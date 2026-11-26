@@ -12,6 +12,8 @@ set -u
 # A worker pane from bin/fm-spawn.sh inherits its home's TREEHOUSE_ROOT.
 unset TREEHOUSE_ROOT
 
+# These cases check the default base under HOME, so drop the base tests/lib.sh sets.
+unset FM_TREEHOUSE_HOMES_BASE
 HELPER="$ROOT/bin/fm-treehouse.sh"
 TMP_ROOT=$(fm_test_tmproot fm-treehouse)
 USER_HOME="$TMP_ROOT/user-home"
@@ -48,6 +50,23 @@ test_root_is_per_home_and_stable() {
   a_link=$(print_root "$link") || fail "--print-root failed through a symlinked home path"
   [ "$a_link" = "$a_root" ] || fail "a symlinked path to home A resolved '$a_link', not '$a_root'"
   pass "fm-treehouse: each home resolves its own stable root outside the home"
+}
+
+test_lab_base_keeps_roots_out_of_the_user_store() {
+  local home default_root lab_base lab_root out status
+  home=$(make_home home-lab)
+  default_root=$(print_root "$home") || fail "--print-root failed for the lab home"
+  lab_base="$TMP_ROOT/lab-root/treehouse/firstmate-homes"
+  lab_root=$(FM_TREEHOUSE_HOMES_BASE="$lab_base" print_root "$home") \
+    || fail "--print-root failed with FM_TREEHOUSE_HOMES_BASE set"
+  [ "$lab_root" = "$lab_base/${default_root##*/}" ] \
+    || fail "a lab base resolved '$lab_root', not '$lab_base/${default_root##*/}'"
+  out=$(FM_TREEHOUSE_HOMES_BASE="relative/base" print_root "$home" 2>&1); status=$?
+  [ "$status" -ne 0 ] || fail "a relative FM_TREEHOUSE_HOMES_BASE must refuse, got '$out'"
+  out=$(TREEHOUSE_ROOT="$TMP_ROOT/inherited" print_root "$home") || fail "--print-root failed with TREEHOUSE_ROOT set"
+  [ "$out" = "$default_root" ] \
+    || fail "an inherited TREEHOUSE_ROOT moved the home root to '$out'"
+  pass "fm-treehouse: a lab base holds each home's root, and an inherited TREEHOUSE_ROOT does not"
 }
 
 test_run_form_passes_root_and_project() {
@@ -149,5 +168,6 @@ test_real_treehouse_pools_per_home() {
 }
 
 test_root_is_per_home_and_stable
+test_lab_base_keeps_roots_out_of_the_user_store
 test_run_form_passes_root_and_project
 test_real_treehouse_pools_per_home

@@ -155,8 +155,8 @@ test_empty_fleet_json() {
 if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = backlog ] && [ "$#" -eq 5 ] && [ "$1" = -n ] && [ "$2" = --arg ] && [ "$3" = path ]; then
   exit 0
 fi
-if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = tasks ] && [ "$1" = -s ]; then
-  cat >/dev/null
+# An empty fleet's task producer is jq -n '[]', the first such call of a snapshot.
+if [ "${FM_TEST_EMPTY_PRODUCER:-backlog}" = tasks ] && [ "$#" -eq 2 ] && [ "$1" = -n ] && [ "$2" = "[]" ]; then
   exit 0
 fi
 exec "${FM_TEST_REAL_JQ:?}" "$@"
@@ -1178,21 +1178,22 @@ EOF
   pass "home-summary excludes kind=secondmate from unowned_current and terminal_in_flight"
 }
 
-test_empty_fleet_json
-test_fixture_snapshot_json
-test_home_summary_excludes_secondmate_from_child_inventory
-test_undated_captain_hold_phrasing_and_aging
-test_hold_buckets_are_total_and_text_blind
-test_main_inventory_orphan_and_unstructured_disclosure
-test_normalized_roles_and_plural_blocker_readiness
-test_event_hints_follow_reconciled_current_state
-test_open_decision_survives_later_unrelated_event
-test_secondmate_open_decision_survives_live_endpoint
-test_open_decision_transfers_to_captain_hold
-test_open_decision_clears_on_keyed_resolution
-test_completed_scout_report_is_pointer_not_pending
-test_parked_scout_decision_stays_pending
-test_scout_reports_include_teardown_reports
-test_backlog_tasks_axi_forms_and_overrides
-test_view_renders_snapshot
-test_view_renders_dead_secondmate_agent_status
+fm_test_run \
+  test_empty_fleet_json \
+  test_fixture_snapshot_json \
+  test_home_summary_excludes_secondmate_from_child_inventory \
+  test_undated_captain_hold_phrasing_and_aging \
+  test_hold_buckets_are_total_and_text_blind \
+  test_main_inventory_orphan_and_unstructured_disclosure \
+  test_normalized_roles_and_plural_blocker_readiness \
+  test_event_hints_follow_reconciled_current_state \
+  test_open_decision_survives_later_unrelated_event \
+  test_secondmate_open_decision_survives_live_endpoint \
+  test_open_decision_transfers_to_captain_hold \
+  test_open_decision_clears_on_keyed_resolution \
+  test_completed_scout_report_is_pointer_not_pending \
+  test_parked_scout_decision_stays_pending \
+  test_scout_reports_include_teardown_reports \
+  test_backlog_tasks_axi_forms_and_overrides \
+  test_view_renders_snapshot \
+  test_view_renders_dead_secondmate_agent_status

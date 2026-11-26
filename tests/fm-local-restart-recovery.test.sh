@@ -13,6 +13,13 @@
 #     restart recovery pass that is running.
 #   - secondmate-liveness-serial: the same sweep relaunches local second mates one at
 #     a time.
+#   - secondmate-liveness-skip in bin/fm-watch.sh: the watcher's liveness tick
+#     leaves a dormant second mate down and yields to a running recovery pass,
+#     queuing no auto-relaunch wake for either.
+#   - the recovery pass takes the same second mate locks as the other relaunch
+#     drivers (bin/fm-secondmate-liveness-lib.sh): it skips a second mate whose
+#     liveness lock another driver holds, and waits a bounded time for the
+#     per-home relaunch lock.
 # The Herdr lifecycle proof (a real lab restart, in-place relaunches, the
 # manual-relaunch guard) lives in tests/fm-local-restart-recovery-herdr-e2e.test.sh.
 set -u
@@ -110,13 +117,13 @@ new_world() {
 
 # rr <world> <args...>: run the recovery CLI against <world> with every
 # ambient Herdr pane marker removed, so this suite never reads the terminal it
-# was started from.
+# was started from. RR_PATH_PREFIX, when set, goes in front of PATH.
 rr() {
   local w=$1
   shift
   env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION -u HERDR_SOCKET_PATH \
     -u HERDR_WORKSPACE_ID -u HERDR_TAB_ID \
-    PATH="$w/herdr/fakebin:$BASE_PATH" FM_HOME="$w/home" \
+    PATH="${RR_PATH_PREFIX:+$RR_PATH_PREFIX:}$w/herdr/fakebin:$BASE_PATH" FM_HOME="$w/home" \
     FM_RESTART_BOOT_ID_FILE="$w/boot_id" \
     FM_RESTART_USER_MANAGER_ID="$(cat "$w/user_manager")" \
     FM_TEST_HERDR_DIR="$w/herdr" \
@@ -562,9 +569,9 @@ make_toolchain() {
   local dir=$1 fakebin
   fakebin=$(fm_fakebin "$dir")
   fm_fake_exit0 "$fakebin" node chrome-devtools-axi gh
-  fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.46
+  fm_fake_version_tool "$fakebin" lavish-axi FM_FAKE_LAVISH_AXI_VERSION 0.1.80
   fm_fake_version_tool "$fakebin" gh-axi FM_FAKE_GH_AXI_VERSION 0.1.29
-  fm_fake_version_tool "$fakebin" quota-axi FM_FAKE_QUOTA_AXI_VERSION 0.1.29
+  fm_fake_version_tool "$fakebin" quota-axi FM_FAKE_QUOTA_AXI_VERSION 0.1.51
   cat > "$fakebin/treehouse" <<'SH'
 #!/usr/bin/env bash
 if [ "${1:-}" = get ] && [ "${2:-}" = --help ]; then
@@ -582,7 +589,7 @@ SH
   cat > "$fakebin/tasks-axi" <<'SH'
 #!/usr/bin/env bash
 case "${1:-} ${2:-}" in
-  "--version ") printf '%s\n' '0.2.4' ;;
+  "--version ") printf '%s\n' '0.2.6' ;;
   "update --help") printf '%s\n' 'usage: tasks-axi update <id> [flags]' '  --archive-body' ;;
   "mv --help") printf '%s\n' 'usage: tasks-axi mv <id> [<id>...] --to <path-or-dir>' ;;
 esac
@@ -708,6 +715,205 @@ test_liveness_sweep_relaunches_one_at_a_time() {
   pass "seam secondmate-liveness-serial: the startup sweep relaunches second mates one at a time"
 }
 
+# --- secondmate-liveness-skip seam: the real watcher's liveness tick ---------
+
+# start_watch <world> <fakebin> <call-log> <tag>: start the real watcher on
+# <world> with a one-second second mate liveness cadence and every other
+# cadence held off. Its stdout and stderr go to <world>/watch-<tag>.out and
+# .err, and its pid lands in WATCH_PID. A fake crew-state reader keeps the
+# watcher off real worktrees.
+start_watch() {
+  local w=$1 fb=$2 log=$3 tag=$4
+  cat > "$fb/fm-crew-state.sh" <<'SH'
+#!/usr/bin/env bash
+printf '%s\n' 'state: unknown · source: none · fake'
+SH
+  chmod +x "$fb/fm-crew-state.sh"
+  fm_test_track_watcher_state "$w/home/state"
+  env -u HERDR_ENV -u HERDR_PANE_ID -u HERDR_SESSION \
+    PATH="$fb:$BASE_PATH" TMUX='' FM_BACKEND=tmux FM_HOME="$w/home" \
+    FM_STATE_OVERRIDE="$w/home/state" FM_CREW_STATE_BIN="$fb/fm-crew-state.sh" \
+    FM_TMUX_CALL_LOG="$log" FM_SECONDMATE_LIVENESS_SECS=1 \
+    FM_POLL=1 FM_SIGNAL_GRACE=0 FM_CHECK_INTERVAL=999999 FM_HEARTBEAT=999999 \
+    "$ROOT/bin/fm-watch.sh" > "$w/watch-$tag.out" 2> "$w/watch-$tag.err" &
+  WATCH_PID=$!
+}
+
+watch_running() {  # <pid>: the owned watcher is alive and not a zombie
+  kill -0 "$1" 2>/dev/null || return 1
+  case "$(ps -p "$1" -o stat= 2>/dev/null)" in Z*) return 1 ;; esac
+  return 0
+}
+
+watch_exited_within() {  # <pid> <seconds>
+  local i=0 limit=$(($2 * 10))
+  while [ "$i" -lt "$limit" ]; do
+    watch_running "$1" || { wait "$1" 2>/dev/null; return 0; }
+    sleep 0.1
+    i=$((i + 1))
+  done
+  return 1
+}
+
+stop_watch() {  # <pid>
+  kill -TERM "$1" 2>/dev/null || true
+  watch_exited_within "$1" 5 || { kill -KILL "$1" 2>/dev/null || true; wait "$1" 2>/dev/null || true; }
+}
+
+wake_rows_for() {  # <world> <text>: queued wake rows whose key names <text>
+  awk -F '\t' -v t="$2" 'index($4, t) > 0' "$1/home/state/.wake-queue" 2>/dev/null | wc -l | tr -d ' '
+}
+
+test_watch_tick_obeys_the_dormant_marker() {
+  # This is the secondmate-liveness-skip seam in bin/fm-watch.sh's
+  # secondmate_liveness_tick. The authorized mate is the positive control: one
+  # tick acts on every mate before it wakes, so its wake proves the tick also
+  # read the dormant mate.
+  local w fb log pid
+  w=$(new_world tick-dormant)
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  add_secondmate "$w" sm-awake
+  add_secondmate "$w" sm-dormant
+  FM_HOME="$w/home" "$DORMANT" set sm-dormant --reason "captain order" >/dev/null \
+    || fail "could not mark the fixture second mate dormant"
+  fb=$(make_toolchain "$w/tools")
+  log="$w/tmux.log"; : > "$log"
+  start_watch "$w" "$fb" "$log" dormant; pid=$WATCH_PID
+  if ! watch_exited_within "$pid" 120; then
+    stop_watch "$pid"
+    fail "the watcher did not wake on the authorized second mate's relaunch: $(cat "$w/watch-dormant.out" "$w/watch-dormant.err")"
+  fi
+  assert_contains "$(cat "$w/watch-dormant.out")" "check: secondmate sm-awake auto-relaunch" \
+    "the watcher tick did not act on the authorized second mate: $(cat "$w/watch-dormant.err")"
+  assert_contains "$(cat "$log")" "fm-sm-awake" "the watcher tick did not touch the authorized second mate's endpoint"
+  assert_not_contains "$(cat "$log")" "fm-sm-dormant" "the watcher tick touched a dormant second mate's endpoint"
+  [ ! -e "$w/home/state/.secondmate-relaunch-sm-dormant" ] \
+    || fail "the watcher tick recorded a relaunch attempt for a dormant second mate"
+  [ "$(wake_rows_for "$w" sm-awake)" -eq 1 ] \
+    || fail "the authorized second mate did not queue exactly one relaunch wake: $(cat "$w/home/state/.wake-queue" 2>/dev/null)"
+  [ "$(wake_rows_for "$w" sm-dormant)" -eq 0 ] \
+    || fail "the watcher tick queued a relaunch wake for a dormant second mate: $(cat "$w/home/state/.wake-queue")"
+  assert_not_contains "$(cat "$w/watch-dormant.out")" "sm-dormant" "the watcher woke on a dormant second mate"
+  pass "seam secondmate-liveness-skip: the watcher liveness tick leaves a dormant second mate down"
+}
+
+test_watch_tick_yields_to_a_running_recovery_pass() {
+  # This is the secondmate-liveness-skip seam in the watcher tick, second half:
+  # while a restart recovery pass runs, the tick leaves every second mate to it.
+  local w fb log pid bg i=0
+  w=$(new_world tick-yield)
+  printf 'codex\n' > "$w/home/config/crew-harness"
+  add_secondmate "$w" sm-awake
+  rr "$w" record >/dev/null
+  printf 'boot-2\n' > "$w/boot_id"
+  rm -f "$w/herdr/running"
+  FM_RESTART_HERDR_WAIT=120 rr "$w" run > "$w/bg.out" 2>&1 &
+  bg=$!
+  while ! compgen -G "$w/home/state/.restart-recovery.*.lock" >/dev/null && [ "$i" -lt 100 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  compgen -G "$w/home/state/.restart-recovery.*.lock" >/dev/null \
+    || { : > "$w/herdr/running"; wait "$bg"; fail "the fixture recovery pass never took its lock: $(cat "$w/bg.out")"; }
+  fb=$(make_toolchain "$w/tools")
+  log="$w/tmux.log"; : > "$log"
+  start_watch "$w" "$fb" "$log" yield; pid=$WATCH_PID
+  i=0
+  while ! grep -Fq "secondmate sm-awake liveness: left down by local restart recovery" \
+    "$w/home/state/.watch-triage.log" 2>/dev/null && watch_running "$pid" && [ "$i" -lt 1200 ]; do
+    sleep 0.1
+    i=$((i + 1))
+  done
+  # Sit through more ticks than one before the pass ends.
+  sleep 3
+  watch_running "$pid" || fail "the watcher woke while a recovery pass owned the second mates: $(cat "$w/watch-yield.out" "$w/watch-yield.err")"
+  stop_watch "$pid"
+  : > "$w/herdr/running"
+  wait "$bg" || true
+  assert_grep "secondmate sm-awake liveness: left down by local restart recovery" "$w/home/state/.watch-triage.log" \
+    "the watcher tick never ran while the recovery pass was active: $(cat "$w/watch-yield.err")"
+  [ ! -s "$log" ] || fail "the watcher tick raced a running restart recovery pass: $(cat "$log")"
+  [ ! -e "$w/home/state/.secondmate-relaunch-sm-awake" ] \
+    || fail "the watcher tick recorded a relaunch attempt during a recovery pass"
+  [ "$(wake_rows_for "$w" secondmate-relaunch)" -eq 0 ] \
+    || fail "the watcher tick queued an auto-relaunch wake during a recovery pass: $(cat "$w/home/state/.wake-queue")"
+  pass "seam secondmate-liveness-skip: the watcher liveness tick yields to a running recovery pass"
+}
+
+# --- the recovery pass and the shared second mate locks ----------------------
+
+# hold_lock <lockdir>: hold <lockdir> from another process, as a watcher tick
+# or a session start sweep does while it relaunches a second mate. Its pid lands
+# in HOLDER_PID.
+HOLDER_PID=
+hold_lock() {
+  local lock=$1 i=0
+  # The holder becomes its sleep, so one kill ends it and leaves no child.
+  STATE="$(dirname "$lock")" bash -c \
+    '. "$1" && fm_lock_acquire_wait "$2" && exec sleep 60' \
+    _ "$ROOT/bin/fm-wake-lib.sh" "$lock" &
+  HOLDER_PID=$!
+  while [ ! -d "$lock" ] && [ "$i" -lt 100 ]; do
+    sleep 0.05
+    i=$((i + 1))
+  done
+  [ -d "$lock" ] || fail "the fixture never took $lock"
+}
+
+release_holder() {
+  kill "$HOLDER_PID" 2>/dev/null || true
+  wait "$HOLDER_PID" 2>/dev/null || true
+}
+
+# restart_world <name>: a primary home after a recorded reboot, with one
+# registered second mate whose tmux pane holds only a shell (a dead endpoint).
+restart_world() {
+  local w
+  w=$(new_world "$1")
+  add_secondmate "$w" sm-awake
+  rr "$w" record >/dev/null || fail "the fixture record failed"
+  printf 'boot-2\n' > "$w/boot_id"
+  printf '%s\n' "$w"
+}
+
+test_run_skips_a_second_mate_another_liveness_check_holds() {
+  local w fb log out
+  w=$(restart_world run-liveness-lock)
+  fb=$(make_toolchain "$w/tools")
+  log="$w/tmux.log"; : > "$log"
+  hold_lock "$w/home/state/.secondmate-liveness-sm-awake.lock"
+  out=$(RR_PATH_PREFIX="$fb" TMUX='' FM_TMUX_CALL_LOG="$log" rr "$w" run 2>&1)
+  release_holder
+  assert_contains "$out" "second mate sm-awake: skipped: its liveness lock is held (pid " \
+    "the pass did not leave a second mate to the liveness check that holds it: $out"
+  [ ! -s "$log" ] || fail "the pass touched a second mate that another liveness check holds: $(cat "$log")"
+  assert_contains "$out" "restart recovery after machine reboot finished" "the pass did not finish: $out"
+  pass "run: a second mate whose liveness lock another driver holds is skipped with a note"
+}
+
+test_run_waits_a_bounded_time_for_the_relaunch_lock() {
+  local w fb log out
+  w=$(restart_world run-relaunch-lock)
+  fb=$(make_toolchain "$w/tools")
+  log="$w/tmux.log"; : > "$log"
+  # Another second mate's relaunch owns the per-home relaunch lock.
+  hold_lock "$w/home/state/.secondmate-relaunch.lock"
+  out=$(RR_PATH_PREFIX="$fb" TMUX='' FM_TMUX_CALL_LOG="$log" FM_RESTART_RELAUNCH_LOCK_WAIT=1 \
+    rr "$w" run 2>&1)
+  # The pass can release only a lock it took, so a lock still in place is
+  # still the other relaunch's.
+  [ -d "$w/home/state/.secondmate-relaunch.lock" ] \
+    || fail "the pass took over a relaunch lock that a live relaunch still held"
+  release_holder
+  assert_contains "$out" "second mate sm-awake: relaunch failed: another second mate relaunch still held the per-home relaunch lock after 1s" \
+    "the pass did not wait for the per-home relaunch lock: $out"
+  [ ! -s "$log" ] || fail "the pass relaunched a second mate while another relaunch held the per-home lock: $(cat "$log")"
+  [ ! -e "$w/home/state/.secondmate-liveness-sm-awake.lock" ] \
+    || fail "the pass kept the second mate's liveness lock after it gave up"
+  assert_contains "$out" "failed 1" "the summary did not count the relaunch the lock wait stopped: $out"
+  pass "run: the pass waits a bounded time for the per-home relaunch lock and releases the second mate's lock"
+}
+
 # --- restart-record seam: the real locked session start ---------------------
 
 make_fake_ps_claude() {  # <fakebin>: every queried pid is a live claude harness
@@ -769,6 +975,10 @@ for t in \
   test_liveness_sweep_obeys_the_dormant_marker \
   test_liveness_sweep_yields_to_a_running_recovery_pass \
   test_liveness_sweep_relaunches_one_at_a_time \
+  test_watch_tick_obeys_the_dormant_marker \
+  test_watch_tick_yields_to_a_running_recovery_pass \
+  test_run_skips_a_second_mate_another_liveness_check_holds \
+  test_run_waits_a_bounded_time_for_the_relaunch_lock \
   test_session_start_records_the_restart_fingerprint; do
   [ -z "${FM_TEST_ONLY:-}" ] || [ "$t" = "$FM_TEST_ONLY" ] || continue
   "$t"

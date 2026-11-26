@@ -1,0 +1,50 @@
+# Fork CI portable timing hints for tests that upstream does not measure.
+# Same format as tests/fm-test-ci-timings.tsv, which bin/fm-test-run.sh reads first;
+# a row here counts only for a path with no upstream row.
+# Provenance and refresh: docs/fm-test-portable-shards.md.
+path	duration_ms
+tests/fm-action-pins-check.test.sh	437
+tests/fm-agent-count-live-e2e.test.sh	132
+tests/fm-agent-count.test.sh	3667
+tests/fm-agentsmd-ceiling.test.sh	613
+tests/fm-agentsmd-skill-triggers.test.sh	259
+tests/fm-atlas-gate.test.sh	26389
+tests/fm-atlas-hook.test.sh	54906
+tests/fm-backend-herdr-codex-attribution.test.sh	1918
+tests/fm-backend-herdr-codex-submit-e2e.test.sh	100
+tests/fm-backend-herdr-native-recovery.test.sh	229
+tests/fm-backend-herdr-recovery-state.test.sh	6155
+tests/fm-brief-merge-contract.test.sh	1115
+tests/fm-browser-reap.test.sh	13228
+tests/fm-captain-archive-bound.test.sh	4816
+tests/fm-control-herdr-codex-live-e2e.test.sh	151
+tests/fm-control-park.test.sh	50226
+tests/fm-cswap.test.sh	1390
+tests/fm-daemon-codex-short-wake.test.sh	18105
+tests/fm-daemon-staged-digest-stability.test.sh	5313
+tests/fm-endpoint-retire.test.sh	28692
+tests/fm-fleet-snapshot-home-summary-size.test.sh	25086
+tests/fm-fleet-view.test.sh	650
+tests/fm-herdr-layout-lib.test.sh	653
+tests/fm-herdr-merge-harnesses.test.sh	1345
+tests/fm-local-cleanup-slot.test.sh	45091
+tests/fm-local-codex-idle-frames.test.sh	3546
+tests/fm-local-merge-authority.test.sh	2226
+tests/fm-local-pane-recovery.test.sh	22360
+tests/fm-local-restart-recovery-herdr-e2e.test.sh	153
+tests/fm-local-restart-recovery.test.sh	43819
+tests/fm-local-send-provenance.test.sh	11698
+tests/fm-local-typing-provenance.test.sh	5787
+tests/fm-local-worker-restore-herdr-e2e.test.sh	248
+tests/fm-local-worker-restore.test.sh	15426
+tests/fm-native-session.test.sh	5703
+tests/fm-park-resume-live-e2e.test.sh	107
+tests/fm-ping-ack.test.sh	4877
+tests/fm-secondmate-registry-lib.test.sh	115
+tests/fm-send-busy-doorbell.test.sh	7822
+tests/fm-session-ledger.test.sh	7940
+tests/fm-spawn-agent-limit.test.sh	6805
+tests/fm-spawn-claude-persistence.test.sh	37121
+tests/fm-spawn-session-name.test.sh	37643
+tests/fm-spawn-ticket-warning.test.sh	11900
+tests/fm-wake-drain.test.sh	2739

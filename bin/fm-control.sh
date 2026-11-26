@@ -5,7 +5,7 @@
 # Usage: fm-control.sh <task-id> interrupt
 #        fm-control.sh <task-id> exit
 #        fm-control.sh <task-id> relaunch [--harness <name>] [--model <name>]
-#                                         [--effort <level>]
+#                                         [--effort <level>] [--account <entry>]
 #                                         (--note <text> | --note-file <path>)
 #        fm-control.sh <task-id> park --reason <text> [--on <ticket|node>]
 #        fm-control.sh <task-id> resume [--note <text> | --note-file <path>]
@@ -28,18 +28,28 @@
 #              still exists, and the agent is still alive where the backend can
 #              classify that. Cancellation is confirmed only from an adapter-
 #              owned acknowledgement and otherwise reported unconfirmed. Busy
-#              state is never rewritten as proof of the action.
+#              state is never rewritten as proof of the action. Devin
+#              cancellation invalidates it to unknown because its native hooks
+#              emit no cancellation close; this is not a success claim.
+#              An adapter whose repeated interrupt key does something else on
+#              an idle agent (Devin's revert picker) sends its later presses
+#              only after the first press rendered a running turn, and
+#              otherwise reports `cancel=not-running` having sent one press.
 #   exit       Stop the agent, preserving its terminal endpoint, worktree, and
 #              every uncommitted change. Interrupts first when the task reads
 #              busy, then submits the harness's exit command. Postcondition:
 #              the backend's recovery-grade classifier reports the agent gone.
 #              Already-stopped is success (idempotent). An endpoint that reads
-#              `missing` is put through the control plane's per-backend absence
+#              `missing` (or, on Rex, `unreadable`, which is how a stopped Rex
+#              server reads without starting it) is put through the control
+#              plane's per-backend absence
 #              proof (fm_control_endpoint_absence_verdict) before anything is
 #              claimed about it, because `missing` also covers an endpoint that
-#              is merely unreachable from this seat. That proof exists only on
-#              HERDR, whose reads are scoped to the session the record names:
-#              proven gone reports `endpoint-gone` rather than
+#              is merely unreachable from this seat. Herdr proves absence by
+#              reading the session the record names; REX proves it because its
+#              never-reused ids answer a structured not-found from the server
+#              the record names.
+#              Proven gone reports `endpoint-gone` rather than
 #              `already-stopped`, because the endpoint this verb normally
 #              preserves did not survive; a pane that turns out to be there and
 #              idle is the ordinary `already-stopped`; one whose agent is back
@@ -48,17 +58,22 @@
 #              endpoint, so this verb cannot tell a destroyed window from one on
 #              a tmux server it cannot address, and it will not claim a stop it
 #              cannot see.
+#              Refused on t3code before anything is sent: T3's `/mcp` tools
+#              have no session stop (bin/fm-control-lib.sh
+#              fm_control_backend_exit_supported); interrupt ends its turn.
 #   relaunch   Transactionally replace the running agent with a new one, in the
 #              SAME worktree - and the same endpoint whenever that endpoint
 #              still exists - on the same or a newly chosen
 #              harness/model/effort - so switching harness is one ordinary use
 #              of this verb. When the recorded endpoint is instead proven gone -
-#              a Herdr pane or workspace destroyed in churn - the launch owner
-#              re-creates one in that worktree, in the herdr session the record
-#              names, and the task's record rebinds to it; that is how a task
+#              a Herdr pane or workspace destroyed in churn, or a Rex block or
+#              session gone with its server - the launch owner re-creates one in
+#              that worktree, in the herdr session the record names (Rex: the
+#              recorded session while it survives, otherwise the ordinary Rex
+#              placement), and the task's record rebinds to it; that is how a task
 #              whose terminal was destroyed is reclaimed by the home that owns
 #              it, rather than being stranded with a parked approval nobody can
-#              answer. Reclaim is HERDR-ONLY for the reason `exit` gives above:
+#              answer. Reclaim is HERDR- and REX-ONLY for the reason `exit` gives above:
 #              a tmux `missing` cannot be proven absent from a task record, so
 #              it refuses.
 #              An explicit `default` model or effort clears that
@@ -69,6 +84,23 @@
 #              already recorded for it.
 #              A prefixed raw-command basename cannot reconstruct its launch
 #              command, so relaunch requires an explicit --harness for it.
+#              A replacement Claude or Pi profile must also pass this home's
+#              worker account pin (bin/fm-worker-account-lib.sh) here, so a pin
+#              that no longer resolves or is signed out refuses before the old
+#              agent stops. Under a declared config/claude-accounts list, a
+#              Claude ship or scout keeps the account its record names, and
+#              only an explicit --account <entry> moves it to another
+#              declared one, checked here the same way.
+#              A replacement omp secondmate likewise passes its per-secondmate
+#              omp profile pin (bin/fm-omp-profile-lib.sh) before the old agent
+#              stops.
+#              The same pre-stop refusal applies to this home's worker tool
+#              exclusions (bin/fm-exclude-tools-lib.sh): a malformed list, or a
+#              replacement runtime that cannot hide the listed tools.
+#              Refused on t3code before anything is stopped: a T3 thread
+#              keeps its conversation, so a new turn or a provider change on
+#              it continues the same agent rather than a fresh one
+#              (fm_control_backend_relaunch_supported).
 #              --note is required for a ship or scout, whose replacement
 #              inherits the local copy but none of the conversation; a
 #              secondmate reconciles its own home's records at startup, so its
@@ -80,8 +112,8 @@
 #              state; it never leaves a half-transitioned task claiming to be
 #              running. A PARKED task is resumed instead of started fresh:
 #              relaunch reopens its recorded native session (see resume), and
-#              refuses a harness, model, or effort change for it. Relaunch
-#              takes resume's --over-limit only for a parked task.
+#              refuses a harness, model, effort, or account change for it.
+#              Relaunch takes resume's --over-limit only for a parked task.
 #   park       Worker gone, work preserved. Proves the running worker's native
 #              session (bin/fm-native-session-lib.sh owns the proof per
 #              harness), records it with the reason in the task record
@@ -120,7 +152,8 @@
 #
 # park and resume exist only for adapters with a proven native session
 # (bin/fm-control-lib.sh's header owns that reasoning); every other adapter uses
-# relaunch, because the brief on disk is its durable instruction.
+# relaunch where the backend can host a replacement, because the brief on disk,
+# not a harness-private session, is its durable instruction.
 #
 # Targeting is EXACT: only a bare task id with a state/<id>.meta record in
 # THIS home is accepted, and the record must pass the shared endpoint-identity
@@ -137,18 +170,26 @@
 #     is refused rather than guessed at.
 #   - A backend that cannot deliver the harness's interrupt key is refused
 #     (Orca's terminal API has no Escape).
-#   - `exit`, `relaunch`, `park`, and `resume` require a backend with a recovery-grade agent-state
-#     classifier (tmux, herdr), because without one the "the agent stopped"
-#     postcondition cannot be proven. zellij, orca, and cmux are refused rather
-#     than reported as successful blind.
+#   - `exit` and `relaunch` require a backend with a recovery-grade agent-state
+#     classifier (tmux, herdr, rex, or t3code), because without one the "the
+#     agent stopped" postcondition cannot be proven. Relaunch also requires
+#     replacement support, which t3code lacks. zellij, orca, cmux, paseo, and tern are
+#     refused rather than reported as successful blind.
+#   - `park` and `resume` run on tmux and herdr only, because only those
+#     backends can read the worker's processes and directory and prove its
+#     endpoint closed. Every other backend, rex included, refuses them before
+#     anything changes.
 #   - An ambiguous or unreadable endpoint state refuses; only a positively
-#     classified state acts.
+#     classified state acts (a Rex `unreadable` first goes through the absence
+#     proof `exit` describes, and refuses unless that proof settles it).
 #   - A composer that visibly holds pending text refuses before an exit command
 #     is typed, so existing text is preserved instead of being concatenated.
 #
 # Environment knobs (all bounded waits, seconds):
 #   FM_CONTROL_POLL              poll interval for postcondition waits (0.5)
 #   FM_CONTROL_SETTLE_WAIT       adapter acknowledgement wait after interrupt (5)
+#   FM_CONTROL_ARM_WAIT          wait for an armed interrupt's rendered proof
+#                                after the press gap (1.5)
 #   FM_CONTROL_EXIT_WAIT         alive->dead wait after the exit command (30)
 #   FM_CONTROL_LAUNCH_WAIT       dead->alive wait after a relaunch (90)
 #   FM_CONTROL_EXIT_RETRIES      Enter retries for the exit command (3)
@@ -202,15 +243,24 @@ CONFIG="${FM_CONFIG_OVERRIDE:-$FM_HOME/config}"
 . "$SCRIPT_DIR/fm-native-session-lib.sh"
 # shellcheck source=bin/fm-parent-channel-lib.sh
 . "$SCRIPT_DIR/fm-parent-channel-lib.sh"
+# shellcheck source=bin/fm-polytoken-lib.sh
+. "$SCRIPT_DIR/fm-polytoken-lib.sh"
 # shellcheck source=bin/fm-pr-lib.sh
 . "$SCRIPT_DIR/fm-pr-lib.sh"
 # shellcheck source=bin/fm-wake-lib.sh
 . "$SCRIPT_DIR/fm-wake-lib.sh"
 # shellcheck source=bin/fm-agent-limit-lib.sh
 . "$SCRIPT_DIR/fm-agent-limit-lib.sh"
+# shellcheck source=bin/fm-worker-account-lib.sh
+. "$SCRIPT_DIR/fm-worker-account-lib.sh"
+# shellcheck source=bin/fm-omp-profile-lib.sh
+. "$SCRIPT_DIR/fm-omp-profile-lib.sh"
+# shellcheck source=bin/fm-exclude-tools-lib.sh
+. "$SCRIPT_DIR/fm-exclude-tools-lib.sh"
 
 POLL=${FM_CONTROL_POLL:-0.5}
 SETTLE_WAIT=${FM_CONTROL_SETTLE_WAIT:-5}
+ARM_WAIT=${FM_CONTROL_ARM_WAIT:-1.5}
 EXIT_WAIT=${FM_CONTROL_EXIT_WAIT:-30}
 LAUNCH_WAIT=${FM_CONTROL_LAUNCH_WAIT:-90}
 EXIT_RETRIES=${FM_CONTROL_EXIT_RETRIES:-3}
@@ -233,6 +283,11 @@ control_cleanup() {
   if [ "$RELAUNCH_ACTIVE" = 1 ] \
      && declare -F relaunch_rollback >/dev/null 2>&1; then
     relaunch_rollback || true
+  fi
+  # Remove the dialog file while the lock is still held: once it is released,
+  # the next lifecycle command for this task writes the same path.
+  if [ -n "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
+    rm -f "$FM_COMPOSER_DIALOG_SINK"
   fi
   if [ "$CONTROL_LOCK_HELD" = 1 ]; then
     CONTROL_LOCK_HELD=0
@@ -263,9 +318,11 @@ fi
 NEW_HARNESS=
 NEW_MODEL=
 NEW_EFFORT=
+NEW_ACCOUNT=
 HARNESS_SET=0
 MODEL_SET=0
 EFFORT_SET=0
+ACCOUNT_SET=0
 NOTE=
 NOTE_SET=0
 REASON=
@@ -283,6 +340,7 @@ for control_arg in "$@"; do
       harness) NEW_HARNESS=$control_arg; HARNESS_SET=1 ;;
       model) NEW_MODEL=$control_arg; MODEL_SET=1 ;;
       effort) NEW_EFFORT=$control_arg; EFFORT_SET=1 ;;
+      account) NEW_ACCOUNT=$control_arg; ACCOUNT_SET=1 ;;
       note) NOTE=$control_arg; NOTE_SET=1 ;;
       reason) REASON=$control_arg; REASON_SET=1 ;;
       on) PARK_ON=$control_arg; PARK_ON_SET=1 ;;
@@ -302,6 +360,8 @@ for control_arg in "$@"; do
     --model=*) NEW_MODEL=${control_arg#--model=}; MODEL_SET=1 ;;
     --effort) control_want_value=effort ;;
     --effort=*) NEW_EFFORT=${control_arg#--effort=}; EFFORT_SET=1 ;;
+    --account) control_want_value=account ;;
+    --account=*) NEW_ACCOUNT=${control_arg#--account=}; ACCOUNT_SET=1 ;;
     --note) control_want_value=note ;;
     --note=*) NOTE=${control_arg#--note=}; NOTE_SET=1 ;;
     --note-file) control_want_value=note_file ;;
@@ -324,8 +384,8 @@ if [ -n "$control_want_value" ]; then
 fi
 
 if [ "$VERB" != relaunch ]; then
-  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
-    || die "--harness, --model, and --effort apply to 'relaunch' only"
+  [ "$HARNESS_SET" = 0 ] && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$ACCOUNT_SET" = 0 ] \
+    || die "--harness, --model, --effort, and --account apply to 'relaunch' only"
 fi
 case "$VERB" in
   relaunch|resume) ;;
@@ -340,6 +400,7 @@ if [ "$VERB" = park ]; then
 else
   [ "$REASON_SET" = 0 ] && [ "$PARK_ON_SET" = 0 ] || die "--reason and --on apply to 'park' only"
 fi
+[ "$ACCOUNT_SET" = 0 ] || [ -n "$NEW_ACCOUNT" ] || die "--account requires a non-empty value"
 [ "$HARNESS_SET" = 0 ] || [ -n "$NEW_HARNESS" ] || die "--harness requires a non-empty value"
 [ "$MODEL_SET" = 0 ] || [ -n "$NEW_MODEL" ] || die "--model requires a non-empty value"
 [ "$EFFORT_SET" = 0 ] || [ -n "$NEW_EFFORT" ] || die "--effort requires a non-empty value"
@@ -357,17 +418,36 @@ if ! fm_task_id_creation_valid "$RAW_ID"; then
   die "'$RAW_ID' is not a valid task id"
 fi
 ID=$RAW_ID
+# Fork: teardown stops a live worker (bin/fm-local-pane-lib.sh
+# fm_local_pane_stop) by running `exit` as its direct child. Teardown then
+# holds this task's lease guard, control lock, and record lock, and it owns the
+# pane. The child names its parent in FM_CONTROL_LOCK_PARENT, and the control
+# lock must record that parent. The child then takes neither lock again, and it
+# leaves the busy record and the pane to the parent. So no step of the exit path
+# may wait for a lock that the parent holds.
+CONTROL_LOCK_INHERITED=0
+if [ "$VERB" = exit ] && [ "${FM_CONTROL_LOCK_PARENT:-}" = "$PPID" ] \
+   && [ "$(cat "$STATE/.control-$ID.lock/pid" 2>/dev/null)" = "$PPID" ]; then
+  CONTROL_LOCK_INHERITED=1
+fi
 # Supervision lease guard: lifecycle control is overlap territory between the
 # two Pi supervision actors; refuse while the OTHER actor holds this task's
 # live lease (contract: bin/fm-lease-lib.sh; no-op in homes without leases).
 # shellcheck source=bin/fm-lease-lib.sh
 . "$SCRIPT_DIR/fm-lease-lib.sh"
-fm_lease_guard "$ID" "lifecycle control (fm-control)"
+[ "$CONTROL_LOCK_INHERITED" = 1 ] || fm_lease_guard "$ID" "lifecycle control (fm-control)"
 CONTROL_LOCK="$STATE/.control-$ID.lock"
 trap control_cleanup EXIT
-fm_lock_try_acquire "$CONTROL_LOCK" \
-  || die "another lifecycle action is already running for task $ID"
-CONTROL_LOCK_HELD=1
+if [ "$CONTROL_LOCK_INHERITED" = 0 ]; then
+  fm_lock_try_acquire "$CONTROL_LOCK" \
+    || die "another lifecycle action is already running for task $ID"
+  CONTROL_LOCK_HELD=1
+fi
+# do_exit runs in a command substitution. That subshell does not run this
+# EXIT trap, so the parent has to hold the path the trap removes. Set it
+# only once the lock is held: a process that loses the lock runs the same
+# trap, and would remove the file the lock holder is reading.
+FM_COMPOSER_DIALOG_SINK=$STATE/$ID.composer-dialog
 META="$STATE/$ID.meta"
 if [ ! -f "$META" ]; then
   case "$RAW_ID" in
@@ -401,13 +481,24 @@ RECORDED_HARNESS=$(fm_meta_get "$META" harness)
 KIND=$(fm_meta_get "$META" kind)
 WT=$(fm_meta_get "$META" worktree)
 [ -n "$KIND" ] || KIND=ship
+# OpenCode's composer exit key changed between its 1.x and 2.x lines; the major
+# spawn detected is recorded here so the exit command below matches the running
+# agent. Absent (a legacy record or a non-opencode task) it stays empty.
+OPENCODE_MAJOR=$(fm_meta_get "$META" opencode_version); OPENCODE_MAJOR=${OPENCODE_MAJOR%%.*}
 
 HARNESS=$(fm_control_harness_family "$RECORDED_HARNESS") \
   || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
 fm_control_harness_supported "$HARNESS" \
   || die "task $ID records harness '${RECORDED_HARNESS:-none}', which has no verified control mechanics; fm-control refuses to guess an interrupt key or exit command"
+# The recorded harness scopes the kiro-only composer rules for every composer
+# read this control action makes (fm_composer_kiro_scope in bin/fm-composer-lib.sh).
+# shellcheck disable=SC2034
+FM_COMPOSER_HARNESS=$HARNESS
 
 fm_backend_validate "$BACKEND" || exit 1
+if [ "$BACKEND" = t3code ]; then
+  fm_backend_runtime_check t3code || exit 1
+fi
 
 # --- shared helpers ---------------------------------------------------------
 
@@ -490,26 +581,89 @@ require_state_verified_backend() {  # <verb>
   die "task $ID runs on the $BACKEND backend, which has no recovery-grade agent-state classifier, so '$1' cannot prove the agent actually stopped; refusing rather than reporting an unproven transition as done"
 }
 
+# refuse_blocking_prompt: the screen is a dialog a confirming Enter would
+# answer. Name it and stop. Do not type Escape or an option: both dismiss
+# or choose.
+refuse_blocking_prompt() {  # <dialog-name>
+  die "task $ID is blocked on a prompt: $1. Refusing to type Enter into it."
+}
+
+# rendered_matches <ere>: whether any row of the visible viewport matches.
+# An unreadable viewport is a no, so every caller treats it as missing proof.
+rendered_matches() {  # <ere>
+  local screen
+  screen=$(fm_backend_visible_capture "$BACKEND" "$T" "$LABEL" 2>/dev/null) || return 1
+  printf '%s\n' "$screen" | grep -Eq -- "$1"
+}
+
+# wait_rendered <ere> <timeout>: poll the viewport until a row matches.
+wait_rendered() {  # <ere> <timeout>
+  local elapsed=0 step
+  step=$(awk -v p="$POLL" 'BEGIN{printf "%s", (p < 0.1 ? p : 0.1)}')
+  while :; do
+    rendered_matches "$1" && return 0
+    awk -v e="$elapsed" -v t="$2" 'BEGIN{exit !(e < t)}' || return 1
+    sleep "$step"
+    elapsed=$(awk -v e="$elapsed" -v p="$step" 'BEGIN{printf "%.3f", e + p}')
+  done
+}
+
+# dismiss_interrupt_hazard <key> <ere>: after the presses, close a surface a
+# mistimed press opened (Devin's revert picker) with one more key, before
+# anything else can be typed into it. Sets INTERRUPT_HAZARD.
+dismiss_interrupt_hazard() {  # <key> <ere>
+  local key=$1 hazard=$2 gap
+  gap=$(fm_control_interrupt_press_gap "$HARNESS")
+  sleep "$gap"
+  rendered_matches "$hazard" || return 0
+  fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
+    || die "task $ID shows the $HARNESS revert picker after its interrupt, and the $key that closes it was not delivered; nothing else was typed. Close it with $key, never Enter, before any other action"
+  sleep "$gap"
+  ! rendered_matches "$hazard" \
+    || die "task $ID still shows the $HARNESS revert picker after one $key; nothing else was typed. Close it with $key, never Enter, before any other action"
+  INTERRUPT_HAZARD=dismissed
+}
+
 # send_interrupt_keys: deliver the harness's interrupt key the verified number
 # of times, then the composer-clear key when the adapter needs one. Refuses
 # before sending anything when the backend cannot deliver either key, because
 # an interrupt that cancels the turn but leaves the restored prompt in the
-# composer would make the next submitted line concatenate onto it.
+# composer would make the next submitted line concatenate onto it. An adapter
+# with an arm signal (fm_control_interrupt_arm_signal) gets each later press
+# only after the viewport proves the first one armed a running turn, and never
+# sooner than its press gap; without that proof INTERRUPT_ARMED=no and no
+# further press is sent. Its hazard surface is then closed before returning.
 send_interrupt_keys() {
-  local key repeat clear i=0
+  local key repeat clear arm hazard gap i=0
+  if [ "$HARNESS" = hermes ] && [ "$(fm_backend_composer_state "$BACKEND" "$T")" != empty ]; then
+    die 'Hermes double-Escape clears an unsent draft; interrupt requires a proven empty composer'
+  fi
   key=$(fm_control_interrupt_key "$HARNESS")
   repeat=$(fm_control_interrupt_repeat "$HARNESS")
   clear=$(fm_control_interrupt_clear_key "$HARNESS")
+  arm=$(fm_control_interrupt_arm_signal "$HARNESS")
+  hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
+  gap=$(fm_control_interrupt_press_gap "$HARNESS")
   fm_control_backend_supports_key "$BACKEND" "$key" \
     || die "harness $HARNESS interrupts with $key, which the $BACKEND backend cannot deliver; refusing to send a different key"
   [ -z "$clear" ] || fm_control_backend_supports_key "$BACKEND" "$clear" \
     || die "harness $HARNESS needs $clear to clear its composer after an interrupt, which the $BACKEND backend cannot deliver; refusing to leave the cancelled prompt where the next submitted line would concatenate onto it"
+  [ -z "$arm$hazard" ] || fm_backend_visible_capture_supported "$BACKEND" \
+    || die "harness $HARNESS must see its screen between interrupt presses, because a repeated $key on an idle agent opens its revert picker, and the $BACKEND backend has no verified viewport read; refusing to press blind"
+  INTERRUPT_ARMED=yes
+  INTERRUPT_HAZARD=none
   while [ "$i" -lt "$repeat" ]; do
     fm_backend_send_key "$BACKEND" "$T" "$key" "$LABEL" \
       || die "interrupt key $key was not delivered to task $ID on $BACKEND"
     i=$((i + 1))
-    [ "$i" -ge "$repeat" ] || sleep 0.2
+    [ "$i" -lt "$repeat" ] || break
+    sleep "$gap"
+    if [ -n "$arm" ] && ! wait_rendered "$arm" "$ARM_WAIT"; then
+      INTERRUPT_ARMED=no
+      break
+    fi
   done
+  [ -z "$hazard" ] || dismiss_interrupt_hazard "$key" "$hazard"
   [ -z "$clear" ] || fm_backend_send_key "$BACKEND" "$T" "$clear" "$LABEL" \
     || die "interrupt key $key reached task $ID, but $clear did not, so its composer still holds the cancelled prompt; clear it before the next lifecycle action"
 }
@@ -547,12 +701,60 @@ interrupt_cancel_claim() {
 }
 
 # deliver_interrupt: deliver and observe the strongest adapter-owned
-# cancellation claim available after delivery.
+# cancellation claim available after delivery. `not-running` means an armed
+# adapter's first press rendered no running turn, so nothing was cancelled; a
+# dismissed revert picker is reported beside the claim.
+# The rest transport (polytoken) takes a typed branch before any key is read:
+# the TUI has no interrupt chord at all (fm_control_interrupt_transport), so
+# POST /turn/cancel on the session daemon is the one verified interrupt, with
+# its typed acknowledgement (cancel_requested plus the turn settling) as the
+# claim, and the busy close written here because a cancelled turn emits no
+# stop hook (verified live).
 deliver_interrupt() {
-  local cancel
+  local cancel devin_gen='' port cred token
+  if [ "$(fm_control_interrupt_transport "$HARNESS")" = rest ]; then
+    port=$(fm_meta_get "$META" polytoken_port)
+    cred=$(fm_meta_get "$META" polytoken_credential)
+    if [ -z "$port" ] || [ -z "$cred" ]; then
+      die "task $ID records no polytoken session binding (port or credential absent from its record); the REST control verbs address the session's own daemon, so an interrupt cannot be delivered without it. The session has likely ended or was launched raw; reconcile the task or relaunch it"
+    fi
+    token=$(fm_polytoken_credential_token "$cred") || token=
+    [ -n "$token" ] || die "task $ID's polytoken credential at $cred is missing or unreadable, so the session cannot be interrupted through its daemon; the session has likely ended. Reconcile the task or relaunch it"
+    # A cancelled turn emits no stop hook (verified live), so the close the
+    # hooks would have written lands with the cancel: the settled turn is the
+    # typed proof this incarnation is no longer busy, unless a queued prompt
+    # has reopened it (fm_polytoken_interrupt_task).
+    cancel=$(fm_polytoken_interrupt_task "$SCRIPT_DIR" "$STATE" "$ID" "$port" "$token" "$SETTLE_WAIT") \
+      || die "task $ID's polytoken turn cancel was not acknowledged on port $port within ${SETTLE_WAIT}s; the interrupt status is unknown, so no further control action is safe here"
+    INTERRUPT_ARMED=yes
+    INTERRUPT_HAZARD=none
+    printf '%s' "$cancel"
+    return 0
+  fi
+  # Devin does not emit Stop for cancellation. Capture this incarnation before
+  # keys, then invalidate its state conservatively rather than claiming idle.
+  if [ "$HARNESS" = devin ]; then
+    devin_gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
+  fi
+  # T3 Code has no keys: its native interrupt confirms the run's end itself.
+  if [ "$BACKEND" = t3code ]; then
+    cancel=$(fm_backend_t3code_native_interrupt "$T") \
+      || die "interrupt was not delivered to task $ID on $BACKEND"
+    printf '%s' "${cancel:-unconfirmed}"
+    return 0
+  fi
   prepare_interrupt_ack
   send_interrupt_keys
-  cancel=$(interrupt_cancel_claim)
+  if [ "$INTERRUPT_ARMED" = no ]; then
+    cancel=not-running
+  else
+    cancel=$(interrupt_cancel_claim)
+    if [ "$HARNESS" = devin ] && [ -n "$devin_gen" ]; then
+      "$SCRIPT_DIR/fm-busy-event.sh" apply "$STATE" "$ID" unknown \
+        --gen "$devin_gen" --source fm-interrupt --event interrupt >/dev/null 2>&1 || true
+    fi
+  fi
+  [ "$INTERRUPT_HAZARD" = none ] || cancel="$cancel revert-picker=$INTERRUPT_HAZARD"
   printf '%s' "$cancel"
 }
 
@@ -579,17 +781,76 @@ do_interrupt() {
   printf '%s cancel=%s' "$proof" "$cancel"
 }
 
+# Drop busy_gen from the task record when it still names <gen>.
+# fm-busy-event.sh owns the sidecar and the record; fm_backlog_atomic_transition
+# publish owns the task record. Clearing the line inside the busy writer would
+# take the task-record lock that teardown and spawn already hold; the busy
+# writer is their child process, so it would wait on a live holder that is
+# itself waiting on the child, and neither would ever proceed.
+clear_retired_meta_busy_gen() {  # <gen>
+  local gen=$1 meta="$STATE/$ID.meta" lock tmp current line
+  [ -n "$gen" ] || return 0
+  [ -f "$meta" ] && [ ! -L "$meta" ] || return 0
+  if ! declare -F fm_backlog_atomic_transition >/dev/null 2>&1; then
+    # shellcheck source=bin/fm-tasks-axi-lib.sh
+    . "$SCRIPT_DIR/fm-tasks-axi-lib.sh"
+    # shellcheck source=bin/fm-backlog-transition-lib.sh
+    . "$SCRIPT_DIR/fm-backlog-transition-lib.sh"
+  fi
+  lock=$(fm_meta_lock_path "$meta") || return 1
+  fm_lock_acquire_wait "$lock"
+  current=$(fm_meta_get "$meta" busy_gen)
+  if [ "$current" != "$gen" ]; then
+    fm_lock_release "$lock"
+    return 0
+  fi
+  tmp=$(mktemp "$STATE/.$ID.meta.retire.XXXXXX") || {
+    fm_lock_release "$lock"
+    return 1
+  }
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      busy_gen=*) ;;
+      *)
+        printf '%s\n' "$line" >> "$tmp" || {
+          rm -f "$tmp"
+          fm_lock_release "$lock"
+          return 1
+        }
+        ;;
+    esac
+  done < "$meta" || {
+    rm -f "$tmp"
+    fm_lock_release "$lock"
+    return 1
+  }
+  if ! fm_backlog_atomic_transition publish "$tmp" "$meta" "task record" "$STATE"; then
+    rm -f "$tmp"
+    fm_lock_release "$lock"
+    return 1
+  fi
+  fm_lock_release "$lock"
+}
+
 retire_busy_incarnation() {
+  local gen=
+  [ "$CONTROL_LOCK_INHERITED" = 0 ] || return 0  # Fork: the parent retires it.
   if [ -f "$STATE/$ID.busy-gen" ]; then
-    "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --current-gen >/dev/null 2>&1 || true
+    gen=$(fm_busy_current_gen "$STATE" "$ID" 2>/dev/null || true)
+    if [ -n "$gen" ] \
+      && "$SCRIPT_DIR/fm-busy-event.sh" retire "$STATE" "$ID" --gen "$gen" >/dev/null 2>&1; then
+      clear_retired_meta_busy_gen "$gen" || true
+    fi
   fi
 }
 
 # do_exit: stop the running agent, preserving endpoint and worktree. Prints
 # `already-stopped`, `endpoint-gone`, or `stopped`.
 do_exit() {
-  local state cmd verdict composer_state cancel absence interrupt_result=not-needed
+  local state cmd hazard verdict composer_state cancel absence interrupt_result=not-needed dialog
   require_state_verified_backend exit
+  fm_control_backend_exit_supported "$BACKEND" \
+    || die "task $ID runs on the $BACKEND backend, whose T3 Orchestrator V2 tools have no session stop, so 'exit' cannot stop its agent; 'interrupt' ends the running turn and teardown archives the thread"
   state=$(agent_state)
   if declare -F fm_local_hook >/dev/null; then fm_local_hook pane-exit-state || return 1; fi
   case "$state" in
@@ -599,12 +860,14 @@ do_exit() {
       return 0
       ;;
     alive) ;;
-    missing)
+    *)
+      fm_control_absence_recheck_applies "$BACKEND" "$state" \
+        || die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint"
       # `missing` on its own is not a finding about the endpoint: it conflates
       # "destroyed" with "unreachable from this seat". Route it through the
       # control plane's one absence proof - the same one the relaunch gate uses
       # - and report what that proof actually established, never more.
-      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T")
+      absence=$(fm_control_endpoint_absence_verdict "$BACKEND" "$T" "$META")
       case "${absence%%$'\t'*}" in
         gone)
           # Proven gone, so the agent that lived in it went with it: exit's
@@ -629,11 +892,10 @@ do_exit() {
           # alive path: interrupt if busy, then the harness's exit command.
           ;;
         *)
-          die "task $ID's endpoint $T reads 'missing', but ${absence#*$'\t'}; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one"
+          die "task $ID's endpoint $T reads '$state', but ${absence#*$'\t'}; exit will not claim an agent stopped at an address it cannot trust, nor send lifecycle input to one"
           ;;
       esac
       ;;
-    *) die "task $ID's endpoint reads '$state' rather than a positively classified state; refusing to send a lifecycle command into an unattributed endpoint" ;;
   esac
   # A busy agent is interrupted first before the exit command is submitted.
   case "$(busy_verdict)" in
@@ -653,9 +915,21 @@ do_exit() {
       esac
       ;;
   esac
-  cmd=$(fm_control_exit_command "$HARNESS")
+  cmd=$(fm_control_exit_command "$HARNESS" "$OPENCODE_MAJOR")
+  hazard=$(fm_control_interrupt_hazard_signal "$HARNESS")
+  if [ -n "$hazard" ] && rendered_matches "$hazard"; then
+    die "task $ID shows the $HARNESS revert picker, where typed text becomes a search and Enter reverts file changes; refusing to type the $cmd exit command. Close it with $(fm_control_interrupt_key "$HARNESS"), never Enter, then retry '$VERB'"
+  fi
+  : > "$FM_COMPOSER_DIALOG_SINK" \
+    || die "task $ID's dialog check could not be recorded"
   composer_state=$(fm_backend_composer_state "$BACKEND" "$T" "$LABEL" 2>/dev/null) \
     || composer_state=unknown
+  # The classify that filled the sink ran in a subshell, so read the file
+  # rather than a function that subshell sourced.
+  if [ -s "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
+    dialog=$(cat "$FM_COMPOSER_DIALOG_SINK")
+    refuse_blocking_prompt "$dialog"
+  fi
   case "$composer_state" in
     empty) ;;
     pending)
@@ -671,12 +945,48 @@ do_exit() {
   # legitimately report anything. Only a hard transport failure aborts; the
   # authoritative proof is the agent-state wait below. The retried Enter still
   # matters, because a slash command opens a completion popup on some TUIs that
-  # swallows the first Enter.
-  verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
-    || die "the exit command could not be sent to task $ID on $BACKEND"
-  [ "$verdict" != send-failed ] \
-    || die "the exit command could not be sent to task $ID on $BACKEND"
+  # swallows the first Enter. OpenCode 2 exits from an empty composer on a
+  # single Ctrl-C (verified on 2.0.11, 2.0.21, and 2.0.22); typing /exit also
+  # exits but opens a completion popup, so the raw key plane avoids that popup
+  # interacting with the typed submit verification. A Ctrl-C over leftover
+  # composer text only clears it, so Ctrl-U clears the composer first and one
+  # more Ctrl-C follows if the agent is still alive.
+  case "$cmd" in
+    C-c)
+      fm_backend_send_key "$BACKEND" "$T" C-u "$LABEL" \
+        || die "the exit key could not be sent to task $ID on $BACKEND"
+      fm_backend_send_key "$BACKEND" "$T" C-c "$LABEL" \
+        || die "the exit key could not be sent to task $ID on $BACKEND"
+      if ! wait_agent_state "$SETTLE_WAIT" dead >/dev/null; then
+        fm_backend_send_key "$BACKEND" "$T" C-c "$LABEL" \
+          || die "the exit key could not be sent to task $ID on $BACKEND"
+      fi
+      ;;
+    *)
+      verdict=$(fm_backend_send_text_submit "$BACKEND" "$T" "$cmd" "$EXIT_RETRIES" "$POLL" 1.2 "$LABEL") \
+        || die "the exit command could not be sent to task $ID on $BACKEND"
+      [ "$verdict" != send-failed ] \
+        || die "the exit command could not be sent to task $ID on $BACKEND"
+      # The submitting Enter can open the picker. The agent is still alive, and
+      # another Enter would confirm the selected row. A dead agent may leave the
+      # same text behind; that is not a prompt still waiting.
+      if [ -s "${FM_COMPOSER_DIALOG_SINK:-}" ]; then
+        dialog=$(cat "$FM_COMPOSER_DIALOG_SINK")
+        if [ "$(agent_state)" != dead ]; then
+          refuse_blocking_prompt "$dialog"
+        fi
+      fi
+      ;;
+  esac
   state=$(wait_agent_state "$EXIT_WAIT" dead) || {
+    # A submit can return before any read sees the picker: a native busy
+    # verdict needs no composer read, and a cleared composer can be read
+    # before the picker renders. Read the screen once more here.
+    : > "$FM_COMPOSER_DIALOG_SINK" || true
+    fm_backend_composer_state "$BACKEND" "$T" "$LABEL" >/dev/null 2>&1 || true
+    if [ -s "$FM_COMPOSER_DIALOG_SINK" ]; then
+      refuse_blocking_prompt "$(cat "$FM_COMPOSER_DIALOG_SINK")"
+    fi
     die "exit-delivered $ID interrupt=$interrupt_result exit-command=delivered agent-state=$state exit=unconfirmed; the agent did not stop within ${EXIT_WAIT}s"
   }
   # The incarnation is over: retire its busy wiring so no stale record or
@@ -713,6 +1023,7 @@ PRIOR_EFFORT=
 TARGET_HARNESS=$HARNESS
 TARGET_MODEL=
 TARGET_EFFORT=
+TARGET_ACCOUNT=
 
 journal_write() {  # <phase> [extra-line]...
   local phase=$1
@@ -823,17 +1134,24 @@ resolve_relaunch_profile() {
   CONFIG_HARNESS=
   CONFIG_MODEL=
   CONFIG_EFFORT=
-  if [ "$KIND" = secondmate ]; then
+  if [ "$KIND" = secondmate ] && [ "$HARNESS_SET" = 0 ]; then
     # A secondmate's harness, model, and effort are a durable configured pin
     # that every respawn re-resolves (the secondmate-provisioning contract), so
     # a relaunch with no explicit harness picks up a newly configured one
-    # instead of freezing whatever this incarnation happens to run. Crewmates
-    # and scouts deliberately do NOT resolve config here: their harness comes
+    # instead of freezing whatever this incarnation happens to run. The mate id
+    # is passed so a per-mate override line is honored here too; a crewmate or
+    # scout deliberately does NOT resolve config here: their harness comes
     # from firstmate's own dispatch-profile judgment at intake, and silently
     # re-resolving it would bypass that consultation.
-    CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate 2>/dev/null || true)
-    CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model 2>/dev/null || true)
-    CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort 2>/dev/null || true)
+    if ! CONFIG_HARNESS=$("$SCRIPT_DIR/fm-harness.sh" secondmate "$ID"); then
+      die "the configured secondmate runtime pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved runtime"
+    fi
+    if ! CONFIG_MODEL=$("$SCRIPT_DIR/fm-harness.sh" secondmate-model "$ID"); then
+      die "the configured secondmate model pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved model"
+    fi
+    if ! CONFIG_EFFORT=$("$SCRIPT_DIR/fm-harness.sh" secondmate-effort "$ID"); then
+      die "the configured secondmate effort pin for $ID cannot be read; fix config/secondmate-harness rather than relaunching onto an unresolved effort"
+    fi
     case "$CONFIG_EFFORT" in
       ''|low|medium|high|xhigh|max|ultra) ;;
       *)
@@ -882,6 +1200,58 @@ resolve_relaunch_profile() {
   fi
   if [ "$TARGET_EFFORT" = ultra ]; then
     "$SCRIPT_DIR/fm-harness.sh" validate-native-effort "$TARGET_HARNESS" "$TARGET_MODEL" "$TARGET_EFFORT" || return 1
+  fi
+  if [ "$TARGET_HARNESS" = hermes ]; then
+    [ "$BACKEND" = tmux ] || die 'Hermes is verified on tmux only; refusing before the current worker stops'
+    [ "$TARGET_MODEL" = default ] || die 'Hermes models are profile-owned; relaunch requires the default model axis'
+    # shellcheck source=bin/fm-hermes-lib.sh
+    . "$SCRIPT_DIR/fm-hermes-lib.sh"
+    fm_hermes_managed_check || return 1
+    local hermes_bin hermes_home hermes_profile
+    hermes_bin=$(command -v hermes) || die 'hermes executable not found on PATH'
+    hermes_profile=
+    if [ "$PRIOR_HARNESS" = hermes ]; then
+      hermes_home=$(fm_meta_get "$META" hermes_home)
+      hermes_profile=$(fm_meta_get "$META" hermes_profile)
+    else
+      hermes_home=$(fm_hermes_profile_home "$hermes_bin" '') || return 1
+    fi
+    [ -n "$hermes_home" ] || die 'recorded Hermes profile home is missing; refusing an unbound replacement'
+    fm_hermes_gateway_check "$hermes_home" "$hermes_profile" || return 1
+  fi
+  # The launch owner applies this home's worker account pin too, but only after
+  # the old agent has been stopped, so a pin that no longer resolves or is
+  # signed out must refuse here, while nothing has changed yet.
+  # Under a declared Claude account list, the replacement stays on the
+  # account the task records unless --account explicitly moves it.
+  local account_model=$TARGET_MODEL account_mate=
+  [ "$account_model" != default ] || account_model=
+  [ "$KIND" != secondmate ] || account_mate=$ID
+  TARGET_ACCOUNT=$(fm_worker_account_relaunch_request "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$PRIOR_HARNESS" "$(fm_meta_get "$META" account)" "$NEW_ACCOUNT" "$account_mate") || return 1
+  fm_worker_account_select "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$account_model" "$TARGET_HARNESS" "" "$account_mate" "$TARGET_ACCOUNT" >/dev/null || return 1
+  fm_omp_profile_select "$TARGET_HARNESS" "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" \
+    "$account_mate" >/dev/null || return 1
+  # Likewise polytoken's launch profile and wiring refusals
+  # (bin/fm-polytoken-lib.sh owns them). The launch owner retires the prior
+  # incarnation's own generated hook layer, so only one it did not generate
+  # refuses here.
+  if [ "$TARGET_HARNESS" = polytoken ]; then
+    local polytoken_bin polytoken_state
+    polytoken_bin=$(fm_polytoken_binary) || return 1
+    fm_polytoken_launch_ref "$polytoken_bin" "$TARGET_MODEL" "$TARGET_EFFORT" >/dev/null || return 1
+    polytoken_state=$(cd "$STATE" && pwd -P) || return 1
+    fm_polytoken_require_handler_path "$(fm_polytoken_busy_script "$polytoken_state" "$ID")" || return 1
+    fm_control_harness_wiring_paths "$PRIOR_HARNESS" "$WT" "$STATE" "$ID" "$KIND" \
+        | grep -qxF "$(fm_polytoken_hooks_file "$WT")" \
+      || fm_polytoken_require_hooks_free "$WT" || return 1
+  fi
+  # Likewise config/crew-exclude-tools: a malformed file, or a replacement
+  # runtime that cannot hide the listed tools, refuses here, before the old
+  # agent stops. Secondmate agents are not covered.
+  if [ "$KIND" != secondmate ]; then
+    fm_exclude_tools_check "$TARGET_HARNESS" 0 "${FM_CONFIG_OVERRIDE:-$FM_HOME/config}" >/dev/null || return 1
   fi
 }
 
@@ -932,10 +1302,10 @@ safe_checkpoint() {
     marker=$(cat "$WT/.fm-secondmate-home" 2>/dev/null || true)
     [ "$marker" = "$ID" ] \
       || die "task $ID's home $WT is not marked as its own seeded secondmate home (marker: ${marker:-none}); refusing to relaunch"
-    [ -d "$WT/state" ] \
+    # Do not walk state/ with find(1): watcher scratch files can vanish
+    # mid-scan and make find fail even when every child *.meta is readable.
+    [ -d "$WT/state" ] && [ -r "$WT/state" ] && [ -x "$WT/state" ] \
       || die "secondmate $ID's home has no readable state directory, so its child work cannot be accounted for; refusing to relaunch"
-    find "$WT/state" -mindepth 1 -maxdepth 1 -print >/dev/null 2>&1 \
-      || die "secondmate $ID's child records cannot be traversed; refusing to relaunch"
     children=0
     for child_meta in "$WT/state"/*.meta; do
       if [ ! -e "$child_meta" ] && [ ! -L "$child_meta" ]; then
@@ -958,7 +1328,7 @@ safe_checkpoint() {
 # never rewritten: a secondmate reconciles its own home's records at startup,
 # so the note stays parent-side audit evidence.
 record_note() {
-  local stamp
+  local stamp inbox_q
   [ -n "$NOTE" ] || return 0
   stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   printf '%s\n' "$NOTE" > "$NOTE_FILE"
@@ -973,9 +1343,11 @@ record_note() {
         echo "This task was relaunched. Continue from here; the local copy and every"
         echo "uncommitted change are exactly as the previous worker left them."
         echo
-        echo "First, check your instruction inbox: list $STATE/$ID.inbox/*.msg, act on"
+        inbox_q=$(printf '%s' "$STATE/$ID.inbox" | sed "s/'/'\\\\''/g")
+        echo "First, check your instruction inbox: list it with"
+        echo "\`find '$inbox_q' -maxdepth 1 -name '*.msg' 2>/dev/null | sort -V\`, act on"
         echo "each message in numeric order, then mv each handled file into"
-        echo "$STATE/$ID.inbox/handled/. A steer sent before the relaunch survives there."
+        echo "'$inbox_q/handled/'. A steer sent before the relaunch survives there."
         echo
         printf '%s\n' "$NOTE"
       } >> "$RELAUNCH_BRIEF" \
@@ -989,6 +1361,8 @@ do_relaunch() {
   local -a spawn_args
 
   require_state_verified_backend relaunch
+  fm_control_backend_relaunch_supported "$BACKEND" \
+    || die "task $ID runs on the $BACKEND backend, where a thread keeps its conversation and a new turn or provider change continues the same agent, so no fresh replacement can be launched into its endpoint; 'interrupt' ends its turn, and a fresh task needs a teardown and a new dispatch"
   resolve_relaunch_profile
 
   case "$KIND" in
@@ -1034,6 +1408,7 @@ do_relaunch() {
   spawn_args=("$ID" --relaunch --harness "$TARGET_HARNESS")
   [ "$TARGET_MODEL" = default ] || spawn_args+=(--model "$TARGET_MODEL")
   [ "$TARGET_EFFORT" = default ] || spawn_args+=(--effort "$TARGET_EFFORT")
+  [ -z "$TARGET_ACCOUNT" ] || spawn_args+=(--account "$TARGET_ACCOUNT")
   if FM_CONTROL_RELAUNCH_TX="$RELAUNCH_TX" \
       "$SCRIPT_DIR/fm-spawn.sh" "${spawn_args[@]}" >/dev/null; then
     RELAUNCH_META_PUBLISHED=1
@@ -1085,10 +1460,22 @@ do_relaunch() {
 
 PARK_KEYS="parked parked_reason parked_on native_session native_session_harness native_session_file"
 
-# The Claude configuration a resume launches with (bin/fm-spawn.sh forwards
-# the same one), so the park and the resume look for a session in one place.
+# resume_claude_config: print the configuration the resume launch looks in,
+# for the locate check. That is the Claude store bin/fm-spawn.sh launches
+# with: the task's recorded entry under a declared account list
+# (config/claude-accounts), else the root of this home's worker account pin
+# (config/claude-account), else the configuration it forwards
+# (bin/fm-worker-account-lib.sh fm_worker_account_claude_store). The account
+# is the one the resume launch requests, which never takes --account. Only a
+# ship or scout is parked, so no per-secondmate pin applies. Other harnesses
+# need no configuration. A list or pin that cannot be read returns 1 after
+# its error, and the caller refuses.
 resume_claude_config() {
-  printf '%s' "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+  local account
+  [ "$HARNESS" = claude ] || return 0
+  account=$(fm_worker_account_relaunch_request claude "$CONFIG" "$HARNESS" \
+    "$(fm_meta_get "$META" account)" "") || return 1
+  fm_worker_account_claude_store "$CONFIG" "" "$account"
 }
 
 one_line() {  # <text>: a meta value is one line
@@ -1097,18 +1484,24 @@ one_line() {  # <text>: a meta value is one line
 
 # park_meta_write [key=value]...: replace every park key in this task's record
 # with exactly the given lines, atomically under the task's meta lock. No
-# arguments clears the park record.
+# arguments clears the park record. The lines go before the first pr= line, so
+# the PR region stays the record's tail that fm_pr_metadata_identity_parse
+# (bin/fm-pr-lib.sh) requires; a park key after it would stop an armed merge
+# poll from validating, and a merge made during the park would go unseen.
 park_meta_write() {
   local lock tmp status=0
   lock=$(fm_meta_lock_path "$META") || return 1
   fm_lock_acquire_wait "$lock"
   tmp=$(mktemp "$STATE/.$ID.meta.park.XXXXXX") || { fm_lock_release "$lock"; return 1; }
-  awk -F= -v keys="$PARK_KEYS" '
-    BEGIN { n = split(keys, k, " "); for (i = 1; i <= n; i++) drop[k[i]] = 1 }
-    !($1 in drop)' "$META" > "$tmp" || status=1
-  if [ "$status" -eq 0 ] && [ "$#" -gt 0 ]; then
-    printf '%s\n' "$@" >> "$tmp" || status=1
-  fi
+  FM_PARK_META_LINES=$(if [ "$#" -gt 0 ]; then printf '%s\n' "$@"; fi) awk -F= -v keys="$PARK_KEYS" '
+    BEGIN {
+      n = split(keys, k, " "); for (i = 1; i <= n; i++) drop[k[i]] = 1
+      lines = ENVIRON["FM_PARK_META_LINES"]
+    }
+    $1 in drop { next }
+    !placed && $1 == "pr" { if (lines != "") print lines; placed = 1 }
+    { print }
+    END { if (!placed && lines != "") print lines }' "$META" > "$tmp" || status=1
   if [ "$status" -eq 0 ]; then
     mv -f "$tmp" "$META" || status=1
   fi
@@ -1219,11 +1612,31 @@ park_require_harness() {  # <verb>
     || die "task $ID records the raw launch command '$RECORDED_HARNESS', whose session cannot be reopened through the $HARNESS adapter"
 }
 
+# A park stops the worker through `exit`, and a resume launches its recorded
+# session through bin/fm-spawn.sh --relaunch, so both need a backend that can
+# do each of those (bin/fm-control-lib.sh owns the per-backend tables). Both
+# also read the endpoint's foreground processes and current directory and close
+# the endpoint with proof (bin/fm-backend.sh fm_backend_foreground_pids,
+# fm_backend_current_path, fm_backend_task_endpoint_close). Only tmux and herdr
+# implement those, so every other backend refuses here, before anything
+# changes.
+park_require_backend() {  # <verb>
+  case "$BACKEND" in
+    tmux|herdr) ;;
+    *) die "task $ID runs on the $BACKEND backend, where '$1' cannot read the worker's processes and directory or prove its endpoint closed (park and resume run on tmux and herdr only), so '$1' is refused and nothing was changed" ;;
+  esac
+  require_state_verified_backend "$1"
+  if fm_control_backend_exit_supported "$BACKEND" && fm_control_backend_relaunch_supported "$BACKEND"; then
+    return 0
+  fi
+  die "task $ID runs on the $BACKEND backend, which cannot both stop its agent and launch a replacement into its endpoint, so '$1' is refused and nothing was changed"
+}
+
 do_park() {
-  local state pids gen sid file parked stamp reason on key value
+  local state pids gen sid file parked stamp reason on key value cfg
   local -a record prior
   park_require_kind park
-  require_state_verified_backend park
+  park_require_backend park
   park_require_harness park
   reason=$(one_line "$REASON")
   on=$(one_line "$PARK_ON")
@@ -1258,7 +1671,9 @@ do_park() {
       || die "task $ID cannot be parked: $FM_NATIVE_SESSION_REASON; nothing was changed"
     sid=$FM_NATIVE_SESSION_ID
     file=$FM_NATIVE_SESSION_FILE
-    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$(resume_claude_config)" \
+    cfg=$(resume_claude_config) \
+      || die "task $ID cannot be parked, because the Claude store its resume would use cannot be read (see the error above); nothing was changed"
+    fm_native_session_locate "$HARNESS" "$sid" "$file" "$WT" "$cfg" \
       || die "task $ID cannot be parked, because its resume would not find the session: $FM_NATIVE_SESSION_REASON; nothing was changed"
     stamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   fi
@@ -1329,10 +1744,10 @@ resume_rollback() {
 }
 
 do_resume() {
-  local parked file state absence model effort
+  local parked file state absence model effort cfg
   local -a spawn_args
   park_require_kind resume
-  require_state_verified_backend resume
+  park_require_backend resume
   parked=$(fm_meta_get "$META" parked)
   [ -n "$parked" ] \
     || die "task $ID is not parked; resume reopens only a parked task's recorded session (use relaunch to replace a running agent)"
@@ -1344,7 +1759,9 @@ do_resume() {
     || die "task $ID's recorded session belongs to '$(fm_meta_get "$META" native_session_harness)', not its recorded harness $HARNESS; it stays parked"
   [ -n "$WT" ] && [ -d "$WT" ] \
     || die "task $ID's recorded worktree '${WT:-none}' is missing; its session cannot be resumed where its work lives, and it stays parked"
-  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$(resume_claude_config)" \
+  cfg=$(resume_claude_config) \
+    || die "task $ID cannot be resumed, because the Claude store its launch would use cannot be read (see the error above). It stays parked and nothing was changed"
+  fm_native_session_locate "$HARNESS" "$RESUME_SESSION" "$file" "$WT" "$cfg" \
     || die "task $ID cannot be resumed: $FM_NATIVE_SESSION_REASON. It stays parked and nothing was changed; it is never restarted as a fresh session"
   # The resume opens a new pane, so it is held to the agent limit. The launch
   # re-checks it; checking here first keeps a refused resume from touching the
@@ -1364,7 +1781,7 @@ do_resume() {
   # On Herdr a stopped session server also reads `missing`, and the task's own
   # pane can come back with it, so absence is proven with that server running.
   if [ "$state" = missing ] && [ "$BACKEND" = herdr ]; then
-    absence=$(fm_control_endpoint_absence_verdict herdr "$T")
+    absence=$(fm_control_endpoint_absence_verdict herdr "$T" "$META")
     case "${absence%%$'\t'*}" in
       gone) ;;
       dead|alive) state=${absence%%$'\t'*} ;;
@@ -1419,6 +1836,9 @@ do_resume() {
     # way (the watcher re-rings an unhandled one), so the wait is bounded and
     # the note is sent when it ends.
     resume_wait_composer_ready || true
+    # fm-send takes the same non-reentrant lease command lock this command
+    # holds, so release it first; the resume's own mutation is complete.
+    fm_lease_guard_release || true
     "$SCRIPT_DIR/fm-send.sh" "$ID" "$NOTE" >/dev/null \
       || echo "warning: task $ID resumed, but its note could not be delivered as a steer; send it again with bin/fm-send.sh $ID" >&2
   fi
@@ -1452,8 +1872,8 @@ case "$VERB" in
     if [ -n "$(fm_meta_get "$META" parked)" ]; then
       # A parked task keeps its recorded conversation: relaunch reopens it.
       { [ "$HARNESS_SET" = 0 ] || [ "$NEW_HARNESS" = "$HARNESS" ]; } \
-        && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] \
-        || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile, so relaunch refuses a harness, model, or effort change for it"
+        && [ "$MODEL_SET" = 0 ] && [ "$EFFORT_SET" = 0 ] && [ "$ACCOUNT_SET" = 0 ] \
+        || die "task $ID is parked; its recorded $HARNESS session resumes on its recorded profile and account, so relaunch refuses a harness, model, effort, or account change for it"
       do_resume
     else
       [ "$OVER_LIMIT" = 0 ] \

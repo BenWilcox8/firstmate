@@ -309,9 +309,16 @@ assert_present "$supervisor"
 echo 'ok - teardown removes a landed worker pane and refuses to discard unlanded work'
 
 # A landed worker whose agent still runs: teardown stops it before the close.
+# Fork: teardown stops the agent through `fm-control exit`, which types the exit
+# command only into a composer it proves empty. So this stand-in draws an empty
+# composer box with the cursor inside it.
 cat > "$FM_LOCAL_LAB_ROOT/tools/pi-live" <<'PI'
 #!/usr/bin/env bash
-exec "$(dirname "$0")/../agent/pi" -c 'while IFS= read -r line; do case "$line" in /exit|/quit) exit 0;; esac; done'
+exec "$(dirname "$0")/../agent/pi" -c '
+w=78; set -- $(stty size 2>/dev/null); [ -z "${2:-}" ] || w=$(($2 - 2))
+rule=$(printf "%*s" "$w" "" | sed "s/ /─/g")
+printf "\033[2J\033[H╭%s╮\n│%*s│\n╰%s╯\033[2;3H" "$rule" "$w" "" "$rule"
+while IFS= read -r line; do case "$line" in /exit|/quit) exit 0;; esac; done'
 PI
 chmod +x "$FM_LOCAL_LAB_ROOT/tools/pi-live"
 git -C "$project" worktree add --quiet -b "live-$$" "$FM_LOCAL_LAB_RETURN_WT"

@@ -493,10 +493,6 @@ test_worktree_create_removes_worktree_when_path_missing() {
   pass "fm_backend_orca_worktree_create: removes created worktree when path is missing"
 }
 
-# A spawn that dies leaves the recovery record a later cleanup works from, and
-# that cleanup discharges the Atlas ticket. A record that dropped the ticket link
-# would strand the started ticket on the map with no leg and no way to return it
-# to the queue.
 test_peek_send_and_crew_state_route_through_orca_meta() {
   local wt state id out neutral record body
   id="orcaiopathz2"

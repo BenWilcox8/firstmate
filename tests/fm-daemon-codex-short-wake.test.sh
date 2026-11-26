@@ -260,12 +260,16 @@ test_startup_diagnostic_names_resolved_harness() {
   local home="$TMP_ROOT/startup" fakebin="$TMP_ROOT/startup/fakebin"
   local pid attempt=0 output
   mkdir -p "$home/state" "$fakebin"
+  # The tmux backend proves a %pane target exists by listing every pane id, so
+  # the fake answers that read as well as the older display-message probe.
   cat > "$fakebin/tmux" <<'SH'
 #!/usr/bin/env bash
-if [ "${1:-}" = display-message ]; then
-  printf '%%isolated-startup\n'
-  exit 0
-fi
+case "${1:-}" in
+  display-message|list-panes)
+    printf '%%isolated-startup\n'
+    exit 0
+    ;;
+esac
 exit 1
 SH
   chmod +x "$fakebin/tmux"

@@ -1,9 +1,7 @@
 ---
 name: herdr-pane-management
 description: >-
-  Agent-only reference for operating a herdr-backed home's workspace panes through agent-axi.
-  Load whenever this home's runtime backend is herdr and you need to inspect, place, repair, or reason about crewmate panes.
-  Owns the layout-authority rule; exact flags stay in `agent-axi --help` and mechanism detail in docs/herdr-backend.md.
+  Load at session start when this home's runtime backend is herdr, and before inspecting, placing, repairing, or reasoning about its workspace panes.
 user-invocable: false
 metadata:
   internal: true
@@ -38,7 +36,7 @@ That fallback is a degraded mode, not the operating model.
 Three wirings are already in place through `bin/fm-herdr-layout-lib.sh`, and all three are no-ops unless the home is explicitly configured for herdr and agent-axi resolves.
 Do not duplicate them by hand.
 
-- Session start runs the mutating layout repair sweep as one of the bootstrap sweeps, so a workspace that drifted while firstmate was away self-heals (`AGENTS.md` section 3; `bin/fm-bootstrap.sh`).
+- Session start runs the mutating layout repair sweep as one of the bootstrap sweeps, so a workspace that drifted while firstmate was away self-heals (`session-start-recovery`; `bin/fm-bootstrap.sh`).
 - The session-start digest prints agent-axi's read-only snapshot in the fleet-state section, so slot occupancy and husks are already visible before you ask.
 - The watcher heartbeat previews drift read-only and surfaces a non-converged workspace as a wake; the watcher never mutates geometry itself, so healing it is firstmate's action.
 

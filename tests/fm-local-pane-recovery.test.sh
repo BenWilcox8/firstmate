@@ -305,21 +305,64 @@ grep -F 'is gone or now belongs to other work' "$tmp/recycled-force.out" >/dev/n
 mv "$tmp/bin/herdr.inventory" "$tmp/bin/herdr"
 echo 'ok - forced teardown does not report a recycled recorded pane as this task leaked pane'
 
-# Teardown's stop follows fm-control exit: an interrupt that ends the agent
-# needs no exit command, which would otherwise be typed into the bare shell.
-stop_dir="$tmp/stop"
-mkdir -p "$stop_dir"
-{ cat "$tmp/original.meta"; echo harness=grok; } > "$stop_dir/grok.meta"
-(
-  . "$ROOT/bin/fm-backend.sh"
-  . "$ROOT/bin/fm-control-lib.sh"
-  . "$ROOT/bin/fm-local-pane-lib.sh"
-  fm_busy_classify_meta() { printf 'busy'; }
-  fm_backend_send_key() { touch "$stop_dir/interrupted"; }
-  fm_backend_agent_state() { if [ -e "$stop_dir/interrupted" ]; then printf dead; else printf alive; fi; }
-  fm_backend_send_text_submit() { touch "$stop_dir/exit-submitted"; printf submitted; }
-  fm_local_pane_stop "$stop_dir/grok.meta" ended test:w1:p2
-)
-[ -e "$stop_dir/interrupted" ]
-[ ! -e "$stop_dir/exit-submitted" ]
-echo 'ok - teardown stop submits no exit command after an interrupt ends the agent'
+# Teardown stops a live worker through fm-control exit as its child
+# (tests/fm-control.test.sh covers that stop and its safety rules). That exit
+# leaves the pane for teardown, which closes it under its own session lock.
+keep_home="$tmp/keep-home"
+mkdir -p "$keep_home/state"
+{ cat "$tmp/original.meta"; echo harness=pi; } > "$keep_home/state/ended.meta"
+rm -f "$tmp/closed"
+out=$(FM_HOME="$keep_home" FM_LOCAL_PANE_KEEP_OPEN=1 "$ROOT/bin/fm-control.sh" ended exit)
+case "$out" in already-stopped*) ;; *) echo "not ok - keep-open exit output: $out" >&2; exit 1 ;; esac
+[ ! -e "$tmp/closed" ] || { echo 'not ok - the exit that teardown runs closed the pane teardown owns' >&2; exit 1; }
+out=$(FM_HOME="$keep_home" "$ROOT/bin/fm-control.sh" ended exit)
+case "$out" in already-stopped*) ;; *) echo "not ok - exit output: $out" >&2; exit 1 ;; esac
+[ -e "$tmp/closed" ] || { echo 'not ok - an ordinary exit left the stopped pane open' >&2; exit 1; }
+[ -f "$keep_home/state/ended.meta" ]
+echo 'ok - the exit that teardown runs to stop a worker leaves the pane for teardown to close'
+
+# A relaunch waits for the home's task set without the home-wide lease command
+# lock, which every steer and lifecycle command needs. It takes the lease guard
+# again before it continues.
+reserve_home="$tmp/reserve-home"
+mkdir -p "$reserve_home/state"
+# shellcheck disable=SC2016 # The driver shell expands its own variables.
+out=$(FM_HOME="$reserve_home" FM_SUPERVISION_ACTOR=main TEST_ROOT="$ROOT" bash -c '
+  set -u
+  STATE=$FM_HOME/state
+  . "$TEST_ROOT/bin/fm-backend.sh"
+  . "$TEST_ROOT/bin/fm-wake-lib.sh"
+  . "$TEST_ROOT/bin/fm-local-pane-lib.sh"
+  . "$TEST_ROOT/bin/fm-lease-lib.sh"
+  set_lock=$(fm_task_set_lock_path "$STATE")
+  lease_lock=$STATE/.fm-lease-command.lock
+  # Another process holds the task set until it finds the lease lock free.
+  (
+    fm_lock_try_acquire "$set_lock" || exit 1
+    : > "$STATE/set-held"
+    tries=0
+    while [ "$tries" -lt 200 ]; do
+      if fm_lock_try_acquire "$lease_lock"; then
+        fm_lock_release "$lease_lock"
+        : > "$STATE/lease-was-free"
+        break
+      fi
+      tries=$((tries + 1))
+      sleep 0.05
+    done
+    fm_lock_release "$set_lock"
+  ) &
+  holder=$!
+  until [ -e "$STATE/set-held" ]; do sleep 0.05; done
+  fm_lease_guard t1 "lifecycle control (test)"
+  [ -n "$FM_LEASE_GUARD_LOCK" ] || { echo "setup: the lease guard did not engage"; exit 1; }
+  FM_LOCAL_PANE_RESERVE_WAIT=30 fm_local_pane_reserve t1 || { echo "the reserve refused"; exit 1; }
+  wait "$holder"
+  [ -e "$STATE/lease-was-free" ] || echo "the lease lock stayed held during the wait"
+  [ "$(cat "$set_lock/pid")" = "$$" ] || echo "the reserve does not hold the task set"
+  { [ "$FM_LEASE_GUARD_LOCK" = "$lease_lock" ] && [ "$(cat "$lease_lock/pid")" = "$$" ]; } \
+    || echo "the lease guard was not taken again"
+  echo reserved
+' 2>&1) || true
+[ "$out" = reserved ] || { echo "not ok - relaunch reserve: $out" >&2; exit 1; }
+echo 'ok - a relaunch waits for the task set without the home-wide lease lock, then takes the guard again'

@@ -10,8 +10,8 @@
 #   fm-install-treehouse.sh <destination-directory>
 #
 # Pins Treehouse v2.3.0, the version exercised by the local real-Herdr suite.
-# Firstmate needs at least v2.2.0, the first release that reads TREEHOUSE_ROOT
-# (see bin/fm-wake-lib.sh fm_treehouse_home_root).
+# Firstmate needs at least v2.2.0, the first release with `get --root` and
+# TREEHOUSE_ROOT (see bin/fm-wake-lib.sh fm_treehouse_home_root).
 set -eu
 
 FM_TREEHOUSE_CI_VERSION=2.3.0

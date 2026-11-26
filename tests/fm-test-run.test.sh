@@ -311,6 +311,33 @@ test_shell_line_ending_policy_selects_runner_contract() {
   pass "shell line-ending policy selects runner coverage"
 }
 
+test_changed_remote_inheritance_selects_generation_contract() {
+  local tmp repo listed source
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-inheritance.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  printf '#!/usr/bin/env bash\n' >"$repo/tests/fm-remote-inherit-generation.test.sh"
+  chmod +x "$repo/tests/fm-remote-inherit-generation.test.sh"
+  for source in fm-remote-inherit-push.sh fm-remote-inherit.sh fm-secondmate-nudge-lib.sh; do
+    : >"$repo/bin/$source"
+  done
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm inheritance-fixture
+  for source in fm-remote-inherit-push.sh fm-remote-inherit.sh fm-secondmate-nudge-lib.sh; do
+    printf '\n' >>"$repo/bin/$source"
+    listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+    assert_contains "$listed" "tests/fm-remote-inherit-generation.test.sh" \
+      "$source change must select the generation regression"
+    assert_contains "$listed" "tests/fm-secondmate-safety.test.sh" \
+      "$source change must retain secondmate coverage"
+    assert_not_contains "$listed" "tests/fm-ask-user-authority.test.sh" \
+      "$source change must not select the whole pure-contract-unit family"
+    git -C "$repo" checkout -q -- "bin/$source"
+  done
+  rm -rf "$tmp"
+  pass "changed inheritance sender, receiver and counter select the focused generation contract"
+}
+
 test_changed_dependency_selection_and_unmapped_failure() {
   local tmp repo listed rc
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-changed.XXXXXX")
@@ -521,7 +548,7 @@ PY
   cp "$ROOT/tests/git-config-helpers.sh" "$timeout_repo/tests/"
   cat >"$timeout_repo/bin/fm-timeout-lib.sh" <<'SH'
 fm_run_timed() {
-  [ "$1" -eq 900 ] || return 99
+  [ "$1" -eq 1500 ] || return 99
   return 124
 }
 SH
@@ -1013,15 +1040,40 @@ test_exclude_family() {
   pass "exclude-family drops the named primary family after selection"
 }
 
+test_tern_family_selection() {
+  local listed families
+  families=$("$RUNNER" --list-families)
+  printf '%s\n' "$families" | grep -qx tern || fail "--list-families must name the tern family"
+  listed=$("$RUNNER" --list --family tern)
+  assert_contains "$listed" "tests/fm-backend-tern.test.sh" "family tern must select the fake-CLI suite"
+  assert_contains "$listed" "tests/fm-backend-tern-smoke.test.sh" "family tern must select the real-binary smoke test"
+  assert_not_contains "$listed" "tests/tern-test-safety.sh" "the safety helper is a shared library, not a runnable suite"
+  assert_not_contains "$listed" "tests/fm-backend-cmux.test.sh" "family tern must not absorb the cmux suite"
+  # The scripts are real members of the portable lanes, so the coverage guard
+  # (every tests/*.test.sh belongs to exactly one lane) sees them.
+  "$RUNNER" --list-lanes >/dev/null || fail "--list-lanes failed with the tern scripts present"
+  pass "fm-test-run: family tern selects the tern suite and smoke test, and the lane coverage guard accepts them"
+}
+
 test_list_scheduled_proven_isolated_uses_serial_weights() {
   local tmp
   tmp=$(fm_test_tmproot fm-test-run-proven-schedule)
-  "$RUNNER" --list --proven-isolated | LC_ALL=C sort >"$tmp/expected"
+  "$RUNNER" --list --proven-isolated >"$tmp/members" \
+    || fail "--list --proven-isolated failed"
+  awk -F '\t' '
+    NR == FNR {
+      if (NF >= 2 && $1 !~ /^#/ && $1 != "path" && $2 ~ /^[0-9]+$/) hint[$1] = $2 + 0
+      next
+    }
+    NF { print hint[$1] + 0 "\t" $1 }
+  ' "$ROOT/tests/fm-test-ci-timings.tsv" "$tmp/members" \
+    | LC_ALL=C sort -t "$(printf '\t')" -k1,1nr -k2,2 \
+    | awk -F '\t' '{ print $2 }' >"$tmp/expected"
   "$RUNNER" --list-scheduled --proven-isolated >"$tmp/actual" \
     || fail "--list-scheduled --proven-isolated failed"
   cmp -s "$tmp/expected" "$tmp/actual" \
-    || fail "proven-isolated scheduling must break serial-default ties by path"
-  pass "proven-isolated scheduling ignores parallel hints"
+    || fail "proven-isolated scheduling must use committed duration weights, longest first"
+  pass "proven-isolated scheduling uses committed CI duration weights"
 }
 
 test_list_scheduled_non_lane_selections_use_serial_weights() {
@@ -1038,6 +1090,8 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
   repo="$tmp/repo"
   mkdir -p "$repo/bin" "$repo/tests"
   cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  mkdir -p "$repo/tests"
+  cp "$ROOT/tests/fm-test-ci-timings.tsv" "$repo/tests/fm-test-ci-timings.tsv"
   for script in "${scripts[@]}"; do
     printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
     chmod +x "$repo/$script"
@@ -1048,14 +1102,12 @@ test_list_scheduled_non_lane_selections_use_serial_weights() {
   for script in "${scripts[@]}"; do
     printf '\n' >>"$repo/$script"
   done
-  # Muse and Kimi carry hints above the 27,000 ms default, the three unhinted
-  # scripts tie at that default in path order, and operational-input is below it.
   printf '%s\n' \
-    tests/fm-muse-harness.test.sh \
-    tests/fm-kimi-harness.test.sh \
-    tests/fm-brief.test.sh \
     tests/fm-captain-hold-lifecycle.test.sh \
     tests/fm-lint.test.sh \
+    tests/fm-kimi-harness.test.sh \
+    tests/fm-muse-harness.test.sh \
+    tests/fm-brief.test.sh \
     tests/fm-operational-input.test.sh >"$tmp/expected"
   for selection in family all changed scripts; do
     case "$selection" in
@@ -1137,7 +1189,7 @@ test_portable_serial_shards_partition_the_serial_lane() {
   local lanes count serial shard listed union dups shard_lane total cap
   lanes=$("$RUNNER" --list-lanes)
   count=$(printf '%s\n' "$lanes" | grep -c '^portable-serial-[0-9]*of[0-9]*$')
-  [ "$count" -eq 9 ] || fail "expected nine portable serial shard lanes, got $count"
+  [ "$count" -eq 20 ] || fail "expected twenty portable serial shard lanes, got $count"
   printf '%s\n' "$lanes" | grep -q "^portable-serial-1of${count}\$" \
     || fail "shard lane names must carry the shard count ${count}: $lanes"
 
@@ -1180,7 +1232,7 @@ test_portable_serial_shards_partition_the_serial_lane() {
 }
 
 test_portable_serial_hint_coverage_is_reported_and_bounded() {
-  local out serial unhinted
+  local out serial unhinted max budget
   # Shards are packed from measured duration hints, so an unmeasured script is
   # placed on a guess. Enough of them and the partition still looks balanced by
   # script count while one shard carries far more real work than another and
@@ -1201,7 +1253,111 @@ test_portable_serial_hint_coverage_is_reported_and_bounded() {
   # this trips (docs/fm-test-portable-shards.md).
   [ "$((unhinted * 100))" -le "$((serial * 15))" ] \
     || fail "$unhinted of $serial portable serial scripts lack a measured hint; refresh them"
-  pass "coverage guard reports and bounds the unmeasured portable serial share"
+  # A complete partition can still overflow a CI job. Assert the runner's
+  # modeled packing target through its executable interface, not source hints.
+  # An indivisible suite may exceed the 15-minute target when it occupies a
+  # shard alone; the guard still refuses a multi-script overflow.
+  max=$(printf '%s\n' "$out" | sed -n 's/.*serial_max_ms=\([0-9][0-9]*\).*/\1/p')
+  budget=$(printf '%s\n' "$out" | sed -n 's/.*serial_budget_ms=\([0-9][0-9]*\).*/\1/p')
+  [ -n "$max" ] && [ -n "$budget" ] \
+    || fail "coverage summary must carry serial packing and budget: $out"
+  [ "$budget" -eq 900000 ] || fail "packing target must be fifteen minutes, got $budget"
+  [ "$max" -gt 0 ] || fail "largest serial shard packed ${max}ms"
+  pass "coverage guard bounds the unmeasured share and serial packing within fifteen minutes"
+}
+
+write_fixture_timings() {  # <repo> <triage-ms> [second-script] [second-ms]
+  local repo=$1 triage_ms=$2 second=${3:-} second_ms=${4:-1}
+  local script
+  {
+    printf 'path\tduration_ms\n'
+    while IFS= read -r script; do
+      if [ "$script" = "tests/fm-watch-triage.test.sh" ]; then
+        printf '%s\t%s\n' "$script" "$triage_ms"
+      elif [ -n "$second" ] && [ "$script" = "$second" ]; then
+        printf '%s\t%s\n' "$script" "$second_ms"
+      else
+        printf '%s\t1\n' "$script"
+      fi
+    done < <("$RUNNER" --list --all)
+  } >"$repo/tests/fm-test-ci-timings.tsv"
+}
+
+# Fork: tests/fm-local-ci-timings.tsv carries the fork-only scripts. Its row
+# counts only for a path the upstream timings file lacks.
+test_fork_timings_fill_only_paths_upstream_lacks() {
+  local tmp repo out rc
+  tmp=$(fm_test_tmproot fm-test-run-fork-timings)
+  repo="$tmp/repo"
+  mkdir -p "$repo/bin" "$repo/tests"
+  while IFS= read -r script; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
+  done < <("$RUNNER" --list --all)
+  cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  write_fixture_timings "$repo" 1
+  printf 'path\tduration_ms\ntests/fm-watch-triage.test.sh\t900001\n' >"$repo/tests/fm-local-ci-timings.tsv"
+  out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
+  expect_code 0 "$rc" "coverage with both timings files must pass"$'\n'"$out"
+  assert_not_contains "$out" "serial_max_ms=900001" "a fork row overrode the upstream row for the same path"
+  grep -v '^tests/fm-watch-triage.test.sh'$'\t' "$repo/tests/fm-test-ci-timings.tsv" >"$tmp/upstream.tsv"
+  mv "$tmp/upstream.tsv" "$repo/tests/fm-test-ci-timings.tsv"
+  out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
+  expect_code 0 "$rc" "coverage with a fork-only row must pass"$'\n'"$out"
+  assert_contains "$out" "serial_max_ms=900001" "a fork row did not fill a path the upstream file lacks"
+  assert_contains "$out" "serial_unhinted=0" "a fork row did not count as a measured hint"
+  rm -rf "$tmp"
+  pass "fork timing rows fill only the paths that the upstream timings file lacks"
+}
+
+test_portable_serial_packing_budget_boundary() {
+  local tmp repo out rc
+  tmp=$(fm_test_tmproot fm-test-run-packing-boundary)
+  repo="$tmp/repo"
+  mkdir -p "$repo/bin" "$repo/tests"
+  # Preserve the real inventory and packing policy without executing suites.
+  # Give every inventory member a fixture hint so an unmeasured real script
+  # cannot take the default weight and join the at-budget shard.
+  while IFS= read -r script; do
+    printf '#!/usr/bin/env bash\nexit 0\n' >"$repo/$script"
+  done < <("$RUNNER" --list --all)
+  cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+
+  write_fixture_timings "$repo" 900000
+  out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
+  expect_code 0 "$rc" "packing exactly at the budget must be accepted"
+  assert_contains "$out" "FM_TEST_COVERAGE ok" "boundary coverage did not pass"
+  assert_contains "$out" "serial_max_ms=900000" "fixture did not pack exactly at the budget"
+  assert_contains "$out" "serial_budget_ms=900000" "fixture changed the packing budget"
+
+  write_fixture_timings "$repo" 900001
+  out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
+  expect_code 0 "$rc" "an indivisible suite one millisecond above the budget must occupy its own shard"
+  assert_contains "$out" "FM_TEST_COVERAGE ok" "singleton overflow coverage did not pass"
+  assert_contains "$out" "serial_max_ms=900001" "singleton overflow did not keep the script's own hint"
+
+  python3 - "$repo/bin/fm-test-run.sh" <<'PY' || fail "could not pin the fixture to one serial shard"
+from pathlib import Path
+import re, sys
+runner = Path(sys.argv[1])
+text = runner.read_text()
+new, n = re.subn(
+    r"^PORTABLE_SERIAL_SHARDS=[0-9]+$",
+    "PORTABLE_SERIAL_SHARDS=1",
+    text,
+    count=1,
+    flags=re.M,
+)
+if n != 1:
+    sys.exit("serial shard count not found")
+runner.write_text(new)
+PY
+  write_fixture_timings "$repo" 450001 tests/fm-watch-triage-pause.test.sh 450001
+  out=$(bash "$repo/bin/fm-test-run.sh" --check-coverage 2>&1) && rc=0 || rc=$?
+  expect_code 1 "$rc" "a multi-script shard above the budget must be refused"
+  assert_contains "$out" "packs above the 900000ms target with more than one script" \
+    "over-budget refusal did not explain the modeled excess"
+  assert_not_contains "$out" "FM_TEST_COVERAGE ok" "over-budget packing reported success"
+  pass "serial packing accepts the exact budget, keeps an indivisible overflow, and refuses a multi-script overflow"
 }
 
 test_portable_serial_shard_lane_refusals() {
@@ -1400,6 +1556,67 @@ test_changed_shared_fixture_selects_its_readers() {
   pass "a changed shared test fixture selects its readers while an unread tests/ path still refuses"
 }
 
+# Suites outside backend-dispatch source the T3 fake and the T3 adapter, so a
+# change to either selects the suites that read them as well.
+test_changed_t3_sources_select_their_readers() {
+  local tmp repo listed
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-t3.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  mkdir -p "$repo/bin/backends"
+  : >"$repo/bin/backends/t3code.sh"
+  : >"$repo/tests/t3-fake-lib.sh"
+  printf '#!/usr/bin/env bash\n# tests/lib.sh\n. tests/t3-fake-lib.sh\n' >"$repo/tests/fm-secondmate-restart.test.sh"
+  chmod +x "$repo/tests/fm-secondmate-restart.test.sh"
+  printf '# bin/backends/t3code.sh\n' >>"$repo/bin/fm-supervisor-target-lib.sh"
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm t3
+
+  printf '\n' >>"$repo/tests/t3-fake-lib.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-secondmate-restart.test.sh" \
+    "a changed T3 fake selects the suite that sources it"
+  git -C "$repo" checkout -q -- tests/t3-fake-lib.sh
+
+  printf '\n' >>"$repo/bin/backends/t3code.sh"
+  listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+  assert_contains "$listed" "tests/fm-backend.test.sh" \
+    "a changed T3 adapter still selects backend-dispatch"
+  assert_contains "$listed" "tests/fm-daemon.test.sh" \
+    "a changed T3 adapter selects the curated family of a script that consumes it"
+
+  rm -rf "$tmp"
+  pass "a changed T3 fake or adapter selects the suites that read it beyond backend-dispatch"
+}
+
+# Fork: the watcher starts bin/fm-browser-reap.sh on its cadence, and the
+# browser-reap suite runs a real watcher to prove that cadence. So a change to
+# the watcher or its classifier selects the browser-reap suite too.
+test_changed_watcher_sources_select_browser_reap() {
+  local tmp repo listed path
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-browser-reap.XXXXXX")
+  repo="$tmp/repo"
+  init_changed_fixture_repo "$repo"
+  printf '#!/usr/bin/env bash\n# tests/lib.sh\n' >"$repo/tests/fm-browser-reap.test.sh"
+  chmod +x "$repo/tests/fm-browser-reap.test.sh"
+  : >"$repo/bin/fm-watch.sh"
+  : >"$repo/bin/fm-classify-lib.sh"
+  : >"$repo/bin/fm-wake-lib.sh"
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm browser-reap
+
+  for path in bin/fm-watch.sh bin/fm-classify-lib.sh bin/fm-wake-lib.sh; do
+    printf '\n' >>"$repo/$path"
+    listed=$(cd "$repo" && bin/fm-test-run.sh --list --changed --base HEAD)
+    assert_contains "$listed" "tests/fm-browser-reap.test.sh" \
+      "a changed $path must select the browser-reap suite"
+    git -C "$repo" checkout -q -- "$path"
+  done
+
+  rm -rf "$tmp"
+  pass "a changed watcher, classifier, or wake source selects the browser-reap suite"
+}
+
 # Workers are handed scripts in order, so the slowest script must start first or
 # it runs alone at the tail and throws away most of the concurrency.
 test_concurrent_runs_are_ordered_longest_first() {
@@ -1489,6 +1706,48 @@ SH
 # green but whose wall clock outgrew its caller's invocation budget. The caller
 # gets killed mid-run and retries invisibly, so an over-budget run has to be a
 # failure, not a note in the log.
+# tests/fm-watch-triage.test.sh is the slowest watcher-wake-lock member at about
+# 593s under CI load (pause and wedge-defer siblings are 467s and 527s), so the
+# automatic --changed bound must leave a slow but healthy watcher-wake-lock
+# script room while still bounding a genuinely hung one
+# (upstream issue #3869). The stub records the bound the runner hands it.
+test_changed_bound_gives_slow_watcher_suites_headroom() {
+  local tmp repo script bound rc
+  tmp=$(mktemp -d)
+  repo="$tmp/repo"
+  script=tests/fm-watch-triage.test.sh
+  mkdir -p "$repo/bin" "$repo/tests"
+  cp "$RUNNER" "$repo/bin/fm-test-run.sh"
+  cp "$ROOT/tests/git-config-helpers.sh" "$repo/tests/"
+  cat >"$repo/bin/fm-timeout-lib.sh" <<'SH'
+fm_run_timed() {
+  printf '%s\n' "$1" >bound-secs
+  shift
+  "$@"
+}
+SH
+  cat >"$repo/$script" <<'SH'
+#!/usr/bin/env bash
+echo "ok - healthy but slow watcher suite"
+SH
+  chmod +x "$repo/bin/fm-test-run.sh" "$repo/$script"
+  git -C "$repo" init -q
+  git -C "$repo" add .
+  git -C "$repo" -c user.name=test -c user.email=test@example.invalid commit -qm baseline
+  printf '\n' >>"$repo/$script"
+  set +e
+  (cd "$repo" && bin/fm-test-run.sh --changed --base HEAD) >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "healthy changed watcher script must pass, got $rc: $(cat "$tmp/out" "$tmp/err")"
+  [ -s "$repo/bound-secs" ] || fail "changed watcher script did not run under the automatic bound: $(cat "$tmp/out")"
+  bound=$(cat "$repo/bound-secs")
+  [ "$bound" -ge 1500 ] \
+    || fail "automatic --changed bound for $script must be at least 1500s, got ${bound}s"
+  rm -rf "$tmp"
+  pass "the automatic --changed bound gives the slow watcher suite at least 1500s"
+}
+
 test_max_wall_ms_is_a_result_not_advice() {
   local tmp repo runner fast rc summary_duration budget_duration
   tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-budget.XXXXXX")
@@ -1759,6 +2018,59 @@ assert len(doc["scripts"])==3
   pass "aggregate-json merges lane timing artifacts"
 }
 
+test_ci_budget_warn_annotates_over_budget_lanes_without_failing() {
+  local tmp out rc
+  tmp=$(fm_test_tmproot fm-ci-budget-warn)
+  cat >"$tmp/aggregate.json" <<'JSON'
+{
+  "kind": "aggregate",
+  "lanes": [
+    {"selection": "lane=portable-serial-1of18;fail-on-gate-skip=1", "summary": {"duration_ms": 1200000}},
+    {"selection": "lane=portable-parallel-1", "summary": {"duration_ms": 1199999}}
+  ]
+}
+JSON
+  mkdir -p "$tmp/lint"
+  printf 'partition\t2\nwall_seconds\t1200\n' >"$tmp/lint/partition-2.tsv"
+  printf 'partition\t1\nwall_seconds\t1199\n' >"$tmp/lint/partition-1.tsv"
+
+  rc=0
+  out=$(GITHUB_ACTIONS=true bash "$ROOT/bin/fm-ci-budget-warn.sh" \
+    "$tmp/aggregate.json" "$tmp/lint" 2>"$tmp/err") || rc=$?
+  [ "$rc" -eq 0 ] || fail "budget warn must not fail, got $rc"$'\n'"$out"$'\n'"$(cat "$tmp/err")"
+  assert_contains "$out" "::warning title=CI budget::lane portable-serial-1of18 command time was 20.0 minutes, above the 20-minute healthy budget" \
+    "over-budget lane did not emit a GitHub warning annotation"
+  printf '%s\n' "$out" | grep -q 'fail-on-gate-skip' \
+    && fail "budget warning printed runner flags instead of the lane name"$'\n'"$out"
+  assert_contains "$out" "::warning title=CI budget::lint partition 2 command time was 20.0 minutes, above the 20-minute healthy budget" \
+    "over-budget lint partition did not emit a GitHub warning annotation"
+  printf '%s\n' "$out" | grep -q 'portable-parallel-1' \
+    && fail "a lane one millisecond under budget was warned"
+  printf '%s\n' "$out" | grep -q 'lint partition 1' \
+    && fail "a lint partition under budget was warned"
+
+  rc=0
+  out=$(GITHUB_ACTIONS=true bash "$ROOT/bin/fm-ci-budget-warn.sh" \
+    "$tmp/missing.json" 2>"$tmp/missing.err") || rc=$?
+  [ "$rc" -eq 0 ] || fail "missing aggregate must still exit 0, got $rc"
+  assert_contains "$out" "::warning title=CI budget::no aggregate timing JSON" \
+    "missing aggregate did not warn"
+  pass "budget warn annotates 20-minute overruns and never fails the job"
+}
+
+test_jobs_lists_a_portable_parallel_lane() {
+  local tmp rc
+  tmp=$(mktemp -d "${TMPDIR:-/tmp}/fm-test-run-jobs-parallel.XXXXXX")
+  set +e
+  "$RUNNER" --jobs 2 --lane portable-parallel-1 --list >"$tmp/out" 2>"$tmp/err"
+  rc=$?
+  set -e
+  [ "$rc" -eq 0 ] || fail "--jobs 2 --lane portable-parallel-1 --list must succeed, got $rc: $(cat "$tmp/err")"
+  [ -s "$tmp/out" ] || fail "portable parallel 1 listed no scripts under --jobs 2"
+  rm -rf "$tmp"
+  pass "--jobs 2 is accepted on a portable parallel lane"
+}
+
 test_coverage_is_locale_independent() {
   local candidate selected='' out rc
   while IFS= read -r candidate; do
@@ -1785,6 +2097,7 @@ test_changed_file_selection_is_conservative
 test_task_marker_refuses_the_primary_checkout
 test_changed_runner_surfaces_select_their_family
 test_shell_line_ending_policy_selects_runner_contract
+test_changed_remote_inheritance_selects_generation_contract
 test_changed_dependency_selection_and_unmapped_failure
 test_changed_bin_reference_selects_per_script_not_per_family
 test_changed_uses_bounded_automatic_concurrency
@@ -1801,20 +2114,28 @@ test_a_run_that_ran_records_no_skip_reason
 test_live_guards_expect_a_capability_skip_class
 test_fail_on_gate_skip_token
 test_exclude_family
+test_tern_family_selection
 test_list_scheduled_proven_isolated_uses_serial_weights
 test_list_scheduled_non_lane_selections_use_serial_weights
 test_portable_shard_union_and_coverage_guard
 test_portable_parallel_lanes_stay_duration_balanced
 test_portable_serial_shards_partition_the_serial_lane
 test_portable_serial_hint_coverage_is_reported_and_bounded
+test_portable_serial_packing_budget_boundary
+test_fork_timings_fill_only_paths_upstream_lacks
 test_portable_serial_shard_lane_refusals
 test_jobs_requires_proven_isolated
+test_jobs_lists_a_portable_parallel_lane
 test_jobs_admits_a_concurrent_safe_family
 test_unmapped_new_test_never_inherits_family_concurrency
 test_changed_shared_fixture_selects_its_readers
+test_changed_t3_sources_select_their_readers
+test_changed_watcher_sources_select_browser_reap
 test_concurrent_runs_are_ordered_longest_first
 test_per_script_timeout_bounds_a_hang
+test_changed_bound_gives_slow_watcher_suites_headroom
 test_max_wall_ms_is_a_result_not_advice
 test_jobs_parallel_scheduler_and_failure_propagation
 test_herdr_ci_family_run_has_a_step_timeout
 test_aggregate_json
+test_ci_budget_warn_annotates_over_budget_lanes_without_failing

@@ -2,15 +2,20 @@
 # fm-local-dormant.sh - the durable dormant marker for second mates.
 #
 # A dormant second mate is one the captain has ordered to stay down. Its home,
-# records, and registry route stay, but no automatic relaunch may start it:
-# bin/fm-bootstrap.sh's startup liveness sweep (through the
-# secondmate-liveness-skip hook) and bin/fm-local-restart-recovery.sh's restart
-# recovery pass both read this marker and leave it down.
+# records, and registry route stay, but no automatic relaunch may start it.
+# Three readers leave it down:
+#   - bin/fm-bootstrap.sh's startup liveness sweep, through the
+#     secondmate-liveness-skip hook;
+#   - secondmate_liveness_tick in bin/fm-watch.sh, through the same hook,
+#     during a session;
+#   - the restart recovery pass in bin/fm-local-restart-recovery.sh.
 # A deliberate `bin/fm-spawn.sh <id> --secondmate` or `bin/fm-control.sh <id>
 # relaunch` does not read it: a relaunch by hand is the captain's own call, so
 # clear the marker when the captain authorizes the domain again.
 # Setting the marker does not stop a running second mate; use
-# `bin/fm-control.sh <id> exit` for that.
+# `bin/fm-control.sh <id> exit` for that. Set the marker BEFORE that exit: the
+# watcher's liveness tick reads an exited second mate as dead and relaunches it
+# within FM_SECONDMATE_LIVENESS_SECS (60 by default) when no marker is set.
 #
 # Usage:
 #   fm-local-dormant.sh set <id> --reason <text>

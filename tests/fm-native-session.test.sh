@@ -31,7 +31,7 @@ cleanup() {
   for pid in "${STAND_IN_PIDS[@]:-}"; do
     [ -n "$pid" ] && kill "$pid" 2>/dev/null
   done
-  rm -rf "$TMP_ROOT"
+  fm_test_remove_tree "$TMP_ROOT"
   fm_test_cleanup
 }
 trap cleanup EXIT
@@ -454,6 +454,12 @@ test_resume_launch_reopens_the_exact_session() {
   expect_code 0 "$rc" "claude resume launch should build"$'\n'"$out"
   [ "$out" = "claude --dangerously-skip-permissions __MODELFLAG____NAMEFLAG__--resume '$SID_A'" ] \
     || fail "claude resume must replace the brief with --resume <id>, got: $out"
+
+  # The Claude template now ends with the record-backed launch-brief doorbell.
+  out=$(resume_launch claude "claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG____NAMEFLAG____BRIEFDOORBELL__" "$SID_A" /x/t.jsonl); rc=$?
+  expect_code 0 "$rc" "claude doorbell resume launch should build"$'\n'"$out"
+  [ "$out" = "claude --dangerously-skip-permissions __MODELFLAG____EFFORTFLAG____NAMEFLAG__--resume '$SID_A'" ] \
+    || fail "claude resume must replace the brief doorbell with --resume <id>, got: $out"
 
   out=$(resume_launch codex "codex __MODELFLAG__--dangerously-bypass-approvals-and-sandbox -c \"notify=[1]\" $brief" "$SID_A" /x/r.jsonl); rc=$?
   expect_code 0 "$rc" "codex resume launch should build"$'\n'"$out"

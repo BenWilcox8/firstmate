@@ -7,7 +7,7 @@
 #   FM_AFK_STATE_PREPARED=1, checks state/.supervise-daemon.lock, and:
 #     - prints "afk: daemon already running pid=<pid>" then exits 0 when that
 #       lock is held by a live daemon (a REFRESH: no stale-artifact clear);
-#     - otherwise clears any prior away session's stale escalation artifacts
+#     - otherwise clears prior-session delivery caches and per-task markers
 #       (fm_afk_clear_stale_artifacts) for a direct, non-prepared start, then
 #       execs bin/fm-supervise-daemon.sh in the foreground. A prepared start was
 #       already cleared transactionally by bin/fm-afk-launch.sh.
@@ -48,37 +48,60 @@ fm_afk_start_usage() {
 
 # fm_afk_clear_stale_artifacts: on a FRESH away-session entry (the daemon is not
 # already running), drop the previous away session's leftover escalation-delivery
-# artifacts so they cannot surface as stale escalations under the new session.
-# These are session-scoped by timing: a fresh entry owns a new supervision
-# session and the new daemon has not produced anything yet, so anything present
-# here belongs to a PRIOR session. This never drops a genuinely-pending
-# escalation - the delivery buffer is a transient cache, and any condition still
-# true (a crew still blocked, a check still firing) is re-derived and re-escalated
-# fresh by the daemon's heartbeat catch-all scan and the durable
-# state/.wake-queue replay (see docs/herdr-backend.md "Away-mode stale-artifact
-# lifecycle" and bin/fm-supervise-daemon.sh's escalate_add/inject_wedge_alarm).
-# NOT called on a refresh (daemon already alive), so the current session's own
-# buffered escalations are preserved.
+# artifacts and per-task episode markers so they cannot surface under the new
+# session. Call it only before a fresh daemon can produce state, never on a live
+# refresh: timing is what proves these caches and episode clocks belong to a
+# prior session. Durable wake-queue rows and classification positions must
+# remain intact for replay and catch-all reconciliation by
+# bin/fm-supervise-daemon.sh, which re-derives any condition that is still true.
+# .agents/skills/afk/SKILL.md "Stale-artifact lifecycle" owns the session contract.
 #
-# FM_AFK_DELIVERY_ARTIFACTS is the ONE list of those session-scoped files, read
-# here and by bin/fm-afk-launch.sh's rollback backup and restore. Every artifact
-# the daemon's delivery path writes belongs in it, so a new away session never
-# inherits a prior session's buffer, wedge marker, continuously-busy clock, last
-# delivery classification, or durable-fallback fingerprint.
+# FM_AFK_DELIVERY_ARTIFACTS is the ONE list of the session-scoped delivery
+# files, read here and by bin/fm-afk-launch.sh's rollback backup and restore.
+# Every artifact the daemon's delivery path writes belongs in it, so a new away
+# session never inherits a prior session's buffer, wedge marker,
+# continuously-busy clock, last delivery classification, durable-fallback
+# fingerprint, or unknown-wake acknowledgements.
 FM_AFK_DELIVERY_ARTIFACTS="\
 .subsuper-escalations
 .subsuper-escalations.since
 .subsuper-inject-wedged
 .subsuper-inject-busy-since
 .subsuper-inject-verdict
-.subsuper-inject-fallback"
+.subsuper-inject-fallback
+.subsuper-unknown-acked"
+
+# FM_AFK_SESSION_MARKERS is the ONE list of the per-task episode marker
+# families, one file-name prefix per line; each family holds one file per task.
+# A fresh entry and bin/fm-afk-launch.sh stop clear them, and the launcher's
+# rollback backs them up and restores them. Left behind, the next session's
+# first housekeeping reads a stale or pause clock as its own and reports a
+# possible wedge whose duration never happened.
+FM_AFK_SESSION_MARKERS="\
+.subsuper-stale-
+.subsuper-reported-stale-
+.subsuper-dialog-
+.subsuper-paused-
+.subsuper-pause-until-due-"
+
+# Remove every per-task episode marker in <state-dir>; 1 when a remove fails.
+fm_afk_clear_session_markers() {  # <state-dir>
+  local state=$1 prefix rc=0
+  while IFS= read -r prefix; do
+    [ -n "$prefix" ] || continue
+    rm -f "$state/$prefix"* 2>/dev/null || rc=1
+  done <<<"$FM_AFK_SESSION_MARKERS"
+  return "$rc"
+}
 
 fm_afk_clear_stale_artifacts() {  # <state-dir>
-  local state=$1 artifact
+  local state=$1 artifact rc=0
   while IFS= read -r artifact; do
     [ -n "$artifact" ] || continue
-    rm -f "$state/$artifact" 2>/dev/null
+    rm -f "$state/$artifact" 2>/dev/null || rc=1
   done <<<"$FM_AFK_DELIVERY_ARTIFACTS"
+  fm_afk_clear_session_markers "$state" || rc=1
+  return "$rc"
 }
 
 daemon_lock_owner() {
@@ -182,8 +205,7 @@ fm_afk_start_main() {
     fm_lock_remove_path "$FM_AFK_LOCK" 2>/dev/null || true
   fi
 
-  # Fresh start: clear the previous away session's stale delivery artifacts
-  # before the new daemon can surface them (fix for the leaked-artifact defect).
+  # Clear prior-session state before the new daemon can observe or produce it.
   if [ "${FM_AFK_STATE_PREPARED:-0}" != 1 ]; then
     fm_afk_clear_stale_artifacts "$FM_AFK_STATE"
   fi

@@ -42,10 +42,10 @@
 # with it the completion links, so a process killed between the two halves would
 # leave nothing to reconstruct the close from. It writes
 # `state/<id>.backlog-close` first, and removes it once the close lands.
-# The writer and replay share one complete-record validator, and teardown stages
-# that record before destructive cleanup, so it never publishes or acts on a close
-# replay would reject. The validator pins the data path to this home's configured
-# root before any recovery mutation, then re-runs exactly that close.
+# The writer and replay share one complete-record validator, so teardown never
+# publishes or acts on a close replay would reject. The validator pins the data
+# path to this home's configured root before any recovery mutation, then re-runs
+# exactly that close.
 # `tasks-axi done` on an already-closed task backfills links
 # without moving the close date, so replay is idempotent. A row that retention
 # already moved to the archive counts as closed (fm_backlog_close_transition).
@@ -79,6 +79,13 @@ FM_BACKLOG_CLOSE_REPLAY_RESULT=
 # library does not source fm-tasks-axi-lib.sh does not apply.
 # shellcheck source=bin/fm-timeout-lib.sh disable=SC1091
 . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-timeout-lib.sh"
+# fm-pr-lib.sh owns which URL is a Gerrit change or a GitLab merge request. It
+# is functions and empty globals only, so it is sourced once rather than
+# re-initialising a caller's parsed identity.
+if ! declare -F fm_pr_url_parse >/dev/null 2>&1; then
+  # shellcheck source=bin/fm-pr-lib.sh disable=SC1091
+  . "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fm-pr-lib.sh"
+fi
 
 # Latched when a row read hits its bound. fm_backlog_row_show runs inside a
 # command substitution, so the subshell can READ this latch but cannot set it;
@@ -320,28 +327,17 @@ fm_backlog_transition_applies() {  # <config-dir> <data-dir> <kind>
 # Run `tasks-axi` with an optional FM_TASKS_AXI_TIMEOUT bound. A caller that
 # holds a lock across the call - the spawn commit and its preservation
 # read-back run under the per-task meta lock - sets the bound, so an
-# unresponsive tasks-axi cannot hold that lock open indefinitely; a timed-out
-# call exits 124, or 137 when the kill-after had to fire (GNU timeout's own
-# status for a KILL-forced expiry), and the callers treat either as the bound
-# expiring and report the timeout as the reason through their existing error
-# plumbing. GNU timeout is used where it exists,
-# gtimeout where coreutils ships under that name, and a small perl watchdog
-# elsewhere (a stock macOS host has perl but no timeout variant; perl is
-# already a hard dependency of this library's byte validators, so the
-# fallback adds no new tool). Every bounded path forces termination: a
-# tasks-axi that ignores SIGTERM must not outlive the bound, since an
-# unbounded call under the lock is exactly the hang the bound exists to
-# prevent - so the GNU variants carry a kill-after of one further bound
-# (TERM at the bound, KILL after that grace) and the watchdog kills the
-# same way. When a bound was requested but no bounding mechanism exists at
-# all, the call fails closed instead of running unbounded. Must be the last
-# command of a subshell: the exec keeps the tasks-axi process exactly where
-# the plain call sat, and the bound kills the child, not the caller.
+# unresponsive tasks-axi cannot hold that lock open indefinitely. The bound is
+# fm_exec_timed's (bin/fm-timeout-lib.sh), with one further bound of grace
+# before KILL so a tasks-axi that ignores SIGTERM cannot outlive it either; the
+# callers treat fm_timed_out statuses as the bound expiring and report the
+# timeout as the reason through their existing error plumbing. A bound that
+# cannot be enforced on this host fails closed instead of running unbounded.
+# Must be the last command of a subshell: the exec keeps the tasks-axi process
+# exactly where the plain call sat, and the bound kills the child, not the
+# caller.
 fm_tasks_axi_timeout_expired() {  # <status>
-  case $1 in
-    124 | 137) return 0 ;;
-  esac
-  return 1
+  fm_timed_out "$1"
 }
 
 fm_tasks_axi() {
@@ -349,49 +345,7 @@ fm_tasks_axi() {
   if [ -z "$bound" ]; then
     exec tasks-axi "$@"
   fi
-  if command -v timeout >/dev/null 2>&1; then
-    exec timeout -k "$bound" "$bound" tasks-axi "$@"
-  elif command -v gtimeout >/dev/null 2>&1; then
-    exec gtimeout -k "$bound" "$bound" tasks-axi "$@"
-  elif command -v perl >/dev/null 2>&1; then
-    # Fork, run tasks-axi in the child, and poll waitpid(WNOHANG) until the
-    # child exits or the bound expires: the same contract as
-    # `timeout $bound tasks-axi ...`. Expiry kills the child with TERM, waits
-    # one further bound of grace, then KILL, and exits 124 so the callers'
-    # timeout plumbing reports it. Polling rather than alarm+die keeps the
-    # bound off perl's platform-dependent syscall-restart signal semantics.
-    exec perl -MPOSIX=WNOHANG -e '
-      my $bound = shift;
-      exit 127 unless defined $bound && $bound =~ /\A[0-9]+\z/;
-      my $pid = fork;
-      exit 127 unless defined $pid;
-      if ($pid == 0) { exec @ARGV; exit 127 }
-      my $step = 0.05;
-      my $elapsed = 0;
-      while (1) {
-        my $done = waitpid $pid, WNOHANG;
-        exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) if $done == $pid;
-        exit 127 if $done == -1;
-        if ($elapsed >= $bound) {
-          kill "TERM", $pid;
-          my $grace = 0;
-          my $gone = waitpid $pid, WNOHANG;
-          while ($gone == 0 && $grace < $bound) {
-            select undef, undef, undef, $step;
-            $grace += $step;
-            $gone = waitpid $pid, WNOHANG;
-          }
-          kill "KILL", $pid if $gone == 0;
-          waitpid $pid, 0;
-          exit 124;
-        }
-        select undef, undef, undef, $step;
-        $elapsed += $step;
-      }
-    ' -- "$bound" tasks-axi "$@"
-  fi
-  printf 'fm_tasks_axi: cannot bound tasks-axi within %ss: none of timeout, gtimeout, or perl is available\n' "$bound" >&2
-  exit 127
+  fm_exec_timed "$bound" "$bound" tasks-axi "$@"
 }
 
 # Print one row's `tasks-axi show` output (plus stderr) from the addressing
@@ -419,10 +373,9 @@ fm_tasks_axi() {
 fm_backlog_row_show() {  # <resolved-data-dir> <id> [flag...]
   local data=$1 id=$2 out status addressing_status secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
   shift 2
-  # A non-positive bound is not a bound (fm-timeout-lib.sh), and a padded zero
-  # such as 00 is still zero, so the digits test alone would let the very read
-  # this bound exists to prevent back in. Compare arithmetically, tolerating a
-  # value too large for the shell to compare at all.
+  # Enforce fm-timeout-lib.sh's bound contract arithmetically: the digits test
+  # alone accepts padded zero such as 00. Tolerate a value too large for the
+  # shell to compare at all.
   case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
   [ "$secs" -gt 0 ] 2>/dev/null || secs=10
   fm_backlog_tasks_axi_addressing "$data"
@@ -563,16 +516,40 @@ fm_backlog_start() {  # <data-dir> <id>
   fm_backlog_mutate "$1" start "$2"
 }
 
+# tasks-axi takes a --pr link only as a canonical GitHub or Forgejo pull request
+# and refuses anything else, so a Gerrit change or GitLab merge request URL is
+# recorded on the row as a note instead. Prints the note's label for such a URL
+# and fails for one tasks-axi accepts. The subshell keeps the parse from
+# overwriting a caller's FM_PR_* identity.
+fm_backlog_pr_note_label() {  # <url>
+  ( fm_pr_url_parse "$1" || exit 1
+    case "$FM_PR_PROVIDER" in
+      gerrit) printf 'Gerrit change\n' ;;
+      gitlab) printf 'GitLab merge request\n' ;;
+      *) exit 1 ;;
+    esac )
+}
+
 fm_backlog_done() {  # <data-dir> <id> [flag...]
-  local data=$1 id=$2
+  local data=$1 id=$2 arg label previous_arg=''
+  local -a done_args=()
   shift 2
-  fm_backlog_mutate "$data" "done" "$id" "$@"
+  for arg in "$@"; do
+    if [ "$previous_arg" = --pr ] && label=$(fm_backlog_pr_note_label "$arg"); then
+      done_args[${#done_args[@]}-1]=--note
+      done_args+=("$label $arg")
+    else
+      done_args+=("$arg")
+    fi
+    previous_arg=$arg
+  done
+  fm_backlog_mutate "$data" "done" "$id" "${done_args[@]+"${done_args[@]}"}"
 }
 
 fm_backlog_row_artifact_supported() {
   local id=$1 flag=${2:-} value=${3:-}
   case "$flag" in
-    --pr) return 0 ;;
+    --pr) ! fm_backlog_pr_note_label "$value" >/dev/null ;;
     --report) [ "$value" = "data/$id/report.md" ] ;;
     *) return 1 ;;
   esac
@@ -604,8 +581,12 @@ fm_backlog_retain() {  # <data-dir> <id> [flag...]
         fi
         ;;
       --pr)
-        deliverable="${deliverable:+$deliverable; }PR $arg"
-        row_args=(--pr "$arg")
+        if fm_backlog_row_artifact_supported "$id" --pr "$arg"; then
+          deliverable="${deliverable:+$deliverable; }PR $arg"
+          row_args=(--pr "$arg")
+        else
+          deliverable="${deliverable:+$deliverable; }$(fm_backlog_pr_note_label "$arg") $arg"
+        fi
         ;;
       --note) deliverable="${deliverable:+$deliverable; }$arg" ;;
     esac
@@ -867,58 +848,123 @@ fm_backlog_dispatch_rollback() {
   return 0
 }
 
-# The archive tasks-axi retention moves closed entries to, read from the home's
-# own tasks-axi config so a home that repoints it stays correct, and falling
-# back to the tracked default when the config declares none.
-fm_backlog_archive_path() {  # <data-dir>
-  local data root config value=''
-  data=$(fm_backlog_data_absolute "$1") || return 1
-  root=$(fm_backlog_root "$data") || return 1
-  config="$root/.tasks.toml"
-  if [ -f "$config" ]; then
-    value=$(sed -n 's/^[[:space:]]*archive[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
-  fi
-  [ -n "$value" ] || value="$data/done-archive.md"
-  case "$value" in
-    /*) printf '%s\n' "$value" ;;
-    *) printf '%s/%s\n' "$root" "$value" ;;
-  esac
+# --- Done-archive reads on the markdown backend ------------------------------
+#
+# Done retention moves closed markdown rows out of the live backlog into the
+# configured archive, which `tasks-axi show` never reads. The helpers below are
+# the one owner of where that archive is and how an archived row reads:
+# bin/fm-captain-hold.sh reads archived captain calls through them, and
+# fm_backlog_close_transition reads an archived Done row through them. Nothing
+# here writes an archived row.
+
+# The [markdown] archive key tasks-axi would honour, resolved with tasks-axi's
+# own source precedence: the backlog root's .tasks.toml first, then the
+# user-level $HOME/.tasks-axi/config.toml. Empty when neither sets it.
+fm_backlog_archive_setting() {  # <backlog-root>
+  local config archive=''
+  for config in "$1/.tasks.toml" "${HOME:+$HOME/.tasks-axi/config.toml}"; do
+    [ -n "$config" ] && [ -f "$config" ] || continue
+    archive=$(LC_ALL=C awk '
+      function trim(v) { sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]+$/, "", v); return v }
+      BEGIN { insection = 0 }
+      {
+        line = $0
+        sub(/[[:space:]]*#.*/, "", line)
+        line = trim(line)
+        if (line ~ /^\[[^]]+\]$/) { insection = (line == "[markdown]"); next }
+        if (insection && line ~ /^archive[[:space:]]*=/) {
+          sub(/^[^=]*=[[:space:]]*/, "", line)
+          gsub(/^"|"$/, "", line); gsub(/^'\''|'\''$/, "", line)
+          print line
+          exit
+        }
+      }
+    ' "$config")
+    [ -z "$archive" ] || break
+  done
+  printf '%s\n' "$archive"
 }
 
-# One archived entry of a markdown backlog, in the field format `tasks-axi show
-# --full` returns. The archive groups entries under `## Archived <date>` headings
-# the backlog parser does not read, so a disposable normalized copy is handed to
-# tasks-axi instead of parsing the entry here: the entry format keeps its single
-# owner. Read-only by construction - `--file` names only the copy, so no archive
-# write is reachable - and any failure returns nonzero.
-fm_backlog_archive_show() {  # <data-dir> <id>
-  local id=$2 archive tmp out id_re data root
+# The archive tasks-axi writes: the [markdown] archive key resolved against the
+# backlog root, else done-archive.md beside the addressed backlog file. A
+# relative value resolves against the backlog root wherever it was configured,
+# the way tasks-axi resolves it. Returns 1 when the configured backend keeps no
+# markdown archive.
+fm_backlog_archive_path() {  # <data-dir>
+  local data root backend archive file
   data=$(fm_backlog_data_absolute "$1") || return 1
   root=$(fm_backlog_root "$data") || return 1
-  [ "$(fm_tasks_axi_backend "$root")" = markdown ] || return 1
-  # The id is interpolated into the entry pattern below, and one caller reads
-  # its entries from task metadata rather than a validated argument, so a
-  # non-slug id is never looked up.
-  case "$id" in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
-  archive=$(fm_backlog_archive_path "$data") || return 1
-  [ -f "$archive" ] && [ ! -L "$archive" ] || return 1
-  # A slug may carry a dot, which is a pattern metacharacter in this probe.
-  id_re=${id//./\\.}
-  grep -qE "^- \[[ x]\] $id_re -" "$archive" 2>/dev/null || return 1
-  tmp=$(umask 077; mktemp "${TMPDIR:-/tmp}/fm-backlog-archive.XXXXXX") || return 1
-  if ! { printf '# Backlog\n\n## In flight\n\n## Queued\n\n## Done\n'; sed '/^#/d' "$archive"; } > "$tmp"; then
-    rm -f -- "$tmp"
-    return 1
+  backend=$(fm_tasks_axi_backend "$root" 2>/dev/null) || return 1
+  [ "$backend" = markdown ] || return 1
+  archive=$(fm_backlog_archive_setting "$root")
+  case "$archive" in
+    '')
+      file=$(fm_backlog_file "$data") || return 1
+      archive="${file%/*}/done-archive.md"
+      ;;
+    /*) ;;
+    *) archive="$root/$archive" ;;
+  esac
+  printf '%s\n' "$archive"
+}
+
+# Print an archived row exactly as `tasks-axi show --full` shows a live one, by
+# replaying its newest archived block under a scratch Done section. A reused id
+# can be archived more than once, and retention appends, so the last block is
+# the newest. The scratch copy is the only file tasks-axi is given, so no
+# archive write is reachable. The read has the same bound as a live row read
+# (fm_backlog_row_show), so a wedged tasks-axi cannot hang a caller that holds a
+# lock. Returns 0 with the row, 1 when the row is not archived, 124 with the
+# bound reason as the only output line, because a bound hit is not absence, and
+# 2 with the reason when the scratch read cannot be staged.
+fm_backlog_archive_show() {  # <data-dir> <id>
+  local id=$2 archive dir out status=0 secs=${FM_BACKLOG_ROW_TIMEOUT_SECS:-10}
+  case "$secs" in ''|*[!0-9]*) secs=10 ;; esac
+  [ "$secs" -gt 0 ] 2>/dev/null || secs=10
+  archive=$(fm_backlog_archive_path "$1") || return 1
+  [ -f "$archive" ] || return 1
+  dir=$(umask 077; mktemp -d "${TMPDIR:-/tmp}/fm-backlog-archive.XXXXXX") || {
+    printf 'cannot stage the Done archive read for %s\n' "$id"
+    return 2
+  }
+  printf 'backend = "markdown"\n' > "$dir/.tasks.toml"
+  {
+    printf '## Done\n'
+    LC_ALL=C awk -v id="$id" '
+      /^- \[.\] / {
+        rest = substr($0, 7)
+        inrow = (rest == id || index(rest, id " ") == 1)
+        if (inrow) block = $0 "\n"
+        next
+      }
+      inrow && ($0 == "" || $0 ~ /^[[:space:]]/) { block = block $0 "\n"; next }
+      { inrow = 0 }
+      END { printf "%s", block }
+    ' "$archive"
+  } > "$dir/backlog.md" || status=1
+  if [ "$status" -eq 0 ]; then
+    # shellcheck disable=SC2016  # Expansion is deliberately deferred to the child shell.
+    out=$(fm_run_timed "$secs" bash -c \
+      'cd "$1" 2>/dev/null || exit 1; shift; exec tasks-axi show "$@"' \
+      _ "$dir" "$id" --full --file "$dir/backlog.md" 2>/dev/null)
+    status=$?
+    if [ "$status" -eq 124 ]; then
+      out="tasks-axi show $id exceeded its ${secs}s Done-archive read bound"
+    elif [ "$status" -ne 0 ]; then
+      status=1
+    fi
+    printf '%s\n' "$out"
   fi
-  out=$(cd "$root" && tasks-axi show "$id" --full --file "$tmp" 2>/dev/null) || { rm -f -- "$tmp"; return 1; }
-  rm -f -- "$tmp"
-  printf '%s\n' "$out"
+  rm -f -- "$dir/backlog.md" "$dir/.tasks.toml"
+  rmdir -- "$dir" 2>/dev/null || true
+  return "$status"
 }
 
 # Whether retention already moved <id>'s closed row out of the live markdown
 # backlog into the archive. tasks-axi addresses the live backlog only, so it
-# answers NOT_FOUND for such a row; a Done entry in the archive is the record
-# that the task was closed. Read-only, and any doubt returns 1.
+# answers NOT_FOUND for such a row, and a Done entry in the archive is the
+# record that the task was closed. Read-only. Any doubt returns 1, and so does
+# an archive read that hit its bound, because that read proves nothing.
 fm_backlog_row_archived_done() {  # <data-dir> <id>
   local out
   out=$(fm_backlog_archive_show "$1" "$2" 2>/dev/null) || return 1
@@ -1071,7 +1117,10 @@ fm_backlog_close_marker_validate() {  # <marker-path> <authorized-data-dir> <exp
     0) ;;
     2)
       case "${args[0]}" in
-        --note) [ "${args[1]}" = "local%20main" ] ;;
+        --note)
+          [ "${args[1]}" = "local%20main" ] \
+            || [ "${args[1]}" = "discarded" ]
+          ;;
         --pr)
           arg_value=${args[1]}
           [ "${#arg_value}" -le 2048 ] \
@@ -1245,7 +1294,7 @@ fm_backlog_close_marker_replay() {  # <state-dir> <marker-path> <authorized-data
   mode=$FM_BACKLOG_CLOSE_VALIDATED_MODE
   [ "$mode" = close ] || mode_flags=(--retain)
   args=("${FM_BACKLOG_CLOSE_VALIDATED_ARGS[@]+"${FM_BACKLOG_CLOSE_VALIDATED_ARGS[@]}"}")
-  if [ "${args[0]-}" = --note ]; then
+  if [ "${args[0]-}" = --note ] && [ "${args[1]-}" = "local%20main" ]; then
     args[1]="local main"
   fi
   meta="$state/$id.meta"

@@ -46,6 +46,8 @@
 # status log after retirement, as teardown does. No approval is inferred from a
 # done line.
 # Task check files and other volatile records move into the same archive.
+# The task's spawn-owned hook, push-guard, and plugin paths are removed, as
+# teardown removes them.
 # Global hook registrations and tasktmp remain untouched for manual inspection.
 # Legacy records without spawn_gen refuse when automatic backlog closure applies.
 # FM_HOME must be explicit. FM_*_OVERRIDE paths follow the normal teardown seam.
@@ -134,16 +136,15 @@ record() {
 canonical() { (cd "$1" && pwd -P); }
 lease_owner_live() { fm_local_treehouse_owner_live "$OWNER_PID" "$OWNER_STARTED"; }
 # Every record in the local Firstmate homes whose worktree= or home= names the
-# slot, one metadata path per line; any unreadable home refuses.
+# slot, one metadata path per line. bin/fm-wake-lib.sh's
+# fm_local_firstmate_state_dirs owns which homes those are and lists each state
+# directory once, and any home it cannot read refuses.
 slot_claimants() {
-  local root dir seen='' meta field path
-  root=$(fm_firstmate_root_home "$FM_HOME") || refuse 'cannot resolve the root Firstmate home'
-  secondmate_registry_local_state_dirs "$STATE" "$root" || refuse "$SECONDMATE_REGISTRY_ERROR"
-  for dir in "${SECONDMATE_REGISTRY_LOCAL_STATES[@]}"; do
+  local dir meta field path
+  fm_local_firstmate_state_dirs "$STATE" || refuse "$FM_LOCAL_FIRSTMATE_ERROR"
+  for dir in "${FM_LOCAL_FIRSTMATE_STATES[@]}"; do
     [ -d "$dir" ] || continue
-    dir=$(canonical "$dir") || refuse "cannot read state directory $dir"
-    case " $seen " in *" $dir "*) continue ;; esac
-    seen="$seen $dir"
+    [ -r "$dir" ] && [ -x "$dir" ] || refuse "cannot read state directory $dir"
     for meta in "$dir"/*.meta; do
       [ -f "$meta" ] && [ ! -L "$meta" ] || continue
       for field in worktree home; do
@@ -319,7 +320,8 @@ mkdir -p "$ARCHIVE"
 ARTIFACTS=(".$ID.branch-outcome-index")
 for suffix in turn-ended check.sh check-trust pr-poll pr-poll-registration pr-poll-retirement \
   pr-poll-merge-notified merge-authority progress busy-state busy-gen busy-events pi-ext.ts pi-session omp-ext.ts grok-turnend-token \
-  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json herdr-presentation \
+  kimi-turnend-token muse-session muse-session-current cursor-session gemini-settings.json devin-config.json \
+  polytoken-busy.sh herdr-presentation \
   control-relaunch control-relaunch.meta-prior control-relaunch.brief-prior control-relaunch.note reconcile-nudged inbox; do
   ARTIFACTS+=("$ID.$suffix")
 done
@@ -403,6 +405,14 @@ for name in "${ARTIFACTS[@]}"; do
   [ -e "$source" ] || [ -L "$source" ] || continue
   mv "$source" "$ARCHIVE/"
 done
+# Spawn-owned hook, push-guard, and plugin paths are not evidence. Remove them
+# as bin/fm-teardown.sh does. The hooks directory is read-only, so give write
+# permission back first.
+HOOKS_DIR=$STATE/$ID.git-hooks
+[ -L "$HOOKS_DIR" ] || [ ! -d "$HOOKS_DIR" ] || chmod u+w "$HOOKS_DIR" 2>/dev/null || true
+rm -rf "$HOOKS_DIR" "$STATE/$ID.push-guard" "$STATE/$ID.cortex-plugin" "$STATE/$ID.polytoken-config" \
+  "$STATE/$ID.polytoken-sessions" "$STATE/$ID.polytoken-sessions-v1" \
+  || echo "warning: retired $ID, but its hook or plugin paths in $STATE could not all be removed" >&2
 # The retired log is gone, so a refused node landing starts a fresh one that the
 # watcher surfaces until the supervisor resolves its key.
 if [ -n "$ATLAS_GATE_LINE" ]; then

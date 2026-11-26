@@ -1,6 +1,7 @@
 ---
 name: firstmate-orca
-description: Agent-only reference for inspecting, supervising, or reconciling existing Orca-backed task records. New Orca task selection is unsupported.
+description: >-
+  Load before inspecting, supervising, or reconciling existing Orca-backed task records. New Orca task selection is unsupported.
 user-invocable: false
 metadata:
   internal: true

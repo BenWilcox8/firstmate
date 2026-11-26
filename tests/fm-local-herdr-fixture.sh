@@ -41,7 +41,9 @@ fm_local_lab_finish() {
     echo 'not ok - guarded lab cleanup or default-session tripwire failed' >&2
     exit 1
   fi
-  [ -z "${FM_LOCAL_LAB_TASK_TMP:-}" ] || rm -rf "$FM_LOCAL_LAB_TASK_TMP"
-  [ -z "${FM_LOCAL_LAB_ROOT:-}" ] || rm -rf "$FM_LOCAL_LAB_ROOT"
+  # A spawn leaves its git hooks directory read-only, so remove the trees with
+  # the shared helper (tests/lib.sh), which restores write permission first.
+  [ -z "${FM_LOCAL_LAB_TASK_TMP:-}" ] || fm_test_remove_tree "$FM_LOCAL_LAB_TASK_TMP"
+  [ -z "${FM_LOCAL_LAB_ROOT:-}" ] || fm_test_remove_tree "$FM_LOCAL_LAB_ROOT"
   exit "$rc"
 }

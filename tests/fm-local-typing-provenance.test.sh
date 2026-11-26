@@ -12,7 +12,9 @@ TMP_ROOT=$(fm_test_tmproot fm-local-typing-provenance)
 
 # Fake tmux: every literal payload is appended to $FM_FAKE_DIR/literal as
 # NUL-terminated bytes, and the last one is kept exactly in $FM_FAKE_DIR/typed.
-# The pane is always an idle agent with an empty composer.
+# The pane is always an idle agent with an empty composer. $FM_FAKE_DIR/windows
+# lists the window names, one per line, at indexes 0, 1, and so on. A created
+# window's name is added there, so the spawn finds the window it made.
 make_fakebin() {  # <dir> -> echoes fakebin
   local fb
   fb=$(fm_fakebin "$1")
@@ -46,7 +48,22 @@ case "${1:-}" in
   display-message) printf 'firstmate\n'; exit 0 ;;
   capture-pane)
     if [ -f "$D/pane" ]; then cat "$D/pane"; else printf '╭────╮\n│    │\n╰────╯\n'; fi; exit 0 ;;
-  list-windows) [ ! -f "$D/windows" ] || cat "$D/windows"; exit 0 ;;
+  list-windows)
+    [ -f "$D/windows" ] || exit 0
+    case "$*" in
+      *"#{window_index}"*)
+        n=0
+        while IFS= read -r w; do printf '@%s|%s|%s\n' "$n" "$n" "$w"; n=$((n + 1)); done < "$D/windows" ;;
+      *) cat "$D/windows" ;;
+    esac
+    exit 0 ;;
+  new-window)
+    prev=
+    for a in "$@"; do
+      [ "$prev" != -n ] || printf '%s\n' "$a" >> "$D/windows"
+      prev=$a
+    done
+    exit 0 ;;
 esac
 exit 0
 SH
@@ -120,7 +137,7 @@ run_spawn() {
 }
 
 spawn_case() {
-  local dir home wt fb id
+  local dir home wt fb id prompt record
   spawn_home claude
   dir=$SPAWN_DIR home=$SPAWN_HOME wt=$SPAWN_WT fb=$SPAWN_FB id=$SPAWN_ID
   # The fake agent records the prompt argument it was launched with.
@@ -135,7 +152,15 @@ SH
   (cd "$wt" && PATH="$fb:$PATH" bash -c "$(cat "$dir/fake/typed")") \
     || fail 'typed launch line did not run'
   [ -s "$dir/fake/agent-prompt" ] || fail 'fake agent received no launch prompt'
-  grep -q 'snowman ☃' "$dir/fake/agent-prompt" || fail 'launch prompt does not carry the brief'
+  # Claude receives a printable doorbell that names the brief record in this
+  # home's operational inbox, and that record carries the brief.
+  prompt=$(cat "$dir/fake/agent-prompt")
+  [ "$(printf '%s' "$prompt" | "$ROOT/bin/fm-operational-input.sh" doorbell-kind)" = launch-brief ] \
+    || fail "launch prompt is not a launch-brief doorbell: $prompt"
+  record=$(bash -c '. "$1" && fm_operational_doorbell_path "$2" path && printf "%s" "$path"' \
+    _ "$ROOT/bin/fm-operational-input.sh" "$prompt") || fail "launch doorbell names no record: $prompt"
+  FM_STATE_OVERRIDE="$home/state" "$ROOT/bin/fm-operational-input.sh" open "$record" | grep -q 'snowman ☃' \
+    || fail 'the launch doorbell record does not carry the brief'
   assert_record "$home/state" 1 launch-prompt "$id" "$(sha_of_file "$dir/fake/agent-prompt")" "$(sed -n 's/^window=//p' "$home/state/$id.meta")" '%9'
   pass 'typing-provenance-launch: the launch prompt writes one record matching the prompt the agent receives'
 }
@@ -199,6 +224,8 @@ daemon_case() {
   fb=$(make_fakebin "$dir/fake")
   printf 'claude' > "$dir/fake/command"
   : > "$dir/fake/cwd"
+  # The daemon types only into a supervisor target that exists: sup:0 is window 0.
+  printf 'firstmate\n' > "$dir/fake/windows"
   FM_CASE_HOME=$(cd "$home" && pwd -P)
   (
     export PATH="$fb:$PATH" FM_HOME="$home" FM_STATE_OVERRIDE="$home/state" \

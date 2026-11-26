@@ -39,6 +39,9 @@ retire_cleanup() {
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
+  # This trap replaces the one tests/lib.sh sets, so remove the fixture root
+  # here too; it can hold a read-only state/<id>.git-hooks directory.
+  fm_test_cleanup
 }
 trap retire_cleanup EXIT
 
@@ -229,13 +232,14 @@ case "${1:-}" in
       printf '%s\n' "$payload" >> "$D/literal"
       case "$payload" in
         /exit|/quit) printf 'zsh' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}" ;;
-        *'encode launch-brief'*) printf 'claude' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}" ;;
+        *'encode launch-brief'* | *'Firstmate operational input waiting: read'*) printf 'claude' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}" ;;
         # A spawn types `. <launch file>`; the staged file holds the launch.
         '. '*)
           launch_file=${payload#. }
           launch_file=${launch_file#\'}
           launch_file=${launch_file%\'}
-          if grep -q 'encode launch-brief' "$launch_file" 2>/dev/null; then
+          # A Claude launch types a doorbell for its launch-brief record.
+          if grep -qE 'encode launch-brief|Firstmate operational input waiting: read' "$launch_file" 2>/dev/null; then
             printf 'claude' > "$D/command.${FM_FAKE_TMUX_AGENT_WINDOW:-none}"
           fi
           ;;
@@ -585,6 +589,10 @@ test_herdr_replacement_retires_the_pane_its_record_named() {
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
   printf 'Second mate charter.\n' > "$mate/data/charter.md"
+  # A real second mate home is a firstmate clone, and spawn installs its
+  # commit-msg hooks only in a Git repository.
+  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$mate/.gitignore"
+  git -C "$mate" init -q -b main
   printf '%s\n' herdr > "$home/config/backend"
   printf '%s\n' pi > "$home/config/secondmate-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"
@@ -714,6 +722,10 @@ test_herdr_replacement_keeps_the_pane_it_just_created() {
   printf '%s\n' "$id" > "$mate/.fm-secondmate-home"
   printf '# Firstmate\n' > "$mate/AGENTS.md"
   printf 'Second mate charter.\n' > "$mate/data/charter.md"
+  # A real second mate home is a firstmate clone, and spawn installs its
+  # commit-msg hooks only in a Git repository.
+  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$mate/.gitignore"
+  git -C "$mate" init -q -b main
   printf '%s\n' herdr > "$home/config/backend"
   printf '%s\n' pi > "$home/config/secondmate-harness"
   printf '%s\n' manual > "$home/config/backlog-backend"

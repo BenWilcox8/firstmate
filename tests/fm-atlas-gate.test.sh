@@ -461,6 +461,13 @@ test_land_defer_status() {
 FAKE_PR_HEAD=0123456789abcdef0123456789abcdef01234567
 
 make_fake_forge() {  # writes gh-axi and gh into HOME_DIR/fakebin
+  # The ready gate reads the PR head from inside the worker copy, so the copy
+  # must exist. As in tests/fm-pr-merge.test.sh, it is a git copy whose HEAD is
+  # on a remote-tracking ref, as a pushed ship task's copy is.
+  if [ ! -d "$HOME_DIR/wt/.git" ]; then
+    fm_git_init_commit "$HOME_DIR/wt"
+    git -C "$HOME_DIR/wt" update-ref refs/remotes/origin/main "$(git -C "$HOME_DIR/wt" rev-parse HEAD)"
+  fi
   cat > "$HOME_DIR/fakebin/gh-axi" <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FM_FAKE_GH_LOG"
@@ -479,6 +486,18 @@ case "${1:-} ${2:-}" in
     esac
     ;;
   "api graphql") printf '%s\n' 'state=MERGED' 'merged=true' 'queued=false' 'base=main' ;;
+  api\ *)
+    # The required-check reads, as in tests/fm-pr-merge.test.sh: an
+    # unprotected base branch with no required-check rule, so nothing is
+    # required. The merge-queue rules read prints nothing (no queue).
+    case " $* " in
+      *" repos/"*"/rules/branches/"*merge_queue*) ;;
+      *" repos/"*"/rules/branches/"*) printf '%s\n' '[{"type":"deletion"}]' ;;
+      *" repos/"*"/branches/"*)
+        printf '%s\n' '{"name":"main","protected":false,"protection":{"enabled":false,"required_status_checks":{"enforcement_level":"off","contexts":[],"checks":[]}}}'
+        ;;
+    esac
+    ;;
 esac
 exit 0
 SH
@@ -559,6 +578,7 @@ test_merge_local_with_captain_word() {
   git -C "$proj" add change.txt
   git -C "$proj" commit -qm change
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
+  printf 'local_done_head=%s\n' "$(git -C "$proj" rev-parse fm/task-a1)" >> "$HOME_DIR/state/task-a1.meta"
   set +e
   in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word "land it" >"$HOME_DIR/merge.out" 2>&1
   rc=$?
@@ -733,6 +753,7 @@ test_captain_word_equals_forms() {
   git -C "$proj" add change.txt
   git -C "$proj" commit -qm change
   git -C "$proj" checkout -q main 2>/dev/null || git -C "$proj" checkout -q master
+  printf 'local_done_head=%s\n' "$(git -C "$proj" rev-parse fm/task-a1)" >> "$HOME_DIR/state/task-a1.meta"
   in_home "$store" "$MERGE_LOCAL" task-a1 --captain-word="-land it" >/dev/null 2>&1 \
     || fail "$store: fm-merge-local did not accept --captain-word=<words>"
   [ "$(ticket_field "$store" "$REPO" "$TICKET" .captain.word)" = "-land it" ] \
@@ -766,7 +787,18 @@ esac
 case "${1:-}" in
   display-message) printf 'firstmate\n' ;;
   list-windows) cat "$D/windows" 2>/dev/null ;;
-  new-window) printf '@1\n' ;;
+  new-window)
+    # The tmux backend checks that a target window exists before it sends a
+    # key, so the fake remembers the window it made, as tests/fixtures.sh does.
+    name=
+    previous=
+    for arg in "$@"; do
+      [ "$previous" = -n ] && name=$arg
+      previous=$arg
+    done
+    [ -z "$name" ] || printf '%s\n' "$name" >> "$D/windows"
+    printf '@1\n'
+    ;;
 esac
 exit 0
 SH

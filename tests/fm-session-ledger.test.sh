@@ -17,7 +17,8 @@
 #   3. restore --dry-run plans same-pane, split, rebuild, running, and missing
 #      transcript cases and changes nothing.
 #   4. restore launches only native resumes of recorded sessions, rebuilds the
-#      recorded layout, and never types a fresh launch.
+#      recorded layout, and never types a fresh launch; a resumed worker's
+#      record moves to its new pane and keeps its PR region last.
 #   5. can-resume gates automatic recovery.
 #   6. install-hooks and uninstall-hooks are idempotent and keep other hooks.
 set -u
@@ -75,7 +76,17 @@ case "$1 $2" in
   "pane split") n=$(next_id); echo "{\"result\":{\"pane\":{\"pane_id\":\"wN:p$n\"}}}" ;;
   "workspace create") n=$(next_id); echo "{\"result\":{\"workspace\":{\"workspace_id\":\"wN$n\"},\"tab\":{\"tab_id\":\"wN$n:t1\"},\"root_pane\":{\"pane_id\":\"wN$n:p1\"}}}" ;;
   "tab create") n=$(next_id); echo "{\"result\":{\"tab\":{\"tab_id\":\"wT:t$n\"},\"root_pane\":{\"pane_id\":\"wT:p$n\"}}}" ;;
-  "pane run") printf '%s\n' "$4" >>"$d/typed.log"; echo '{"result":{}}' ;;
+  "pane run")
+    printf '%s\n' "$4" >>"$d/typed.log"
+    # The file "start-on-run" makes the typed resume run: a fake process and
+    # its Claude session record appear, as a real resume would make them.
+    if [ -e "$d/start-on-run" ]; then
+      sid=$(printf '%s' "$4" | sed -n 's/.*--resume \([0-9a-f-]*\).*/\1/p')
+      mkdir -p "$FM_SESSION_LEDGER_PROC/7701"
+      printf '7701 (claude) S 1 1 1 0 -1 0 0 0 0 0 0 0 0 0 20 0 1 0 77 0 0\n' >"$FM_SESSION_LEDGER_PROC/7701/stat"
+      printf '{"pid":7701,"sessionId":"%s","procStart":"77"}\n' "$sid" >"$CLAUDE_CONFIG_DIR/sessions/7701.json"
+    fi
+    echo '{"result":{}}' ;;
   *) echo '{"result":{}}' ;;
 esac
 EOF
@@ -539,6 +550,34 @@ EOF
   pass "the restore never wakes a deleted Herdr session through the worker classify"
 }
 
+# An armed merge poll trusts a task record only while its PR region is the
+# tail (fm_pr_metadata_identity_parse in bin/fm-pr-lib.sh). A restore moves a
+# resumed worker's record to its new pane, so it must write the pane keys
+# ahead of pr=, or a merge made after the restore is never seen.
+test_restore_rebind_keeps_the_pr_region_last() {
+  local home="$TMP_ROOT/prhome" sid=7a7a7a7a-1111-4222-8333-944444444444 meta out
+  meta="$home/state/task-pr.meta"
+  rm -f "$FM_SESSION_LEDGER_DIR"/entries/*.json "$HERDR_DIR/typed.log" "$HERDR_DIR"/busy-* "$CFG"/sessions/*.json
+  mkdir -p "$home/state" "$home/data"
+  printf 'kind=ship\nworktree=/tmp\nherdr_session=default\nherdr_pane_id=w1:p9\nwindow=default:w1:p9\npr=https://github.com/example/repo/pull/7\npr_head=%s\n' \
+    "$(printf '%040d' 7)" >"$meta"
+  bash -c '. "$1/bin/fm-pr-lib.sh" && fm_pr_metadata_identity_parse "$2"' _ "$ROOT" "$meta" \
+    || fail "setup error: the fixture PR region must parse before the restore"
+  : >"$CFG/projects/p/$sid.jsonl"
+  make_entry "$sid" w1:p9 w1:t1 w1 fleet "$CFG/projects/p/$sid.jsonl" idle \
+    "{\"role\":\"worker\",\"task_id\":\"task-pr\",\"home\":\"$home\",\"kind\":\"ship\"}"
+  : >"$HERDR_DIR/start-on-run"
+  out=$("$LEDGER_BIN" restore --wait 5 --pause 0 --batch 1 2>&1)
+  rm -f "$HERDR_DIR/start-on-run" "$CFG/sessions/7701.json"
+  rm -rf "$FAKE_PROC/7701"
+  assert_contains "$out" "resumed      claude $sid" "the typed resume runs"
+  assert_contains "$out" "record       task-pr in $home now names pane" "the record moves to the new pane"
+  assert_no_grep '^herdr_pane_id=w1:p9$' "$meta" "the old pane id is gone from the record"
+  bash -c '. "$1/bin/fm-pr-lib.sh" && fm_pr_metadata_identity_parse "$2" && [ "$FM_PR_META_NUMBER" = 7 ]' _ "$ROOT" "$meta" \
+    || fail "the restore must keep the PR region last so an armed merge poll still validates: $(cat "$meta")"
+  pass "restore moves a resumed worker's record to its new pane and keeps the PR region last"
+}
+
 test_can_resume_gates_automatic_recovery() {
   setup_plan_fixture
   local out rc
@@ -586,5 +625,6 @@ test_hook_is_silent_and_never_fails
 test_restore_dry_run_plans_and_changes_nothing
 test_restore_resumes_only_recorded_sessions
 test_restore_never_wakes_a_deleted_session_through_classify
+test_restore_rebind_keeps_the_pr_region_last
 test_can_resume_gates_automatic_recovery
 test_install_and_uninstall_are_idempotent

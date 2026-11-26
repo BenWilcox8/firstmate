@@ -24,6 +24,9 @@
 #   6. A missing session file refuses before anything changes, and a launch
 #      that does not come up re-records the Atlas park.
 #   7. relaunch of a parked task resumes its session instead of starting fresh.
+#   8. Under a Claude worker account pin, park and resume find the session in
+#      the pinned store, and an unreadable or moved pin refuses.
+#   9. A Rex task refuses park and resume before anything changes.
 set -u
 
 # shellcheck source=tests/lib.sh
@@ -45,7 +48,7 @@ park_cleanup() {
   for d in "${TASK_TMPS[@]:-}"; do
     [ -n "$d" ] && rm -rf "$d"
   done
-  rm -rf "$TMP_ROOT"
+  fm_test_remove_tree "$TMP_ROOT"
   fm_test_cleanup
 }
 trap park_cleanup EXIT
@@ -116,7 +119,7 @@ case "${1:-}" in
   list-windows)
     ses=''
     while [ $# -gt 0 ]; do
-      case "$1" in -t) ses=$2; shift 2 ;; *) shift ;; esac
+      case "$1" in -t) ses=${2#=}; shift 2 ;; *) shift ;; esac
     done
     [ -f "$D/windows" ] && sed -n "s/^$ses://p" "$D/windows"
     exit 0 ;;
@@ -320,7 +323,7 @@ EOF
 run_control() {  # <case-dir> <args...>
   local dir=$1; shift
   env -u TMUX PATH="$dir/fakebin:$PATH" FM_HOME="$dir/home" FM_FAKE_DIR="$dir/fake" \
-    HOME="$dir/user-home" CLAUDE_CONFIG_DIR='' FM_SPAWN_NO_GUARD=1 \
+    HOME="$dir/user-home" CLAUDE_CONFIG_DIR="${FM_TEST_CALLER_CLAUDE:-}" FM_SPAWN_NO_GUARD=1 \
     FM_CONTROL_POLL=0.01 FM_CONTROL_SETTLE_WAIT=0.05 \
     FM_CONTROL_EXIT_WAIT=0.05 FM_CONTROL_LAUNCH_WAIT=0.2 FM_CONTROL_STATE_SETTLE=0.1 FM_CONTROL_READY_WAIT=0.1 \
     FM_FAKE_ATLAS_FAIL="${FM_FAKE_ATLAS_FAIL:-}" FM_FAKE_NEVER_DIES="${FM_FAKE_NEVER_DIES:-}" \
@@ -357,6 +360,33 @@ test_park_records_the_session_and_closes_only_the_endpoint() {
   grep -qxF "ticket park c7 waits on the captain's merge word --home main --harness claude --session $SID --task t1 --on c12" "$dir/fake/atlas" \
     || fail "park should record the park on the Atlas ticket, got: $(cat "$dir/fake/atlas")"
   pass "park: the proven session and reason are recorded, the Atlas ticket is parked, and only the endpoint closes"
+}
+
+# An armed merge poll trusts the record only while its PR region is the tail
+# (fm_pr_metadata_identity_parse). Park and resume rewrite the record, so both
+# must keep every park key ahead of pr=, or a merge made during the park is
+# never seen.
+pr_region_parses() {  # <case-dir>
+  bash -c '. "$1/bin/fm-pr-lib.sh" && fm_pr_metadata_identity_parse "$2" && [ "$FM_PR_META_NUMBER" = 7 ]' \
+    _ "$ROOT" "$1/home/state/t1.meta"
+}
+
+test_park_and_resume_keep_the_pr_region_last() {
+  local dir out rc head
+  dir=$(new_case park-pr-tail)
+  head=$(printf '%040d' 7)
+  printf 'pr=https://github.com/example/repo/pull/7\npr_head=%s\n' "$head" >> "$dir/home/state/t1.meta"
+  pr_region_parses "$dir" || fail "setup error: the fixture PR region must parse before the park"
+  out=$(run_control "$dir" t1 park --reason "waits on review" --on c12); rc=$?
+  expect_code 0 "$rc" "park should succeed"$'\n'"$out"
+  [ -n "$(meta_field "$dir" parked)" ] || fail "park should record the park"
+  pr_region_parses "$dir" \
+    || fail "park must keep the PR region last so the armed merge poll still validates: $(cat "$dir/home/state/t1.meta")"
+  out=$(run_control "$dir" t1 resume --note "review done"); rc=$?
+  expect_code 0 "$rc" "resume should succeed"$'\n'"$out"
+  pr_region_parses "$dir" \
+    || fail "resume must keep the PR region last: $(cat "$dir/home/state/t1.meta")"
+  pass "park and resume keep the PR region as the record's tail, so an armed merge poll keeps validating"
 }
 
 test_park_codex_records_the_open_rollout() {
@@ -438,6 +468,186 @@ test_park_refuses_a_session_its_resume_would_not_find() {
   assert_nothing_changed "$dir" "$before" "a park its resume would not find"
   ! grep -q 'ticket park' "$dir/fake/atlas" || fail "a park its resume would not find must not touch the Atlas"
   pass "park: a session outside the configuration the resume launches with refuses with nothing changed"
+}
+
+# claude_worker_on <case-dir> <store>: replace the case's running Claude worker
+# with one whose store is <store>, holding its session record and transcript.
+claude_worker_on() {
+  local dir=$1 store=$2 pid
+  pid=$(stand_in claude "CLAUDE_CONFIG_DIR=$store" ':')
+  mkdir -p "$store/sessions" "$store/projects/-wt"
+  jq -cn --argjson pid "$pid" --arg sid "$SID" --arg cwd "$(meta_field "$dir" worktree)" --arg start "$(proc_start "$pid")" \
+    '{pid: $pid, sessionId: $sid, cwd: $cwd, procStart: $start}' > "$store/sessions/$pid.json"
+  printf '{"type":"user"}\n' > "$store/projects/-wt/$SID.jsonl"
+  printf '%s' "$pid" > "$dir/fake/fgpid"
+}
+
+# pin_claude_account <case-dir> <root>: pin this home's Claude workers to
+# <root> (config/claude-account) and let a fake claude report <root> as signed
+# in, as the launch's sign-in check requires.
+pin_claude_account() {
+  local dir=$1 root=$2
+  mkdir -p "$root"
+  printf '%s\n' "$root" > "$dir/home/config/claude-account"
+  fake_claude_signed_in "$dir"
+}
+
+# list_claude_accounts <case-dir> <entry>...: declare this home's Claude
+# account list (config/claude-accounts), creating each path entry, and let a
+# fake claude report every entry as signed in.
+list_claude_accounts() {
+  local dir=$1 entry
+  shift
+  for entry in "$@"; do
+    [ "$entry" = ordinary ] || mkdir -p "$entry"
+  done
+  printf '%s\n' "$@" > "$dir/home/config/claude-accounts"
+  fake_claude_signed_in "$dir"
+}
+
+fake_claude_signed_in() {  # <case-dir>
+  cat > "$1/fakebin/claude" <<'SH'
+#!/usr/bin/env bash
+[ "${1:-} ${2:-}" = "auth status" ] || exit 1
+exit 0
+SH
+  chmod +x "$1/fakebin/claude"
+}
+
+# Under a declared Claude account list (config/claude-accounts) each Claude
+# worker runs in the store of the entry its task records. Park and resume look
+# for the session there, and the resume launch selects that entry again. The
+# session lives in that store, so a parked task's relaunch refuses to move to
+# another account.
+test_park_and_resume_under_a_claude_account_list() {
+  local dir out rc root other launch before
+  dir=$(new_case park-list)
+  root="$dir/second-claude"
+  other="$dir/third-claude"
+  list_claude_accounts "$dir" ordinary "$root" "$other"
+  echo "account=$root" >> "$dir/home/state/t1.meta"
+  claude_worker_on "$dir" "$root"
+  out=$(run_control "$dir" t1 park --reason "waits on the second account"); rc=$?
+  expect_code 0 "$rc" "park of a worker on its listed entry's store should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" native_session_file)" = "$root/projects/-wt/$SID.jsonl" ] \
+    || fail "park should record the transcript in the listed entry's store"
+  : > "$dir/fake/literal"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 relaunch --account "$other" --note "move accounts"); rc=$?
+  expect_code 1 "$rc" "relaunch of a parked task onto another account should refuse"$'\n'"$out"
+  assert_contains "$out" "relaunch refuses a harness, model, effort, or account change" \
+    "the refusal should name the account change"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused relaunch must leave the park record unchanged"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused relaunch must launch nothing"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session in the listed entry's store should succeed"$'\n'"$out"
+  launch=$(grep -F -- "--resume '$SID'" "$dir/fake/literal" || true)
+  [ -n "$launch" ] || fail "resume should reopen the recorded session, got: $(cat "$dir/fake/literal")"
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$root'" "the resume launch should select the recorded entry's store"
+  [ -z "$(meta_field "$dir" parked)" ] || fail "resume should clear the park record"
+
+  # The ordinary entry is ~/.claude with CLAUDE_CONFIG_DIR unset, whatever
+  # store the calling process names for itself.
+  dir=$(new_case park-list-ordinary)
+  list_claude_accounts "$dir" ordinary "$dir/second-claude"
+  echo "account=ordinary" >> "$dir/home/state/t1.meta"
+  out=$(FM_TEST_CALLER_CLAUDE="$dir/caller-claude" run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 0 "$rc" "park of a worker on the ordinary entry should succeed"$'\n'"$out"
+  : > "$dir/fake/literal"
+  out=$(FM_TEST_CALLER_CLAUDE="$dir/caller-claude" run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session on the ordinary entry should succeed"$'\n'"$out"
+  grep -qF -- "--resume '$SID'" "$dir/fake/literal" || fail "resume should reopen the recorded session on the ordinary entry"
+  pass "park and resume: under a Claude account list the session is found in, and resumed on, the recorded entry's store, and a parked relaunch refuses an account move"
+}
+
+# A home's worker account pin (config/claude-account) puts every Claude worker
+# in the pinned store. Park and resume look for the session there, and the
+# resume launch selects that store again.
+test_park_and_resume_under_a_claude_account_pin() {
+  local dir out rc root launch
+  dir=$(new_case park-pin)
+  root="$dir/pinned-claude"
+  pin_claude_account "$dir" "$root"
+  claude_worker_on "$dir" "$root"
+  out=$(run_control "$dir" t1 park --reason "waits on the pinned account"); rc=$?
+  expect_code 0 "$rc" "park of a worker on the pinned store should succeed"$'\n'"$out"
+  [ "$(meta_field "$dir" native_session_file)" = "$root/projects/-wt/$SID.jsonl" ] \
+    || fail "park should record the transcript in the pinned store"
+  : > "$dir/fake/literal"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 0 "$rc" "resume of a session in the pinned store should succeed"$'\n'"$out"
+  launch=$(grep -F -- "--resume '$SID'" "$dir/fake/literal" || true)
+  [ -n "$launch" ] || fail "resume should reopen the recorded session, got: $(cat "$dir/fake/literal")"
+  assert_contains "$launch" "CLAUDE_CONFIG_DIR='$root'" "the resume launch should select the pinned store"
+  [ -z "$(meta_field "$dir" parked)" ] || fail "resume should clear the park record"
+  pass "park and resume: under a Claude account pin the session is found in, and resumed on, the pinned store"
+}
+
+# A pin that cannot be read refuses the park, and a pin that moved to another
+# store while the task was parked refuses the resume: that store does not hold
+# the session, and a resume never starts fresh.
+test_park_and_resume_refuse_a_pin_that_does_not_hold_the_session() {
+  local dir out rc before
+  dir=$(new_case park-pin-bad)
+  printf '%s\n' "$dir/no-such-root" > "$dir/home/config/claude-account"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 1 "$rc" "park under a pin that cannot be read should refuse"$'\n'"$out"
+  assert_contains "$out" "config/claude-account must name a readable, searchable existing directory" \
+    "the refusal should name the pin"
+  assert_contains "$out" "cannot be parked" "the refusal should say the task cannot be parked"
+  assert_nothing_changed "$dir" "$before" "a park under an unreadable pin"
+  ! grep -q 'ticket park' "$dir/fake/atlas" || fail "a park under an unreadable pin must not touch the Atlas"
+
+  dir=$(new_case resume-pin-moved)
+  pin_claude_account "$dir" "$dir/pinned-claude"
+  claude_worker_on "$dir" "$dir/pinned-claude"
+  out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+  expect_code 0 "$rc" "setup park should succeed"$'\n'"$out"
+  : > "$dir/fake/literal"
+  pin_claude_account "$dir" "$dir/other-claude"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  out=$(run_control "$dir" t1 resume); rc=$?
+  expect_code 1 "$rc" "resume after the pin moved should refuse"$'\n'"$out"
+  assert_contains "$out" "is not under $dir/other-claude/projects" "the refusal should name the store the launch would use"
+  assert_contains "$out" "stays parked" "the refusal should keep the task parked"
+  cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused resume must leave the park record unchanged"
+  ! grep -q 'ticket unpark' "$dir/fake/atlas" || fail "a refused resume must not unpark the ticket"
+  [ ! -s "$dir/fake/literal" ] || fail "a refused resume must launch nothing"
+  pass "park and resume: an unreadable pin, or a pin moved to another store, refuses with nothing changed"
+}
+
+# Park and resume read the worker's processes and directory and close its
+# endpoint with proof, which only tmux and herdr can do. A Rex task refuses
+# both before anything changes.
+test_park_and_resume_refuse_a_rex_task() {
+  local dir out rc before session block
+  dir=$(new_case park-rex)
+  session=0a5d3f0e-1111-4a2b-9c3d-000000000001
+  block=0a5d3f0e-2222-4a2b-9c3d-000000000002
+  sed "s|^window=.*|window=$session:$block|" "$dir/home/state/t1.meta" > "$dir/meta.rex"
+  {
+    echo "backend=rex"
+    echo "rex_session_id=session:$session"
+    echo "rex_window_id=window:0a5d3f0e-3333-4a2b-9c3d-000000000003"
+    echo "rex_block_id=block:$block"
+    echo "rex_server=unix:/tmp/rex-test.sock"
+  } >> "$dir/meta.rex"
+  mv "$dir/meta.rex" "$dir/home/state/t1.meta"
+  before="$dir/meta.before"; cp "$dir/home/state/t1.meta" "$before"
+  for verb in park resume; do
+    if [ "$verb" = park ]; then
+      out=$(run_control "$dir" t1 park --reason "waits"); rc=$?
+    else
+      out=$(run_control "$dir" t1 resume); rc=$?
+    fi
+    expect_code 1 "$rc" "$verb on a Rex task should refuse"$'\n'"$out"
+    assert_contains "$out" "park and resume run on tmux and herdr only" "the $verb refusal should name the supported backends"
+    cmp -s "$before" "$dir/home/state/t1.meta" || fail "a refused $verb on Rex must leave the task record unchanged"
+  done
+  [ ! -s "$dir/fake/literal" ] && [ ! -s "$dir/fake/keys" ] || fail "a refused Rex park or resume must send nothing"
+  [ ! -s "$dir/fake/atlas" ] || fail "a refused Rex park or resume must not touch the Atlas"
+  pass "park and resume: a Rex task refuses both before anything changes"
 }
 
 # A park whose stop failed and whose unpark rollback also failed leaves the
@@ -690,6 +900,7 @@ test_park_refuses_unverified_harnesses_and_secondmates
 test_park_withdraws_when_the_worker_does_not_stop
 test_park_refuses_a_session_its_resume_would_not_find
 test_park_retry_accepts_the_identical_park_already_in_force
+test_park_and_resume_keep_the_pr_region_last
 test_resume_reopens_the_exact_session_in_a_new_endpoint
 test_resume_codex_uses_its_resume_subcommand
 test_resume_closes_its_own_leftover_pane_first
@@ -702,3 +913,7 @@ test_resume_refuses_a_task_that_is_not_parked
 test_repark_leaves_a_reused_endpoint_alone
 test_repark_keeps_the_prior_record_when_the_atlas_does_not_record_it
 test_relaunch_of_a_parked_task_resumes_its_session
+test_park_and_resume_under_a_claude_account_pin
+test_park_and_resume_under_a_claude_account_list
+test_park_and_resume_refuse_a_pin_that_does_not_hold_the_session
+test_park_and_resume_refuse_a_rex_task

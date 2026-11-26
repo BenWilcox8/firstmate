@@ -6,42 +6,19 @@
 # rather than in the next audit. The warning never blocks: the spawn still
 # succeeds, and a home with no Atlas pointer behaves exactly as before.
 #
-# These drive fm-spawn with a fake tmux pane and a real isolated git worktree,
-# the same shape as the session-name suite, and assert only on fm-spawn's own
-# output and exit status.
+# These drive fm-spawn with the shared spawn-world fake tmux (tests/fixtures.sh),
+# which tracks the task window the spawn creates, and a real isolated git
+# worktree, and assert only on fm-spawn's own output and exit status.
 set -u
 
-# shellcheck source=tests/lib.sh
-. "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
+# shellcheck source=tests/fixtures.sh
+. "$(dirname "${BASH_SOURCE[0]}")/fixtures.sh"
 
-SPAWN="$ROOT/bin/fm-spawn.sh"
 TMP_ROOT=$(fm_test_tmproot fm-spawn-ticket-warning)
 
 # The one string every assertion here pins: the warning must name the doctrine,
 # so a reader who has forgotten why --ticket matters is told where to look.
 WARN_MARK='Atlas doctrine'
-
-make_spawn_fakebin() {
-  local dir=$1 fakebin
-  fakebin=$(fm_fakebin "$dir")
-  cat > "$fakebin/tmux" <<'SH'
-#!/usr/bin/env bash
-set -u
-case "$*" in
-  *"#{pane_current_path}"*) printf '%s\n' "${FM_FAKE_PANE_PATH:-}"; exit 0 ;;
-esac
-case "${1:-}" in
-  display-message) printf 'firstmate\n'; exit 0 ;;
-  list-windows) exit 0 ;;
-  has-session|new-session|new-window|kill-window) exit 0 ;;
-  send-keys) exit 0 ;;
-esac
-exit 0
-SH
-  chmod +x "$fakebin/tmux"
-  fm_fake_exit0 "$fakebin" treehouse
-  printf '%s\n' "$fakebin"
-}
 
 # <name> <wired: yes|no> <task-id>...
 make_spawn_case() {
@@ -52,7 +29,7 @@ make_spawn_case() {
   proj="$case_dir/project"
   wt="$case_dir/wt"
   atlas="$case_dir/specs"
-  fakebin=$(make_spawn_fakebin "$case_dir/fake")
+  fakebin=$(fm_test_make_spawn_fakebin "$case_dir/fake")
   mkdir -p "$home/data" "$home/projects" "$home/state" "$home/config"
   printf 'claude\n' > "$home/config/crew-harness"
   if [ "$wired" = yes ]; then
@@ -68,15 +45,10 @@ make_spawn_case() {
   printf '%s\n' "$case_dir|$home|$proj|$wt|$fakebin"
 }
 
+# The shared runner also gives the spawn a throwaway HOME, so the Claude trust
+# registration never writes the developer's own Claude store.
 run_spawn() {
-  local home=$1 wt=$2 fakebin=$3
-  shift 3
-  FM_ROOT_OVERRIDE='' FM_HOME="$home" \
-    FM_STATE_OVERRIDE="$home/state" FM_DATA_OVERRIDE="$home/data" \
-    FM_PROJECTS_OVERRIDE="$home/projects" FM_CONFIG_OVERRIDE="$home/config" \
-    FM_SPAWN_NO_GUARD=1 FM_FAKE_PANE_PATH="$wt" TMUX="fake,1,0" \
-    GROK_HOME="$home/grok-home" PATH="$fakebin:$PATH" \
-    "$SPAWN" "$@" 2>&1
+  fm_test_run_spawn "$@"
 }
 
 read_case_record() {
@@ -148,6 +120,9 @@ test_secondmate_spawn_is_silent() {
   printf '# Firstmate\n' > "$sm/AGENTS.md"
   printf '%s\n' "$id" > "$sm/.fm-secondmate-home"
   printf 'charter for %s\n' "$id" > "$sm/data/charter.md"
+  # A seeded home is a git repository; the spawn installs its strip hooks there.
+  printf '%s\n' 'projects/' 'state/' 'data/' 'config/' '.no-mistakes/' > "$sm/.gitignore"
+  git -C "$sm" init -q -b main
 
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$id" "$sm" --secondmate)
   status=$?

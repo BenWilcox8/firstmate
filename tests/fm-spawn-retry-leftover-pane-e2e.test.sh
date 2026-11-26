@@ -7,19 +7,20 @@
 # per-task wiring names, and the copy the worker actually runs in are the same,
 # including on a retry in the pane an earlier attempt left behind.
 #
-# Three sequences leave such a pane, and agent-axi hands it back to the retry in
-# each. In the first, the earlier attempt enters a Treehouse slot whose setup is
-# slow and transiently dirty, so the clean check refuses it and fm-spawn exits,
-# leaving its pane inside that slot's Treehouse subshell. In the second, the
-# earlier attempt stops while its own `treehouse get` still fetches. In the
-# third, a second earlier get also waits in the pane's input behind that one.
-# Each way the retry's `treehouse get` fetches a slow origin inside a slot the
-# retry did not acquire, so the pane reports that slot for several reads before
-# it enters a new one. Without the fix, the retry recorded that slot and wired
-# the worker there while the worker ran in the new slot.
+# On Herdr, fm-spawn leases the task copy with `treehouse get --lease` outside
+# the pane, types a cd to that copy into the pane, and launches only when the
+# pane reports that copy. Three sequences leave a pane behind, and agent-axi
+# hands it back to the retry in each. In the first, the earlier attempt leases
+# its copy, moves its pane there, and then refuses before launch, so the pane
+# stays inside a slot the retry cannot lease. In the second, an interactive
+# `treehouse get` still fetches a slow origin in that pane, as in a pane an
+# older fm-spawn left behind, so the retry's cd waits behind it. In the third, a
+# second interactive get also waits in the pane's input behind the first. Each
+# way the pane reports a slot the retry did not lease before it enters the copy
+# the retry leased.
 #
 # This drives the REAL bin/fm-spawn.sh, treehouse, and agent-axi, because the
-# defect spans the whole handoff and no adapter primitive holds it alone.
+# guarantee spans the whole handoff and no adapter primitive holds it alone.
 #
 # Safety (tests/herdr-test-safety.sh): every Herdr call goes through
 # bin/fm-herdr-lab.sh, which scopes it to this test's own named session and
@@ -52,7 +53,7 @@ require('readline').createInterface({ input: process.stdin })
   .on('line', (line) => { if (line.trim() === '/exit') process.exit(0) })
 JS
 
-HERDR_LAB_HELPER="$ROOT/bin/fm-herdr-lab.sh"
+HERDR_LAB_HELPER=${HERDR_LAB_HELPER:-$ROOT/bin/fm-herdr-lab.sh}
 HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-spawn-retry) || {
   rm -rf "$TMP_ROOT"
   printf 'not ok - could not generate an isolated Herdr lab session name\n' >&2
@@ -60,10 +61,13 @@ HERDR_LAB_SESSION=$("$HERDR_LAB_HELPER" name fm-spawn-retry) || {
 }
 export HERDR_SESSION="$HERDR_LAB_SESSION"
 POOL="$TMP_ROOT/pool"
+# fm-spawn keeps each task's temp root at the fixed path /tmp/fm-<id>, so the
+# task ids carry this run's pid, and cleanup removes the roots of these ids.
+TASK_IDS=
 
 CLEANED=0
 cleanup_all() {
-  local wt status=0
+  local wt id status=0
   [ "$CLEANED" = 0 ] || return 0
   CLEANED=1
   pkill -f "$FIXTURE_AGENT $FIXTURE_SCRIPT" 2>/dev/null || true
@@ -71,6 +75,9 @@ cleanup_all() {
     [ -d "$wt" ] && treehouse return --force "$wt" >/dev/null 2>&1
   done
   "$HERDR_LAB_HELPER" teardown "$HERDR_LAB_SESSION" || status=$?
+  for id in $TASK_IDS; do
+    rm -rf "/tmp/fm-$id" "/tmp/fm-$id+"*
+  done
   rm -rf "$TMP_ROOT"
   return "$status"
 }
@@ -93,20 +100,20 @@ git clone --quiet --bare "$PROJ" "$TMP_ROOT/origin.git"
 git -C "$PROJ" remote add origin "file://$TMP_ROOT/origin.git"
 git -C "$PROJ" fetch -q origin
 git -C "$PROJ" remote set-head origin --auto >/dev/null
-# A slow origin, like a real network fetch: `treehouse get` fetches before it
-# moves the pane, so the pane keeps reporting where it already was.
-git -C "$PROJ" config remote.origin.uploadpack "sleep 4; git-upload-pack"
-# The first slot's setup is slow and leaves an untracked file in the slot for a
-# few seconds, so the first attempt's clean check refuses it.
-cat > "$PROJ/.git/hooks/post-checkout" <<EOF
+# A slow origin for exactly one fetch, like a slow network fetch: the first
+# fetch after the test writes a delay to slow-fetch takes that many seconds
+# more. Only the interactive gets the test types into the pane are slowed, so
+# fm-spawn's own lease and refresh fetches stay fast.
+cat > "$TMP_ROOT/upload-pack" <<EOF
 #!/bin/sh
-[ -e "$TMP_ROOT/dirtied" ] && exit 0
-: > "$TMP_ROOT/dirtied"
-echo transient > setup-in-progress.txt
-sleep 6
-rm -f setup-in-progress.txt
+if mv "$TMP_ROOT/slow-fetch" "$TMP_ROOT/slow-fetch.taken" 2>/dev/null; then
+  : > "$TMP_ROOT/slow-fetch.started"
+  sleep "\$(cat "$TMP_ROOT/slow-fetch.taken")"
+fi
+exec git-upload-pack "\$@"
 EOF
-chmod +x "$PROJ/.git/hooks/post-checkout"
+chmod +x "$TMP_ROOT/upload-pack"
+git -C "$PROJ" config remote.origin.uploadpack "$TMP_ROOT/upload-pack"
 
 HOME_DIR="$TMP_ROOT/home"
 mkdir -p "$HOME_DIR/state" "$HOME_DIR/config"
@@ -155,12 +162,28 @@ pane_treehouse_get() {  # <pane-id>
   ' 2>/dev/null | head -1
 }
 
-# assert_one_copy <label> <slot>: the retry for $ID launched, and the copy it
-# recorded, the copy its wiring names, and the copy its new worker runs in are
-# one copy, which is not <slot>, a slot the retry's own get did not acquire.
+# The slot Treehouse records as held by the interactive get <pid>, or by the
+# subshell that get opened. The pool state sits two levels above each slot.
+slot_held_by() {  # <pid>
+  local state pid slot
+  state="$(dirname "$(dirname "$LEFTOVER_COPY")")/treehouse-state.json"
+  while IFS= read -r pid; do
+    [ -n "$pid" ] || continue
+    slot=$(jq -r --argjson pid "$pid" '.worktrees[]? | select(.owner_pid == $pid) | .path' "$state" 2>/dev/null | head -1)
+    [ -z "$slot" ] || { printf '%s\n' "$slot"; return 0; }
+  done <<EOF
+$1
+$(pgrep -P "$1")
+EOF
+  return 1
+}
+
+# assert_one_copy <label> <slot>...: the retry for $ID launched, and the copy
+# it recorded, the copy its wiring names, and the copy its new worker runs in
+# are one copy, which is none of <slot>..., slots the retry did not lease.
 WORKERS=
 assert_one_copy() {
-  local meta="$HOME_DIR/state/$ID.meta" recorded pane agent_pid worker wired
+  local meta="$HOME_DIR/state/$ID.meta" recorded pane agent_pid worker wired slot
   recorded=$(grep '^worktree=' "$meta" | cut -d= -f2-)
   pane=$(grep '^herdr_pane_id=' "$meta" | cut -d= -f2-)
   [ "$pane" = "$LEFTOVER_PANE" ] \
@@ -179,105 +202,104 @@ assert_one_copy() {
     || fail "$1: the retry recorded '$recorded' but the worker runs in '$worker'"
   [ "$(real "$wired")" = "$(real "$worker")" ] \
     || fail "$1: the retry wired the worker to '$wired' but the worker runs in '$worker'"
-  [ "$(real "$recorded")" != "$(real "$2")" ] \
-    || fail "$1: the retry recorded '$2', a slot its own treehouse get did not acquire"
+  for slot in "${@:2}"; do
+    [ "$(real "$recorded")" != "$(real "$slot")" ] \
+      || fail "$1: the retry recorded '$slot', a slot it did not lease"
+  done
 }
 
-# --- 1. the first attempt refuses its transiently dirty slot -----------------
+# leave_pane_in_its_slot <n>: attempt <n> for $ID leases its copy, moves its
+# pane there, and then refuses before launch, because its task temp root is not
+# a private directory. Its pane stays inside that copy, and the copy stays
+# leased to $ID, so the retry cannot lease it. Sets LEFTOVER_PANE and
+# LEFTOVER_COPY.
+leave_pane_in_its_slot() {  # <n>
+  local temp_root="/tmp/fm-$ID"
+  TASK_IDS="$TASK_IDS $ID"
+  write_brief "$ID"
+  mkdir -p "$TMP_ROOT/not-private"
+  ln -s "$TMP_ROOT/not-private" "$temp_root" \
+    || fail "repro setup is wrong: could not plant a non-private task temp root at $temp_root"
+  spawn_attempt "$1" && fail "the earlier attempt launched despite its non-private temp root"$'\n'"$(cat "$TMP_ROOT/spawn$1.err")"
+  rm -f "$temp_root"
+  grep -q "is not a private directory" "$TMP_ROOT/spawn$1.err" \
+    || fail "repro setup is wrong: the earlier attempt did not refuse on its temp root"$'\n'"$(cat "$TMP_ROOT/spawn$1.err")"
+  [ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the refused attempt published a task record"
+  LEFTOVER_PANE=$(task_pane)
+  [ -n "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the refused attempt left no pane behind"
+  LEFTOVER_COPY=$(pane_cwd "$LEFTOVER_PANE")
+  case "$LEFTOVER_COPY" in
+    "$POOL"/.treehouse/*) ;;
+    *) fail "repro setup is wrong: the leftover pane is not inside a Treehouse slot ('$LEFTOVER_COPY')" ;;
+  esac
+}
 
-ID=retry1
-write_brief "$ID"
-spawn_attempt 1 && fail "the first attempt launched despite its dirty slot"$'\n'"$(cat "$TMP_ROOT/spawn1.err")"
-grep -q "is not clean" "$TMP_ROOT/spawn1.err" \
-  || fail "the first attempt did not refuse as not clean"$'\n'"$(cat "$TMP_ROOT/spawn1.err")"
-[ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the refused attempt published a task record"
-# Let Treehouse finish entering the first slot, as it does after a refusal.
-sleep 8
-LEFTOVER_PANE=$(task_pane)
-[ -n "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the refused attempt left no pane behind"
-LEFTOVER_COPY=$(pane_cwd "$LEFTOVER_PANE")
-case "$LEFTOVER_COPY" in
-  "$POOL"/.treehouse/*) ;;
-  *) fail "repro setup is wrong: the leftover pane is not inside a Treehouse slot ('$LEFTOVER_COPY')" ;;
-esac
-pass "setup: the first attempt refused its dirty slot and left its pane inside that slot"
+# start_earlier_get <seconds>: type an interactive `treehouse get` into the
+# leftover pane, as an older fm-spawn did, and wait until it fetches an origin
+# that answers <seconds> late, still inside the leftover copy. Sets EARLIER_GET.
+start_earlier_get() {  # <seconds>
+  rm -f "$TMP_ROOT/slow-fetch.started" "$TMP_ROOT/slow-fetch.taken"
+  printf '%s\n' "$1" > "$TMP_ROOT/slow-fetch"
+  lab pane run "$LEFTOVER_PANE" 'treehouse get' >/dev/null \
+    || fail "repro setup is wrong: could not type treehouse get into the lab pane"
+  EARLIER_GET=
+  for _ in $(seq 1 120); do
+    [ ! -e "$TMP_ROOT/slow-fetch.started" ] || EARLIER_GET=$(pane_treehouse_get "$LEFTOVER_PANE")
+    [ -z "$EARLIER_GET" ] || break
+    sleep 0.25
+  done
+  [ -n "$EARLIER_GET" ] \
+    || fail "repro setup is wrong: Herdr never reported the earlier treehouse get fetching in its lab pane '$LEFTOVER_PANE'"
+  [ "$(real "$(pane_cwd "$LEFTOVER_PANE")")" = "$(real "$LEFTOVER_COPY")" ] \
+    || fail "repro setup is wrong: the earlier treehouse get already left the leftover copy"
+}
+
+# --- 1. the earlier attempt refuses after it moved its pane into its copy ---
+
+ID="retry$$"
+leave_pane_in_its_slot 1
+pass "setup: the earlier attempt refused before launch and left its pane inside the copy it leased"
 
 # --- 2. the retry records, wires, and runs the worker in one copy -----------
 
 spawn_attempt 2 || fail "the retry did not launch"$'\n'"$(cat "$TMP_ROOT/spawn2.err")"
 assert_one_copy "leftover slot" "$LEFTOVER_COPY"
-pass "fixed: the retry records, wires, and runs the worker in the copy its treehouse get entered"
+pass "the retry records, wires, and runs the worker in the copy it leased"
 
-# stop_attempt_mid_get <n>: start attempt <n> for $ID and stop its fm-spawn
-# while that attempt's own `treehouse get` still fetches in the project, as a
-# spawn interrupted mid-get leaves its pane. Sets LEFTOVER_PANE and EARLIER_GET.
-stop_attempt_mid_get() {
-  local attempt spawn
-  spawn_attempt "$1" 2>/dev/null &
-  attempt=$!
-  LEFTOVER_PANE=
-  EARLIER_GET=
-  for _ in $(seq 1 120); do
-    [ -n "$LEFTOVER_PANE" ] || LEFTOVER_PANE=$(task_pane)
-    [ -z "$LEFTOVER_PANE" ] || EARLIER_GET=$(pane_treehouse_get "$LEFTOVER_PANE")
-    [ -z "$EARLIER_GET" ] || break
-    sleep 0.25
-  done
-  [ -n "$EARLIER_GET" ] \
-    || fail "repro setup is wrong: Herdr never reported the earlier attempt's own treehouse get in its lab pane '${LEFTOVER_PANE:-none}'"
-  spawn=$(pgrep -P "$attempt" -f 'bin/fm-spawn\.sh' | head -1)
-  [ -n "$spawn" ] \
-    || fail "repro setup is wrong: no fm-spawn started by this test's earlier attempt is still running"
-  kill -TERM "$spawn" 2>/dev/null
-  wait "$attempt" 2>/dev/null
-  [ ! -e "$HOME_DIR/state/$ID.meta" ] || fail "the stopped attempt published a task record"
-  [ "$(task_pane)" = "$LEFTOVER_PANE" ] || fail "repro setup is wrong: the stopped attempt left no pane behind"
-  [ "$(real "$(pane_cwd "$LEFTOVER_PANE")")" = "$(real "$PROJ")" ] \
-    || fail "repro setup is wrong: the earlier attempt's treehouse get already left the project"
-}
+# --- 3. an earlier interactive treehouse get still fetches in the pane -------
 
-# --- 3. the earlier attempt stops while its own treehouse get still fetches --
-
-# A slower origin, so the earlier attempt's get still fetches in the project
-# when the retry reaches the same pane.
-git -C "$PROJ" config remote.origin.uploadpack "sleep 15; git-upload-pack"
-ID=inflight1
-write_brief "$ID"
-stop_attempt_mid_get 3
-pass "setup: the earlier attempt stopped while its own treehouse get still fetches in its pane"
+ID="inflight$$"
+leave_pane_in_its_slot 3
+start_earlier_get 30
+pass "setup: an earlier treehouse get still fetches in the leftover pane"
 
 spawn_attempt 4 || fail "the retry behind an in-flight get did not launch"$'\n'"$(cat "$TMP_ROOT/spawn4.err")"
-EARLIER_COPY=$(proc_cwd "$(pgrep -P "$EARLIER_GET" | head -1)")
-case "$EARLIER_COPY" in
-  "$POOL"/.treehouse/*) ;;
-  *) fail "repro setup is wrong: the earlier attempt's get did not enter a Treehouse slot ('$EARLIER_COPY')" ;;
-esac
-assert_one_copy "in-flight get" "$EARLIER_COPY"
-pass "fixed: a retry behind an in-flight get records, wires, and runs the worker in the copy its own get entered"
+EARLIER_COPY=$(slot_held_by "$EARLIER_GET") \
+  || fail "repro setup is wrong: Treehouse records no slot as held by the earlier treehouse get"
+assert_one_copy "in-flight get" "$LEFTOVER_COPY" "$EARLIER_COPY"
+pass "a retry behind an in-flight get records, wires, and runs the worker in the copy it leased"
 
 # --- 4. a second earlier get waits in the pane's input behind the first -------
 
-# A retry that typed its get behind an earlier get still in flight leaves two
-# earlier gets in the pane: one fetching, and one queued in the pane's input
-# that starts only once the first enters its slot. The test queues that second
-# get by typing it into its own lab pane, as such a retry did.
-git -C "$PROJ" config remote.origin.uploadpack "sleep 10; git-upload-pack"
-ID=queued1
-write_brief "$ID"
-stop_attempt_mid_get 5
+# A pane can hold two earlier gets: one fetching, and one queued in the pane's
+# input that starts only once the first enters its slot. The test queues that
+# second get by typing it into its own lab pane.
+ID="queued$$"
+leave_pane_in_its_slot 5
+start_earlier_get 25
 lab pane run "$LEFTOVER_PANE" 'treehouse get' >/dev/null \
   || fail "repro setup is wrong: could not queue a second treehouse get in the lab pane"
 pass "setup: a second earlier treehouse get waits in the pane's input behind the first"
 
 spawn_attempt 6 || fail "the retry behind two earlier gets did not launch"$'\n'"$(cat "$TMP_ROOT/spawn6.err")"
+EARLIER_COPY=$(slot_held_by "$EARLIER_GET") \
+  || fail "repro setup is wrong: Treehouse records no slot as held by the first earlier treehouse get"
 QUEUED_GET=$(pgrep -P "$(pgrep -P "$EARLIER_GET" | head -1)" | head -1)
-QUEUED_COPY=$(proc_cwd "$(pgrep -P "$QUEUED_GET" | head -1)")
-case "$QUEUED_COPY" in
-  "$POOL"/.treehouse/*) ;;
-  *) fail "repro setup is wrong: the queued earlier get did not enter a Treehouse slot ('$QUEUED_COPY')" ;;
-esac
-assert_one_copy "two queued gets" "$QUEUED_COPY"
-pass "fixed: a retry behind two earlier gets records, wires, and runs the worker in the copy its own get entered"
+[ -n "$QUEUED_GET" ] || fail "repro setup is wrong: the queued earlier treehouse get never started"
+QUEUED_COPY=$(slot_held_by "$QUEUED_GET") \
+  || fail "repro setup is wrong: Treehouse records no slot as held by the queued earlier treehouse get"
+assert_one_copy "two queued gets" "$LEFTOVER_COPY" "$EARLIER_COPY" "$QUEUED_COPY"
+pass "a retry behind two earlier gets records, wires, and runs the worker in the copy it leased"
 
 cleanup_all || exit 1
 trap - EXIT
